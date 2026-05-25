@@ -11,20 +11,7 @@ detail the next phase here.
 
 ## Status
 
-**Phase 0 complete.** Ready to kick off Phase 1 (Resource catalog) when
-you are.
-
----
-
-## Next: Phase 1 — Resource catalog
-
-*(Not detailed yet — will be broken into tasks when we start.)*
-
-Sketch: parse `MONKEY.000`, walk the block tree, dump every block tag,
-offset, and size to the console. Prove that the XOR decryption and
-SCUMM v5 block format (4-byte BE size + 4-char tag + payload, recursive)
-work end to end against a real MI1 file. No rendering, no VM — just
-"we can read this file".
+**Phase 1 complete.** Ready to kick off Phase 2 (First pixels) when you are.
 
 ---
 
@@ -47,6 +34,81 @@ ARCHITECTURE.md §9 for the original outline.
 ---
 
 ## Done
+
+### Phase 1 — Resource catalog *(2026-05-25)*
+
+Parses `MONKEY.000` + `MONKEY.001` (and MI2 equivalents) end to end:
+File System Access permission re-grant, slurp + byte-XOR-decrypt with
+key `0x69`, recursive walk of the SCUMM v5 block tree, indented per-line
+tree dump in the player screen with a tag-by-tag description from a
+single-source-of-truth catalog. 46 tests across 6 files.
+
+#### Original task checklist (all complete)
+
+**Permission re-grant**
+
+- [x] `src/shell/storage/permission.ts` — `ensureReadPermission(handle)` queries+requests `'read'` mode
+- [x] Wired into the library's Play button (re-grant before navigating)
+- [x] Denial path: navigate to `{ kind: 'library', flash: '…retry.' }` and render an inline flash banner
+
+**XOR layer — `src/engine/resources/xor.ts`**
+
+- [x] Pure `xorDecrypt(data, key)`, returns a new buffer
+- [x] `SCUMM_V5_XOR_KEY = 0x69` constant with comment noting other v5 releases may differ
+- [x] 6 tests: empty input, identity at key=0, round-trip, per-byte XOR, no mutation, key constant value
+
+**Block parser — `src/engine/resources/block.ts`**
+
+- [x] `Block { tag, offset, size, children? }` with `children` set iff the tag is a known container
+- [x] `parseBlocks(data, baseOffset = 0)` — recursive walker
+- [x] BE 32-bit size, size includes the 8-byte header
+- [x] `isContainerTag(tag)` — closed set + `^IM[0-9A-F]{2}$` regex for image containers
+- [x] `BlockParseError` with byte offset on zero-size, overshoot, truncated header
+- [x] 15 tests: leaf, sequence, nested, deeply nested, unknown→leaf, empty container, error paths, `baseOffset`
+
+**File adapter — `src/engine/resources/file.ts`**
+
+- [x] `parseResourceFile(encrypted, xorKey)` — composes `xorDecrypt` + `parseBlocks`
+- [x] No DOM types in the engine layer — shell does `FileSystemDirectoryHandle` → `File` → `Uint8Array`
+- [x] No standalone tests; covered transitively by xor + block tests
+
+**Player screen rewrite — `src/shell/player/player.ts`**
+
+- [x] Back button + header (game name, gameId, source dir)
+- [x] Loading state while files are read + parsed
+- [x] Two sections (Index, Resources) with stats (block count, top-level count, file size)
+- [x] Indented per-line tree, monospace, color-coded (tag accent, meta muted, description italic)
+- [x] Case-insensitive filename match in `findFile` (handles uppercase/lowercase game files)
+- [x] Error state with file/parse error message
+
+**Tests**
+
+- [x] Phase 1 added 27 tests (xor: 6, block: 15, catalog: 6). Total: 46 across 6 files.
+
+#### Bonus: block-description catalog
+
+Added during browser review when you flagged "would be SUPER NICE to know
+what each block means". Single source of truth at
+`src/engine/resources/catalog.ts`, used inline by the player UI.
+
+- [x] `describeBlock(tag)` covers every block currently emitted by the parser, plus `IM[0-9A-F]{2}` and `ZP[0-9A-F]{2}` patterns
+- [x] Test asserts every container tag in the parser has a catalog entry (parser/catalog stay in sync)
+
+#### Notable design choices made during implementation
+
+- **`children !== undefined` distinguishes containers from leaves**,
+  even for empty containers (which get `children: []`). Cleaner than
+  using a separate `isContainer` field that could drift from `children`.
+- **Per-line `<div>`s, not `<pre>`** in the tree view, so the
+  description can render in a distinct muted/italic style. With ~2-3k
+  blocks in MI1's `.001` this is still well under 100 ms to paint.
+- **Catalog as data, not docs.** Descriptions live in TS alongside the
+  parser. The UI is the primary surface; if a separate Markdown
+  reference is wanted later, we can generate it from the catalog.
+- **`flash` state on the library Screen**, added so permission denial
+  has somewhere to land that isn't an `alert()`.
+
+---
 
 ### Phase 0 — Scaffold *(2026-05-25)*
 

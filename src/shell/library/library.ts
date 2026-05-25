@@ -1,7 +1,8 @@
 import type { App } from '../app';
+import { ensureReadPermission } from '../storage/permission';
 import { listGames, removeGame, type StoredGame } from '../storage/games';
 
-export function renderLibrary(app: App): HTMLElement {
+export function renderLibrary(app: App, flash?: string): HTMLElement {
   const container = document.createElement('div');
   container.className = 'library';
   container.innerHTML = `
@@ -13,14 +14,24 @@ export function renderLibrary(app: App): HTMLElement {
   `;
 
   const main = container.querySelector('main')!;
-  main.textContent = 'Loading…';
+
+  if (flash) {
+    const flashBox = document.createElement('div');
+    flashBox.className = 'flash';
+    flashBox.textContent = flash;
+    main.appendChild(flashBox);
+  }
+
+  const listContainer = document.createElement('div');
+  listContainer.textContent = 'Loading…';
+  main.appendChild(listContainer);
 
   listGames()
     .then((games) => {
-      main.replaceChildren(renderGameList(app, games));
+      listContainer.replaceWith(renderGameList(app, games));
     })
     .catch((err: Error) => {
-      main.textContent = `Error loading games: ${err.message}`;
+      listContainer.textContent = `Error loading games: ${err.message}`;
     });
 
   return container;
@@ -65,7 +76,17 @@ function renderGameRow(app: App, game: StoredGame): HTMLElement {
   li.querySelector('.game-id')!.textContent = game.gameId;
 
   li.querySelector('.play')!.addEventListener('click', () => {
-    app.navigate({ kind: 'player', game });
+    void (async () => {
+      const granted = await ensureReadPermission(game.directoryHandle);
+      if (!granted) {
+        app.navigate({
+          kind: 'library',
+          flash: `Read permission denied for "${game.directoryHandle.name}". Click Play again to retry.`,
+        });
+        return;
+      }
+      app.navigate({ kind: 'player', game });
+    })();
   });
 
   li.querySelector('.remove')!.addEventListener('click', () => {

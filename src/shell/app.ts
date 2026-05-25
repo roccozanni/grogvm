@@ -4,7 +4,7 @@ import { renderPlayer } from './player/player';
 import type { StoredGame } from './storage/games';
 
 export type Screen =
-  | { kind: 'library' }
+  | { kind: 'library'; flash?: string }
   | { kind: 'install'; error?: string }
   | { kind: 'player'; game: StoredGame };
 
@@ -26,7 +26,7 @@ export class App {
     this.root.replaceChildren();
     switch (this.screen.kind) {
       case 'library':
-        this.root.appendChild(renderLibrary(this));
+        this.root.appendChild(renderLibrary(this, this.screen.flash));
         break;
       case 'install':
         this.root.appendChild(renderInstall(this, this.screen.error));

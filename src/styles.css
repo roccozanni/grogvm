@@ -118,10 +118,65 @@ button.primary {
 
 .player main {
   margin-top: 1rem;
-  padding: 1rem;
-  border: 1px dashed var(--border);
-  border-radius: 4px;
+}
+
+.player .loading {
   color: var(--muted);
+  font-style: italic;
+}
+
+.flash {
+  color: var(--error);
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--error);
+  border-radius: 4px;
+  margin-bottom: 1rem;
+}
+
+.block-tree {
+  margin-top: 1.5rem;
+}
+
+.block-tree h2 {
+  font-size: 1rem;
+  color: var(--accent);
+  margin: 0 0 0.25rem;
+}
+
+.block-tree .stats {
+  color: var(--muted);
+  font-size: 0.85em;
+  margin: 0 0 0.5rem;
+}
+
+.block-tree .tree {
+  margin: 0;
+  padding: 0.75rem;
+  background: #06070b;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: auto;
+  max-height: 520px;
+  font-size: 0.85em;
+  line-height: 1.6;
+}
+
+.tree-line {
+  white-space: nowrap;
+}
+
+.tree-line .tag {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.tree-line .meta {
+  color: var(--muted);
+}
+
+.tree-line .desc {
+  color: #9aa3b8;
+  font-style: italic;
 }
 
 code {
