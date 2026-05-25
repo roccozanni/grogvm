@@ -1,0 +1,129 @@
+:root {
+  color-scheme: dark;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14px;
+  --bg: #0c0d12;
+  --fg: #e3e3e3;
+  --muted: #888;
+  --accent: #ffd966;
+  --error: #ff6b6b;
+  --border: #1f2230;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  min-height: 100vh;
+}
+
+#app {
+  padding: 2rem;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+header h1 {
+  margin: 0 0 0.25rem;
+  color: var(--accent);
+}
+
+.subtitle {
+  color: var(--muted);
+  margin: 0 0 1.5rem;
+}
+
+button {
+  font: inherit;
+  background: #1a1d28;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  padding: 0.4rem 0.8rem;
+  cursor: pointer;
+  border-radius: 4px;
+  margin-right: 0.5rem;
+}
+
+button:hover {
+  background: #232838;
+}
+
+button.secondary {
+  color: var(--muted);
+}
+
+button.primary {
+  background: #2a2f44;
+  border-color: #3a4060;
+}
+
+.game-list ul {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1.5rem;
+}
+
+.game-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.game-row .name {
+  flex: 1;
+}
+
+.game-row .game-id {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+.empty {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.error {
+  color: var(--error);
+  margin-bottom: 1rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--error);
+  border-radius: 4px;
+}
+
+.unsupported {
+  padding: 2rem;
+}
+
+.unsupported code {
+  color: var(--accent);
+}
+
+.unsupported .hint {
+  margin-top: 1.5rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: rgba(255, 217, 102, 0.05);
+}
+
+.unsupported .hint ol {
+  padding-left: 1.25rem;
+  margin: 0.5rem 0;
+}
+
+.player main {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+}
+
+code {
+  color: var(--accent);
+}

@@ -1,0 +1,23 @@
+{
+  "name": "webscumm",
+  "version": "0.0.0",
+  "description": "A from-scratch TypeScript reimplementation of SCUMM v5 (Monkey Island 1 & 2) for the browser.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest",
+    "test:run": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "@types/wicg-file-system-access": "^2023.10.7",
+    "fake-indexeddb": "^6.2.5",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.14",
+    "vitest": "^4.1.7"
+  }
+}
