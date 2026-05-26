@@ -11,7 +11,7 @@ detail the next phase here.
 
 ## Status
 
-**Phase 2 complete.** Ready to kick off Phase 3 (Costumes) when you are.
+**Phase 3 complete.** Phase 4 (Text) is up next; plan to follow.
 
 ---
 
@@ -21,7 +21,6 @@ Kept intentionally undetailed. We'll break each into tasks when we start
 it. Order and scope may shift as we learn the territory — see
 ARCHITECTURE.md §9 for the original outline.
 
-- **Phase 3 — Costumes.** Decode and draw an actor frame, with Z-plane masking.
 - **Phase 4 — Text.** Decode `CHAR` glyphs, render dialog.
 - **Phase 5 — VM skeleton.** Script slots, variables, opcode dispatch, boot script.
 - **Phase 6 — Enough opcodes to walk.** Reach the SCUMM Bar.
@@ -33,6 +32,99 @@ ARCHITECTURE.md §9 for the original outline.
 ---
 
 ## Done
+
+### Phase 3 — Costumes *(2026-05-26)*
+
+Decodes SCUMM v5 costumes end-to-end — sub-palette, image tables,
+RLE-encoded frame pictures — plus the z-plane occlusion masks that
+back actor compositing. The player UI gains a hierarchical resource
+browser (rooms with LFLF-scoped costumes nested below), a
+comprehensive costume inspector (header diagnostics, palette
+swatches, color-keyed hex dump, limb-table chip grid, per-frame
+preview canvas through the active room's CLUT), per-z-plane overlay
+toggles, and a live actor compositor with click + drag positioning.
+163 tests across 18 files. Two new format references in `docs/`.
+
+#### Original task checklist (all complete)
+
+**Costume decoders — `src/engine/graphics/costume.ts`**
+
+- [x] `walkCostumes(file)` — iterates `LECF > LFLF > COST` in source order, indexed by LFLF position
+- [x] `parseCostumeHeader(payload)` — `numAnim`, format byte (mirror + 16/32-color), sub-palette, `animCmdOffset` (= `frameOffs`), 16 `limbOffsets` (= `imageTableOffs`), `animOffsets`
+- [x] `decodeLimbTables(payload, header)` — group limbs by shared offset, decode u16 LE pointer arrays, flag suspicious entries
+
+**Frame decoder — `src/engine/graphics/costume-frame.ts`**
+
+- [x] 12-byte image header parse: `width u8`, unknown u8, `height u8`, unknown u8, `x i16`, `y i16` ◀ frame pointer lands here, `xinc i16`, `yinc i16`
+- [x] `decodeCostumeFrame(payload, framePtr)` — column-major emit; 16-color RLE with `length == 0 → next byte is the real length` extended-length escape
+- [x] Costume palette index 0 → `COSTUME_FRAME_TRANSPARENT` (`0xFF`) sentinel
+
+**Z-plane decoder — `src/engine/graphics/zplane.ts`**
+
+- [x] `parseRmihPlaneCount(payload)` — u16 LE plane count from RMIH
+- [x] `decodeZPlanes(file, roomBlock, w, h)` — walks `RMIM > IM00` for ZP## blocks
+- [x] `decodeZPlane(payload, w, h)` — packbits-style RLE (high bit = run, clear = literal), MSB-first bit layout within emitted byte, offset-0 sentinel for implicit all-zero strips
+- [x] `zplaneBit(plane, x, y)` — O(1) accessor with out-of-bounds = 0
+
+**Actor compositor — `src/engine/graphics/composite.ts`**
+
+- [x] `compositeActor({ framebuffer, fbW, fbH, frame, costPalette, actorX, actorY, actorZ, zPlanes })` — maps costume indices through CLUT, edge-clips, applies the "any plane index > actorZ hides" occlusion rule
+
+**Player UI — `src/shell/player/`**
+
+- [x] Hierarchical resource browsing: room nav drives the costume list (LFLF-scoped); navigating rooms updates the costumes underneath
+- [x] Costume header diagnostics — format, palette, offsets, payload size
+- [x] Color-keyed payload hex dump (`numAnim` / `format` / `palette` / `animCmdOffset` / `limbOffsets` / `animOffsets` each in a distinct tint)
+- [x] Limb-table chip grid; trailing junk + "unused sentinel" groups handled cleanly
+- [x] Frame chip click → hex peek + 3-candidate header-layout viewer + decoded preview canvas (real CLUT) + "Place on current room" button
+- [x] Z-plane overlay canvas stacked over the room canvas with per-plane toggle buttons
+- [x] Actor placement: defaults adapt to current room dimensions (200-tall vs 144-tall); x / y / z number inputs
+- [x] Click + drag the room canvas to reposition the actor; smooth re-composite without DOM rebuild
+
+**Format references — `docs/`**
+
+- [x] `SCUMM-V5-COST.md` — block layout, mental model (slots/limbs/anims, three indirections), the +6 pointer convention, 16- and 32-color RLE with the length-zero escape, column-major emit, the feet-anchor convention with worked Guybrush example, MI2's 2-byte offset shift, end-to-end decode walkthrough, 10-entry pitfalls cheat sheet
+- [x] `SCUMM-V5-ZPLANE.md` — RMIH, header-inclusive offsets, the offset-0 sentinel, packbits RLE with a worked strip decode, MSB-first bit order, the "any plane > actorZ" rule, explanation of overlapping pixels across planes and why a declared plane can be entirely empty (MI1 LFLF #6 ZP02), 8-entry pitfalls cheat sheet
+
+**Tests**
+
+- [x] `costume.test.ts` (13) — `walkCostumes`, header (16/32-color, mirror, truncation), `decodeLimbTables` (grouping, suspicious flagging, empty)
+- [x] `costume-frame.test.ts` (10) — flat fills, signed displacements, column-major straddling, transparency, extended-length escape (including > 16), `xinc/yinc`, zero-dim and truncated-RLE errors
+- [x] `zplane.test.ts` (13) — RMIH parse, MSB-first bit layout, literal + run sequencing, multi-strip, offset-0 sentinel, error paths, bit accessor
+- [x] `composite.test.ts` (10) — opaque pass-through, transparency, redirX/Y, edge clipping (all 4 sides), multi-plane occlusion, dimension errors
+
+#### Bonuses
+
+- **LFLF-scoped resource browsing.** Realized mid-phase that "browse 119 flat costumes" doesn't match how the file is organised. Costumes (and any later resource types — scripts, charsets, sounds) now nest under the current room's LFLF.
+- **Click + drag actor placement.** Initially just number-input fields; the user pointed out "drag" was implied so I wired up pointer events with a light-refresh path that re-composites onto the existing canvas without rebuilding any DOM.
+- **Real-CLUT frame previews.** Before this, frames previewed with a rainbow palette that made every sprite look like Christmas. Routing through the active room's CLUT shows actual game colors at a glance.
+- **3-candidate header-layout viewer.** For any candidate frame pointer, shows what width/height/redir would read as under three offset-into-header conventions. Made the +6 discovery a single-look exercise.
+- **Smart "Place on current room" defaults.** Adapts `(x, y)` to the current room's dimensions so the default lands on-screen for both 200-tall outdoor and 144-tall interior rooms.
+- **`scratch/` debug scripts** (gitignored) — five small scripts for inspecting real game data through the engine's own decoders. The workflow was: write a hypothesis, dump real bytes against it, iterate. Kept around for the next phase.
+
+#### Notable design choices made during implementation
+
+- **Anim-record decoding deferred to the VM phase.** The variable-length anim command stream is what the runtime uses to play animations frame-by-frame; for "render one static frame" we pick limb + frame directly.
+- **Frame pointer at +6 into the image header.** The natural "pointer at struct start" reading produces `width = 0xFFFC`. The format keeps the pointer at the `y` field, likely a side effect of the original engine doing a single dword load on `(x, y)`.
+- **RLE `length == 0` is an extended-length escape, not "run of 16".** With "run of 16", consumed byte count exceeded the available region by 8 bytes on Guybrush's idle frame, spilling garbage into the rightmost columns. With the escape rule, the count lands exactly on the next frame's header.
+- **Costume color 0 = transparent** regardless of `palette[0]`'s value. Sentinel emit lets the compositor skip cleanly.
+- **Z-plane offset-0 sentinel for all-zero strips.** Saves bytes for sparse masks; would crash a naive "subtract 8 → negative offset" decode.
+- **Z-plane MSB-first within each emitted byte.** Visually verified by overlaying decoded masks on real MI1 room geometry.
+- **Z-plane rule: "any plane index > actorZ hides".** Plane indices run 1..N. `actorZ = 0` (default) is occluded by everything; raising `actorZ` pulls the actor forward past planes one at a time.
+- **Compositor reads `costPalette[idx]` → `roomCLUT[clutIdx]` inline.** Keeps frame data palette-agnostic; the same costume renders correctly in any room's CLUT.
+- **LFLF index, not DROO id.** Rooms and costumes are indexed by their position in the LECF tree; the UI shows both "Room N of M" and "LFLF #X".
+- **Drag uses a light-refresh path.** Re-composites onto the existing canvas (no DOM rebuild) so the canvas element stays alive through the drag and pointer events route to the same captured target. Full refresh (which rebuilds the section, in turn syncing x/y/z input field values) fires once on pointerup.
+
+#### Open issues / known limitations
+
+- **MI2's 2-byte offset shift not yet patched.** Documented in `docs/SCUMM-V5-COST.md` §6; MI2 costumes will decode garbage until applied.
+- **32-color mode (format byte 0x59) not implemented.** Every MI1/MI2 costume in our sample is 16-color. Format documented but no decoder path.
+- **Mirror flag (format bit 7) parsed but not acted on.** No costume in our sample has it set.
+- **Anim record stream not decoded.** VM concern. Picking limb + frame happens directly in the UI; no animation playback exists.
+- **No DROO interpretation.** Script-driven `setRoom` / `setCostume` calls would need DROO resolution.
+- **No actor scaling.** The SCAL block (per-y scaling that shrinks actors walking "away" from the camera) is not consulted; actors render at native resolution at all room positions.
+
+---
 
 ### Phase 2 — First pixels *(2026-05-26)*
 
