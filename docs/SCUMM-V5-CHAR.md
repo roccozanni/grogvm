@@ -1,0 +1,361 @@
+# SCUMM v5 CHAR — Character Set (Bitmap Font) Format
+
+A `CHAR` block holds one bitmap font: a per-character glyph table, the
+glyph bitmaps themselves, and a small palette mapping that lets the
+runtime colourise text by remapping glyph bit-patterns to room CLUT
+indices. SCUMM v5 games typically ship multiple charsets — different
+fonts for verb UI, dialog, and intro credits — and `LFLF` blocks can
+hold zero or more of them.
+
+This is a self-contained reference derived from reverse-engineering
+real MI1 data. Long-circulating reverse-engineering notes for this
+format exist and were useful as a starting point; where they
+disagreed with what real game data actually decodes to, the data is
+the source of truth and we document the correction.
+
+---
+
+## 1. Where CHAR lives
+
+Inside a SCUMM v5 resource file (`MONKEY.001` / `MONKEY2.001`):
+
+```
+LECF                  top-level container
+└── LFLF              one bundle per "disk"
+    ├── ROOM          (described elsewhere)
+    ├── COST          (described in SCUMM-V5-COST.md)
+    ├── CHAR          ← THIS DOCUMENT — zero or more per LFLF
+    ├── CHAR
+    ├── SCRP          …
+    └── SOUN          …
+```
+
+In MI1, every `CHAR` we've inspected lives in `LFLF9`. The index file
+(`MONKEY.000`) carries a `DCHR` directory mapping charset id → (disk
+file, byte offset), but the player doesn't need DCHR to browse — we
+walk `LECF > LFLF > CHAR` in source order. MI1 ships **5 charsets**
+across LFLF9; their roles correspond to dialog font / verb font /
+intro credits font / etc.
+
+---
+
+## 2. The mental model
+
+A charset is **a glyph table + a small palette mapping**. The glyph
+table gives one indexed bitmap per character code; the palette
+mapping (the "color map" in our terminology) re-routes glyph bit
+values to CLUT indices so the same charset can render as black-on-
+white for verbs, brown-on-paper for dialog, or any other inked tone
+the script picks.
+
+Glyph bitmaps are packed at either **1 bit per pixel** (binary
+"ink / no ink") or **2 bits per pixel** (a 4-level ramp suitable for
+anti-aliased outlined fonts). The choice is per-charset, not per-
+glyph. MI1's smaller fonts are 1-bpp; the larger title/credits font
+is 2-bpp.
+
+The format mirrors COST in one specific way: glyph bitmap "off"
+pixels (bit pattern `0`) are universally transparent, regardless of
+what `colorMap[0]` contains. So `colorMap[0]` is effectively unused
+storage; only `colorMap[1..2^bpp - 1]` carries real CLUT indices.
+
+---
+
+## 3. Block payload layout
+
+After the standard 8-byte block header (`'CHAR' + size BE`), the
+payload begins:
+
+```
+off  size   field
+ 0    u32   size       — redundant; equals (block_size − 23). Informational.
+ 4    u16   magic      — observed 0x0363 across every MI1/MI2 charset.
+ 6    15B   colorMap   — bit-pattern → CLUT index table (see §5).
+21    u8    bpp        — 1 or 2 bits per glyph pixel.
+22    u8    fontHeight — declared font height in pixels.
+23    u16   numChars   — number of entries in the offset table below.
+25    u32×N glyphOffsets — N = numChars; per-char offset table.
+```
+
+The `size` field at bytes 0..3 always equals `block_size − 23`,
+equivalently `payload_length − 15`. So it counts payload bytes from
+byte 15 onwards. Why "15"? The size field's anchor doesn't line up
+with any other meaningful field — best read as "redundant metadata
+the original tools wrote out, the decoder doesn't need it".
+
+### ⚠️ Glyph offsets are anchored at byte 21
+
+Each `u32` in `glyphOffsets` is **not** a byte position from the
+start of the payload. It's the byte position **relative to byte 21**
+— the position of the `bpp` byte. Translation:
+
+```
+absolute_byte_in_payload = 21 + glyphOffsets[charCode]
+```
+
+An offset value of literally `0` is the "no glyph for this char code"
+sentinel; most charsets have many sentinel entries because not every
+ASCII code (let alone the full 0..255 range) is populated.
+
+This is the same family of "offset has an unusual anchor" quirk
+we've seen in SMAP (header-inclusive +8), ZP## (also +8), and COST
+(image-table entries point 6 bytes into the image header). The
+constant in CHAR is 21 — exactly the number of bytes before the
+`bpp` field, so the natural reading is "offset relative to start of
+the bpp/fontHeight/numChars/offsetTable section".
+
+A useful verification: build the offset table with `tableEnd = 25 +
+numChars × 4`. For the first non-sentinel `glyphOffsets[c]`, the
+expression `21 + glyphOffsets[c]` should be ≥ `tableEnd` — i.e. the
+glyph data lives *after* the offset table. If you tried the "absolute
+from byte 0" reading it'd be `glyphOffsets[c]`, which lands *inside*
+the offset table for MI1 charsets and signals the wrong anchor.
+
+### Counting populated glyphs
+
+`numChars` is the *table* length, not the count of usable glyphs.
+MI1's 1-bpp dialog font declares `numChars = 256` but populates only
+~96 entries (printable ASCII plus a handful of extras); the rest are
+sentinel zeros. `webscumm`'s charset summary reports both numbers
+(`"N populated / M slots"`) so the divergence is obvious.
+
+---
+
+## 4. Per-glyph header + bitmap
+
+At `21 + glyphOffsets[c]`, each non-sentinel glyph begins with a
+4-byte header followed by its bitmap stream:
+
+```
+off  size  field
+ 0    u8   width
+ 1    u8   height
+ 2    i8   xOffset    (signed; applied to cursor before stamping)
+ 3    i8   yOffset    (signed; applied to cursor before stamping)
+ 4..  bits packed: width × height pixels at `bpp` bits each,
+      row-major, MSB-first within each byte. No per-row padding.
+```
+
+The bitmap byte count is `ceil(width × height × bpp / 8)`. Bit
+positions roll continuously across row boundaries — there is no
+"each row starts on a byte boundary" rule. A 6×8×1 glyph fills
+exactly 6 bytes; a 7×7×1 glyph straddles byte boundaries mid-row.
+
+`xOffset` / `yOffset` are signed bytes the text-layout pass adds to
+the cursor before stamping the glyph. They're nearly always 0 for
+plain 1-bpp fonts; the 2-bpp outlined font in MI1 uses `xOffset = −1`
+so each glyph overlaps the right edge of the previous one by 1
+pixel, knitting outlines together cleanly.
+
+### Empty / zero-sized glyphs
+
+Some character codes (typically ASCII control codes 0x01..0x1F) have
+a valid offset pointing to a 4-byte header where `width = 0` or
+`height = 0` — present but blank. `webscumm`'s decoder returns an
+empty pixel buffer for those rather than throwing, so a string
+containing a stray control byte doesn't break rendering.
+
+### Bit packing — worked example
+
+A 4×2 glyph at 1-bpp encodes 8 pixels into 1 byte. With pixel row 0
+as `1, 0, 1, 0` and row 1 as `0, 1, 0, 1`:
+
+```
+bit positions (MSB → LSB):  7 6 5 4 | 3 2 1 0
+pixel values:               1 0 1 0   0 1 0 1
+byte value:                 0xA5
+```
+
+So a single byte `0xA5` carries the whole glyph; rows do *not*
+re-align to a byte boundary between them. Our `decodeGlyph` reads
+bit-by-bit so the bpp=2 straddle case is handled the same way
+naturally.
+
+---
+
+## 5. The 15-byte color map
+
+Bytes 6..20 of the payload are a 15-entry palette mapping table
+indexed by glyph bit pattern. For a charset with `bpp = b`, the
+meaningful entries are indices `1 .. 2^b − 1`:
+
+- **1-bpp charset**: `colorMap[1]` is the single ink color. Indices
+  2..15 are storage filler — observed values follow a sequential
+  `0x03, 0x04, … 0x0f` pattern that's almost certainly the encoder's
+  default fill, not significant data.
+- **2-bpp charset**: `colorMap[1..3]` carry three CLUT indices
+  representing the outline / mid / fill levels of a four-level
+  glyph (level 0 = transparent, levels 1..3 from the map). Indices
+  4..15 are filler.
+
+The "ink color" the runtime uses is whatever the script writes into
+`colorMap[1]` at runtime (the script sets actor talk colors before
+each dialog burst). `webscumm`'s player UI exposes a number input
+that overrides slot 1 live, so we can validate the same charset
+rendering correctly in any chosen color.
+
+Slot 0 is always transparent regardless of its value, mirroring the
+COST convention.
+
+---
+
+## 6. Text layout semantics
+
+Phase 4's renderer implements the simplest plausible single-line
+layout:
+
+```
+cursorX, cursorY = 0, 0
+for each character ch in the string:
+  if ch == '\n':
+    cursorX = 0
+    cursorY += fontHeight
+    continue
+  g = decode glyph for ch.charCodeAt(0)
+  if g is non-empty:
+    stamp g.pixels at (cursorX + g.xOffset, cursorY + g.yOffset)
+  cursorX += g.width
+```
+
+So the **advance** per glyph is just `width`. The `xOffset` shifts
+the *stamp position* — not the advance — which is how outlined fonts
+get their overlap. Stamped pixels honor `xOffset` / `yOffset` as
+signed displacements; the bounding box widens to fit any pixels
+pushed beyond the bare-advance edges.
+
+Newlines reset the cursor to column 0 and advance Y by the declared
+`fontHeight`. There is no inter-line gap — adjacent lines touch.
+Word wrap, alignment (centered / right-justified), and dialog text-
+box geometry are downstream concerns.
+
+### What's not in the renderer (deliberately)
+
+The SCUMM dialog system reserves a small family of byte values
+(`0xFF` followed by a sub-code) for *escape sequences* — "wait for
+click", "play sound id N", "substitute variable N", "set color to
+N". Those are interpreted by the VM as it streams dialog through
+the text renderer; the renderer itself just sees an already-resolved
+string. Phase 4 ignores them — strings containing `0xFF` bytes will
+attempt to look up character `0xFF` in the glyph table and render or
+skip per the result.
+
+---
+
+## 7. End-to-end — rendering "GUYBRUSH"
+
+What the decoder does to go from "raw payload" to "letters
+on a canvas":
+
+1. **Walk the resource tree** for a `CHAR` block; slice its payload.
+2. **Parse the header** at bytes 0..(25 + 4×numChars − 1): pull
+   `colorMap`, `bpp`, `fontHeight`, `numChars`, and the per-char
+   `glyphOffsets[]`.
+3. **For each character in the input string**: turn the char code
+   into a glyph-table index, fetch `glyphOffsets[code]`, skip if
+   it's the sentinel `0`.
+4. **Resolve the byte position**: `glyphAbsByte = 21 +
+   glyphOffsets[code]`.
+5. **Read the glyph header** at that position: `width, height,
+   xOffset, yOffset` (4 bytes).
+6. **Decode the bitmap** starting at `glyphAbsByte + 4`, reading
+   `width × height × bpp` bits MSB-first across byte boundaries.
+7. **Pick a colour map**: typically the charset's own `colorMap`,
+   possibly with slot 1 overridden by the actor's talk colour.
+8. **Stamp the glyph** into the output bitmap at `(cursorX +
+   xOffset, cursorY + yOffset)`, mapping each non-zero pixel value
+   through `colorMap` to a CLUT index and leaving zero-valued
+   pixels transparent.
+9. **Advance the cursor** by `width` and move on to the next
+   character.
+
+For "GUYBRUSH" in MI1 charset #0 (1-bpp, 6-wide glyphs), the result
+is a 48 × 8 pixel buffer in a single CLUT colour.
+
+---
+
+## 8. Pitfalls cheat-sheet
+
+In rough order of "what hits you first":
+
+1. **Glyph offsets look like they point into the offset table** →
+   anchor convention. Add 21 to every non-zero `glyphOffsets[c]`
+   value to get the payload-byte position.
+2. **`numChars` declares 256 but most lookups return junk** → those
+   entries are sentinel `0`s. `numChars` is the *table* length, not
+   the *populated-glyph* count.
+3. **Width and height look like garbage on the first glyph** →
+   you've landed inside the offset table instead of at a real glyph
+   header. Confirm the anchor convention (#1).
+4. **Decoded glyphs look correct shape-wise but scrambled
+   column-wise** → glyph pixels are row-major, MSB-first within
+   byte, but bits flow continuously across row boundaries with
+   *no* per-row padding. A bpp=1 row-aligned read of a 6×8 glyph
+   wastes 2 bits per row and shifts subsequent rows.
+5. **2-bpp glyphs render with the wrong tones** → `colorMap[1..3]`
+   has slot 1 = outline, slot 2 = mid, slot 3 = fill (or whichever
+   convention the artist used; verify visually). Indices 4..15 of
+   `colorMap` are storage filler — don't use them.
+6. **Empty glyphs (width=0 or height=0) crash the decoder** →
+   ASCII control codes 0x01..0x1F are typically present but blank.
+   Return an empty bitmap, don't throw.
+7. **A char code that's invalid renders junk** → check for the
+   sentinel offset `0` *before* dereferencing. `glyphPayloadOffset`
+   returns `null` for sentinels and unknown codes.
+8. **Text bounding box is too small on the right** → the cursor
+   advances by `width`, but `xOffset` can extend the visible glyph
+   past `cursor + width`. `measureText` tracks the max of `cursor +
+   xOffset + width` and the bare-cursor advance to size the box.
+
+---
+
+## 9. Reference implementation
+
+- [`src/engine/graphics/charset.ts`](../src/engine/graphics/charset.ts)
+  — `walkCharsets`, `parseCharHeader`, `glyphPayloadOffset`,
+  `decodeGlyph`, plus the `CHARSET_TRANSPARENT` sentinel.
+- [`src/engine/graphics/text.ts`](../src/engine/graphics/text.ts) —
+  `measureText`, `renderText`. Layout policy lives here; the charset
+  module is decoder-only.
+
+Public surface, in the order a consumer typically calls them:
+
+- `walkCharsets(file) → CharsetEntry[]` — iterate every `CHAR`
+  block, tagged with its LFLF position.
+- `parseCharHeader(payload) → CharsetHeader` — fixed-position
+  fields, including the per-char `glyphOffsets[]`.
+- `glyphPayloadOffset(header, charCode) → number | null` — resolve
+  a char code to its absolute payload byte, or `null` for the
+  sentinel.
+- `decodeGlyph(payload, absOffset, bpp) → DecodedGlyph` — pull the
+  4-byte glyph header + decoded bitmap.
+- `measureText(payload, header, text) → { width, height }` — bound
+  a string without rendering.
+- `renderText(payload, header, text, colorMap) → RenderedText` —
+  produce an indexed pixel buffer.
+
+Unit tests at
+[`src/engine/graphics/charset.test.ts`](../src/engine/graphics/charset.test.ts)
+and
+[`src/engine/graphics/text.test.ts`](../src/engine/graphics/text.test.ts)
+cover the header parser, 1- and 2-bpp glyph decode (including the
+straddle case), the +21 anchor, error paths, and the layout rules
+(advance, newlines, xOffset/yOffset bounds, sentinel handling).
+Real-game correctness is verified through the player UI's charset
+inspector, where every populated glyph is rendered into a grid and
+arbitrary strings render live through the chosen charset's color
+map with an inkable slot-1 override.
+
+Currently **deferred** until a later phase needs them:
+
+- **Dialog escape codes.** `0xFF`-prefixed sequences (wait, sound,
+  variable substitution, runtime colour change) are VM concerns and
+  land alongside the SCUMM bytecode interpreter.
+- **Text-box layout.** Word wrap, multi-line alignment, and the
+  geometry of speech bubbles positioned above actors' heads —
+  downstream concerns once dialog scripting exists.
+- **Typewriter timing.** Per-character reveal animation.
+- **MI2's 2-byte offset shift.** MI2's COST blocks need their
+  offsets shifted by 2 bytes (per
+  [`SCUMM-V5-COST.md`](./SCUMM-V5-COST.md) §6); MI2 charsets may
+  need the same correction. Not yet validated — Phase 4 verified
+  only against MI1.

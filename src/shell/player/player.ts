@@ -23,6 +23,17 @@ import {
   type DecodedCostumeFrame,
 } from '../../engine/graphics/costume-frame';
 import { compositeActor } from '../../engine/graphics/composite';
+import {
+  walkCharsets,
+  charsetPayload,
+  parseCharHeader,
+  glyphPayloadOffset,
+  decodeGlyph,
+  CHARSET_TRANSPARENT,
+  type CharsetEntry,
+  type CharsetHeader,
+} from '../../engine/graphics/charset';
+import { renderText } from '../../engine/graphics/text';
 import { Canvas2DRenderer } from '../../engine/render/canvas2d';
 
 const ROOM_DISPLAY_SCALE = 2;
@@ -75,18 +86,28 @@ async function loadAndRender(game: StoredGame, target: HTMLElement): Promise<voi
     const resourceFileBundle = parseResourceFile(resourceBytes, SCUMM_V5_XOR_KEY);
     const rooms = walkRooms(resourceFileBundle);
     const costumes = walkCostumes(resourceFileBundle);
+    const charsets = walkCharsets(resourceFileBundle);
 
     // Resources live inside LFLFs, and the player browses them
     // hierarchically: pick a room (= pick an LFLF), see the costumes
-    // (and later: scripts, sounds, charsets) that ship in the same
-    // LFLF. Pre-bucket the flat costume list so the lookup is O(1) per
-    // room change.
+    // and charsets (and later: scripts, sounds) that ship in the same
+    // LFLF. Pre-bucket the flat lists so the lookup is O(1) per room
+    // change.
     const costumesByLflf = new Map<number, CostumeEntry[]>();
     for (const c of costumes) {
       let list = costumesByLflf.get(c.lflfIndex);
       if (!list) {
         list = [];
         costumesByLflf.set(c.lflfIndex, list);
+      }
+      list.push(c);
+    }
+    const charsetsByLflf = new Map<number, CharsetEntry[]>();
+    for (const c of charsets) {
+      let list = charsetsByLflf.get(c.lflfIndex);
+      if (!list) {
+        list = [];
+        charsetsByLflf.set(c.lflfIndex, list);
       }
       list.push(c);
     }
@@ -110,6 +131,8 @@ async function loadAndRender(game: StoredGame, target: HTMLElement): Promise<voi
     roomSection.className = 'room-viewer';
     const costumeSection = document.createElement('section');
     costumeSection.className = 'costume-viewer';
+    const charsetSection = document.createElement('section');
+    charsetSection.className = 'charset-viewer';
 
     // Shared "actor on the current room" state. The costume viewer
     // writes to this; the room viewer reads from it and composites
@@ -134,10 +157,13 @@ async function loadAndRender(game: StoredGame, target: HTMLElement): Promise<voi
     } else {
       let currentRoomIdx = 0;
       let currentCostumeIdx = 0;
+      let currentCharsetIdx = 0;
       setRoomPalette(currentRoomIdx);
 
       const currentLflfCostumes = (): readonly CostumeEntry[] =>
         costumesByLflf.get(rooms[currentRoomIdx]!.lflfIndex) ?? [];
+      const currentLflfCharsets = (): readonly CharsetEntry[] =>
+        charsetsByLflf.get(rooms[currentRoomIdx]!.lflfIndex) ?? [];
 
       const showCostumes = (): void => {
         const lflfIdx = rooms[currentRoomIdx]!.lflfIndex;
@@ -161,6 +187,28 @@ async function loadAndRender(game: StoredGame, target: HTMLElement): Promise<voi
         );
       };
 
+      const showCharsets = (): void => {
+        const lflfIdx = rooms[currentRoomIdx]!.lflfIndex;
+        const list = currentLflfCharsets();
+        if (list.length === 0) {
+          charsetSection.replaceChildren(renderCharsetsEmpty(lflfIdx));
+          return;
+        }
+        if (currentCharsetIdx >= list.length) currentCharsetIdx = 0;
+        charsetSection.replaceChildren(
+          renderCharsetView(list, currentCharsetIdx, resourceFileBundle, currentRoomPalette, {
+            onPrev: () => {
+              currentCharsetIdx = Math.max(0, currentCharsetIdx - 1);
+              showCharsets();
+            },
+            onNext: () => {
+              currentCharsetIdx = Math.min(list.length - 1, currentCharsetIdx + 1);
+              showCharsets();
+            },
+          }),
+        );
+      };
+
       const showRoom = (): void => {
         roomSection.replaceChildren(
           renderRoomView(rooms, currentRoomIdx, resourceFileBundle, actorRef, dragState, {
@@ -168,17 +216,21 @@ async function loadAndRender(game: StoredGame, target: HTMLElement): Promise<voi
               currentRoomIdx = Math.max(0, currentRoomIdx - 1);
               setRoomPalette(currentRoomIdx);
               currentCostumeIdx = 0;
+              currentCharsetIdx = 0;
               actorRef.value = null; // costume's palette won't match a new room
               showRoom();
               showCostumes();
+              showCharsets();
             },
             onNext: () => {
               currentRoomIdx = Math.min(rooms.length - 1, currentRoomIdx + 1);
               setRoomPalette(currentRoomIdx);
               currentCostumeIdx = 0;
+              currentCharsetIdx = 0;
               actorRef.value = null;
               showRoom();
               showCostumes();
+              showCharsets();
             },
           }),
         );
@@ -187,11 +239,13 @@ async function loadAndRender(game: StoredGame, target: HTMLElement): Promise<voi
       actorRef.refresh = showRoom;
       showRoom();
       showCostumes();
+      showCharsets();
     }
 
     target.replaceChildren(
       roomSection,
       costumeSection,
+      charsetSection,
       renderSection(`Index (${indexName})`, indexBytes.length, indexFileBundle.tree),
       renderSection(`Resources (${resourcesName})`, resourceBytes.length, resourceFileBundle.tree),
     );
@@ -583,6 +637,373 @@ interface ActorRef {
   roomHeight: number;
   refresh(): void;
 }
+
+// ─── Charsets ─────────────────────────────────────────────────────────────
+
+const GLYPH_PREVIEW_SCALE = 3;
+const TEXT_PREVIEW_SCALE = 2;
+
+function renderCharsetsEmpty(lflfIdx: number): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'charset-view';
+  const heading = document.createElement('h2');
+  heading.className = 'charset-heading';
+  heading.textContent = 'Charsets';
+  wrap.appendChild(heading);
+  const empty = document.createElement('p');
+  empty.className = 'empty';
+  empty.textContent = `No charsets in LFLF #${lflfIdx}.`;
+  wrap.appendChild(empty);
+  return wrap;
+}
+
+interface CharsetNavCallbacks {
+  onPrev(): void;
+  onNext(): void;
+}
+
+function renderCharsetView(
+  charsets: readonly CharsetEntry[],
+  idx: number,
+  file: ResourceFile,
+  roomPalette: PaletteRef,
+  nav: CharsetNavCallbacks,
+): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'charset-view';
+
+  const heading = document.createElement('h2');
+  heading.className = 'charset-heading';
+  heading.textContent = 'Charsets';
+  wrap.appendChild(heading);
+
+  const header = document.createElement('div');
+  header.className = 'charset-header';
+
+  const prev = document.createElement('button');
+  prev.className = 'secondary';
+  prev.textContent = '← prev';
+  prev.disabled = idx === 0;
+  prev.addEventListener('click', nav.onPrev);
+  header.appendChild(prev);
+
+  const entry = charsets[idx]!;
+  const label = document.createElement('span');
+  label.className = 'charset-label';
+  label.textContent =
+    `Charset ${idx + 1} of ${charsets.length} in LFLF #${entry.lflfIndex}`;
+  header.appendChild(label);
+
+  const next = document.createElement('button');
+  next.className = 'secondary';
+  next.textContent = 'next →';
+  next.disabled = idx === charsets.length - 1;
+  next.addEventListener('click', nav.onNext);
+  header.appendChild(next);
+
+  wrap.appendChild(header);
+
+  const body = document.createElement('div');
+  body.className = 'charset-body';
+  wrap.appendChild(body);
+
+  try {
+    const payload = charsetPayload(file, entry);
+    const cHeader = parseCharHeader(payload);
+    body.appendChild(renderCharsetSummary(cHeader, payload.length));
+    body.appendChild(renderCharsetColorMap(cHeader, roomPalette));
+    body.appendChild(renderGlyphGrid(payload, cHeader, roomPalette));
+    body.appendChild(renderTextRenderer(payload, cHeader, roomPalette));
+  } catch (err) {
+    const errBox = document.createElement('div');
+    errBox.className = 'error';
+    errBox.textContent = (err as Error).message;
+    body.appendChild(errBox);
+  }
+  return wrap;
+}
+
+function renderCharsetSummary(h: CharsetHeader, payloadLength: number): HTMLElement {
+  const populated = countPopulatedGlyphs(h);
+  const summary = document.createElement('p');
+  summary.className = 'charset-summary';
+  summary.textContent =
+    `${h.bpp} bpp · fontHeight=${h.fontHeight} · ` +
+    `${populated} populated / ${h.numChars} slots · ` +
+    `magic=0x${h.magic.toString(16).padStart(4, '0')} · payload ${payloadLength} B`;
+  return summary;
+}
+
+function countPopulatedGlyphs(h: CharsetHeader): number {
+  let count = 0;
+  for (let i = 0; i < h.glyphOffsets.length; i++) {
+    if (h.glyphOffsets[i]! !== 0) count++;
+  }
+  return count;
+}
+
+function renderCharsetColorMap(h: CharsetHeader, roomPalette: PaletteRef): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'charset-colormap';
+  const label = document.createElement('span');
+  label.className = 'charset-section-label';
+  label.textContent = `Color map (${h.bpp === 1 ? 'slot 1 used' : 'slots 1..3 used'}):`;
+  wrap.appendChild(label);
+  for (let i = 0; i < h.colorMap.length; i++) {
+    const cell = document.createElement('span');
+    cell.className = 'charset-colormap-cell';
+    const usedByBpp = i > 0 && i < (1 << h.bpp);
+    if (usedByBpp) cell.classList.add('used');
+    const clutIdx = h.colorMap[i]!;
+    cell.textContent = `${i + 1}:${clutIdx}`;
+    const rgb = roomPaletteRgb(roomPalette.value, clutIdx);
+    if (rgb) {
+      cell.style.background = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+      cell.style.color = brightness(rgb) > 128 ? '#000' : '#fff';
+    }
+    cell.title = `slot ${i + 1} → CLUT ${clutIdx}`;
+    wrap.appendChild(cell);
+  }
+  return wrap;
+}
+
+function roomPaletteRgb(palette: Uint8Array | null, clutIdx: number): [number, number, number] | null {
+  if (!palette) return null;
+  const base = clutIdx * 3;
+  if (base + 2 >= palette.length) return null;
+  return [palette[base]!, palette[base + 1]!, palette[base + 2]!];
+}
+
+function brightness(rgb: [number, number, number]): number {
+  return (rgb[0] * 299 + rgb[1] * 587 + rgb[2] * 114) / 1000;
+}
+
+function renderGlyphGrid(payload: Uint8Array, h: CharsetHeader, roomPalette: PaletteRef): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'glyph-grid-wrap';
+  const label = document.createElement('span');
+  label.className = 'charset-section-label';
+  label.textContent = 'Glyphs (click for detail):';
+  wrap.appendChild(label);
+
+  const detailHost = document.createElement('div');
+  detailHost.className = 'glyph-detail-host';
+
+  const grid = document.createElement('div');
+  grid.className = 'glyph-grid';
+  // Build a color map that uses the room CLUT when available; fallback
+  // to grayscale ramp so a charset still inspects-correct before any
+  // room is loaded.
+  for (let c = 0; c < h.numChars; c++) {
+    const off = glyphPayloadOffset(h, c);
+    if (off === null) continue;
+    let g;
+    try {
+      g = decodeGlyph(payload, off, h.bpp);
+    } catch {
+      continue;
+    }
+    if (g.width === 0 || g.height === 0) continue;
+    const cell = document.createElement('button');
+    cell.className = 'glyph-cell';
+    cell.title = `char 0x${c.toString(16).padStart(2, '0')} (${c})${
+      c >= 32 && c < 127 ? ` '${String.fromCharCode(c)}'` : ''
+    } · ${g.width}×${g.height} xOff=${g.xOffset} yOff=${g.yOffset}`;
+    cell.appendChild(renderGlyphCanvas(g, h.bpp, h.colorMap, roomPalette.value, GLYPH_PREVIEW_SCALE));
+    const codeLabel = document.createElement('span');
+    codeLabel.className = 'glyph-code';
+    codeLabel.textContent = c >= 32 && c < 127
+      ? String.fromCharCode(c)
+      : `\\x${c.toString(16).padStart(2, '0')}`;
+    cell.appendChild(codeLabel);
+    cell.addEventListener('click', () => {
+      detailHost.replaceChildren(renderGlyphDetail(payload, h, c, g, off, roomPalette));
+    });
+    grid.appendChild(cell);
+  }
+  wrap.appendChild(grid);
+  wrap.appendChild(detailHost);
+  return wrap;
+}
+
+function renderGlyphCanvas(
+  g: import('../../engine/graphics/charset').DecodedGlyph,
+  bpp: 1 | 2,
+  charsetColorMap: Uint8Array,
+  roomPalette: Uint8Array | null,
+  scale: number,
+): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.className = 'glyph-canvas';
+  canvas.width = Math.max(1, g.width);
+  canvas.height = Math.max(1, g.height);
+  canvas.style.width = `${canvas.width * scale}px`;
+  canvas.style.height = `${canvas.height * scale}px`;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return canvas;
+  ctx.imageSmoothingEnabled = false;
+  const img = ctx.createImageData(canvas.width, canvas.height);
+  // Default fallback colors: white-ish for slot 1, grays for slot 2/3.
+  const fallback = [null, [255, 255, 255], [180, 180, 180], [110, 110, 110]];
+  for (let p = 0; p < g.pixels.length; p++) {
+    const v = g.pixels[p]!;
+    const o = p * 4;
+    if (v === 0) {
+      img.data[o + 3] = 0;
+      continue;
+    }
+    const clutIdx = charsetColorMap[v]!;
+    const rgb =
+      roomPaletteRgb(roomPalette, clutIdx) ??
+      (fallback[v] as [number, number, number] | undefined) ??
+      [255, 255, 255];
+    img.data[o] = rgb[0]!;
+    img.data[o + 1] = rgb[1]!;
+    img.data[o + 2] = rgb[2]!;
+    img.data[o + 3] = 255;
+    void bpp;
+  }
+  ctx.putImageData(img, 0, 0);
+  return canvas;
+}
+
+function renderGlyphDetail(
+  payload: Uint8Array,
+  h: CharsetHeader,
+  code: number,
+  g: import('../../engine/graphics/charset').DecodedGlyph,
+  abs: number,
+  roomPalette: PaletteRef,
+): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'glyph-detail';
+  const title = document.createElement('p');
+  title.className = 'frame-candidate';
+  title.textContent =
+    `Char 0x${code.toString(16).padStart(2, '0')} (${code})` +
+    (code >= 32 && code < 127 ? ` '${String.fromCharCode(code)}'` : '') +
+    ` @0x${abs.toString(16)} · ${g.width}×${g.height} · xOff=${g.xOffset} yOff=${g.yOffset} · advance=${g.width}px`;
+  wrap.appendChild(title);
+  // Hex peek of the per-glyph header + a few bytes of bitmap data.
+  const dump = document.createElement('pre');
+  dump.className = 'limb-frame-hex';
+  const start = abs;
+  const tailBytes = Math.ceil((g.width * g.height * h.bpp) / 8);
+  const end = Math.min(payload.length, start + 4 + tailBytes);
+  for (let row = start; row < end; row += 16) {
+    const line = document.createElement('div');
+    const addr = document.createElement('span');
+    addr.className = 'costume-hex-addr';
+    addr.textContent = `0x${row.toString(16).padStart(4, '0')}  `;
+    line.appendChild(addr);
+    for (let i = 0; i < 16 && row + i < end; i++) {
+      const byte = document.createElement('span');
+      byte.className = 'costume-hex-byte';
+      if (row + i < start + 4) {
+        byte.style.color = '#ffd966';
+        byte.style.fontWeight = '700';
+      }
+      byte.textContent = payload[row + i]!.toString(16).padStart(2, '0');
+      line.appendChild(byte);
+    }
+    dump.appendChild(line);
+  }
+  wrap.appendChild(dump);
+  wrap.appendChild(renderGlyphCanvas(g, h.bpp, h.colorMap, roomPalette.value, GLYPH_PREVIEW_SCALE * 2));
+  return wrap;
+}
+
+function renderTextRenderer(
+  payload: Uint8Array,
+  h: CharsetHeader,
+  roomPalette: PaletteRef,
+): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'charset-text-renderer';
+  const label = document.createElement('span');
+  label.className = 'charset-section-label';
+  label.textContent = 'Render text:';
+  wrap.appendChild(label);
+
+  const controls = document.createElement('div');
+  controls.className = 'charset-text-controls';
+
+  const textInput = document.createElement('input');
+  textInput.type = 'text';
+  textInput.className = 'charset-text-input';
+  textInput.value = 'GUYBRUSH THREEPWOOD';
+  textInput.placeholder = 'Type a string…';
+  controls.appendChild(textInput);
+
+  const colorLabel = document.createElement('label');
+  colorLabel.className = 'actor-control-field';
+  colorLabel.textContent = 'ink ';
+  const colorInput = document.createElement('input');
+  colorInput.type = 'number';
+  colorInput.min = '0';
+  colorInput.max = '255';
+  // Default to the charset's own slot-1 color (the "natural" ink) so
+  // 1-bpp text reads correctly out of the box.
+  colorInput.value = String(h.colorMap[1]!);
+  colorLabel.appendChild(colorInput);
+  controls.appendChild(colorLabel);
+
+  wrap.appendChild(controls);
+
+  const canvas = document.createElement('canvas');
+  canvas.className = 'charset-text-canvas';
+  wrap.appendChild(canvas);
+
+  const repaint = (): void => {
+    const text = textInput.value;
+    const ink = Math.max(0, Math.min(255, parseInt(colorInput.value, 10) || 0));
+    const map = new Uint8Array(h.colorMap);
+    map[1] = ink;
+    let r;
+    try {
+      r = renderText(payload, h, text, map);
+    } catch {
+      r = { width: 0, height: 0, pixels: new Uint8Array(0) };
+    }
+    canvas.width = Math.max(1, r.width);
+    canvas.height = Math.max(1, r.height);
+    canvas.style.width = `${canvas.width * TEXT_PREVIEW_SCALE}px`;
+    canvas.style.height = `${canvas.height * TEXT_PREVIEW_SCALE}px`;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.imageSmoothingEnabled = false;
+    const img = ctx.createImageData(canvas.width, canvas.height);
+    for (let p = 0; p < r.pixels.length; p++) {
+      const v = r.pixels[p]!;
+      const o = p * 4;
+      if (v === CHARSET_TRANSPARENT) {
+        img.data[o + 3] = 0;
+        continue;
+      }
+      const rgb = roomPaletteRgb(roomPalette.value, v);
+      if (rgb) {
+        img.data[o] = rgb[0]!;
+        img.data[o + 1] = rgb[1]!;
+        img.data[o + 2] = rgb[2]!;
+      } else {
+        // No room palette → use the raw CLUT index brightness as a stand-in
+        // so we still get something visible.
+        const g = v;
+        img.data[o] = g;
+        img.data[o + 1] = g;
+        img.data[o + 2] = g;
+      }
+      img.data[o + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+  };
+  textInput.addEventListener('input', repaint);
+  colorInput.addEventListener('input', repaint);
+  repaint();
+  return wrap;
+}
+
+// ─── Costumes ─────────────────────────────────────────────────────────────
 
 function renderCostumesEmpty(lflfIdx: number): HTMLElement {
   const wrap = document.createElement('div');

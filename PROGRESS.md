@@ -11,7 +11,7 @@ detail the next phase here.
 
 ## Status
 
-**Phase 3 complete.** Phase 4 (Text) is up next; plan to follow.
+**Phase 4 complete.** Phase 5 (VM skeleton) is up next.
 
 ---
 
@@ -21,7 +21,6 @@ Kept intentionally undetailed. We'll break each into tasks when we start
 it. Order and scope may shift as we learn the territory — see
 ARCHITECTURE.md §9 for the original outline.
 
-- **Phase 4 — Text.** Decode `CHAR` glyphs, render dialog.
 - **Phase 5 — VM skeleton.** Script slots, variables, opcode dispatch, boot script.
 - **Phase 6 — Enough opcodes to walk.** Reach the SCUMM Bar.
 - **Phase 7 — Verb UI + input.** Click-to-walk, look-at, pick-up.
@@ -32,6 +31,75 @@ ARCHITECTURE.md §9 for the original outline.
 ---
 
 ## Done
+
+### Phase 4 — Text *(2026-05-26)*
+
+Decodes SCUMM v5 `CHAR` (bitmap font) blocks at both 1 and 2 bits per
+pixel and renders arbitrary strings to indexed pixel buffers. The
+player UI gains an LFLF-scoped charset inspector with header
+diagnostics, a CLUT-tinted color-map view, a clickable glyph grid,
+and a live text-rendering field (string input + ink-color picker)
+that uses the currently-selected room's CLUT. 191 tests across 20
+files; new `docs/SCUMM-V5-CHAR.md` format reference.
+
+#### Original task checklist (all complete)
+
+**Charset decoder — `src/engine/graphics/charset.ts`**
+
+- [x] `walkCharsets(file)` — iterate `LECF > LFLF > CHAR` blocks in source order
+- [x] `parseCharHeader(payload)` — size, magic, 15-byte color map, bpp (1 or 2), fontHeight, numChars, glyph offset table
+- [x] `glyphPayloadOffset(header, charCode)` — resolves the **+21 anchor** convention (offsets are payload-relative to byte 21, not byte 0; value 0 is "no glyph" sentinel)
+- [x] `decodeGlyph(payload, absOffset, bpp)` — 4-byte per-glyph header (width u8, height u8, xOffset i8, yOffset i8) + bit-packed pixel stream (row-major, MSB-first within each byte, **no per-row padding**)
+
+**Text renderer — `src/engine/graphics/text.ts`**
+
+- [x] `measureText` — bounding box for a string, honoring per-glyph advance + xOffset extension
+- [x] `renderText(payload, header, text, colorMap)` — column-major emit of glyph stamps; `\n` newline support; zero-value pixels stay `CHARSET_TRANSPARENT`; non-zero glyph values route through caller-provided color map to CLUT indices
+
+**Format reference — `docs/SCUMM-V5-CHAR.md`**
+
+- [x] Block tree position, mental model (color map as palette routing for actor talk colors), payload layout field-by-field, ⚠️ +21 anchor convention with the "anchor probe" verification trick, 1-bpp and 2-bpp packing rules with a worked example, 15-byte color-map slot semantics (slot 0 always transparent, slots 1..2^bpp − 1 active), text layout semantics, 8-step "decode-to-pixels" walkthrough, 8-entry pitfalls cheat sheet
+
+**Player UI — charset inspector — `src/shell/player/player.ts`**
+
+- [x] LFLF-scoped charsets section, slotted in below costumes; same prev/next nav-per-LFLF pattern
+- [x] Header summary: `N bpp · fontHeight=H · K populated / M slots · magic=0x0363 · payload N B`
+- [x] Color map swatch grid: 15 cells with CLUT indices, tinted with the real game color from the current room's CLUT; "active" slots (1..2^bpp − 1) get an accent border
+- [x] Glyph grid: every populated glyph rendered at 3× scale through the charset's color map, with the printable char or `\xNN` as a label, click to expand
+- [x] Glyph detail panel: hex peek of the per-glyph header (4 bytes highlighted) + bitmap body, 6× preview, advance/offset metadata
+- [x] Text-rendering widget: free-form text input (defaults to `GUYBRUSH THREEPWOOD`), ink-color number input that overrides color-map slot 1 live, 2× rendered canvas updating on every keystroke
+
+**Tests**
+
+- [x] `charset.test.ts` (16) — `walkCharsets`, `parseCharHeader` (1-bpp, 2-bpp, malformed headers, oversized numChars), `glyphPayloadOffset` (+21 anchor, sentinel, out-of-range), `decodeGlyph` (MSB-first row-major, signed offsets, 2-bpp straddle, zero-dim glyphs, bitstream truncation)
+- [x] `text.test.ts` (12) — `measureText` (empty / single / multi-char / newline / missing glyph), `renderText` (ink color, transparency, side-by-side layout, per-glyph xOffset, newline stacking, 2-bpp color routing, colorMap-too-short error)
+
+#### Bonuses
+
+- **Anchor-probe scratch script** — `scratch/inspect-charsets.ts` automatically probes five plausible offset anchors (absolute, +21, +23, +25, +29) for the first non-zero glyph-offset entry and reports which one decodes as a sensible glyph header. The +21 finding came from this in a single pass.
+- **CLUT-tinted color-map swatches** — instead of showing raw CLUT indices as numbers, each cell of the color map renders with the actual game color from the currently-selected room's CLUT. The font's "intent" reads at a glance — slot 1 is whatever shade Guybrush's talk color picks, slot 2/3 the outline/fill ramp for 2-bpp fonts.
+- **ASCII-print scratch** — `scratch/print-glyphs.ts` decodes a range of characters via the engine's own decoder and prints them as terminal-readable ASCII glyphs. Used to verify all 5 MI1 charsets + the MI2 charsets at 1- and 2-bpp before claiming the decoder correct.
+- **`yOffset` honored throughout** — MI1 charset #4 (2-bpp, big credits font) uses `yOff = 1` on every glyph to drop them below the cursor's baseline. Our renderer honors this without special-casing.
+
+#### Notable design choices made during implementation
+
+- **+21 anchor for glyph offsets** — the long-circulating-notes-style "offset is from start of payload" reading produces glyph offsets pointing into the offset table itself. Adding 21 (the byte position of the `bpp` field, which is also the start of the "logical charset metadata" block) lands every offset at a valid glyph header. Verified empirically via the anchor-probe scratch on all 5 MI1 charsets.
+- **MSB-first row-major, no per-row padding** — bits flow continuously across row boundaries within a glyph. A 7×7 1-bpp glyph fits in 49 bits = 7 bytes minus 7 trailing bits, NOT 7 bytes per row × 7 rows. Our `decodeGlyph` reads bit-by-bit so the bpp=2 straddle case is handled naturally.
+- **Slot 0 is always transparent** in the color map, regardless of what `colorMap[0]` contains. Mirrors the COST convention; lets the same charset render in any color without re-encoding.
+- **Same decoder works for MI1 and MI2.** The 2-byte offset shift that MI2 COST blocks need does NOT apply to MI2 CHAR blocks — both games parse identically. Verified visually.
+- **Color map filler is real** — slots 4..15 for both 1-bpp and 2-bpp charsets contain a sequential `0x04, 0x05, … 0x0f` filler pattern across every charset we inspected. Almost certainly the encoder's default fill; the UI marks them as inactive (muted) so they're visibly distinct from the slots actually used.
+- **Newline = `fontHeight` advance, no inter-line gap.** Simplest possible vertical layout; word-wrap and text-box geometry are downstream concerns deferred to dialog UI.
+- **Diagnostic UI is permanent.** Glyph grid + color-map view + text input stay in the player even when scripts eventually drive the renderer.
+
+#### Open issues / known limitations
+
+- **No dialog escape codes.** Strings containing `0xFF`-prefixed sequences (wait, sound, variable substitution, runtime color change) attempt to look up character `0xFF` in the glyph table rather than treating them as control codes. VM concern; lands alongside the bytecode interpreter.
+- **No word wrap / text-box layout.** The renderer draws a single-line stream split on `\n` only. Speech-bubble positioning above an actor's head, multi-line wrapping, and alignment are downstream.
+- **No actor-bound talk colors.** Color comes from the player UI's ink input. A real script picks a color per actor and the engine passes it to the renderer.
+- **Empty `numChars = 0` charsets rejected.** Defensive — we throw rather than silently producing an empty inspector. Hasn't surfaced in real data.
+- **Magic `0x0363` not validated.** Every MI1/MI2 charset has it; we parse and surface it but don't reject unknown magic values.
+
+---
 
 ### Phase 3 — Costumes *(2026-05-26)*
 
