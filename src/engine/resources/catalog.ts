@@ -3,9 +3,9 @@
  * about. Single source of truth — the UI uses this to annotate the
  * resource tree.
  *
- * Source: public SCUMM reverse-engineering notes (ScummVM wiki,
- * Aric Wilmunder's design docs, descumm). Descriptions are summarized in
- * our own words; no copying.
+ * Source: long-circulating SCUMM reverse-engineering notes and
+ * Aric Wilmunder's published design docs. Descriptions are summarized
+ * in our own words; no copying.
  */
 
 export interface BlockInfo {

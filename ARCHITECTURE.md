@@ -408,14 +408,16 @@ order. Reorder freely as we discover the territory.
 
 ## 10. References (read-only, no code reuse)
 
-- [SCUMM technical reference (ScummVM wiki)][scumm-wiki] — block formats,
-  opcode tables, costume layout.
-- [`descumm`][descumm] documentation — bytecode disassembly conventions.
-- Aric Wilmunder's original SCUMM design notes (publicly posted).
+- Long-circulating SCUMM reverse-engineering notes (multiple
+  copies floating around the web and the Internet Archive). Useful as a
+  starting point; **contain errors** — see for example the corrections
+  documented in [docs/SCUMM-V5-SMAP.md](docs/SCUMM-V5-SMAP.md). Always
+  validate against real game data.
+- Aric Wilmunder's published SCUMM design notes (the original engine
+  author).
+- `descumm`, the SCUMM bytecode disassembler shipped with ScummVM —
+  useful as ground truth for script-level questions.
 - Ron Gilbert's blog posts on SCUMM history (background, not technical).
-
-[scumm-wiki]: https://wiki.scummvm.org/index.php?title=SCUMM/Technical_Reference
-[descumm]: https://wiki.scummvm.org/index.php?title=SCUMM/Tools/descumm
 
 ---
 
@@ -469,10 +471,13 @@ initial guess) is a tuning parameter, not an architectural choice;
 **Q4. Costume decoder strategy: follow public RE notes closely on first
 pass, or improvise?**
 The costume format (limbs × frames × command streams) is the gnarliest
-decoder in the project. The ScummVM wiki documents it thoroughly.
+decoder in the project. Long-circulating reverse-engineering
+notes describe it.
 **Status: Deferred.** Decide at the start of Phase 3 (Costumes). Likely
-answer: follow the wiki closely first, refactor for clarity after the
-output is verified pixel-correct against a known frame.
+answer: follow the notes closely first, but validate every step against
+real game data (the SMAP experience proved those notes contain errors),
+then refactor for clarity once output is verified pixel-correct against
+a known frame.
 
 ---
 
