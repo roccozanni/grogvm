@@ -12,8 +12,9 @@ tool.
 
 ## Status
 
-**Phase 2 complete** — room backgrounds decode and render end-to-end
-for both target games. No actors, no scripting, no audio yet. See
+**Phase 5 complete** — the VM skeleton runs SCUMM v5 bytecode at the
+structural level. Phase 6 (enough opcodes to walk) is next. No
+real-time clock, no actors moving, no audio yet. See
 [PROGRESS.md](PROGRESS.md) for the full phased roadmap.
 
 What works right now:
@@ -24,10 +25,21 @@ What works right now:
 - A complete tag-by-tag block-tree dump of `MONKEY.000` (index) and
   `MONKEY.001` (resources), with a one-line description of every block
   type that webscumm understands.
-- A room viewer that cycles through every room in the resource file
-  and decodes its 320×N background to Canvas2D at native resolution.
-  Includes a per-strip compression-method diagnostic bar — invaluable
-  for debugging, and now a permanent learning aid.
+- A room viewer that cycles through every room and decodes its 320×N
+  background to Canvas2D at native resolution, with a per-strip SMAP
+  compression-method diagnostic bar.
+- A costume inspector with header diagnostics, palette swatches,
+  per-frame preview through the room's CLUT, z-plane overlay toggles,
+  and a live actor compositor you can drag onto the room.
+- A charset inspector with the same LFLF-scoped navigation: header,
+  CLUT-tinted color-map view, clickable glyph grid, and a live
+  text-rendering field that uses the current room's CLUT.
+- A VM inspector that loads global script #1 (boot), dispatches
+  opcodes one at a time or one tick at a time, and surfaces a halt
+  panel with bytecode-context hex highlighting the moment it hits an
+  opcode webscumm hasn't implemented. Slots table, hex-addressed
+  globals grid, packed bit-vars grid, and a self-describing trace
+  ring round out the diagnostic surface.
 
 ## Running
 
@@ -56,7 +68,7 @@ npm run typecheck  # tsc --noEmit
 npm run build      # full typecheck + production bundle
 ```
 
-116 tests across 14 files at last count. The engine layer is fully
+272 tests across 28 files at last count. The engine layer is fully
 testable in Node (no DOM, no browser globals); decoders are exercised
 against handcrafted byte fixtures, with the renderer providing an
 in-memory implementation for assertion.
@@ -67,9 +79,14 @@ in-memory implementation for assertion.
   layering, and the guiding principles the codebase tries to follow.
 - **[PROGRESS.md](PROGRESS.md)** — what's done, what's planned for the
   active phase, and the one-line summary of every future phase.
-- **[docs/SCUMM-V5-SMAP.md](docs/SCUMM-V5-SMAP.md)** — self-contained
-  reference for the SMAP background-bitmap format, including the two
-  specific corrections this project needed to make over the
+- **`docs/`** — self-contained format references for every binary
+  format webscumm has cracked open:
+  [SMAP](docs/SCUMM-V5-SMAP.md) (room backgrounds),
+  [COST](docs/SCUMM-V5-COST.md) (costumes),
+  [ZPLANE](docs/SCUMM-V5-ZPLANE.md) (occlusion masks),
+  [CHAR](docs/SCUMM-V5-CHAR.md) (bitmap fonts),
+  [INDEX](docs/SCUMM-V5-INDEX.md) (`.000` directory layout + LOFF).
+  Each documents the corrections webscumm needed to make over the
   long-circulating reverse-engineering notes.
 
 ## License & legality

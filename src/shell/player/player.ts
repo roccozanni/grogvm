@@ -35,6 +35,9 @@ import {
 } from '../../engine/graphics/charset';
 import { renderText } from '../../engine/graphics/text';
 import { Canvas2DRenderer } from '../../engine/render/canvas2d';
+import { parseIndexFile } from '../../engine/resources/index-file';
+import { parseLoff } from '../../engine/resources/loff';
+import { renderVmInspector } from './vm-inspector';
 
 const ROOM_DISPLAY_SCALE = 2;
 
@@ -242,10 +245,25 @@ async function loadAndRender(game: StoredGame, target: HTMLElement): Promise<voi
       showCharsets();
     }
 
+    // VM section: parse the index file and LOFF, then mount the
+    // inspector. If either parse fails we surface the error inside
+    // a placeholder section so the rest of the player still works.
+    let vmSection: HTMLElement;
+    try {
+      const idx = parseIndexFile(indexFileBundle);
+      const loff = parseLoff(resourceFileBundle);
+      vmSection = renderVmInspector(resourceFileBundle, idx, loff, game.gameId);
+    } catch (err) {
+      vmSection = document.createElement('section');
+      vmSection.className = 'vm-inspector';
+      vmSection.appendChild(renderError(err as Error));
+    }
+
     target.replaceChildren(
       roomSection,
       costumeSection,
       charsetSection,
+      vmSection,
       renderSection(`Index (${indexName})`, indexBytes.length, indexFileBundle.tree),
       renderSection(`Resources (${resourcesName})`, resourceBytes.length, resourceFileBundle.tree),
     );

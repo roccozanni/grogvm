@@ -11,7 +11,7 @@ detail the next phase here.
 
 ## Status
 
-**Phase 4 complete.** Phase 5 (VM skeleton) is up next.
+**Phase 5 complete.** Phase 6 (enough opcodes to walk) is up next.
 
 ---
 
@@ -21,7 +21,6 @@ Kept intentionally undetailed. We'll break each into tasks when we start
 it. Order and scope may shift as we learn the territory — see
 ARCHITECTURE.md §9 for the original outline.
 
-- **Phase 5 — VM skeleton.** Script slots, variables, opcode dispatch, boot script.
 - **Phase 6 — Enough opcodes to walk.** Reach the SCUMM Bar.
 - **Phase 7 — Verb UI + input.** Click-to-walk, look-at, pick-up.
 - **Phase 8 — Save states.**
@@ -31,6 +30,164 @@ ARCHITECTURE.md §9 for the original outline.
 ---
 
 ## Done
+
+### Phase 5 — VM skeleton *(2026-05-27)*
+
+Stands up a SCUMM v5 bytecode interpreter end-to-end at the *structural*
+level: index-file parser (MAXS + lane-encoded DROO/DSCR/DSOU/DCOS/DCHR),
+LOFF parser, script loader (global SCRPs only), 800-entry global var
+bank + 2048 bit-vars + 16 room-vars + per-slot locals, 25 cooperative
+script slots with a clean lifecycle, a 256-entry opcode dispatch table
+with a seed set covering the assignment / arithmetic / comparison /
+branch / yield / stop families, and a halt-as-first-class-state design
+that captures the slot, PC, opcode, last 16 bytecode bytes, and tail of
+the trace ring whenever the VM hits an opcode we haven't written. The
+player UI gains a full VM inspector: Boot / Step / Run-tick / Reset
+controls, a slot table that flags the halted slot with a red badge, a
+hex-addressed globals grid, a compact bit-var grid, the trace ring, and
+a halt panel with bytecode-context hex highlighting. 272 tests across
+28 files; new `docs/SCUMM-V5-INDEX.md` covering the lane-encoding
+surprise (the first lane is the **owning room id** for DSCR/DSOU/DCOS/
+DCHR, *not* a disk number). Real MI1 boot script dispatches its first
+four setVars cleanly and halts loudly on `0x2c` (cursorCommand) as
+designed.
+
+#### Original task checklist (all complete)
+
+**Index parsing — `src/engine/resources/index-file.ts`**
+
+- [x] `parseIndexFile(file)` — returns `{ maxs, rooms, scripts, sounds, costumes, charsets }`
+- [x] `parseMaxs` — extracts named fields (numVariables, numBitVariables, numLocalObjects, numCharsets, numVerbs) and exposes the raw u16 LE array for unnamed slots
+- [x] `parseLaneDirectory` — single decoder for the `count u16 LE` + `count × u8` + `count × u32 LE` shape shared by DROO/DSCR/DSOU/DCOS/DCHR
+- [x] `IndexParseError` for missing blocks, size mismatches, truncated payloads
+
+**LOFF parsing — `src/engine/resources/loff.ts`**
+
+- [x] `parseLoff(file)` — returns a `Map<roomId, fileOffset>` populated from `LECF/LOFF`. Counts are u8, entries are `(room u8, offset u32 LE)`. Throws on missing LECF / LOFF or size mismatch.
+
+**Spike — verified the index layout against real MI1**
+
+- [x] `scratch/inspect-index.ts` — printed DSCR/DROO/MAXS under both interleaved and lane-encoded hypotheses, then validated by counting how many resolved offsets land on the expected tags in `.001`. Lane encoding wins decisively; the lane-1 byte resolves as the owning room id, not the disk number (under the disk hypothesis only 1 of 100 DROO rows looked real).
+
+**Script loading — `src/engine/vm/scripts.ts`**
+
+- [x] `loadGlobalScript(file, index, loff, scriptId)` — resolves `LOFF[index.scripts[id].room] + index.scripts[id].offset`, verifies the tag is `SCRP`, returns the bytecode payload + absolute file offset. Verified against real MI1: 178 / 199 scripts resolve, 21 are zero-room "unused" slots that throw `ScriptLoadError` exactly as expected.
+- [x] Error paths: out-of-range id, unused entry (room=0), missing room in LOFF, resolved offset doesn't land on SCRP, invalid SCRP block size
+
+**Variable bank — `src/engine/vm/variables.ts`**
+
+- [x] `class Variables` — globals (Int32Array sized from MAXS or 800 floor), bit-buffer (packed Uint8Array sized from MAXS or 2048 floor), room-vars (Int32Array, 16 entries)
+- [x] `readGlobal` / `writeGlobal` / `readBit` / `writeBit` / `readRoom` / `writeRoom` with bounds checks
+- [x] `VariableError` on out-of-range indices
+
+**Script slot — `src/engine/vm/slot.ts`**
+
+- [x] `class ScriptSlot` — slotIndex, status (`dead`/`running`/`yielded`/`frozen`), scriptId, bytecode (Uint8Array), pc, room, locals (Int32Array(25))
+- [x] State machine: `start(opts)` requires status=dead, populates locals[0..args-1] from args; `yield_()`, `resume()`, `freeze()`, `kill()`
+- [x] `ScriptSlotError` on illegal transitions (start on non-dead, yield on dead)
+
+**Parameter-mode decoder — `src/engine/vm/params.ts`**
+
+- [x] `isVarParam(opcode, paramIndex)` — bit 7/6/5 of the opcode byte select param 1/2/3 mode
+- [x] `readU8` / `readU16` / `readI16` from `slot.bytecode[slot.pc]`, advancing PC
+- [x] `readValue(slot, vars, asVar)` — reads u16 immediate or dereferences a var-ref word
+- [x] `readVarRef` (read + deref) and `readDestRef` (raw word, no deref) for write paths
+- [x] `derefRead(ref, slot, vars)` / `writeRef(ref, value, slot, vars)` — handle the 16-bit reference encoding: bit 15 = local, bit 14 = bit-var, bit 13 = indexed (throws — deferred), else global
+- [x] `ParamError` on out-of-range local indices and on indexed refs
+
+**VM core — `src/engine/vm/vm.ts`**
+
+- [x] `class Vm` — owns `Variables`, 25 `ScriptSlot`s, an opcode handler map, a 64-entry circular trace buffer, and a nullable `HaltInfo`
+- [x] `startScript(opts)` — picks the lowest-index dead slot
+- [x] `step()` — dispatches one opcode in the next runnable slot; round-robin across slots is implicit (next `running` slot in array order)
+- [x] `runUntilAllYield(maxSteps=100k)` — drains all runnable slots; treats step-cap exhaustion as a runaway-loop halt
+- [x] `halt` is a *state*, not an exception escape: `UnknownOpcodeError` and handler-thrown errors are caught at the dispatch boundary and converted to `haltInfo`. Subsequent `step()` is a no-op.
+- [x] `annotate(mnemonic)` — handlers self-describe the trace entry they just produced
+- [x] `reset()` — restores pre-Boot state (kills all slots, clears vars-by-instance reuse, clears trace, clears halt)
+- [x] `UnknownOpcodeError` carries the opcode byte for clean error reporting
+
+**Seed opcode set — `src/engine/vm/opcodes/index.ts`**
+
+- [x] `0x00` / `0xA0` `stopObjectCode` — kill slot
+- [x] `0x80` `breakHere` — yield slot
+- [x] `0x18` `jumpRelative` — i16 displacement relative to byte-after-delta
+- [x] `0x1A` / `0x9A` `setVar` — dest = raw ref word, source = u16 immediate or var-ref (bit-7 toggle)
+- [x] `0x46` `inc` / `0xC6` `dec` — single var-ref param, ±1
+- [x] `0x5A` / `0xDA` `addVar`, `0x3A` / `0xBA` `subVar`
+- [x] Comparison + jump family (`0x48/C8` isEqual, `0x08/88` isNotEqual, `0x04/84` isGE, `0x44/C4` isLess, `0x78/F8` isGreater, `0x38/B8` isLE) — read var, read value-or-var, read i16 delta, jump if **not** condition (SCUMM "jump if false" convention)
+- [x] `0x28` equalZero / `0xA8` notEqualZero — single-var test + conditional jump
+- [x] `0x2E` `delay` — consumes 3-byte tick count, yields (stub; real tick accounting is Phase 6)
+
+**Boot driver — `src/engine/vm/boot.ts`**
+
+- [x] `bootGame(file, index, loff, gameId)` — builds a `Vm` sized from MAXS (with a `Math.max` floor), seeds the system vars we know the boot prefix needs (screen w/h, game id, charset), calls `loadGlobalScript(..., 1)`, starts it in a slot, returns `{ vm, bootScriptId, bytecodeLength }`
+- [x] Engine-var seeding is on-demand: we populated only what the boot prefix touches (screen width, screen height, game id, charset id) and will grow the list as the boot script reveals more reads — keeps the var bank honest as a diagnostic
+
+**VM inspector UI — `src/shell/player/vm-inspector.ts`**
+
+- [x] Self-contained `<section>` that mounts above the index/resource block-tree dumps
+- [x] Controls bar: **Boot**, **Step**, **Run tick**, **Reset**
+- [x] Slot table — populated slots only by default; columns id, script, room, status (color-coded per state), pc, bytecode size, last opcode + mnemonic; red **HALTED** badge on the slot that halted the VM
+- [x] Trace ring — newest at top, last 64 entries, with full `slot, script, pc, opcode, mnemonic` line
+- [x] Globals grid — hex addresses (0x00..0x3f by default), non-zero values get an accent border + accent text, "show more" button extends by 64 at a time
+- [x] Bit-var grid — 256 bits visible by default in a 32-wide grid, 1-bits highlighted in accent yellow; "show more" extends by 256
+- [x] Halt panel — red banner with reason, slot/script/pc/opcode metadata, bytecode-context hex strip with the offending byte in red, and the last 16 trace entries
+
+**Tests**
+
+- [x] `index-file.test.ts` (10) — MAXS field extraction, lane-directory decoding, malformed-block error paths, end-to-end parse of a synthetic .000-shaped buffer
+- [x] `loff.test.ts` (5) — round-trip room→offset map, count=0 edge, u32 high-bit unsigned read, missing-LECF and size-mismatch errors
+- [x] `scripts.test.ts` (6) — DSCR room id + LOFF lookup, two-rooms-same-relative-offset disambiguation (the bug the spike revealed), unused entries, out-of-range ids, missing LOFF entry, wrong-tag landing
+- [x] `variables.test.ts` (12) — round-trip per scope, bit packing, signed/unsigned correctness, out-of-range bounds
+- [x] `slot.test.ts` (9) — state-machine transitions, args populate locals, restart-in-place rejected, locals isolated between slots
+- [x] `params.test.ts` (13) — `isVarParam` per index, fixed-width readers, sign extension, var-ref dereference across globals/locals/bits, indexed throws, `writeRef` per scope
+- [x] `vm.test.ts` (13) — slot allocation + exhaustion, dispatch advances PC, unknown opcode → halt, halt is sticky and stops further dispatch, trace ring wraps at 64, runaway-loop step-cap halt, `reset()` clears state
+- [x] `opcodes/index.test.ts` (14) — flow opcodes, setVar variants (immediate / var-ref / local target), inc/dec/add/sub, conditional branch families (taken and not-taken paths), delay stub, **and an end-to-end test that runs the verbatim opening bytes of MI1 boot script and asserts it halts on 0x2c with the right trace mnemonics**
+
+**Format reference — `docs/SCUMM-V5-INDEX.md`**
+
+- [x] Top-level block tour of `.000` (RNAM, MAXS, DROO, DSCR, DSOU, DCOS, DCHR, DOBJ)
+- [x] Lane encoding (`u16 count` + `u8 lane` + `u32 LE lane`) with worked example
+- [x] ⚠️ The two surprises: DROO lane-1 is the disk number, but DSCR/DSOU/DCOS/DCHR lane-1 is the **owning room id**; DROO offsets are zero on single-disk releases and the real offset lives in `LECF/LOFF` in `.001`
+- [x] MAXS layout — named u16 LE fields and what each means
+- [x] End-to-end resolve walkthrough: script id → DSCR entry → LOFF[room] → absolute offset → SCRP block
+- [x] Verification recipe (MI1 numbers: 178/199 scripts resolve, 21 unused)
+
+#### Bonuses
+
+- **Lane-encoding spike came first.** Instead of writing the parser to documented field widths and debugging it later, the scratch script tried every plausible layout against real MI1 and validated by counting LFLF/ROOM/SCRP tag hits at the resolved offsets. Cost: 20 minutes; benefit: the parser locked in correct on the first commit and surfaced the "first lane is room id, not disk" surprise that the long-circulating notes obscure.
+- **Halt as a first-class state.** Instead of letting `UnknownOpcodeError` escape the dispatcher, the VM catches it (and any handler-thrown error) at the boundary and freezes into a `HaltInfo` snapshot. The inspector reads `vm.haltInfo` and renders a red banner with bytecode context — no try/catch sprawl in the UI.
+- **Self-describing trace entries.** Each handler calls `vm.annotate("setVar 0x49 = 0")` so the trace ring renders human-readable mnemonics without a separate disassembler. The annotation slots into the just-dispatched trace entry; the next dispatch resets it.
+- **Step-cap on `runUntilAllYield`.** A 100k-step cap converts the most common bug class in a fresh dispatcher — tight loops with no yield — into a clean halt with full diagnostics instead of a hung tab.
+- **End-to-end boot test against real bytes.** `opcodes/index.test.ts` runs the verbatim first 22 bytes of MI1 boot through the dispatcher and asserts the four setVar mnemonics + halt on 0x2c. Pins the whole vertical stack (param decode, var bank, opcode dispatch, halt) with a single assertion that breaks loudly if any layer regresses.
+- **Halted-slot badge in the UI.** The slot table flags the slot the VM halted in with a red **HALTED** chip. The underlying `slot.status` stays `running` (the halt is on the VM, not the slot) — the badge makes the otherwise-confusing "running but not running" state legible.
+- **Hex addressing across all VM panels.** Trace, halt panel, slot pc column, and globals grid all use `0x` hex — addresses match across panels so cross-referencing a variable write in the trace against the globals grid is a one-look exercise.
+- **Inspector survives parse failures.** If index-file / LOFF parse throws, the inspector renders the error in place and the rest of the player UI (room viewer, costumes, charsets, block-tree dumps) keeps working.
+
+#### Notable design choices made during implementation
+
+- **Lane-1 semantics differ by directory family.** DROO's first lane is the disk number (0 = absent, 1 = present in MI1). DSCR/DSOU/DCOS/DCHR's first lane is the **owning room id** — the script (or sound, costume, charset) physically lives inside that room's LFLF, and its offset is relative to that room's ROOM block. The single-disk MI1 release stores 0 in every DROO offset slot; the LOFF block inside `.001` is the source of truth for room positions.
+- **Locals live on the slot, not in the central var bank.** A slot's locals are invocation-scoped — when the slot dies they're gone, and parallel running scripts must not share them. Carrying them on `ScriptSlot.locals` makes that automatic; the param decoder takes the active slot as a parameter when dereferencing.
+- **Param-mode decoding is per-handler, not centralized.** A single centralized "decode all params" function forces every opcode family into a uniform shape, but v5 opcodes don't have one. `setVar`'s first param is always a raw destination ref word (no mode bit); comparison opcodes treat bit 7 as "param 2 is var or immediate"; `inc`/`dec` use bit 7 to select the *operation*, not the param mode. Each handler reads what it needs.
+- **Var-ref encoding.** Bit 15 set → local var, low byte is the index (locals are 8-bit indexed in v5). Bit 14 set → bit-var, bits 0..13 are the index. Bit 13 set → indexed/array reference (throws as unimplemented — defer until the boot script demands it). Otherwise → global var, bits 0..13 are the index. Verified against the leading setVars in MI1 boot.
+- **Halt captures opcode-at-error, not pc-at-error.** The trace entry records the PC of the *opcode byte* (before advance), and `HaltInfo.pc` does the same. The bytecode-context strip places the offending byte at `contextOpcodeOffset`, so the UI can highlight it without re-deriving from PC.
+- **MAXS sizes are a floor, not a cap.** `bootGame` does `Math.max(index.maxs.numVariables, 800)` so the var bank is always at least 800 even if MAXS reports smaller — defensive against future games or corrupt indices.
+- **Engine-var seeding is on-demand.** We don't pre-populate all 800 globals — we add a seed entry only when the boot script's reads make it necessary. Keeps the globals grid honest: every non-zero value either came from a script write we can read in the trace, or from a single named seed call we can find with grep.
+- **`runUntilAllYield` resumes nothing.** It doesn't flip yielded slots back to running first — the inspector's "Run tick" button does that. Separation keeps `runUntilAllYield` as a pure "drain runnable slots" primitive that the Phase 6 main loop will call once per frame.
+- **Inspector uses replaceChildren, not partial updates.** Every Step / Run / Boot click rebuilds the whole inspector section. Cheap (a few hundred DOM nodes), stays in sync with VM state by construction. The only cross-render state is the `globalsShown` / `bitsShown` counters held in the inspector closure.
+
+#### Open issues / known limitations
+
+- **Only a seed opcode set.** By design — Phase 5 is "skeleton, fail loudly". Real boot continuation needs at minimum cursorCommand (0x2C), stringOps (0x27), startScript (0x42/0xC2), loadRoom, expression evaluator, doSentence, walkActor, … the long tail. Phase 6 grows this set in opcode-the-boot-script-demands-next order.
+- **Indexed / array var references throw.** Bit 13 of the reference word selects an indexed deref in v5 (used for arrays). We throw `ParamError` for now. Add when the boot script first uses it.
+- **No real `delay` tick clock.** The 0x2E delay opcode treats its 3-byte tick count as ignored and yields once. Real timing lands when the main loop in Phase 6 paces the engine at ~60 Hz.
+- **No effectful opcodes.** The VM mutates variables and slots only. Anything that would change the room, palette, actor state, sound, or input — i.e. anything visible on screen — is unimplemented. Halts cleanly when encountered.
+- **MAXS u16 slots beyond the named five are unnamed.** `maxs.raw` exposes all 9 u16 LE values from MI1's MAXS but we only put names on the slots we know (numVariables, numBitVariables, numLocalObjects, numCharsets, numVerbs). The remaining four vary by reverse-engineering source; we'll name them as code starts reading them.
+- **MI2 not yet verified through boot.** The engine should be the same — same block layout, same opcode set — but we've only run MI1 boot bytes through the VM end-to-end. MI2 verification lives with Phase 10's "MI2 + polish" work, or earlier if it falls out naturally.
+- **Inspector "Run tick" is a single drain.** Each click runs one engine tick. There's no continuous-run mode driven by requestAnimationFrame because nothing time-varying is on screen yet. The main loop in Phase 6 will own that.
+- **LSCR / OBCD / VERB scripts are not loaded.** `loadGlobalScript` only resolves SCRP. Phase 6 needs local scripts (loaded on room entry) and Phase 7 needs object verb scripts.
+
+---
 
 ### Phase 4 — Text *(2026-05-26)*
 
