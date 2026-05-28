@@ -42,6 +42,14 @@ interface InspectorState {
   idleReason: string | null;
   /** Show walk-box / walkable-mask / actor-walkPath overlay on the VM frame. */
   showWalkOverlay: boolean;
+  /**
+   * Target ticks per second when Play is running. 60 = full rAF
+   * speed; slower values let the user inspect frame-by-frame
+   * progress. Stored in Hz; the loop converts to a ms interval.
+   */
+  tickRateHz: number;
+  /** Last wall-clock time (performance.now()) we actually ticked. */
+  lastTickAt: number;
 }
 
 export function renderVmInspector(
@@ -64,6 +72,8 @@ export function renderVmInspector(
     idleStreak: 0,
     idleReason: null,
     showWalkOverlay: false,
+    tickRateHz: 60,
+    lastTickAt: 0,
   };
 
   /** Snapshot of every non-dead slot's (id, status, pc) plus the
@@ -159,6 +169,18 @@ export function renderVmInspector(
     state.rafId = requestAnimationFrame(() => {
       state.rafId = null;
       if (!state.playing || !state.vm) return;
+      // Throttle: skip this rAF if the configured tick interval
+      // hasn't elapsed yet. 60 Hz = no throttling (every frame
+      // ticks). Slower rates mean rAF still fires but we just
+      // schedule the next one without running a tick.
+      const now = performance.now();
+      const minIntervalMs = 1000 / state.tickRateHz;
+      if (now - state.lastTickAt < minIntervalMs - 0.5) {
+        // Not time yet — try again next rAF.
+        scheduleNextTick();
+        return;
+      }
+      state.lastTickAt = now;
       const progressed = oneTick();
       if (state.vm.haltInfo) {
         state.playing = false;
@@ -316,6 +338,28 @@ function renderControls(
     : 'Run an engine tick every animation frame (~60 Hz). Auto-pauses on halt or steady state.';
   play.addEventListener('click', togglePlay);
   bar.appendChild(play);
+
+  // Tick rate selector — at 60 Hz Play looks like an indistinguishable
+  // blur for fast scripts (the boot sequence flashes past in a few
+  // frames). Lower rates let the user watch state transitions.
+  const rateWrap = document.createElement('label');
+  rateWrap.className = 'vm-tick-rate';
+  rateWrap.title = 'Target engine ticks per second when Play is running';
+  rateWrap.appendChild(document.createTextNode('rate '));
+  const rateSelect = document.createElement('select');
+  for (const hz of [1, 5, 15, 30, 60]) {
+    const opt = document.createElement('option');
+    opt.value = String(hz);
+    opt.textContent = `${hz} Hz`;
+    if (hz === state.tickRateHz) opt.selected = true;
+    rateSelect.appendChild(opt);
+  }
+  rateSelect.addEventListener('change', () => {
+    state.tickRateHz = parseInt(rateSelect.value, 10);
+    repaint();
+  });
+  rateWrap.appendChild(rateSelect);
+  bar.appendChild(rateWrap);
 
   const step = button('Step');
   step.disabled = !state.vm || state.vm.isHalted || !anyRunnable(state.vm);
@@ -753,12 +797,22 @@ function renderActorTable(vm: Vm): HTMLElement {
     if (a.room === vm.currentRoom && a.room !== 0) tr.classList.add('actor-in-current-room');
     if (!a.visible) tr.classList.add('actor-hidden');
     const target = a.walkTarget ? `(${a.walkTarget.x},${a.walkTarget.y})` : '—';
+    // Compact anim summary: id + active-limb count, e.g. "12 (3 limbs)".
+    // The detailed per-limb cursor positions show up in the
+    // expansion below.
+    let activeCount = 0;
+    for (const limb of a.anim.limbs) if (limb.active) activeCount++;
+    const animSummary = a.anim.animId === 0
+      ? '—'
+      : activeCount === 0
+        ? `${a.anim.animId} (inert)`
+        : `${a.anim.animId} (${activeCount}L)`;
     const cells = [
       String(a.id),
       a.room === 0 ? '—' : String(a.room),
       `(${a.x},${a.y})`,
       a.costume === 0 ? '—' : String(a.costume),
-      a.anim.animId === 0 ? '—' : String(a.anim.animId),
+      animSummary,
       a.facing,
       String(a.scale),
       a.isMoving ? `→ ${target}` : '—',
@@ -771,6 +825,59 @@ function renderActorTable(vm: Vm): HTMLElement {
     tbody.appendChild(tr);
   }
   wrap.appendChild(table);
+
+  // Per-actor anim detail panel — only renders for actors whose anim
+  // state has at least one active limb (so the panel doesn't add
+  // noise for actors with no anim yet). Click to toggle expansion.
+  const actorsWithAnim = populated.filter(
+    (a) => a.anim.limbs.some((l) => l.active),
+  );
+  if (actorsWithAnim.length > 0) {
+    const details = document.createElement('details');
+    const summary = document.createElement('summary');
+    summary.textContent = `Anim state (${actorsWithAnim.length} actor${actorsWithAnim.length === 1 ? '' : 's'} animating)`;
+    details.appendChild(summary);
+    const list = document.createElement('div');
+    list.className = 'vm-actor-anim-list';
+    for (const a of actorsWithAnim) {
+      const block = document.createElement('div');
+      block.className = 'vm-actor-anim-block';
+      const head = document.createElement('div');
+      head.className = 'vm-actor-anim-head';
+      head.textContent = `actor ${a.id} · anim ${a.anim.animId} · costume ${a.costume}`;
+      block.appendChild(head);
+      const limbTable = document.createElement('table');
+      limbTable.className = 'vm-actor-anim-limbs';
+      limbTable.innerHTML = `
+        <thead><tr><th>limb</th><th>start</th><th>cursor</th><th>length</th><th>noLoop</th><th>state</th></tr></thead>
+        <tbody></tbody>
+      `;
+      const limbBody = limbTable.querySelector('tbody')!;
+      for (let i = 0; i < a.anim.limbs.length; i++) {
+        const limb = a.anim.limbs[i]!;
+        if (!limb.active) continue;
+        const ltr = document.createElement('tr');
+        if (limb.finished) ltr.classList.add('limb-finished');
+        const startStr = `0x${limb.start.toString(16)}`;
+        const stateStr = limb.finished
+          ? 'finished'
+          : limb.length <= 1
+            ? 'static'
+            : 'playing';
+        for (const c of [String(i), startStr, String(limb.cursor), String(limb.length), limb.noLoop ? 'yes' : 'no', stateStr]) {
+          const td = document.createElement('td');
+          td.textContent = c;
+          ltr.appendChild(td);
+        }
+        limbBody.appendChild(ltr);
+      }
+      block.appendChild(limbTable);
+      list.appendChild(block);
+    }
+    details.appendChild(list);
+    wrap.appendChild(details);
+  }
+
   return wrap;
 }
 
