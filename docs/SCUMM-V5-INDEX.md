@@ -10,6 +10,14 @@ is consistent across all five resource directories in our sample but
 the lane-1 *semantics* differ between `DROO` and the rest — a surprise
 worth flagging up front.
 
+## Sources
+
+- ScummVM Technical Reference — Index file, at
+  <https://wiki.scummvm.org/index.php?title=SCUMM/Technical_Reference/Index_file>.
+  Describes the directory layouts and the `LOFF` purpose; the
+  lane-1-disk-vs-room distinction in §4 was derived empirically
+  against MI1.
+
 > ⚠️ **The first lane is the *owning room id*, not the disk number,
 > for `DSCR` / `DSOU` / `DCOS` / `DCHR`.** Only `DROO` uses lane 1 for
 > a disk number. Long-circulating notes don't make this distinction

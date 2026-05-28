@@ -1,6 +1,18 @@
 # SCUMM v5 — Costume animation records
 
-## On-disk format (verified against the SCUMM v5 wiki + ScummVM reference)
+## Sources
+
+- *"Costume spec"* (mixnmojo) — archived at
+  <https://web.archive.org/web/20070803050102/http://scumm.mixnmojo.com/?page=specs&file=costumespec.txt>.
+  Describes the on-disk anim record as `u16 mask + per-set-bit
+  SlotModifier` and explains the cmd-byte magic values (`0x71-0x7C`).
+- ScummVM Technical Reference — Costume resources, at
+  <https://wiki.scummvm.org/index.php?title=SCUMM/Technical_Reference/Costume_resources>.
+  Specifies "limbs are reverse-indexed" — mask bit `b` → limb
+  `15 - b` — and the special anim id ranges (244-247 turn, 248-251
+  change direction, 252-255 stop walking) we needed to interpret
+  Guybrush's behaviour at boot.
+## On-disk format (verified against the SCUMM v5 wiki + format spec)
 
 Each anim record at `costume.payload[header.animOffsets[id]]`:
 

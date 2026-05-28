@@ -9,10 +9,30 @@ animations, and a per-frame run-length-encoded bitmap with its own
 displacement metadata.
 
 This is a self-contained reference derived from reverse-engineering
-real MI1 and MI2 data. Long-circulating reverse-engineering notes for
-this format exist on the internet and were useful as a starting point;
-where they disagreed with what real game data actually decodes to, the
-data is the source of truth and we document the correction.
+real MI1 and MI2 data, cross-checked against two public sources for
+the format. Where those sources disagree with what real game data
+actually decodes to, the data is the source of truth and we document
+the correction.
+
+## Sources
+
+- *"Costume spec"* (anonymous compilation, originally hosted at
+  scumm.mixnmojo.com — archived at
+  <https://web.archive.org/web/20070803050102/http://scumm.mixnmojo.com/?page=specs&file=costumespec.txt>).
+  Concise narrative on slots, animations, and the per-slot frame
+  cmd array; the source of the picture-header layout we rely on.
+- ScummVM Technical Reference — Costume resources, at
+  <https://wiki.scummvm.org/index.php?title=SCUMM/Technical_Reference/Costume_resources>.
+  Authoritative on block tree placement, the `format` byte (palette
+  size + alignment bit), and the cmd-byte magic values (`0x71-0x7C`
+  for sound/stop/start/hide/skip).
+
+The animation playback engine — anim record layout, per-slot
+`SlotModifier`, the cmd byte stream, and the things the wiki gets
+right and wrong — lives in a separate spike doc,
+[`SCUMM-V5-COSTUME-ANIM.md`](SCUMM-V5-COSTUME-ANIM.md). This document
+focuses on the **static** parts of the format: header, palette,
+limb-image tables, picture headers, and the pixel RLE.
 
 ---
 
@@ -240,10 +260,14 @@ during this animation". The animation runtime walks the participating
 slots tick-by-tick, advancing each one through its slice of `frameOffs`
 at the rate the engine drives.
 
-For `webscumm`'s **Phase 3** the animation runtime isn't load-bearing —
-we render a single static image picked directly from a limb's image
-table. The full anim-record decoder is deferred to whichever phase
-introduces the SCUMM bytecode VM, since that's the consumer.
+Phase 6's anim runtime (in `src/engine/graphics/costume-anim.ts`)
+implements this — `startAnim` parses an anim record into per-slot
+playback state, `stepAnim` advances each slot's cursor every engine
+tick, and the compositor reads the cmd byte at
+`payload[slot.start + cursor]` to pick the picture index. See
+[`SCUMM-V5-COSTUME-ANIM.md`](SCUMM-V5-COSTUME-ANIM.md) for the
+decoder spec and the known limitations against MI1 Guybrush's
+records.
 
 ---
 
@@ -611,11 +635,16 @@ costume diagnostics and supporting throwaway scripts under
 
 Currently **deferred** until a later phase needs them:
 
-- **Animation record decoding.** The structure described in §3.6
-  (16-bit limb mask, per-set-limb `SlotModifier`) is documented but
-  not implemented as a decoder. The Phase 3 deliverable is a single
-  static image, so the animation runtime that would consume those
-  records doesn't exist yet.
+- **Animation record decoding** — now landed in Phase 6 at
+  `src/engine/graphics/costume-anim.ts` with `startAnim` / `stepAnim`
+  / `currentAnimCmd`. The decoder follows the wiki-spec layout
+  (`u16 LE activeSlots + per-set-bit (u16 frameIndex + optional u8
+  lengthAndFlags)`) and handles cmd-byte stepping each engine tick.
+  See [`SCUMM-V5-COSTUME-ANIM.md`](SCUMM-V5-COSTUME-ANIM.md) for the
+  full spec, the wiki's `usemask` parameter (which is a render-time
+  caller flag, not a stored field), and a known limitation against
+  MI1 Guybrush where some `frameIndex` values appear out-of-range
+  for reasons not fully decoded.
 - **32-color RLE.** Every MI1/MI2 costume we've inspected uses 16-color
   mode (`format == 0x58`). The 32-color path (`format == 0x59`) is
   understood format-wise but has no live decoder.

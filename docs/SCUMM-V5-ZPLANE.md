@@ -12,10 +12,17 @@ much simpler: a single byte-level packbits-style RLE instead of SMAP's
 two-flavor palette-walk bit grammar.
 
 This is a self-contained reference derived from reverse-engineering
-real MI1 data. Long-circulating reverse-engineering notes for this
-format exist on the internet and were useful as a starting point;
-where they disagreed with what real game data actually decodes to, the
-data is the source of truth and we document the correction.
+real MI1 data, cross-checked against the format spec. Where it
+disagrees with what real game data actually decodes to, the data is
+the source of truth and we document the correction.
+
+## Sources
+
+- ScummVM Technical Reference — Image resources, at
+  <https://wiki.scummvm.org/index.php?title=SCUMM/Technical_Reference/Image_resources>.
+  Same wiki page that documents SMAP; the z-plane section describes
+  the packbits-RLE shape, the per-strip offset table, and the
+  "any plane above actorZ hides" composite rule.
 
 ---
 

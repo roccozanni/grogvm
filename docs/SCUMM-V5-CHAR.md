@@ -8,10 +8,18 @@ fonts for verb UI, dialog, and intro credits — and `LFLF` blocks can
 hold zero or more of them.
 
 This is a self-contained reference derived from reverse-engineering
-real MI1 data. Long-circulating reverse-engineering notes for this
-format exist and were useful as a starting point; where they
-disagreed with what real game data actually decodes to, the data is
-the source of truth and we document the correction.
+real MI1 data, cross-checked against the long-circulating notes for
+this format. Where those notes disagree with what real game data
+actually decodes to, the data is the source of truth and we document
+the correction (notably the **+21 anchor convention** for glyph
+offsets in §4, which the notes miss).
+
+## Sources
+
+- ScummVM Technical Reference — Charset resources, at
+  <https://wiki.scummvm.org/index.php?title=SCUMM/Technical_Reference/Charset_resources>.
+  Useful for the high-level block layout and the per-glyph header
+  shape; the +21 anchor was empirically derived against MI1 data.
 
 ---
 

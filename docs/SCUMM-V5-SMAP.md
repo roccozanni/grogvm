@@ -6,10 +6,27 @@ The `SMAP` block holds the room background bitmap in SCUMM v5 games
 decomposition wrapped around two flavors of palette-walk RLE.
 
 This is a self-contained reference derived from reverse-engineering MI1
-and MI2 data. Long-circulating reverse-engineering notes for
-this format exist on the internet but contain several errors; where
-those notes disagree with what real game data actually decodes to, the
-data is the source of truth and we document the correction.
+and MI2 data, cross-checked against the two main public sources for
+the format. Where those sources disagree with what real game data
+actually decodes to, the data is the source of truth and we document
+the correction.
+
+## Sources
+
+- Aaron Giles, *"How to make a SCUMM image,"* originally hosted at
+  scumm.mixnmojo.com — archived at
+  <https://web.archive.org/web/20071011023943/http://scumm.mixnmojo.com/?page=articles/article1>.
+  The single most useful primer on the strip-based bitmap layout
+  and the compression dispatch table.
+- ScummVM Technical Reference — Image resources, at
+  <https://wiki.scummvm.org/index.php?title=SCUMM/Technical_Reference/Image_resources>.
+  Authoritative on block-tree placement (SMAP under `RMIM > IM00`)
+  and the v5/v6 differences we don't yet need.
+
+Both sources predate the corrections in §6 and §7 below — they
+describe an inverted Method 2 delta sign and a wrong `paletteBits`
+constant for codes 0x54..0x58. Real game data disagrees with the
+docs; we follow the data.
 
 ---
 
