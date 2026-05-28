@@ -27,16 +27,15 @@
  * # Variable reference word
  *
  * When a parameter is a var-ref, the next two bytes are a u16 LE
- * "reference word" whose top bits select the variable scope:
+ * "reference word" whose top bits select the variable scope (matching
+ * ScummVM v5 conventions):
  *
- *   - `0x8000` set        → **local** variable; index = low byte
- *   - `0x4000` set        → **bit-var**;  index = bits 0..13
- *   - neither set         → **global** variable; index = bits 0..13
- *
- * (Some SCUMM versions add a third "indexed" / array-deref scope on
- * `0x2000`. We deliberately leave that unimplemented in Phase 5 — the
- * loud-fail behavior at the dispatcher level will catch it the first
- * time the boot script uses it, and we'll add the case then.)
+ *   - `0x8000` set        → **bit-var**;  index = bits 0..14
+ *   - `0x4000` set        → **local** variable; index = low 12 bits
+ *   - `0x2000` set        → **indexed/array** access — another word
+ *                            follows (its own var-or-immediate mode);
+ *                            the final index is `(ref & ~0x2000) + offset`
+ *   - none of the above   → **global** variable; index = bits 0..12
  */
 
 import type { ScriptSlot } from './slot';
@@ -97,44 +96,70 @@ export function readValue(
 }
 
 /**
- * Read a var-reference word and dereference it. Always advances PC by 2.
+ * Read a var-reference word and dereference it. Always advances PC
+ * past the ref (2 bytes), plus an extra word if the ref's bit 0x2000
+ * is set (indexed/array access).
  */
 export function readVarRef(slot: ScriptSlot, vars: Variables): number {
-  const ref = readU16(slot);
+  const ref = resolveIndexedRef(readU16(slot), slot, vars);
   return derefRead(ref, slot, vars);
 }
 
 /**
  * Read a var-reference word *as a destination* — returns the
- * reference word itself, with PC advanced. The caller writes the
- * value via `writeRef` after computing it.
+ * (possibly indexed-resolved) ref, advancing PC past the ref and any
+ * extra index word. The caller writes the value via `writeRef`.
  */
-export function readDestRef(slot: ScriptSlot): number {
-  return readU16(slot);
+export function readDestRef(slot: ScriptSlot, vars?: Variables): number {
+  const ref = readU16(slot);
+  if (ref & 0x2000) {
+    if (!vars) {
+      throw new ParamError(
+        `indexed var ref 0x${ref.toString(16)} requires vars`,
+      );
+    }
+    return resolveIndexedRef(ref, slot, vars);
+  }
+  return ref;
 }
 
-/** Read the variable at `ref`. Throws on unknown scope bits. */
+/**
+ * Resolve the "indexed" variant of a var ref: if bit 0x2000 is set,
+ * read another word for the offset (with its own var-or-immediate
+ * mode) and add it to the base index. Returns the final ref with the
+ * 0x2000 bit cleared.
+ */
+function resolveIndexedRef(
+  ref: number,
+  slot: ScriptSlot,
+  vars: Variables,
+): number {
+  if (!(ref & 0x2000)) return ref;
+  const indexWord = readU16(slot);
+  const offset =
+    indexWord & 0x2000
+      ? derefRead(indexWord & ~0x2000, slot, vars)
+      : indexWord & 0xfff;
+  return (ref & ~0x2000) + offset;
+}
+
+/** Read the variable at `ref`. */
 export function derefRead(
   ref: number,
   slot: ScriptSlot,
   vars: Variables,
 ): number {
   if (ref & 0x8000) {
-    const index = ref & 0x00ff;
+    return vars.readBit(ref & 0x7fff);
+  }
+  if (ref & 0x4000) {
+    const index = ref & 0x0fff;
     if (index >= slot.locals.length) {
       throw new ParamError(
         `local var index ${index} out of range [0, ${slot.locals.length})`,
       );
     }
     return slot.locals[index]!;
-  }
-  if (ref & 0x4000) {
-    return vars.readBit(ref & 0x3fff);
-  }
-  if (ref & 0x2000) {
-    throw new ParamError(
-      `indexed/array var reference 0x${ref.toString(16)} — not implemented in Phase 5`,
-    );
   }
   return vars.readGlobal(ref & 0x1fff);
 }
@@ -147,7 +172,11 @@ export function writeRef(
   vars: Variables,
 ): void {
   if (ref & 0x8000) {
-    const index = ref & 0x00ff;
+    vars.writeBit(ref & 0x7fff, value ? 1 : 0);
+    return;
+  }
+  if (ref & 0x4000) {
+    const index = ref & 0x0fff;
     if (index >= slot.locals.length) {
       throw new ParamError(
         `local var index ${index} out of range [0, ${slot.locals.length})`,
@@ -156,16 +185,68 @@ export function writeRef(
     slot.locals[index] = value | 0;
     return;
   }
-  if (ref & 0x4000) {
-    vars.writeBit(ref & 0x3fff, value ? 1 : 0);
-    return;
-  }
-  if (ref & 0x2000) {
-    throw new ParamError(
-      `indexed/array var reference 0x${ref.toString(16)} — not implemented in Phase 5`,
-    );
-  }
   vars.writeGlobal(ref & 0x1fff, value);
+}
+
+/**
+ * Read a SCUMM "var-or-direct byte" parameter — when `paramIndex`'s
+ * mode bit is set on `modeByte`, the next two bytes are a var-ref word
+ * (dereferenced); otherwise the next byte is a direct u8 immediate.
+ *
+ * Used for multi-subop opcodes (cursorCommand, stringOps, roomOps, …)
+ * where the *subop byte itself* carries per-arg mode flags — same
+ * bit positions as on the main opcode (0x80 = arg1, 0x40 = arg2,
+ * 0x20 = arg3).
+ */
+export function readVarOrByte(
+  modeByte: number,
+  paramIndex: 1 | 2 | 3,
+  slot: ScriptSlot,
+  vars: Variables,
+): number {
+  if (isVarParam(modeByte, paramIndex)) {
+    return readVarRef(slot, vars);
+  }
+  return readU8(slot);
+}
+
+/**
+ * Read a SCUMM "var-or-direct word" parameter. Variable form reads a
+ * dereffed var-ref word (2 bytes); direct form reads a u16 LE
+ * immediate.
+ */
+export function readVarOrWord(
+  modeByte: number,
+  paramIndex: 1 | 2 | 3,
+  slot: ScriptSlot,
+  vars: Variables,
+): number {
+  if (isVarParam(modeByte, paramIndex)) {
+    return readVarRef(slot, vars);
+  }
+  return readU16(slot);
+}
+
+/**
+ * Read a v5 word-vararg list — a sequence of `(markerByte, u16 value)`
+ * pairs terminated by `0xFF`. Each marker's `0x80` bit selects var-ref
+ * vs immediate for its value, exactly like a subop's arg mode. Returns
+ * the decoded values in order.
+ *
+ * Used by opcodes like cursorCommand's `charsetColor` subop and the
+ * various `*List` argument forms.
+ */
+export function readWordVararg(
+  slot: ScriptSlot,
+  vars: Variables,
+): number[] {
+  const out: number[] = [];
+  while (true) {
+    const marker = readU8(slot);
+    if (marker === 0xff) break;
+    out.push(readVarOrWord(marker, 1, slot, vars));
+  }
+  return out;
 }
 
 /** Re-export so callers don't need a second import for the storage error type. */

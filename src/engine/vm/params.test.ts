@@ -74,24 +74,26 @@ describe('var-ref dereference', () => {
     expect(readVarRef(s, v)).toBe(999);
   });
 
-  it('resolves local vars (bit 15)', () => {
+  it('resolves local vars (bit 14)', () => {
     const v = makeVars();
-    const s = makeSlot([0x05, 0x80]); // ref = 0x8005 → local #5
+    const s = makeSlot([0x05, 0x40]); // ref = 0x4005 → local #5
     s.locals[5] = -42;
     expect(readVarRef(s, v)).toBe(-42);
   });
 
-  it('resolves bit-vars (bit 14)', () => {
+  it('resolves bit-vars (bit 15)', () => {
     const v = makeVars();
     v.writeBit(100, 1);
-    const s = makeSlot([0x64, 0x40]); // ref = 0x4064 → bit #100
+    const s = makeSlot([0x64, 0x80]); // ref = 0x8064 → bit #100
     expect(readVarRef(s, v)).toBe(1);
   });
 
-  it('throws on indexed/array refs (bit 13)', () => {
+  it('resolves indexed/array refs (bit 13) by reading an extra offset word', () => {
     const v = makeVars();
-    const s = makeSlot([0x00, 0x20]);
-    expect(() => readVarRef(s, v)).toThrow(ParamError);
+    v.writeGlobal(108, 7); // base 100 + offset 8 = 108
+    // Base ref 0x2064 (= base index 0x64) + offset word 0x0008 → global 108.
+    const s = makeSlot([0x64, 0x20, 0x08, 0x00]);
+    expect(readVarRef(s, v)).toBe(7);
   });
 
   it('writeRef routes to the correct scope', () => {
@@ -99,11 +101,11 @@ describe('var-ref dereference', () => {
     const s = makeSlot([]);
     writeRef(0x0007, 100, s, v);
     expect(v.readGlobal(7)).toBe(100);
-    writeRef(0x8003, 25, s, v);
+    writeRef(0x4003, 25, s, v);
     expect(s.locals[3]).toBe(25);
-    writeRef(0x4040, 1, s, v);
+    writeRef(0x8040, 1, s, v);
     expect(v.readBit(0x40)).toBe(1);
-    writeRef(0x4040, 0, s, v);
+    writeRef(0x8040, 0, s, v);
     expect(v.readBit(0x40)).toBe(0);
   });
 });
@@ -129,6 +131,13 @@ describe('readDestRef', () => {
     expect(readDestRef(s)).toBe(0x0049);
     expect(readDestRef(s)).toBe(0x8034);
   });
+
+  it('resolves indexed refs (bit 13) when vars is supplied', () => {
+    const v = makeVars();
+    // ref 0x2064 + index word 0x0008 → final ref = 0x6c
+    const s = makeSlot([0x64, 0x20, 0x08, 0x00]);
+    expect(readDestRef(s, v)).toBe(0x6c);
+  });
 });
 
 describe('derefRead — boundary cases', () => {
@@ -136,7 +145,7 @@ describe('derefRead — boundary cases', () => {
     const v = makeVars();
     const s = new ScriptSlot(0);
     s.start({ scriptId: 1, bytecode: new Uint8Array(0) });
-    // 25 locals, so index 99 (= 0x63) is out of range.
-    expect(() => derefRead(0x8063, s, v)).toThrow(ParamError);
+    // 25 locals, so index 99 (= 0x63) is out of range under local scope (bit 14).
+    expect(() => derefRead(0x4063, s, v)).toThrow(ParamError);
   });
 });

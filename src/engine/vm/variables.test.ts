@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { VariableError, Variables } from './variables';
+import { Variables } from './variables';
 
 const vars = () =>
   new Variables({ numVariables: 800, numBitVariables: 2048, numRoomVariables: 16 });
@@ -30,10 +30,22 @@ describe('Variables — globals', () => {
     expect(v.readGlobal(0)).toBe(7);
   });
 
-  it('throws on out-of-range index', () => {
-    expect(() => vars().readGlobal(-1)).toThrow(VariableError);
-    expect(() => vars().readGlobal(800)).toThrow(VariableError);
-    expect(() => vars().writeGlobal(1000, 0)).toThrow(VariableError);
+  it('returns 0 and records OOB access for out-of-range reads', () => {
+    const v = vars();
+    expect(v.readGlobal(-1)).toBe(0);
+    expect(v.readGlobal(800)).toBe(0);
+    expect(v.oobAccesses.size).toBe(2);
+    expect(v.oobAccesses.get('global:read:-1')?.count).toBe(1);
+    expect(v.oobAccesses.get('global:read:800')?.count).toBe(1);
+  });
+
+  it('silently no-ops OOB writes and counts them', () => {
+    const v = vars();
+    v.writeGlobal(1000, 42);
+    v.writeGlobal(1000, 43);
+    expect(v.oobAccesses.get('global:write:1000')?.count).toBe(2);
+    // No state change to the in-bounds part of the bank
+    expect(v.readGlobal(0)).toBe(0);
   });
 });
 
@@ -73,9 +85,12 @@ describe('Variables — bit-vars', () => {
     expect(v.readBit(1)).toBe(0);
   });
 
-  it('throws on out-of-range bit index', () => {
-    expect(() => vars().readBit(2048)).toThrow(VariableError);
-    expect(() => vars().writeBit(-1, 1)).toThrow(VariableError);
+  it('absorbs OOB bit access into oobAccesses without throwing', () => {
+    const v = vars();
+    expect(v.readBit(2048)).toBe(0);
+    v.writeBit(-1, 1);
+    expect(v.oobAccesses.get('bit:read:2048')?.count).toBe(1);
+    expect(v.oobAccesses.get('bit:write:-1')?.count).toBe(1);
   });
 });
 
@@ -88,7 +103,9 @@ describe('Variables — room-vars', () => {
     expect(v.readRoom(15)).toBe(-99);
   });
 
-  it('throws on out-of-range room var index', () => {
-    expect(() => vars().readRoom(16)).toThrow(VariableError);
+  it('absorbs OOB room-var access into oobAccesses without throwing', () => {
+    const v = vars();
+    expect(v.readRoom(16)).toBe(0);
+    expect(v.oobAccesses.get('room:read:16')?.count).toBe(1);
   });
 });

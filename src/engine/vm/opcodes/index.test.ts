@@ -65,11 +65,11 @@ describe('seed opcodes — setVar', () => {
     expect(vm.vars.readGlobal(5)).toBe(555);
   });
 
-  it('0x1A targets a local var when the dest has bit 15 set', () => {
+  it('0x1A targets a local var when the dest has bit 14 set', () => {
     const vm = makeVm();
     const slot = vm.startScript({
       scriptId: 1,
-      bytecode: bytes(0x1a, 0x03, 0x80, 0x2a, 0x00, 0x00),
+      bytecode: bytes(0x1a, 0x03, 0x40, 0x2a, 0x00, 0x00),
     });
     vm.step();
     expect(slot.locals[3]).toBe(42);
@@ -154,6 +154,98 @@ describe('seed opcodes — branches', () => {
   });
 });
 
+describe('seed opcodes — cursorCommand (0x2C)', () => {
+  it('cursorOff / userputOff subops consume no args and advance one byte', () => {
+    const vm = makeVm();
+    const slot = vm.startScript({ scriptId: 1, bytecode: bytes(0x2c, 0x02, 0x2c, 0x04, 0x00) });
+    vm.step();
+    expect(slot.pc).toBe(2);
+    expect(vm.isHalted).toBe(false);
+    vm.step();
+    expect(slot.pc).toBe(4);
+    expect(vm.isHalted).toBe(false);
+  });
+
+  it('initCharset (0x0D) consumes a direct-byte arg', () => {
+    const vm = makeVm();
+    const slot = vm.startScript({ scriptId: 1, bytecode: bytes(0x2c, 0x0d, 0x03, 0x00) });
+    vm.step();
+    expect(slot.pc).toBe(3);
+    expect(vm.isHalted).toBe(false);
+  });
+
+  it('initCharset with var-ref arg (subop bit 0x80) reads u16', () => {
+    const vm = makeVm();
+    vm.vars.writeGlobal(7, 99);
+    const slot = vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(0x2c, 0x8d, 0x07, 0x00, 0x00),
+    });
+    vm.step();
+    expect(slot.pc).toBe(4); // opcode + subop + 2-byte var-ref
+    expect(vm.isHalted).toBe(false);
+  });
+
+  it('setCursorImage (0x0A) consumes two direct-byte args', () => {
+    const vm = makeVm();
+    const slot = vm.startScript({ scriptId: 1, bytecode: bytes(0x2c, 0x0a, 0x01, 0x02) });
+    vm.step();
+    expect(slot.pc).toBe(4);
+  });
+
+  it('setCursorHotspot (0x0B) consumes three direct-byte args', () => {
+    const vm = makeVm();
+    const slot = vm.startScript({ scriptId: 1, bytecode: bytes(0x2c, 0x0b, 0x01, 0x05, 0x06) });
+    vm.step();
+    expect(slot.pc).toBe(5);
+  });
+
+  it('charsetColor (0x0E) reads a word-vararg list terminated by 0xFF', () => {
+    const vm = makeVm();
+    // colors = [0x0001, 0x0002, 0x0003], then 0xFF terminator
+    const slot = vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(
+        0x2c, 0x0e,
+        0x00, 0x01, 0x00, // marker 0x00 → direct, 0x0001
+        0x00, 0x02, 0x00,
+        0x00, 0x03, 0x00,
+        0xff,
+      ),
+    });
+    vm.step();
+    expect(slot.pc).toBe(12);
+    expect(vm.isHalted).toBe(false);
+  });
+
+  it('halts loudly on an unknown subop', () => {
+    const vm = makeVm();
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x2c, 0x1f) });
+    vm.step();
+    expect(vm.isHalted).toBe(true);
+    expect(vm.haltInfo!.reason).toMatch(/cursorCommand: unknown subop/);
+  });
+});
+
+describe('seed opcodes — expression (0xAC)', () => {
+  it('dispatches through evalExpression and writes the result to dest', () => {
+    const vm = makeVm();
+    // 0xAC, dest=0x0001, push imm 7, push imm 5, add (subop 0x02), end → var[1] = 12
+    const code = bytes(
+      0xac,
+      0x01, 0x00,
+      0x01, 0x07, 0x00,
+      0x01, 0x05, 0x00,
+      0x02,
+      0xff,
+    );
+    vm.startScript({ scriptId: 1, bytecode: code });
+    vm.step();
+    expect(vm.isHalted).toBe(false);
+    expect(vm.vars.readGlobal(1)).toBe(12);
+  });
+});
+
 describe('seed opcodes — delay', () => {
   it('0x2E consumes 3 bytes and yields the slot', () => {
     const vm = makeVm();
@@ -168,33 +260,46 @@ describe('seed opcodes — delay', () => {
 });
 
 describe('seed opcodes — boot prefix from real MI1', () => {
-  it('runs the first four setVars of MI1 boot script cleanly, then halts on cursorCommand', () => {
+  it('runs setVars + cursorCommands + first stringOps loadString of MI1 boot script cleanly', () => {
     const vm = makeVm();
-    // Verbatim opening bytes of MI1 boot script
+    // Verbatim opening bytes of MI1 boot script through the first
+    // stringOps loadString call (verb label slot 0x16, 13 chars of '@').
     const boot = bytes(
       0x1a, 0x49, 0x00, 0x00, 0x00, // setVar 0x49 = 0
       0x1a, 0x3c, 0x00, 0x00, 0x00, // setVar 0x3c = 0
       0x1a, 0x33, 0x00, 0x01, 0x00, // setVar 0x33 = 1
       0x1a, 0x06, 0x00, 0x02, 0x00, // setVar 0x06 = 2
-      0x2c, 0x02,                   // cursorCommand subop 0x02 (not implemented)
+      0x2c, 0x02,                   // cursorCommand cursorOff
+      0x2c, 0x04,                   // cursorCommand userputOff
+      0x27, 0x01, 0x16,             // stringOps loadString id=0x16 ...
+      0x40, 0x40, 0x40, 0x40, 0x40, 0x40, 0x40,
+      0x40, 0x40, 0x40, 0x40, 0x40, 0x40, 0x00, // 13 '@' chars + NUL
+      0x00,                         // stopObjectCode
     );
     vm.startScript({ scriptId: 1, bytecode: boot });
     while (!vm.isHalted) {
       const ran = vm.step();
       if (!ran) break;
     }
-    expect(vm.isHalted).toBe(true);
-    expect(vm.haltInfo!.opcode).toBe(0x2c);
+    expect(vm.isHalted).toBe(false);
     expect(vm.vars.readGlobal(0x49)).toBe(0);
     expect(vm.vars.readGlobal(0x3c)).toBe(0);
     expect(vm.vars.readGlobal(0x33)).toBe(1);
     expect(vm.vars.readGlobal(0x06)).toBe(2);
+    // 13-byte string '@@@@@@@@@@@@@' stored at id 0x16
+    const s = vm.strings.get(0x16)!;
+    expect(s).toBeDefined();
+    expect(s.length).toBe(13);
+    for (const b of s) expect(b).toBe(0x40);
     expect(vm.trace.map((e) => e.mnemonic)).toEqual([
       'setVar 0x49 = 0',
       'setVar 0x3c = 0',
       'setVar 0x33 = 1',
       'setVar 0x6 = 2',
-      '(unknown)',
+      'cursorCommand cursorOff (stub)',
+      'cursorCommand userputOff (stub)',
+      'stringOps loadString id=22 len=13',
+      'stopObjectCode',
     ]);
   });
 });

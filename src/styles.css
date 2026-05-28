@@ -823,16 +823,39 @@ code {
 }
 
 .vm-slots th,
-.vm-slots td {
+.vm-slots td,
+.vm-actors th,
+.vm-actors td {
   text-align: left;
   padding: 0.3rem 0.6rem;
   border-bottom: 1px solid var(--border);
 }
 
-.vm-slots th {
+.vm-slots th,
+.vm-actors th {
   color: var(--muted);
   font-weight: 500;
   background: #06070b;
+}
+
+.vm-actors table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+}
+
+.actor-in-current-room {
+  background: rgba(255, 200, 90, 0.05);
+}
+
+.actor-in-current-room td:first-child {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.actor-hidden {
+  opacity: 0.5;
 }
 
 .slot-row.slot-running td:nth-child(4) {
@@ -999,5 +1022,67 @@ code {
 .hex-here {
   color: var(--error);
   font-weight: 700;
+}
+
+.vm-frame {
+  margin: 0.5rem 0 1rem;
+}
+
+.vm-tick-counter {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+  align-self: center;
+}
+
+.vm-idle-banner {
+  background: #14202c;
+  border: 1px solid #2a5078;
+  border-radius: 4px;
+  padding: 0.5rem 0.75rem;
+  margin: 0.5rem 0 1rem;
+  color: #bcd6ee;
+  font-size: 0.85em;
+}
+
+.vm-frame-err {
+  color: #ffb3b3;
+  margin: 0 0 0.4rem;
+  font-size: 0.8em;
+  font-style: italic;
+}
+
+.vm-frame-meta {
+  color: var(--muted);
+  font-size: 0.8em;
+  margin: 0.4rem 0 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.vm-frame-skip-list {
+  margin: 0.25rem 0 0;
+  padding-left: 1.25rem;
+  font-size: 0.8em;
+  color: #ffd6a8;
+}
+
+.vm-frame-canvas {
+  /* CSS width/height set inline per render so the canvas displays at
+     2× the native room dimensions. Native bitmap stays in canvas
+     `width`/`height` attributes. Same approach as the room viewer's
+     room-canvas. */
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  border: 1px solid var(--border);
+  display: block;
+  background-color: #1a1a22;
+  background-image:
+    linear-gradient(45deg, #2a2a34 25%, transparent 25%),
+    linear-gradient(-45deg, #2a2a34 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #2a2a34 75%),
+    linear-gradient(-45deg, transparent 75%, #2a2a34 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
 }
 

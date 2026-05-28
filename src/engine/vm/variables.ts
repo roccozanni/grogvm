@@ -35,11 +35,28 @@ export class VariableError extends Error {
   }
 }
 
+/** Out-of-range diagnostic: which scope, which index, how often. */
+export interface OobAccess {
+  readonly scope: 'global' | 'bit' | 'room';
+  readonly index: number;
+  readonly kind: 'read' | 'write';
+  count: number;
+}
+
 export class Variables {
   readonly globals: Int32Array;
   readonly roomVars: Int32Array;
   private readonly bitBuffer: Uint8Array;
   readonly numBits: number;
+  /**
+   * Out-of-range accesses, grouped by (scope, index, kind). The original
+   * SCUMM engine had no bounds checks — shipped scripts frequently
+   * touch indices past MAXS in dead-code branches that real play
+   * never reaches (script #12 in MI1 is an example). We silently
+   * absorb these so the boot can progress, but keep a record so the
+   * inspector can surface them — never silently hide.
+   */
+  readonly oobAccesses = new Map<string, OobAccess>();
 
   constructor(opts: {
     readonly numVariables: number;
@@ -52,38 +69,41 @@ export class Variables {
     this.bitBuffer = new Uint8Array((opts.numBitVariables + 7) >>> 3);
   }
 
+  private recordOob(scope: 'global' | 'bit' | 'room', index: number, kind: 'read' | 'write'): void {
+    const key = `${scope}:${kind}:${index}`;
+    const existing = this.oobAccesses.get(key);
+    if (existing) existing.count++;
+    else this.oobAccesses.set(key, { scope, index, kind, count: 1 });
+  }
+
   readGlobal(index: number): number {
     if (index < 0 || index >= this.globals.length) {
-      throw new VariableError(
-        `global index ${index} out of range [0, ${this.globals.length})`,
-      );
+      this.recordOob('global', index, 'read');
+      return 0;
     }
     return this.globals[index]!;
   }
 
   writeGlobal(index: number, value: number): void {
     if (index < 0 || index >= this.globals.length) {
-      throw new VariableError(
-        `global index ${index} out of range [0, ${this.globals.length})`,
-      );
+      this.recordOob('global', index, 'write');
+      return;
     }
     this.globals[index] = value | 0;
   }
 
   readBit(index: number): 0 | 1 {
     if (index < 0 || index >= this.numBits) {
-      throw new VariableError(
-        `bit index ${index} out of range [0, ${this.numBits})`,
-      );
+      this.recordOob('bit', index, 'read');
+      return 0;
     }
     return ((this.bitBuffer[index >>> 3]! >>> (index & 7)) & 1) as 0 | 1;
   }
 
   writeBit(index: number, value: boolean | 0 | 1): void {
     if (index < 0 || index >= this.numBits) {
-      throw new VariableError(
-        `bit index ${index} out of range [0, ${this.numBits})`,
-      );
+      this.recordOob('bit', index, 'write');
+      return;
     }
     const byte = index >>> 3;
     const mask = 1 << (index & 7);
@@ -93,18 +113,16 @@ export class Variables {
 
   readRoom(index: number): number {
     if (index < 0 || index >= this.roomVars.length) {
-      throw new VariableError(
-        `room var ${index} out of range [0, ${this.roomVars.length})`,
-      );
+      this.recordOob('room', index, 'read');
+      return 0;
     }
     return this.roomVars[index]!;
   }
 
   writeRoom(index: number, value: number): void {
     if (index < 0 || index >= this.roomVars.length) {
-      throw new VariableError(
-        `room var ${index} out of range [0, ${this.roomVars.length})`,
-      );
+      this.recordOob('room', index, 'write');
+      return;
     }
     this.roomVars[index] = value | 0;
   }

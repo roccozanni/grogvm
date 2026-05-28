@@ -17,8 +17,10 @@
  * it to grow as we replay further.
  */
 
+import { loadCostume } from '../graphics/costume-loader';
 import type { IndexFile } from '../resources/index-file';
 import type { RoomOffsetTable } from '../resources/loff';
+import { loadRoom } from '../room/loader';
 import type { ResourceFile } from '../resources/tree';
 import { SEED_OPCODES } from './opcodes';
 import { loadGlobalScript } from './scripts';
@@ -42,6 +44,12 @@ export function bootGame(
     numVariables: Math.max(index.maxs.numVariables, 800),
     numBitVariables: Math.max(index.maxs.numBitVariables, 2048),
     handlers: SEED_OPCODES,
+    resolveGlobalScript: (id) => {
+      const s = loadGlobalScript(resourceFile, index, loff, id);
+      return { bytecode: s.bytecode, room: s.room };
+    },
+    resolveRoom: (id) => loadRoom(resourceFile, loff, id),
+    resolveCostume: (id) => loadCostume(resourceFile, index, loff, id),
   });
 
   seedEngineVariables(vm, gameId);
@@ -73,6 +81,14 @@ function seedEngineVariables(vm: Vm, gameId: GameId): void {
   // Charset id — 0 by default; the boot script will normally call
   // setCharset(N) to change it.
   vm.vars.writeGlobal(VAR_CHARSET, 0);
+
+  // MI1 copy-protection: script #176 reads var[0x4a] (= "track-b-size",
+  // the size of audio track 2 on the original CD) and quits if it's
+  // outside [1200, 1250]. We don't have a CD, so we seed a known-good
+  // value. The original CD's track 2 was ~1225 sectors.
+  if (gameId === 'MI1') {
+    vm.vars.writeGlobal(VAR_MI1_TRACK_B_SIZE, 1225);
+  }
 }
 
 // The exact var indices vary slightly between v5 games; these are the
@@ -83,3 +99,5 @@ const VAR_SCREEN_WIDTH = 17;
 const VAR_SCREEN_HEIGHT = 18;
 const VAR_GAME_ID = 19;
 const VAR_CHARSET = 21;
+/** MI1-specific: CD audio track 2 size in sectors. Used by script #176 copy protection. */
+const VAR_MI1_TRACK_B_SIZE = 0x4a;

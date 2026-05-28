@@ -31,6 +31,9 @@
  * - No save/restore — Phase 8.
  */
 
+import { ActorTable, DEFAULT_ACTOR_COUNT } from '../actor/actor';
+import type { LoadedCostume } from '../graphics/costume-loader';
+import type { LoadedRoom } from '../room/loader';
 import { ScriptSlot } from './slot';
 import { Variables } from './variables';
 
@@ -72,16 +75,105 @@ export type OpcodeHandler = (vm: Vm, slot: ScriptSlot, opcode: number) => void;
 export const NUM_SLOTS = 25;
 const TRACE_CAPACITY = 64;
 
+/** Resolve a global script id to its loaded bytecode + owning room. */
+export type GlobalScriptResolver = (
+  scriptId: number,
+) => { readonly bytecode: Uint8Array; readonly room: number };
+
+/**
+ * Decode a room id to a fully-loaded room (background bitmap, palette,
+ * z-planes, ENCD/EXCD bytecode). Throws on unknown room ids — the
+ * VM's `loadRoom` opcode handler catches that and clears the room.
+ */
+export type RoomResolver = (roomId: number) => LoadedRoom;
+
+/**
+ * Decode a costume id to its parsed header + payload. Throws on
+ * unknown ids; the VM caches successful results so each costume is
+ * only decoded once per session.
+ */
+export type CostumeResolver = (costumeId: number) => LoadedCostume;
+
 export interface VmInit {
   readonly numVariables: number;
   readonly numBitVariables: number;
   readonly numRoomVariables?: number;
   readonly handlers: ReadonlyMap<number, OpcodeHandler>;
+  /**
+   * Resolver for the `startScript` family of opcodes. Optional in
+   * tests that don't exercise script start; the real boot path wires
+   * it via {@link bootGame}.
+   */
+  readonly resolveGlobalScript?: GlobalScriptResolver;
+  /**
+   * Resolver for `loadRoom` (0x72 / 0xF2). Optional in tests that
+   * don't exercise room loading. When absent, the opcode handler
+   * still updates `vm.currentRoom` + `VAR_ROOM` but leaves
+   * `loadedRoom` as `null`.
+   */
+  readonly resolveRoom?: RoomResolver;
+  /**
+   * Resolver for actor costumes. Called lazily by
+   * {@link Vm.getCostume}; loaded costumes are cached on the VM so
+   * each id is only decoded once.
+   */
+  readonly resolveCostume?: CostumeResolver;
 }
 
 export class Vm {
   readonly vars: Variables;
   readonly slots: ReadonlyArray<ScriptSlot>;
+  /**
+   * Engine string resources, keyed by id. Created and mutated by the
+   * `stringOps` (0x27) opcode family; consumed by text-output opcodes
+   * once they land. Empty until a script writes.
+   */
+  readonly strings = new Map<number, Uint8Array>();
+  /**
+   * Per-object state byte (0..255). Scripts read with `getObjectState`
+   * / `ifState` and write with `setState`. Object state determines
+   * which OBIM image variant gets composited and which entry of an
+   * object's verb-script bank runs on use.
+   */
+  readonly objectStates = new Map<number, number>();
+  /**
+   * Per-object owner — actor id that "has" the object (typically
+   * because the player picked it up). 0 = nobody (still in the room).
+   */
+  readonly objectOwners = new Map<number, number>();
+  /**
+   * Currently-loaded room id (per the VM's view). Set by `loadRoom`
+   * (0x72/0xF2) and related opcodes; consumed by the room-render path
+   * once the compositor lands. Zero = no room yet.
+   */
+  currentRoom = 0;
+  /**
+   * Fully-decoded data for the current room — background bitmap,
+   * palette, z-planes, ENCD/EXCD bytecode. `null` until the first
+   * successful `loadRoom`, and any time the script loads the room-0
+   * sentinel ("no room").
+   */
+  loadedRoom: LoadedRoom | null = null;
+  /**
+   * Last room-load error message (if any). Surfaced by the inspector
+   * when a `loadRoom` opcode fires for a room the loader can't decode
+   * (room id 0, missing block, etc.) — we don't halt for these.
+   */
+  lastRoomLoadError: string | null = null;
+  /**
+   * Actor table — fixed-size, indexed by id with slot 0 as sentinel.
+   * Mutated by putActor / actorOps / animateActor / walk opcodes; read
+   * by the frame compositor and the inspector.
+   */
+  readonly actors = new ActorTable(DEFAULT_ACTOR_COUNT);
+  /**
+   * Decoded costumes loaded on demand. Keyed by costume id. Populated
+   * by {@link Vm.getCostume}; surfaces in the inspector / compositor.
+   */
+  readonly costumes = new Map<number, LoadedCostume>();
+  readonly resolveGlobalScript: GlobalScriptResolver | undefined;
+  readonly resolveRoom: RoomResolver | undefined;
+  readonly resolveCostume: CostumeResolver | undefined;
   private readonly handlers: ReadonlyMap<number, OpcodeHandler>;
   private readonly traceBuffer: (TraceEntry | undefined)[] = new Array(
     TRACE_CAPACITY,
@@ -102,6 +194,31 @@ export class Vm {
     });
     this.slots = Array.from({ length: NUM_SLOTS }, (_, i) => new ScriptSlot(i));
     this.handlers = init.handlers;
+    this.resolveGlobalScript = init.resolveGlobalScript;
+    this.resolveRoom = init.resolveRoom;
+    this.resolveCostume = init.resolveCostume;
+  }
+
+  /**
+   * Resolve a costume id to its parsed data, using the cache. Returns
+   * `null` for id 0 (sentinel), if no resolver was provided, or if
+   * the resolver throws. Safe to call from the compositor for every
+   * actor every frame — the cache makes it O(1) after first load.
+   */
+  getCostume(id: number): LoadedCostume | null {
+    if (id <= 0) return null;
+    const cached = this.costumes.get(id);
+    if (cached) return cached;
+    if (!this.resolveCostume) return null;
+    try {
+      const loaded = this.resolveCostume(id);
+      this.costumes.set(id, loaded);
+      return loaded;
+    } catch {
+      // Costume id present in DCOS but undecodable — return null so
+      // the compositor skips this actor rather than halting.
+      return null;
+    }
   }
 
   get haltInfo(): HaltInfo | null {
@@ -233,6 +350,14 @@ export class Vm {
     this.traceHead = 0;
     this.traceCount = 0;
     this._haltInfo = null;
+    this.strings.clear();
+    this.objectStates.clear();
+    this.objectOwners.clear();
+    this.currentRoom = 0;
+    this.loadedRoom = null;
+    this.lastRoomLoadError = null;
+    this.actors.reset();
+    this.costumes.clear();
   }
 
   /** Set the human label for the *next* trace entry (called from a handler). */

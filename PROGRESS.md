@@ -11,7 +11,457 @@ detail the next phase here.
 
 ## Status
 
-**Phase 5 complete.** Phase 6 (enough opcodes to walk) is up next.
+**Phase 6: title-screen idle state reached.** Boot runs end-to-end
+through 3500+ opcodes across 11 scripts; the room loader, costume
+cache, actor table, and frame compositor are all live. The VM
+inspector renders the current room and any actors via `composeFrame`,
+auto-paces ticks with a rAF Play/Pause loop, and self-pauses on idle
+steady state. The boot itself doesn't reach a visible game room
+without verb-click input — that gate is Phase 7. Remaining Phase 6
+work: walk stepping, OBIM rendering, the costume-anim decoder, and
+grid pathfinding.
+
+---
+
+## Active phase — Phase 6: enough opcodes to walk
+
+### Goal
+
+Get the MI1 boot script all the way through to the **first
+interactive room** — title sequence dispatched, room loaded with its
+background / palette / Z-planes / entry script, Guybrush composited in
+his starting position. No click-to-walk yet (Phase 7); walking is
+script-driven only via `walkActorTo`.
+
+Major systems standing up in this phase:
+
+- **Expression evaluator** for opcode `0xAC` (a small stack-based
+  mini-language used heavily in v5 scripts).
+- **Actor subsystem** — N actor slots holding costume, position,
+  anim state, facing, talk color.
+- **Costume animation playback** — anim-record decoding deferred
+  from Phase 3 lands here; actors cycle frames per command stream.
+- **Room loader** — `loadRoom` decodes a new room's SMAP / CLUT /
+  TRNS / Z-planes, runs ENCD entry script, kills room-scoped slots.
+- **Frame compositor** — assembles room bg → objects → actors
+  (Z-clipped) → text into the framebuffer per tick.
+- **Main loop** — `requestAnimationFrame`-driven, fixed engine-tick
+  cadence; replaces the inspector's "Run tick" as the primary
+  driver and lets actors animate over time.
+- **Pathfinding** — grid stand-in (A* over a walkable mask flattened
+  from `BOXD`), behind an `actor.walkTo(x, y)` API that Phase 6.5+
+  can swap to native box-based without changing call sites.
+
+Opcode growth stays **demand-driven**: implement the next opcode the
+running script halts on, write its test, expand. Same loop as Phase 5.
+
+### Definition of done
+
+- Clicking **Boot** then **Play** in the player progresses the MI1
+  boot script through every opcode it issues, ends in the first
+  interactive room, and renders one full frame of that room with
+  Guybrush composited in (no movement required — just standing).
+- Inspector keeps its full Phase-5 surface plus: a Play / Pause
+  control on the main loop, an actor table (id, name, room, pos,
+  costume, facing, anim frame), the current-room indicator, the FPS
+  / tick-count counter.
+- Anim-record playback proven: actors cycle through their idle
+  animation frames at the original cadence.
+- `walkActorTo` proven: a script-issued walk moves the actor smoothly
+  along the path; reaching the destination flips `isActorMoving` to
+  false.
+- Grid pathfinding proven: a walk between two points on opposite
+  sides of an obstacle (derived from the room's walk boxes) routes
+  around it.
+- `npm run typecheck` clean, full test suite green, no `console.log`
+  diagnostics left behind.
+
+### Tasks
+
+Listed in foundations-first order. Several blocks can be progressed
+in parallel; opcode growth blocks the others *only* when an opcode
+actually needs them.
+
+**Expression evaluator — `src/engine/vm/expression.ts`** *(done)*
+
+- [x] Decode opcode `0xAC expression`: u16 dest var-ref, then a
+      mini-VM bytecode stream until `0xFF` terminator
+- [x] Subops use SCUMM v5's `subop & 0x1F` action + bit 7 for value
+      mode: `0x01` push value (immediate or var-ref), `0x02` add,
+      `0x03` sub, `0x04` mul, `0x05` div, `0x06` nested-opcode
+      (throws — not needed by MI1 boot)
+- [x] Result written to dest at terminator
+- [x] `expression.test.ts` (15) — every operator, var deref, nested
+      arithmetic, divide-by-zero, error paths
+- [x] Wired into the main dispatcher; verified end-to-end against
+      the real MI1 boot expression at PC 0x651 (computes
+      `var[0x25] = 9 - var[0x72]` cleanly)
+
+**Costume anim records — `src/engine/graphics/costume-anim.ts`** *(deliberate stub)*
+
+The per-limb anim record format is not yet decoded — Section 3.6 of
+`docs/SCUMM-V5-COST.md` documents the intended layout but decoding
+real MI1 records produces inconsistent byte-count totals (1-limb
+anims overshoot by 1 byte; multi-limb anims match). Without a way
+to drive a script-issued animation and visually compare frames, we
+can't disambiguate candidate decoders. See
+`docs/SCUMM-V5-COSTUME-ANIM.md` for the spike notes.
+
+- [x] `AnimState` struct: animId + per-limb frame index + per-limb
+      tick counter
+- [x] `createAnimState`, `currentLimbFrame`, `startAnim`, `stepAnim`
+      stubs returning frame 0 for every limb (static "init pose")
+- [x] `costume-anim.test.ts` (5) covers the stub surface
+- [x] `docs/SCUMM-V5-COSTUME-ANIM.md` — empirical findings, two
+      candidate layouts, plan for validation when actor anim playback
+      can be visually diffed
+
+Real decoder lands when the main loop is driving actors through walk
+animations and the visual reference is available.
+
+**Actor subsystem — `src/engine/actor/`** *(done)*
+
+- [x] `Actor` struct: id, room, x, y, costume id, facing (N/S/E/W),
+      anim state, walk target/path/idx, walk speed (x and y),
+      talk color, scale, visible flag, elevation, ignoreBoxes
+- [x] `ActorTable` — fixed-size array indexed by id with slot 0 as
+      sentinel; `get`, `all`, `inRoom`
+- [x] `putActor` / `setActorCostume` helpers — match SCUMM opcode
+      semantics (cancel walks, reset anim on costume change)
+- [x] `actor.test.ts` (8) — defaults, putActor, costume reset, table
+      bounds, `inRoom` filtering, sentinel slot
+
+**Room state + loader — `src/engine/room/loader.ts`** *(done)*
+
+- [x] `LoadedRoom` struct: id, width, height, palette (CLUT), TRNS
+      index, background framebuffer (indexed), z-planes, ENCD/EXCD
+      bytecode (walk-box data deferred to pathfinding sub-phase)
+- [x] `loadRoom(file, loff, roomId)` — resolves via LOFF, decodes
+      SMAP/CLUT/TRNS/RMIH/ZP## via the existing Phase 2/3 decoders,
+      captures ENCD/EXCD payloads
+- [x] `RoomLoadError` for room 0 sentinel, unknown id, bad LOFF
+      offset, decoder failures
+- [x] `loader.test.ts` (7) — synthetic LECF/LFLF/ROOM fixtures: minimal
+      room, ENCD/EXCD capture, unknown id, room 0, roundtrip, bad
+      LOFF offset, decoder-error wrapping
+- [x] VM wired via `resolveRoom` callback; `vm.loadedRoom` /
+      `vm.lastRoomLoadError` surfaced for the inspector
+- [ ] Room-entry hooks — kill room-scoped slots, run previous EXCD,
+      run new ENCD. Deferred: needs to interleave with the slot
+      scheduling, lands with the walk/pathfinding sub-phase.
+
+**Frame compositor — `src/engine/render/compositor.ts`** *(done)*
+
+- [x] `composeFrame({room, framebuffer, actors?, getCostume?})` —
+      copies room.indexed into the framebuffer, then iterates actors
+      in id ascending order and calls `compositeActor` per limb
+- [x] Per-actor pipeline: resolve costume (via `getCostume`), iterate
+      `limbOffsets`, read each limb's frame ptr from the frame table,
+      `decodeCostumeFrame` then `compositeActor` with room z-planes
+- [x] Z default: `actorZ = room.zPlanes.length` so actors are in front
+      of every plane by default; walk-box-derived Z lands later
+- [x] `ComposeFrameResult` returns `actorsDrawn`, `skippedActors`,
+      `skippedLimbs` so the inspector can surface diagnostic
+      messages when an actor doesn't draw (costume not loadable, all
+      limbs hit sentinel frame ptrs, decode throws, …)
+- [x] `compositor.test.ts` (14) — null room, bg copy, idempotency,
+      size mismatch, single-actor draw, invisible / costume=0 skips,
+      `getCostume → null`, all-sentinel limbs, decode failure,
+      id-order layering
+
+**Walking — `src/engine/actor/walk.ts`**
+
+- [ ] `startWalk(actor, targetX, targetY, path)` — store the planned
+      path on the actor; flip `isMoving = true`
+- [ ] `stepWalk(actor, ticksElapsed)` — advance the actor along the
+      current path segment by `walkSpeed` units; when a segment ends
+      pop the next; clear `isMoving` on path end
+- [ ] Animation hook: pick the walk anim id while moving, idle anim
+      when not; face direction derived from path tangent
+- [ ] `walk.test.ts` — straight path, multi-segment path, very short
+      step, arrival precision, facing follows tangent
+
+**Pathfinding — `src/engine/pathfinding/grid.ts`**
+
+- [ ] `buildWalkableMask(boxes, width, height)` — rasterise the room's
+      walk-box polygons into a binary mask at 1 pixel per cell
+- [ ] `findPath(mask, ax, ay, bx, by)` — A* over 8-connectivity,
+      Manhattan heuristic; returns a list of `(x, y)` waypoints
+      simplified to corner turns (no per-pixel zigzag)
+- [ ] Fallback: if no path found, return a direct line and log a
+      diagnostic (we surface this in the inspector)
+- [ ] `grid.test.ts` — open room (path = endpoints), single
+      rectangular obstacle (path routes around), unreachable target
+
+**Main loop — `src/engine/loop.ts`**
+
+- [ ] `Engine` class: owns `Vm`, `ActorTable`, `LoadedRoom`,
+      `Renderer`, `framebuffer`
+- [ ] `tick()` — one engine tick: drain input → resume yielded slots
+      → `vm.runUntilAllYield()` → step walking actors → step actor
+      animation → compose frame → present
+- [ ] `start()` — rAF loop calling `tick()` at the target tick rate
+      (60Hz target, fixed time step with catch-up cap)
+- [ ] `pause()` / `stop()` / `step()` (single-tick) for the inspector
+- [ ] `loop.test.ts` — N synthetic ticks under a `MemoryRenderer`,
+      assert framebuffer mutates per tick and `vm.trace` grows
+
+**Opcode growth — `src/engine/vm/opcodes/`** *(boot now completes 3500+ opcodes with no halt)*
+
+Implemented this session (demand-driven from real MI1 boot halts):
+
+- [x] `0xAC` expression — wires the §expression evaluator
+- [x] `0x2C` cursorCommand — multi-subop (cursor on/off, userput,
+      setCursorImage, setCursorHotspot, initCursor, initCharset,
+      charsetColor list)
+- [x] `0x27` stringOps — loadString, copyString, setStringChar,
+      getStringChar, createString
+- [x] `0x0C` resourceRoutines — load/nuke/lock/unlock {script, sound,
+      costume, room}, loadCharset, clearHeap, loadFlObject (all
+      silent stubs — resources are mapped into memory at boot)
+- [x] `0x26` / `0xA6` setVarRange — contiguous run of inline literals
+- [x] `0x0A`/`0x2A`/`0x4A`/`0x6A`/`0x8A`/`0xAA`/`0xCA`/`0xEA` startScript
+      — with `resolveGlobalScript` callback on the VM; wired by `bootGame`
+- [x] `0x33`/`0x73`/`0xB3`/`0xF3` roomOps — roomScroll, setScreen,
+      setPalColor, shakeOn/Off, roomIntensity, saveLoad, screenEffect,
+      setRGBRoomIntensity, save/loadString (stubs)
+- [x] `0xCC` pseudoRoom — id + sequence of byte aliases
+- [x] `0x07`/`0x47`/`0x87`/`0xC7` setState — writes to `vm.objectStates`
+- [x] `0x05`/`0x25`/…/`0xE5` drawObject — subop loop terminator 0xFF;
+      `setAt`, `setImage`, default (subop action 0 as silent no-op)
+- [x] `0x06` / `0x86` getActorElevation — reads from `vm.actors`
+- [x] `0x03` / `0x83` getActorRoom — reads from `vm.actors`
+- [x] `0x7A` / `0xFA` verbOps — full subop set (image, name, color,
+      hicolor, at, on/off, delete, new, dimColor, dim, key, center,
+      nameStr, assignObj, backColor) — Phase 7 lights them up
+- [x] `0x13`/`0x53`/`0x93`/`0xD3` actorOps — full v5 subop set wired
+      into the actor table: setCostume, setWalkSpeed, init, setElevation,
+      setTalkColor, setActorName (logged), setScale, setIgnoreBoxes/
+      setFollowBoxes. The visual-only subops (frames, animSpeed,
+      shadow) consume their args but defer the side effect to the
+      costume-anim decoder
+- [x] `0x0D`/`0x2D`/…/`0xED` walkActorToActor — sets `walkTarget` to
+      the other actor's pos + flips `isMoving=true`. Distance arg is
+      `[8]` direct (no mode bit) per the wiki.
+- [x] `0x1E`/`0x3E`/…/`0xFE` walkActorTo — sets `walkTarget=(x,y)`,
+      `isMoving=true`. Pathfinding lands later.
+- [x] `0x01`/`0x21`/…/`0xE1` putActor — sets actor.x/y, room =
+      `vm.currentRoom`, cancels any in-flight walk
+- [x] `0x11` / `0x91` animateActor — sets `actor.anim` via the
+      costume-anim stub's `startAnim`
+- [x] `0x12`/`0x92` panCameraTo, `0x32`/`0xB2` setCameraAt,
+      `0x52`/`0xD2` actorFollowCamera — stubs
+- [x] `0x14` / `0x94` print, `0xD8` printEgo — subop loop with
+      `at`, `color`, `clipped`, `center`, `left`, `overhead`,
+      `voice`, `text` (NUL-terminated; SCUMM `0xFF NN [args]` control
+      codes consumed correctly inside the string)
+- [x] `0x16` / `0x96` getRandomNumber — Math.random-based for now;
+      Phase 8 swaps in seedable PRNG for save states
+- [x] `0x72` / `0xF2` loadRoom — sets `vm.currentRoom` and
+      `VAR_ROOM` (global #4)
+- [x] `0x98` systemOps — restart/pause/quit (silent stubs)
+- [x] `0x40` cutscene + `0xC0` endCutscene
+- [x] `0x60` / `0xE0` freezeScripts
+- [x] `0x68` / `0xE8` isScriptRunning
+- [x] `0x58` beginOverride / endOverride (single-byte flag)
+- [x] `0x1C` / `0x9C` startSound, `0x3C` / `0xBC` stopSound,
+      `0x02` / `0x82` startMusic, `0x20` stopMusic — all silent stubs
+
+**Comparison opcodes — semantics corrected per wiki** *(important bug fix this session)*
+
+The wiki gives the canonical form `unless (value OP var) goto target`
+for the six comparison opcodes. My initial Phase 5 implementation
+had the inequality forms inverted, which manifested as a runaway loop
+in MI1's title-menu setup script (#177). All six (`0x04`, `0x08`,
+`0x38`, `0x44`, `0x48`, `0x78`) now jump when the named relation
+is FALSE — i.e., the body that follows runs when the relation holds.
+End-to-end verified: script #177's nested verb-setup loops terminate
+correctly, and the case-switch chain in script #12 takes the right
+branches.
+
+**Var-ref scope bits — corrected per wiki**
+
+The v5 var-ref encoding uses `0x8000` for **bit-vars** and `0x4000`
+for **locals** (my Phase 5 impl had these swapped). Indexed/array
+refs (`0x2000` set) now resolve correctly — the next word supplies
+an offset added to the base index. Updated `derefRead` / `writeRef`
+/ `readDestRef` / `readVarRef` to handle all four scopes and the
+indexed extension uniformly.
+
+**Out-of-range var access — leniency with diagnostics**
+
+MI1 ships with dead-code paths that write to vars past `MAXS`
+(e.g. script #12 fall-through writes to global #1542). The original
+SCUMM engine had no bounds checks; ScummVM crashes via `checkRange`.
+We split the difference: OOB reads return 0, OOB writes are
+swallowed, and every access is recorded on `vars.oobAccesses` so the
+inspector can surface them. Keeps the engine progressing through dead
+branches without losing visibility (per the
+[[feedback-keep-debug-ui]] guideline).
+
+**Copy-protection seed**
+
+MI1's script #176 reads `var[0x4a]` (the size of audio track 2 on
+the original CD) and quits if it's outside `[1200, 1250]`. We seed
+1225 (a valid value) in `bootGame` so the boot progresses past the
+check; documented inline.
+
+**Actor table wired to the Vm**
+
+`vm.actors` (sized to `DEFAULT_ACTOR_COUNT = 13` slots) is the
+canonical actor state. Every actor-touching opcode now writes through
+it; the inspector + compositor read from it. `ActorTable.reset()`
+clears all slots on Vm reset. Actor 0 is the sentinel; opcodes that
+pass id 0 are no-ops via `actorOrNull()` rather than crashes.
+
+**Costume cache + resolver — `src/engine/graphics/costume-loader.ts`**
+
+- [x] `loadCostume(file, index, loff, id)` — resolves DCOS → owning
+      room → LOFF → COST block, parses the header, returns
+      `LoadedCostume { id, header, payload }`. `CostumeLoadError` on
+      id 0 / out of range / unused DCOS slot / bad offset / parse
+      failure.
+- [x] `costume-loader.test.ts` (4) — synthetic .000+.001 pair, happy
+      path, id 0, out-of-range, unused slot
+- [x] VM caches loaded costumes in `vm.costumes` (Map<id,
+      LoadedCostume>). `vm.getCostume(id)` is the lazy public API:
+      returns the cached entry, or invokes `resolveCostume` and
+      caches, or returns null on any failure. Safe to call every
+      frame from the compositor.
+- [x] `bootGame` wires `resolveCostume = id => loadCostume(...)`.
+
+**Status: Phase 6 is *functional* at the title-screen wait state.**
+Boot now runs end-to-end without halt, 3500+ opcodes across 11 live
+scripts. The boot script dies cleanly; only MI1's two "title-screen
+tick" scripts (#23 wait-for-input loop, #159 random-number idle
+timer) remain yielded. The frame compositor renders the room
+background plus any actor placed in the current room (the boot
+itself doesn't place Guybrush in a visible room — that's gated on
+the verb-click handler we haven't built — but the VM frame view +
+`__vm` console hook let the user manually place Guybrush and see
+him composited correctly).
+
+Reaching the *real* first interactive room (post-cutscene game
+state) still depends on Phase 7: verb UI + click input.
+
+The remaining Phase 6 sub-tasks are now scoped:
+
+- **Walk stepping** — `walkActorTo*` already sets `walkTarget` +
+  `isMoving`; needs a per-tick step toward target by `walkSpeed`.
+  Straight-line first; pathfinding comes after.
+- **Costume anim decoder** — every limb currently shows frame 0
+  (per the spike doc `docs/SCUMM-V5-COSTUME-ANIM.md`). With the
+  main loop + visible compositor we can now visually validate
+  candidate decoders against the running game, which is what the
+  spike was waiting for.
+- **OBIM/object rendering** — `drawObject` is wired through the
+  bytecode but doesn't draw. Implementing it would make the title
+  menu actually appear (verbs are drawn via verbOps over OBIM).
+- **Pathfinding (grid A*)** — depends on walk-box parsing
+  (BOXD/BOXM) plus the walk-step framework.
+
+**Inspector additions — `src/shell/player/`** *(mostly done)*
+
+- [x] **VM frame canvas** — renders `composeFrame(vm.loadedRoom, …)`
+      live on each repaint, 2× CSS-scaled with checkerboard backdrop
+      for TRNS-transparent pixels. Caption shows
+      `N/M actor(s) drawn (ids: …)` and an expandable list of
+      skipped actors/limbs with reasons.
+- [x] **Play / Pause** button on the controls bar; rAF-driven main
+      loop (one engine tick per animation frame ≈ 60 Hz). Auto-pauses
+      on halt OR on idle steady state (the same yield-boundary
+      fingerprint for 10 consecutive ticks — MI1's script #23 and
+      #159 idle loop), surfacing an "Auto-paused — engine in idle
+      wait loop" banner with the live script ids.
+- [x] **Run to idle** button — loops Run tick until steady state or
+      100-tick cap. Replaces the "click Run tick 6 times" friction
+      that hit because the boot doesn't unwind in a single tick.
+- [x] **Tick counter** at the right end of the controls bar, reset
+      by Boot/Reset.
+- [x] **Actor table** section: every populated actor with id, room,
+      pos, costume, anim id, facing, scale, isMoving + walkTarget.
+      Current-room actors get an accent border. The walking-path
+      overlay button still belongs to Phase 7.
+- [x] `__vm` global hook — when the inspector boots, the live `Vm`
+      is stashed on `globalThis.__vm` so the browser console can
+      poke at engine state (place actors manually, dump tables, …).
+      Cleared on Reset.
+- [ ] **Current room indicator** in the room-viewer header (cross-
+      reference with the existing block-tree browser) — small
+      polish item, defer until it's clearly useful.
+- [ ] **FPS counter** in the controls bar — defer; rAF rate is the
+      target, not a measurement we need to surface yet.
+- [ ] **Path overlay** for active walks — needs the walk-step
+      sub-phase to land first.
+
+**Tests**
+
+Per-module tests listed in each section above. Plus:
+
+- [ ] End-to-end boot smoke: spin up `Engine` against a `MemoryRenderer`,
+      run N ticks, assert we reach "first room loaded" or hit a known
+      halt with a useful diagnostic
+- [ ] No assertion regression in any earlier test (sanity)
+
+### Design notes (committing now; revisit if real data disagrees)
+
+- **Demand-driven opcode growth continues.** Same loop as Phase 5:
+  the next opcode the boot halts on is the next we implement. The
+  anticipated list above is informed by what we know about MI1 boot
+  but isn't a contract — actual order ships as scripts surface.
+- **Main loop tick rate is a tuning parameter.** Start at 60Hz with
+  a fixed time step (`requestAnimationFrame` drives `tick()` at the
+  display rate; the engine runs N ticks per rAF if behind, capped to
+  avoid catch-up storms). Architectural decision in Q3 of
+  ARCHITECTURE.md §11.
+- **Pathfinding is grid-based for Phase 6.** ARCHITECTURE.md Q1
+  status — grid A* over a walkable mask flattened from BOXD. Behind
+  the `actor.walkTo(x, y)` API so the native box-based version can
+  swap in later without touching call sites. Walk boxes are still
+  parsed (we need them to derive the mask) but not used as a graph.
+- **Actor table is fixed-size.** MAXS-bounded count, allocated up
+  front. Actors 0..N use slot index directly (SCUMM convention —
+  actor 0 is the "no actor" sentinel; actor 1 is typically Guybrush).
+- **Anim records play per-limb.** Each anim has a per-limb command
+  stream; advancing the actor's anim means advancing each limb's
+  pointer through its stream. The compositor reads each limb's
+  current frame index to composite. Idle anims tend to be very short
+  loops (1–4 frames); walk anims are longer.
+- **Cursor / sound / music opcodes are no-op stubs.** They consume
+  their parameters and advance PC but don't change engine state.
+  Documented as stubs; loud halts only fire on opcodes we genuinely
+  haven't seen yet. Sound and music lift to real implementations in
+  Phase 9.
+- **Room loading is synchronous from the script's perspective.** The
+  `loadRoom` opcode does *not* yield — it decodes everything inline
+  and returns. Subsequent script execution sees the new room
+  immediately. Matches what we observe from descumm's output.
+- **Engine vars: still on-demand seeding.** When the boot reads an
+  uninitialised global, the inspector trace will surface it, we add
+  the seed, repeat. Don't over-pre-populate.
+- **Inspector "Run tick" stays.** Even with the main loop available,
+  the manual tick driver is useful for debugging — the user can
+  pause the rAF loop and step one tick at a time without rebuilding
+  loop state.
+
+### Out of scope
+
+- **Click-to-walk and verb UI** — Phase 7.
+- **Object verb scripts (OBCD/VERB execution)** — Phase 7.
+- **Native box-based pathfinding** — possibly a Phase 6.5 follow-up,
+  more likely Phase 7 alongside hover/click which rely on
+  walk-box-derived areas anyway.
+- **Real audio** — sound opcodes stub silently. iMUSE + AdLib +
+  CD redbook are Phase 9.
+- **Save / restore VM + room + actor state** — Phase 8.
+- **Palette cycling and fades** — Phase 6 stubs roomOps subops; full
+  cycling + fade-to/from lands when MI1 actually needs them
+  visually.
+- **MI2 verification** — engine is same so it *should* work; Phase 10
+  handles divergences if any surface.
+- **Walk-box-derived "current actor scale" (SCAL)** — actor scaling
+  by Y position is a polish item; defer until we see scripts call
+  for it (likely Phase 7 or 8).
 
 ---
 
@@ -21,7 +471,6 @@ Kept intentionally undetailed. We'll break each into tasks when we start
 it. Order and scope may shift as we learn the territory — see
 ARCHITECTURE.md §9 for the original outline.
 
-- **Phase 6 — Enough opcodes to walk.** Reach the SCUMM Bar.
 - **Phase 7 — Verb UI + input.** Click-to-walk, look-at, pick-up.
 - **Phase 8 — Save states.**
 - **Phase 9 — Audio.** iMUSE + AdLib first; MT-32 and CD redbook later.
