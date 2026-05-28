@@ -31,6 +31,8 @@ import { findChild, payloadOf, type ResourceFile } from '../resources/tree';
 import { decodeRoom, walkRooms, type DecodedRoom } from '../graphics/room';
 import { decodeZPlanes, type DecodedZPlane } from '../graphics/zplane';
 import { parseRoomObjects, type LoadedObject } from '../object/loader';
+import { parseWalkBoxes, type WalkBox } from '../pathfinding/boxes';
+import { buildWalkableMask } from '../pathfinding/mask';
 import type { RoomOffsetTable } from '../resources/loff';
 
 export class RoomLoadError extends Error {
@@ -73,6 +75,21 @@ export interface LoadedRoom {
    * frame.
    */
   readonly objects: ReadonlyMap<number, LoadedObject>;
+  /**
+   * Walk boxes for pathfinding. Empty array when the room has no
+   * BOXD (some title / cutscene rooms don't). The pathfinder
+   * rasterises the union of visible boxes into a walkable mask;
+   * the original engine's box-graph pathfinder via BOXM is a
+   * future optimisation.
+   */
+  readonly walkBoxes: ReadonlyArray<WalkBox>;
+  /**
+   * Cached walkable-pixel mask — `width × height` bytes, 1 =
+   * walkable, 0 = blocked. Built once at room-load time from
+   * `walkBoxes`. Empty when the room has no walk boxes (so
+   * straight-line walks are still possible everywhere).
+   */
+  readonly walkableMask: Uint8Array;
 }
 
 /**
@@ -136,6 +153,22 @@ export function loadRoom(
 
   const objects = parseRoomObjects(file, roomBlock);
 
+  // BOXD is optional — title / cutscene rooms can omit it. We
+  // default to an empty list rather than throw so the loader
+  // remains usable for those rooms.
+  const boxdBlock = findChild(roomBlock, 'BOXD');
+  const walkBoxes = boxdBlock
+    ? parseWalkBoxes(payloadOf(file, boxdBlock))
+    : [];
+  // The mask is cheap to rasterise (a few hundred μs at most) and
+  // gets queried by every pathfinding call, so we build it once at
+  // room-load time and stash it. Empty array → empty mask (which is
+  // fine — rooms without walk boxes don't expect pathfinding).
+  const walkableMask =
+    walkBoxes.length > 0
+      ? buildWalkableMask(walkBoxes, decoded.width, decoded.height)
+      : new Uint8Array(0);
+
   return {
     id: roomId,
     width: decoded.width,
@@ -150,6 +183,8 @@ export function loadRoom(
     exitScript: excdBlock ? new Uint8Array(payloadOf(file, excdBlock)) : null,
     localScripts,
     objects,
+    walkBoxes,
+    walkableMask,
   };
 }
 

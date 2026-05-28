@@ -22,6 +22,8 @@ function makeRoom(width: number, height: number, fill: number): LoadedRoom {
     exitScript: null,
     localScripts: new Map(),
     objects: new Map(),
+    walkBoxes: [],
+    walkableMask: new Uint8Array(0),
   };
 }
 

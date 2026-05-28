@@ -1,59 +1,59 @@
 /**
- * Straight-line walk stepping for actors.
+ * Walk stepping for actors. Each `stepWalk(actor)` advances the actor
+ * one engine tick along its current path:
  *
- * Each `stepWalk(actor)` call advances the actor toward its current
- * `walkTarget` by the per-actor `walkSpeedX` / `walkSpeedY` (default
- * 8 horizontal, 2 vertical — the SCUMM v5 default). Clamps the step
- * to the remaining distance so we never overshoot, snaps to the exact
- * target on arrival, and clears `walkTarget` + `isMoving` so the
- * actor stops cleanly.
+ * - If `walkPath` is non-empty: aim at `walkPath[walkPathIdx]`. When
+ *   the waypoint is reached, bump the index. When all waypoints are
+ *   exhausted, the actor is at the final target — flip `isMoving`
+ *   off.
+ *
+ * - If `walkPath` is empty but `walkTarget` is set: walk straight
+ *   toward the target (no pathfinding). This is the fallback the
+ *   walkActorTo opcodes use when the room has no walk boxes.
+ *
+ * Step magnitude is `walkSpeedX` × `walkSpeedY` (SCUMM defaults 8/2
+ * — horizontal-biased to match the original engine's perspective
+ * convention), clamped so we never overshoot the active waypoint.
  *
  * Facing follows the dominant component of *this tick's* movement —
- * E/W when the X step is larger, N/S otherwise. This matches the
- * standard SCUMM rule and reads naturally for diagonal walks (the
- * actor faces sideways until the path bends).
- *
- * # Why not path-based here
- *
- * Phase 6's pathfinding sub-task will populate `actor.walkPath` with
- * intermediate waypoints, and a follow-up to this module will pop
- * the next waypoint when the current one is reached. For now (no
- * pathfinding yet) the actor walks in a straight line from current
- * position to `walkTarget`, which is what the `walkActorTo` /
- * `walkActorToActor` opcodes set up.
+ * E/W when the X step is larger, N/S otherwise.
  */
 
 import type { Actor } from './actor';
 import type { Vm } from '../vm/vm';
 
 /**
- * Advance one actor one tick toward `walkTarget`. No-op when the
- * actor is not moving, has no target, or is already at the target.
+ * Advance one actor one tick along its path. No-op when the actor is
+ * not moving or has nothing to head toward.
  */
 export function stepWalk(actor: Actor): void {
-  if (!actor.isMoving || !actor.walkTarget) return;
-
-  const dx = actor.walkTarget.x - actor.x;
-  const dy = actor.walkTarget.y - actor.y;
-
-  if (dx === 0 && dy === 0) {
-    // Already at the target — just clean up state.
-    actor.walkTarget = null;
-    actor.walkPath = [];
-    actor.walkPathIdx = 0;
-    actor.isMoving = false;
+  if (!actor.isMoving) return;
+  const aim = currentAim(actor);
+  if (!aim) {
+    // Nothing to walk to — clean up and stop.
+    finishWalk(actor);
     return;
   }
 
-  // Step by walkSpeed, clamped to the remaining distance so we land
-  // *on* the target and don't overshoot it.
+  const dx = aim.x - actor.x;
+  const dy = aim.y - actor.y;
+  if (dx === 0 && dy === 0) {
+    // Already on this waypoint — try to advance to the next one
+    // this same tick (no point making the user wait a frame for it).
+    if (advanceWaypoint(actor)) {
+      stepWalk(actor);
+    } else {
+      finishWalk(actor);
+    }
+    return;
+  }
+
+  // Step by walkSpeed, clamped to the remaining distance to the
+  // current waypoint so we land on it exactly.
   const stepX = clampToward(dx, actor.walkSpeedX);
   const stepY = clampToward(dy, actor.walkSpeedY);
 
-  // Facing follows the dominant component of *this tick's* step.
-  // |stepX| > |stepY| → E/W; otherwise N/S. Equal → prefer E/W
-  // (the SCUMM v5 convention; horizontal walks read more naturally
-  // since the costume walk anims are tied to L/R-facing limbs).
+  // Facing follows the dominant component of this tick's step.
   if (Math.abs(stepX) >= Math.abs(stepY) && stepX !== 0) {
     actor.facing = stepX > 0 ? 'E' : 'W';
   } else if (stepY !== 0) {
@@ -63,12 +63,38 @@ export function stepWalk(actor: Actor): void {
   actor.x += stepX;
   actor.y += stepY;
 
-  if (actor.x === actor.walkTarget.x && actor.y === actor.walkTarget.y) {
-    actor.walkTarget = null;
-    actor.walkPath = [];
-    actor.walkPathIdx = 0;
-    actor.isMoving = false;
+  // Reached the waypoint? Advance (or finish).
+  if (actor.x === aim.x && actor.y === aim.y) {
+    if (!advanceWaypoint(actor)) finishWalk(actor);
   }
+}
+
+/**
+ * Pick the actor's current aim point — the next waypoint on the path,
+ * or `walkTarget` if no path was planned. Returns `null` if neither
+ * exists.
+ */
+function currentAim(actor: Actor): { x: number; y: number } | null {
+  if (actor.walkPath.length > 0 && actor.walkPathIdx < actor.walkPath.length) {
+    return actor.walkPath[actor.walkPathIdx]!;
+  }
+  if (actor.walkTarget) return actor.walkTarget;
+  return null;
+}
+
+/** Advance to the next waypoint. Returns false when the path is done. */
+function advanceWaypoint(actor: Actor): boolean {
+  if (actor.walkPath.length === 0) return false;
+  actor.walkPathIdx++;
+  return actor.walkPathIdx < actor.walkPath.length;
+}
+
+/** Clear walk state — the actor is at rest. */
+function finishWalk(actor: Actor): void {
+  actor.walkTarget = null;
+  actor.walkPath = [];
+  actor.walkPathIdx = 0;
+  actor.isMoving = false;
 }
 
 /**

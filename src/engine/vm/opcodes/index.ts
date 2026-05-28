@@ -27,6 +27,7 @@ import {
   type Actor,
 } from '../../actor/actor';
 import { startAnim } from '../../graphics/costume-anim';
+import { findPath } from '../../pathfinding/grid';
 import { evalExpression } from '../expression';
 import {
   derefRead,
@@ -54,6 +55,38 @@ function actorOrNull(vm: Vm, id: number): Actor | null {
   if (id <= 0) return null;
   if (id > vm.actors.capacity) return null;
   return vm.actors.get(id);
+}
+
+/**
+ * Set up an actor's walk: store the target, compute a waypoint
+ * path through the current room's walkable mask (or straight-line
+ * fall-back if there's no mask), and flip isMoving on.
+ *
+ * The actor's `ignoreBoxes` flag bypasses pathfinding — used for
+ * cutscene movement that can cross non-walkable regions.
+ */
+function startWalk(vm: Vm, actor: Actor, target: { x: number; y: number }): void {
+  actor.walkTarget = target;
+  actor.walkPath = [];
+  actor.walkPathIdx = 0;
+  actor.isMoving = true;
+
+  const mask = vm.loadedRoom?.walkableMask;
+  if (!mask || mask.length === 0 || actor.ignoreBoxes) {
+    // No pathfinding context — actor walks the straight line via
+    // stepWalk's walkTarget fall-back.
+    return;
+  }
+  const room = vm.loadedRoom!;
+  const path = findPath(mask, room.width, room.height, { x: actor.x, y: actor.y }, target);
+  if (path.waypoints.length === 0) return;
+  // The first waypoint is the snapped start position — drop it so
+  // we don't make the actor "teleport" to the box edge before
+  // walking. Keep all the rest, including the (possibly snapped)
+  // final waypoint.
+  const trimmed = path.waypoints.slice(1);
+  actor.walkPath = trimmed;
+  actor.walkPathIdx = 0;
 }
 
 const handlers = new Map<number, OpcodeHandler>();
@@ -673,10 +706,7 @@ function walkToActorHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const actor = actorOrNull(vm, id);
   const other = actorOrNull(vm, otherId);
   if (actor && other) {
-    actor.walkTarget = { x: other.x, y: other.y };
-    actor.walkPath = [];
-    actor.walkPathIdx = 0;
-    actor.isMoving = true;
+    startWalk(vm, actor, { x: other.x, y: other.y });
   }
   vm.annotate(`walkActorToActor actor=${id} other=${otherId} dist=${dist}`);
 }
@@ -693,10 +723,7 @@ function walkToHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const y = readVarOrWord(opcode, 3, slot, vm.vars);
   const actor = actorOrNull(vm, id);
   if (actor) {
-    actor.walkTarget = { x, y };
-    actor.walkPath = [];
-    actor.walkPathIdx = 0;
-    actor.isMoving = true;
+    startWalk(vm, actor, { x, y });
   }
   vm.annotate(`walkActorTo actor=${id} (${x},${y})`);
 }

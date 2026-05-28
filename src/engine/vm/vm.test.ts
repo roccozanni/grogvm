@@ -181,6 +181,8 @@ describe('Vm — enterRoom + ENCD/EXCD', () => {
       exitScript: excd ? new Uint8Array(excd) : null,
       localScripts: new Map(),
       objects: new Map(),
+      walkBoxes: [],
+      walkableMask: new Uint8Array(0),
     };
   }
 

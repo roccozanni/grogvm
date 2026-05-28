@@ -99,16 +99,17 @@ describe('stepWalk', () => {
     expect(a.y).toBe(10);
   });
 
-  it('is a no-op when walkTarget is null', () => {
+  it('stops the actor when isMoving=true but neither walkPath nor walkTarget is set', () => {
     const a = createActor(1);
     a.x = 10;
     a.y = 10;
     a.walkTarget = null;
+    a.walkPath = [];
     a.isMoving = true;
     stepWalk(a);
     expect(a.x).toBe(10);
     expect(a.y).toBe(10);
-    expect(a.isMoving).toBe(true); // we only flip on arrival
+    expect(a.isMoving).toBe(false); // nothing to aim at → stop cleanly
   });
 
   it('cleans up state when called at the target', () => {
@@ -117,6 +118,61 @@ describe('stepWalk', () => {
     expect(a.isMoving).toBe(false);
     expect(a.walkTarget).toBeNull();
     expect(a.walkPath).toHaveLength(0);
+  });
+});
+
+describe('stepWalk — path following', () => {
+  it('walks each waypoint of walkPath in order', () => {
+    const a = createActor(1);
+    a.x = 0; a.y = 0;
+    a.walkPath = [
+      { x: 16, y: 0 },  // first waypoint
+      { x: 16, y: 4 },  // second
+    ];
+    a.walkPathIdx = 0;
+    a.isMoving = true;
+    // Tick 1: from (0, 0) toward (16, 0) — step is (8, 0).
+    stepWalk(a);
+    expect(a.x).toBe(8); expect(a.y).toBe(0);
+    expect(a.walkPathIdx).toBe(0);
+    // Tick 2: reach (16, 0), advance to next waypoint immediately.
+    stepWalk(a);
+    expect(a.x).toBe(16); expect(a.y).toBe(0);
+    expect(a.walkPathIdx).toBe(1);
+    // Tick 3: from (16, 0) toward (16, 4) — step is (0, 2).
+    stepWalk(a);
+    expect(a.x).toBe(16); expect(a.y).toBe(2);
+    // Tick 4: reach (16, 4), path done.
+    stepWalk(a);
+    expect(a.x).toBe(16); expect(a.y).toBe(4);
+    expect(a.isMoving).toBe(false);
+    expect(a.walkPath).toHaveLength(0);
+  });
+
+  it('falls back to walkTarget when walkPath is empty (straight-line walk)', () => {
+    const a = createActor(1);
+    a.x = 0; a.y = 0;
+    a.walkPath = [];
+    a.walkTarget = { x: 24, y: 0 };
+    a.isMoving = true;
+    stepWalk(a);
+    expect(a.x).toBe(8);
+    stepWalk(a);
+    expect(a.x).toBe(16);
+    stepWalk(a);
+    expect(a.x).toBe(24);
+    expect(a.isMoving).toBe(false);
+  });
+
+  it('handles a single-waypoint path (just walk to it and stop)', () => {
+    const a = createActor(1);
+    a.x = 0; a.y = 0;
+    a.walkPath = [{ x: 8, y: 0 }];
+    a.walkPathIdx = 0;
+    a.isMoving = true;
+    stepWalk(a);
+    expect(a.x).toBe(8); expect(a.y).toBe(0);
+    expect(a.isMoving).toBe(false);
   });
 });
 

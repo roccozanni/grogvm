@@ -8,6 +8,7 @@
  */
 
 import { stepAllActorWalks } from '../../engine/actor/walk';
+import { findPath } from '../../engine/pathfinding/grid';
 import { Canvas2DRenderer } from '../../engine/render/canvas2d';
 import { composeFrame } from '../../engine/render/compositor';
 import type { IndexFile } from '../../engine/resources/index-file';
@@ -38,6 +39,8 @@ interface InspectorState {
   idleStreak: number;
   /** Set when auto-pause fired — surfaced to the user. */
   idleReason: string | null;
+  /** Show walk-box / walkable-mask / actor-walkPath overlay on the VM frame. */
+  showWalkOverlay: boolean;
 }
 
 export function renderVmInspector(
@@ -59,6 +62,7 @@ export function renderVmInspector(
     lastIdleFingerprint: null,
     idleStreak: 0,
     idleReason: null,
+    showWalkOverlay: false,
   };
 
   /** Snapshot of every non-dead slot's (id, status, pc) plus the
@@ -182,6 +186,25 @@ export function renderVmInspector(
           state.idleStreak = 0;
           state.idleReason = null;
           (globalThis as { __vm?: Vm }).__vm = vm;
+          // Tiny dev helper: __walkActor(id, x, y) sets up an actor
+          // walk through the real pathfinder so you can see the
+          // overlay light up without touching the opcode handler.
+          (globalThis as { __walkActor?: (id: number, x: number, y: number) => void }).__walkActor =
+            (id, x, y) => {
+              const actor = vm.actors.get(id);
+              actor.walkTarget = { x, y };
+              actor.walkPath = [];
+              actor.walkPathIdx = 0;
+              actor.isMoving = true;
+              const mask = vm.loadedRoom?.walkableMask;
+              if (mask && mask.length > 0 && !actor.ignoreBoxes) {
+                const room = vm.loadedRoom!;
+                const path = findPath(mask, room.width, room.height, { x: actor.x, y: actor.y }, { x, y });
+                if (path.waypoints.length > 0) {
+                  actor.walkPath = path.waypoints.slice(1);
+                }
+              }
+            };
           repaint();
         },
         () => {
@@ -240,7 +263,7 @@ function renderInner(
     frag.appendChild(idle);
   }
 
-  frag.appendChild(renderVmFrame(state.vm));
+  frag.appendChild(renderVmFrame(state, repaint));
   frag.appendChild(renderActorTable(state.vm));
   frag.appendChild(renderSlotTable(state.vm, state.vm.haltInfo));
   frag.appendChild(renderTrace(state.vm));
@@ -412,7 +435,8 @@ function renderHaltPanel(halt: HaltInfo): HTMLElement {
  * as transparent (the canvas's CSS checkerboard backdrop shows
  * through).
  */
-function renderVmFrame(vm: Vm): HTMLElement {
+function renderVmFrame(state: InspectorState, repaint: () => void): HTMLElement {
+  const vm = state.vm!;
   const wrap = document.createElement('div');
   wrap.className = 'vm-frame';
 
@@ -438,8 +462,14 @@ function renderVmFrame(vm: Vm): HTMLElement {
     return wrap;
   }
 
-  // Canvas at native room dimensions; CSS-scale 2× for legibility
-  // (matches the room-viewer's behaviour).
+  // Stack the frame canvas + a transparent overlay canvas in a
+  // position:relative wrapper so they line up pixel-perfect under the
+  // same 2× CSS scale.
+  const stack = document.createElement('div');
+  stack.className = 'vm-frame-stack';
+  stack.style.width = `${room.width * 2}px`;
+  stack.style.height = `${room.height * 2}px`;
+
   const canvas = document.createElement('canvas');
   canvas.className = 'vm-frame-canvas';
   canvas.style.width = `${room.width * 2}px`;
@@ -464,8 +494,35 @@ function renderVmFrame(vm: Vm): HTMLElement {
     getObjectState: (id) => vm.objectStates.get(id) ?? 1,
   });
   renderer.present(framebuffer);
+  stack.appendChild(canvas);
 
-  wrap.appendChild(canvas);
+  if (state.showWalkOverlay) {
+    stack.appendChild(renderWalkOverlay(vm, room));
+  }
+  wrap.appendChild(stack);
+
+  // Toggle row below the frame.
+  const toggleRow = document.createElement('div');
+  toggleRow.className = 'vm-frame-toggles';
+  const label = document.createElement('label');
+  const checkbox = document.createElement('input');
+  checkbox.type = 'checkbox';
+  checkbox.checked = state.showWalkOverlay;
+  checkbox.addEventListener('change', () => {
+    state.showWalkOverlay = checkbox.checked;
+    repaint();
+  });
+  label.appendChild(checkbox);
+  label.appendChild(document.createTextNode(' walk overlay'));
+  label.title = 'Draw walk-box outlines, the walkable mask tint, and any active actor walkPath';
+  toggleRow.appendChild(label);
+  if (state.showWalkOverlay) {
+    const info = document.createElement('span');
+    info.className = 'vm-frame-toggles-info';
+    info.textContent = `${room.walkBoxes.length} walk box${room.walkBoxes.length === 1 ? '' : 'es'}`;
+    toggleRow.appendChild(info);
+  }
+  wrap.appendChild(toggleRow);
 
   // Caption: actors + objects drawn, with skip counts so the user
   // can see at a glance why something didn't appear.
@@ -517,6 +574,109 @@ function renderVmFrame(vm: Vm): HTMLElement {
   }
 
   return wrap;
+}
+
+/**
+ * Render the walk-box / mask / path overlay onto a transparent
+ * canvas the caller stacks over the VM frame canvas.
+ *
+ * Layers (drawn back-to-front):
+ *   1. Subtle green tint over walkable-mask pixels (alpha ~0.10).
+ *   2. Walk-box outlines + id labels, one accent color per box.
+ *   3. For each actor in the current room with a non-empty walkPath:
+ *      polyline of the upcoming waypoints, marker on the current
+ *      aim. Also draws walkTarget for actors with no path.
+ *
+ * Backing canvas sized to native room dimensions; CSS scales 2× the
+ * same way the frame canvas does.
+ */
+function renderWalkOverlay(vm: Vm, room: NonNullable<Vm['loadedRoom']>): HTMLCanvasElement {
+  const overlay = document.createElement('canvas');
+  overlay.className = 'vm-frame-overlay';
+  overlay.width = room.width;
+  overlay.height = room.height;
+  overlay.style.width = `${room.width * 2}px`;
+  overlay.style.height = `${room.height * 2}px`;
+  const ctx = overlay.getContext('2d');
+  if (!ctx) return overlay;
+
+  // 1. Walkable-mask tint via ImageData — faster than per-pixel
+  //    `fillRect`s for big rooms.
+  if (room.walkableMask.length === room.width * room.height) {
+    const img = ctx.createImageData(room.width, room.height);
+    for (let i = 0; i < room.walkableMask.length; i++) {
+      if (room.walkableMask[i]) {
+        img.data[i * 4 + 0] = 0;     // R
+        img.data[i * 4 + 1] = 220;   // G
+        img.data[i * 4 + 2] = 80;    // B
+        img.data[i * 4 + 3] = 28;    // ~11% alpha — visible but not loud
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+
+  // 2. Walk-box outlines + id labels.
+  const boxColors = ['#3ec1c1', '#c1973e', '#a13ec1', '#3e5dc1', '#c13e6a', '#7ec13e'];
+  ctx.lineWidth = 1;
+  ctx.font = '7px monospace';
+  ctx.textBaseline = 'top';
+  for (const box of room.walkBoxes) {
+    const color = boxColors[box.id % boxColors.length]!;
+    ctx.strokeStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(box.ulx + 0.5, box.uly + 0.5);
+    ctx.lineTo(box.urx + 0.5, box.ury + 0.5);
+    ctx.lineTo(box.lrx + 0.5, box.lry + 0.5);
+    ctx.lineTo(box.llx + 0.5, box.lly + 0.5);
+    ctx.closePath();
+    ctx.stroke();
+    // id label at the box's top-left, with a small black backdrop
+    // so it's legible against any room art.
+    const labelX = Math.min(box.ulx, box.llx) + 2;
+    const labelY = Math.min(box.uly, box.ury) + 1;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    ctx.fillRect(labelX, labelY, 9, 8);
+    ctx.fillStyle = color;
+    ctx.fillText(String(box.id), labelX + 1, labelY + 1);
+  }
+
+  // 3. Active actor paths.
+  for (const actor of vm.actors.inRoom(vm.currentRoom)) {
+    if (!actor.isMoving) continue;
+    // Draw walkPath as a polyline.
+    if (actor.walkPath.length > 0) {
+      ctx.strokeStyle = '#ffd54a';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(actor.x + 0.5, actor.y + 0.5);
+      for (let i = actor.walkPathIdx; i < actor.walkPath.length; i++) {
+        const p = actor.walkPath[i]!;
+        ctx.lineTo(p.x + 0.5, p.y + 0.5);
+      }
+      ctx.stroke();
+      // Mark each waypoint with a small dot.
+      ctx.fillStyle = '#ffd54a';
+      for (let i = actor.walkPathIdx; i < actor.walkPath.length; i++) {
+        const p = actor.walkPath[i]!;
+        ctx.fillRect(p.x - 1, p.y - 1, 3, 3);
+      }
+    } else if (actor.walkTarget) {
+      // Straight-line walk fallback (no path planned). Show a dashed
+      // line so it's visually distinct from a real path.
+      ctx.strokeStyle = '#ffd54a';
+      ctx.setLineDash([2, 2]);
+      ctx.beginPath();
+      ctx.moveTo(actor.x + 0.5, actor.y + 0.5);
+      ctx.lineTo(actor.walkTarget.x + 0.5, actor.walkTarget.y + 0.5);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    // Mark the actor's current position.
+    ctx.fillStyle = '#ff6b3a';
+    ctx.fillRect(actor.x - 1, actor.y - 1, 3, 3);
+  }
+
+  return overlay;
 }
 
 /**
