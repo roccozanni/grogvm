@@ -211,6 +211,32 @@ describe('loadRoom — synthetic fixtures', () => {
     expect(room.exitScript).toBeNull();
   });
 
+  it('captures LSCR local scripts keyed by their script id', () => {
+    // Hand-build a ROOM with two LSCR blocks (ids 201 + 202).
+    const rmhd = block('RMHD', rmhdBody(320, 144, 3));
+    const clut = block('CLUT', clutBody());
+    const trns = block('TRNS', trnsBody(0));
+    const rmih = block('RMIH', rmihBody(0));
+    const smap = block('SMAP', smapBody(320, 144, 42));
+    const im00 = block('IM00', smap);
+    const rmim = block('RMIM', concat(rmih, im00));
+    const lscr201 = block('LSCR', new Uint8Array([201, 0x80, 0xa0])); // id 201 + breakHere + stopObjectCode
+    const lscr202 = block('LSCR', new Uint8Array([202, 0xa0]));
+    const room = block('ROOM', concat(rmhd, clut, trns, rmim, lscr201, lscr202));
+    const lflf = block('LFLF', room);
+    const loffPayloadSize = 1 + 5;
+    const loffSize = 8 + loffPayloadSize;
+    const roomOffset = 8 + loffSize + 8;
+    const loff = block('LOFF', loffBody([{ id: 5, offset: roomOffset }]));
+    const lecf = block('LECF', concat(loff, lflf));
+    const file = makeFile(lecf);
+
+    const room5 = loadRoom(file, parseLoff(file), 5);
+    expect(room5.localScripts.size).toBe(2);
+    expect(Array.from(room5.localScripts.get(201)!)).toEqual([0x80, 0xa0]);
+    expect(Array.from(room5.localScripts.get(202)!)).toEqual([0xa0]);
+  });
+
   it('captures ENCD and EXCD bytecode when present', () => {
     const { file } = buildSyntheticFile({
       roomId: 7,

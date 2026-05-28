@@ -371,36 +371,17 @@ register(0x20, (vm) => {
 
 // ─── 0x72 / 0xF2  loadRoom ───────────────────────────────────────────
 // Switch the engine to a new room. Layout: room id (var-or-byte via
-// bit 0x80 of opcode). Real semantics include decoding the room's
-// SMAP/CLUT/TRNS/Z-planes, running its ENCD entry script, killing
-// room-scoped slots.
-//
-// This handler:
-//   1. Updates `vm.currentRoom` + VAR_ROOM (always — used by scripts
-//      regardless of whether decode succeeds).
-//   2. Calls `vm.resolveRoom(id)` when wired. Stores the decoded
-//      `LoadedRoom` on `vm.loadedRoom`, or `null` + an error message
-//      on `vm.lastRoomLoadError` if the load fails (e.g. room 0 — the
-//      SCUMM "no-room" sentinel — which appears multiple times in
-//      MI1's boot init).
-//   3. Does NOT yet run ENCD or kill room-scoped slots — those land
-//      with the main loop, which needs to interleave room-entry script
-//      execution with the existing slot scheduling.
-const VAR_ROOM = 4;
+// bit 0x80 of opcode). The actual transition logic lives in
+// `vm.enterRoom`: run previous room's EXCD, swap loadedRoom, run new
+// room's ENCD.
 function loadRoomHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const roomId = readVarOrByte(opcode, 1, slot, vm.vars);
-  vm.currentRoom = roomId;
-  vm.vars.writeGlobal(VAR_ROOM, roomId);
-  if (vm.resolveRoom) {
-    try {
-      vm.loadedRoom = vm.resolveRoom(roomId);
-      vm.lastRoomLoadError = null;
-      vm.annotate(`loadRoom ${roomId} (${vm.loadedRoom.width}×${vm.loadedRoom.height})`);
-    } catch (err) {
-      vm.loadedRoom = null;
-      vm.lastRoomLoadError = err instanceof Error ? err.message : String(err);
-      vm.annotate(`loadRoom ${roomId} (no data: ${vm.lastRoomLoadError})`);
-    }
+  vm.enterRoom(roomId);
+  const lr = vm.loadedRoom;
+  if (lr) {
+    vm.annotate(`loadRoom ${roomId} (${lr.width}×${lr.height})`);
+  } else if (vm.lastRoomLoadError) {
+    vm.annotate(`loadRoom ${roomId} (no data: ${vm.lastRoomLoadError})`);
   } else {
     vm.annotate(`loadRoom ${roomId} (no resolver)`);
   }
@@ -1164,23 +1145,42 @@ register(0x8a, startScriptHandler);
 register(0xaa, startScriptHandler);
 register(0xca, startScriptHandler);
 register(0xea, startScriptHandler);
+/**
+ * SCUMM v5 reserves script ids >= 200 for LSCR local scripts. Those
+ * live inside the current room's ROOM block and have to be resolved
+ * via `vm.loadedRoom.localScripts`, not the global DSCR directory.
+ */
+const LSCR_THRESHOLD = 200;
+
 function startScriptHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const scriptId = readVarOrByte(opcode, 1, slot, vm.vars);
   const args = readWordVararg(slot, vm.vars);
-  if (!vm.resolveGlobalScript) {
-    throw new Error('startScript: no global script resolver configured');
+
+  let bytecode: Uint8Array;
+  let room: number;
+  if (scriptId >= LSCR_THRESHOLD) {
+    const localBytecode = vm.loadedRoom?.localScripts.get(scriptId);
+    if (!localBytecode) {
+      throw new Error(
+        `startScript: local script #${scriptId} not present in current room ` +
+          `${vm.currentRoom} (loaded=${vm.loadedRoom?.id ?? 'none'})`,
+      );
+    }
+    bytecode = localBytecode;
+    room = vm.loadedRoom!.id;
+  } else {
+    if (!vm.resolveGlobalScript) {
+      throw new Error('startScript: no global script resolver configured');
+    }
+    const resolved = vm.resolveGlobalScript(scriptId);
+    bytecode = resolved.bytecode;
+    room = resolved.room;
   }
-  // Resolve + spawn. Recursive flag (0x40) would suppress the
-  // "already-running" check; freeze-resistant (0x20) would mark the
-  // slot so freezeScripts doesn't pause it. Neither matters for the
-  // current scope — we always start in the lowest free slot.
-  const resolved = vm.resolveGlobalScript(scriptId);
-  const child = vm.startScript({
-    scriptId,
-    bytecode: resolved.bytecode,
-    room: resolved.room,
-    args,
-  });
+
+  // Recursive (bit 0x40) and freeze-resistant (bit 0x20) flags on the
+  // opcode byte aren't honoured yet — every start lands in the lowest
+  // free slot regardless.
+  const child = vm.startScript({ scriptId, bytecode, room, args });
   vm.annotate(`startScript #${scriptId} slot=${child.slotIndex} args=[${args.join(',')}]`);
 }
 

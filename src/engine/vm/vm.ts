@@ -74,6 +74,8 @@ export type OpcodeHandler = (vm: Vm, slot: ScriptSlot, opcode: number) => void;
 
 export const NUM_SLOTS = 25;
 const TRACE_CAPACITY = 64;
+/** Global #4 = current-room id per the SCUMM v5 wiki. */
+const VAR_ROOM_INDEX = 4;
 
 /** Resolve a global script id to its loaded bytecode + owning room. */
 export type GlobalScriptResolver = (
@@ -200,6 +202,70 @@ export class Vm {
   }
 
   /**
+   * Transition to a new room. The full sequence (per SCUMM v5):
+   *
+   *   1. Run the previous room's EXCD as a fresh slot if present
+   *      (e.g. stop the title music).
+   *   2. Decode the new room — `vm.loadedRoom` becomes the new data
+   *      or `null` if the resolver throws (room 0 sentinel, etc.).
+   *      `vm.currentRoom` + VAR_ROOM are updated unconditionally so
+   *      scripts that read VAR_ROOM see the script-level value even
+   *      if the decode failed.
+   *   3. Run the new room's ENCD as a fresh slot if present (e.g.
+   *      set up actors, play room music).
+   *
+   * Both ENCD and EXCD slots get a human label ("ENCD-10", "EXCD-10")
+   * so the inspector can tell them apart from the global scripts.
+   *
+   * What this does NOT yet do:
+   * - Kill non-freeze-resistant slots from the old room. Phase 7
+   *   (verb scripts) will need that distinction.
+   */
+  enterRoom(roomId: number): void {
+    const prev = this.loadedRoom;
+    if (prev?.exitScript && prev.exitScript.length > 0) {
+      try {
+        this.startScript({
+          scriptId: 0,
+          bytecode: prev.exitScript,
+          room: prev.id,
+          label: `EXCD-${prev.id}`,
+        });
+      } catch {
+        // No free slot — silently skip. EXCD running is best-effort.
+      }
+    }
+
+    this.currentRoom = roomId;
+    this.vars.writeGlobal(VAR_ROOM_INDEX, roomId);
+    if (this.resolveRoom) {
+      try {
+        this.loadedRoom = this.resolveRoom(roomId);
+        this.lastRoomLoadError = null;
+      } catch (err) {
+        this.loadedRoom = null;
+        this.lastRoomLoadError = err instanceof Error ? err.message : String(err);
+      }
+    } else {
+      this.loadedRoom = null;
+    }
+
+    const next = this.loadedRoom;
+    if (next?.entryScript && next.entryScript.length > 0) {
+      try {
+        this.startScript({
+          scriptId: 0,
+          bytecode: next.entryScript,
+          room: next.id,
+          label: `ENCD-${next.id}`,
+        });
+      } catch {
+        // No free slot — silently skip.
+      }
+    }
+  }
+
+  /**
    * Resolve a costume id to its parsed data, using the cache. Returns
    * `null` for id 0 (sentinel), if no resolver was provided, or if
    * the resolver throws. Safe to call from the compositor for every
@@ -244,6 +310,8 @@ export class Vm {
     bytecode: Uint8Array;
     args?: ReadonlyArray<number>;
     room?: number;
+    /** Optional label for synthetic scripts (ENCD/EXCD/verb/sentence). */
+    label?: string;
   }): ScriptSlot {
     const slot = this.slots.find((s) => s.status === 'dead');
     if (!slot) {

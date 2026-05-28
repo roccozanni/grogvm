@@ -164,3 +164,99 @@ describe('Vm — reset', () => {
     expect(vm.slots.every((s) => s.status === 'dead')).toBe(true);
   });
 });
+
+describe('Vm — enterRoom + ENCD/EXCD', () => {
+  function fakeRoom(id: number, encd?: number[], excd?: number[]) {
+    return {
+      id,
+      width: 8,
+      height: 8,
+      numObjects: 0,
+      palette: new Uint8Array(768),
+      transparentIndex: null,
+      indexed: new Uint8Array(64),
+      stripMethods: [],
+      zPlanes: [],
+      entryScript: encd ? new Uint8Array(encd) : null,
+      exitScript: excd ? new Uint8Array(excd) : null,
+      localScripts: new Map(),
+    };
+  }
+
+  it('updates currentRoom + VAR_ROOM + loadedRoom from the resolver', () => {
+    const room = fakeRoom(7);
+    const vm = new Vm({
+      numVariables: 32,
+      numBitVariables: 64,
+      handlers: new Map(),
+      resolveRoom: () => room,
+    });
+    vm.enterRoom(7);
+    expect(vm.currentRoom).toBe(7);
+    expect(vm.vars.readGlobal(4)).toBe(7); // VAR_ROOM
+    expect(vm.loadedRoom).toBe(room);
+    expect(vm.lastRoomLoadError).toBeNull();
+  });
+
+  it('records the error and clears loadedRoom when the resolver throws', () => {
+    const vm = new Vm({
+      numVariables: 32,
+      numBitVariables: 64,
+      handlers: new Map(),
+      resolveRoom: () => {
+        throw new Error('no LOFF entry for room 0');
+      },
+    });
+    vm.enterRoom(0);
+    expect(vm.loadedRoom).toBeNull();
+    expect(vm.lastRoomLoadError).toMatch(/no LOFF entry/);
+    expect(vm.currentRoom).toBe(0);
+  });
+
+  it('starts the new room\'s ENCD as a labelled slot', () => {
+    const room = fakeRoom(10, [0xa0]); // ENCD = stopObjectCode
+    const vm = new Vm({
+      numVariables: 32,
+      numBitVariables: 64,
+      handlers: new Map(),
+      resolveRoom: () => room,
+    });
+    vm.enterRoom(10);
+    const encd = vm.slots.find((s) => s.label === 'ENCD-10');
+    expect(encd).toBeDefined();
+    expect(encd!.status).toBe('running');
+    expect(encd!.room).toBe(10);
+    expect(Array.from(encd!.bytecode)).toEqual([0xa0]);
+  });
+
+  it('starts the previous room\'s EXCD when transitioning to a new room', () => {
+    const a = fakeRoom(1, [0x80], [0xa0]); // ENCD breakHere; EXCD stopObjectCode
+    const b = fakeRoom(2);
+    const vm = new Vm({
+      numVariables: 32,
+      numBitVariables: 64,
+      handlers: new Map(),
+      resolveRoom: (id) => (id === 1 ? a : b),
+    });
+    vm.enterRoom(1);
+    // Sanity: ENCD-1 fired.
+    expect(vm.slots.some((s) => s.label === 'ENCD-1')).toBe(true);
+    vm.enterRoom(2);
+    // EXCD-1 should now be queued (for the room we just left).
+    expect(vm.slots.some((s) => s.label === 'EXCD-1')).toBe(true);
+    expect(vm.loadedRoom).toBe(b);
+  });
+
+  it('does nothing extra when ENCD/EXCD are absent', () => {
+    const room = fakeRoom(3); // no scripts
+    const vm = new Vm({
+      numVariables: 32,
+      numBitVariables: 64,
+      handlers: new Map(),
+      resolveRoom: () => room,
+    });
+    vm.enterRoom(3);
+    // Only system state should change; no labelled slots.
+    expect(vm.slots.every((s) => s.label === '')).toBe(true);
+  });
+});

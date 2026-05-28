@@ -20,6 +20,7 @@ function makeRoom(width: number, height: number, fill: number): LoadedRoom {
     zPlanes: [],
     entryScript: null,
     exitScript: null,
+    localScripts: new Map(),
   };
 }
 
@@ -236,6 +237,33 @@ describe('composeFrame — actor compositing', () => {
     expect(result.actorsDrawn).toBe(0);
     expect(result.skippedActors).toHaveLength(1);
     expect(result.skippedActors[0]!.reason).toMatch(/getCostume\(5\) returned null/);
+  });
+
+  it('silently skips limbs whose framePtr can\'t fit a 12-byte header (broad sentinel)', () => {
+    // In real costumes (MI1 Guybrush, limbs 3..15) "unused-limb"
+    // group tables hold garbage values like 0xFFDD — any framePtr
+    // outside [6, payload.length - 6] can't be a real frame. We
+    // silently bypass instead of trying to decode and filling the
+    // inspector with limb-skip noise.
+    const room = makeRoom(8, 4, 0x10);
+    const fb = new Uint8Array(8 * 4);
+    const cost = makeOneFrameCostume({ frameW: 2, frameH: 2, pixelIdx: 1, clutIdx: 0x99 });
+    // Frame ptr way past end of payload.
+    cost.payload[54] = 0xdd;
+    cost.payload[55] = 0xff;
+    const actor = makeActorAt(1, 3, 1, 1);
+    const result = composeFrame({
+      room,
+      framebuffer: fb,
+      actors: [actor],
+      getCostume: () => cost,
+    });
+    expect(result.actorsDrawn).toBe(0);
+    // Silently bypassed — no error logged.
+    expect(result.skippedLimbs).toHaveLength(0);
+    // Falls through to the "all limbs had no frame data" actor skip.
+    expect(result.skippedActors).toHaveLength(1);
+    expect(result.skippedActors[0]!.reason).toMatch(/all limbs had no frame data/);
   });
 
   it('records skippedActors when every limb hits a sentinel framePtr', () => {

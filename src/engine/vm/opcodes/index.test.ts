@@ -259,6 +259,46 @@ describe('seed opcodes — delay', () => {
   });
 });
 
+describe('seed opcodes — startScript LSCR routing', () => {
+  it('routes script ids >= 200 to the current room\'s localScripts', () => {
+    const vm = makeVm();
+    // Stub the current room with one LSCR (id 201) that just returns.
+    const localBytecode = bytes(0xa0); // stopObjectCode
+    (vm as unknown as { loadedRoom: object }).loadedRoom = {
+      id: 5,
+      width: 320,
+      height: 200,
+      numObjects: 0,
+      palette: new Uint8Array(768),
+      transparentIndex: null,
+      indexed: new Uint8Array(320 * 200),
+      stripMethods: [],
+      zPlanes: [],
+      entryScript: null,
+      exitScript: null,
+      localScripts: new Map([[201, localBytecode]]),
+    };
+    (vm as unknown as { currentRoom: number }).currentRoom = 5;
+    // bytecode: startScript #201 with no args
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x0a, 201, 0xff) });
+    vm.step();
+    // The slot picker grabs the next dead slot for the LSCR; verify
+    // it landed there with the right bytecode.
+    const lscrSlot = vm.slots.find((s) => s.scriptId === 201);
+    expect(lscrSlot).toBeDefined();
+    expect(lscrSlot!.bytecode).toEqual(localBytecode);
+    expect(lscrSlot!.room).toBe(5);
+  });
+
+  it('halts loudly if a local script id is requested but no room is loaded', () => {
+    const vm = makeVm();
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x0a, 201, 0xff) });
+    vm.step();
+    expect(vm.isHalted).toBe(true);
+    expect(vm.haltInfo!.reason).toMatch(/local script #201 not present/);
+  });
+});
+
 describe('seed opcodes — boot prefix from real MI1', () => {
   it('runs setVars + cursorCommands + first stringOps loadString of MI1 boot script cleanly', () => {
     const vm = makeVm();

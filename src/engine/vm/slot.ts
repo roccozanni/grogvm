@@ -37,6 +37,13 @@ export class ScriptSlot {
 
   /** Global script id (or 0 if dead). */
   scriptId: number = 0;
+  /**
+   * Human-readable label for synthetic scripts (room ENCD/EXCD,
+   * verb scripts, sentence scripts). Empty for global scripts —
+   * those are identified by `scriptId`. The inspector / trace prefers
+   * this when set so e.g. "ENCD-10" reads better than "scriptId 0".
+   */
+  label: string = '';
   /** Bytecode being executed (empty Uint8Array if dead). */
   bytecode: Uint8Array = EMPTY;
   /** Program counter — byte offset into `bytecode`. */
@@ -59,6 +66,7 @@ export class ScriptSlot {
     bytecode: Uint8Array;
     args?: ReadonlyArray<number>;
     room?: number;
+    label?: string;
   }): void {
     if (this.status !== 'dead') {
       throw new ScriptSlotError(
@@ -67,6 +75,7 @@ export class ScriptSlot {
       );
     }
     this.scriptId = opts.scriptId;
+    this.label = opts.label ?? '';
     this.bytecode = opts.bytecode;
     this.pc = 0;
     this.room = opts.room ?? 0;
@@ -99,6 +108,7 @@ export class ScriptSlot {
   kill(): void {
     this.status = 'dead';
     this.scriptId = 0;
+    this.label = '';
     this.bytecode = EMPTY;
     this.pc = 0;
     this.room = 0;

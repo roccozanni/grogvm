@@ -58,6 +58,12 @@ export interface LoadedRoom {
   readonly entryScript: Uint8Array | null;
   /** EXCD bytecode — runs when the engine leaves this room. `null` if absent. */
   readonly exitScript: Uint8Array | null;
+  /**
+   * Local scripts (LSCR blocks) keyed by their script id. SCUMM v5
+   * reserves ids 200..255 for local scripts; the `startScript` opcode
+   * routes those ids to the current room's localScripts table.
+   */
+  readonly localScripts: ReadonlyMap<number, Uint8Array>;
 }
 
 /**
@@ -104,6 +110,21 @@ export function loadRoom(
   const encdBlock = findChild(roomBlock, 'ENCD');
   const excdBlock = findChild(roomBlock, 'EXCD');
 
+  // LSCR blocks live as direct children of ROOM. Each one's payload
+  // starts with a u8 script id (200..255 in MI1), followed by the
+  // bytecode. We collect them into a Map for O(1) lookup at
+  // startScript dispatch time.
+  const localScripts = new Map<number, Uint8Array>();
+  for (const child of roomBlock.children ?? []) {
+    if (child.tag !== 'LSCR') continue;
+    const payload = payloadOf(file, child);
+    if (payload.length < 1) continue;
+    const id = payload[0]!;
+    // Bytecode is everything after the id byte. We copy so the
+    // returned buffer is independent of the file's lifetime.
+    localScripts.set(id, new Uint8Array(payload.subarray(1)));
+  }
+
   return {
     id: roomId,
     width: decoded.width,
@@ -116,6 +137,7 @@ export function loadRoom(
     zPlanes,
     entryScript: encdBlock ? new Uint8Array(payloadOf(file, encdBlock)) : null,
     exitScript: excdBlock ? new Uint8Array(payloadOf(file, excdBlock)) : null,
+    localScripts,
   };
 }
 

@@ -30,6 +30,20 @@ describe('ScriptSlot', () => {
     expect(s.locals[3]).toBe(0);
   });
 
+  it('start() accepts an optional label for synthetic scripts (ENCD/EXCD/verb)', () => {
+    const s = new ScriptSlot(0);
+    s.start({ scriptId: 0, bytecode: bytes(0xa0), label: 'ENCD-10', room: 10 });
+    expect(s.label).toBe('ENCD-10');
+    s.kill();
+    expect(s.label).toBe('');
+  });
+
+  it('start() defaults label to empty string when not passed', () => {
+    const s = new ScriptSlot(0);
+    s.start({ scriptId: 42, bytecode: bytes(0xa0) });
+    expect(s.label).toBe('');
+  });
+
   it('start() refuses to overwrite a non-dead slot', () => {
     const s = new ScriptSlot(0);
     s.start({ scriptId: 1, bytecode: bytes(0x00) });

@@ -7,6 +7,7 @@
  * underlying `Vm` lives across renders.
  */
 
+import { stepAllActorWalks } from '../../engine/actor/walk';
 import { Canvas2DRenderer } from '../../engine/render/canvas2d';
 import { composeFrame } from '../../engine/render/compositor';
 import type { IndexFile } from '../../engine/resources/index-file';
@@ -60,13 +61,19 @@ export function renderVmInspector(
     idleReason: null,
   };
 
-  /** Snapshot of every non-dead slot's (id, status, pc) — used to
-   *  detect "we're in a wait loop where nothing observable changes". */
+  /** Snapshot of every non-dead slot's (id, status, pc) plus the
+   *  position of every moving actor — used to detect "we're in a
+   *  wait loop where nothing observable changes". An actor walking
+   *  toward its target *is* observable progress, so its position is
+   *  part of the fingerprint and the streak resets each tick. */
   const yieldFingerprint = (vm: Vm): string => {
     const parts: string[] = [];
     for (const s of vm.slots) {
       if (s.status === 'dead') continue;
-      parts.push(`${s.slotIndex}:${s.status}:${s.scriptId}@${s.pc}`);
+      parts.push(`s${s.slotIndex}:${s.status}:${s.scriptId}@${s.pc}`);
+    }
+    for (const a of vm.actors.all()) {
+      if (a.isMoving) parts.push(`a${a.id}@${a.x},${a.y}`);
     }
     return parts.sort().join('|');
   };
@@ -77,9 +84,10 @@ export function renderVmInspector(
   const IDLE_STREAK_THRESHOLD = 10;
 
   /**
-   * One engine tick: resume yielded/frozen slots, then drain to next
-   * round of yields. Returns true if anything ran or was resumed —
-   * false signals "no work, stop the loop".
+   * One engine tick: resume yielded/frozen slots, drain to next
+   * round of yields, then step every walking actor toward its
+   * `walkTarget`. Returns true if anything ran, was resumed, or
+   * we have a moving actor — false signals "no work, stop the loop".
    */
   const oneTick = (): boolean => {
     if (!state.vm || state.vm.haltInfo) return false;
@@ -91,8 +99,10 @@ export function renderVmInspector(
       }
     }
     const ran = state.vm.runUntilAllYield();
+    stepAllActorWalks(state.vm);
     state.tickCount++;
-    return resumed || ran > 0;
+    const anyMoving = [...state.vm.actors.all()].some((a) => a.isMoving);
+    return resumed || ran > 0 || anyMoving;
   };
 
   /**
@@ -629,13 +639,21 @@ function renderSlotRow(
     statusCell.appendChild(document.createTextNode(' '));
     statusCell.appendChild(badge);
   }
+  const isDead = slot.status === 'dead';
+  // Prefer the human label (e.g. "ENCD-10") when set; otherwise the
+  // numeric script id. Dead-but-traced slots fall through to "—".
+  const scriptCell = isDead
+    ? '—'
+    : slot.label !== ''
+      ? slot.label
+      : String(slot.scriptId);
   const cells: Array<string | HTMLElement> = [
     String(slot.slotIndex),
-    slot.scriptId === 0 ? '—' : String(slot.scriptId),
+    scriptCell,
     slot.room === 0 ? '—' : String(slot.room),
     statusCell,
-    slot.scriptId === 0 ? '—' : `0x${slot.pc.toString(16).padStart(4, '0')}`,
-    slot.scriptId === 0 ? '—' : `${slot.bytecode.length} B`,
+    isDead ? '—' : `0x${slot.pc.toString(16).padStart(4, '0')}`,
+    isDead ? '—' : `${slot.bytecode.length} B`,
     last ? `0x${last.opcode.toString(16).padStart(2, '0')} ${last.mnemonic ?? ''}` : '—',
   ];
   for (const cell of cells) {

@@ -97,8 +97,6 @@ export interface ComposeFrameResult {
   readonly skippedLimbs: ReadonlyArray<SkippedLimb>;
 }
 
-const COSTUME_FRAME_SENTINEL_END = 0xffff;
-
 export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
   const { room, framebuffer, actors, getCostume } = input;
   const skippedActors: SkippedActor[] = [];
@@ -164,7 +162,21 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
       }
       const framePtr =
         costume.payload[ptrOffset]! | (costume.payload[ptrOffset + 1]! << 8);
-      if (framePtr === 0 || framePtr === COSTUME_FRAME_SENTINEL_END) continue;
+      // Sentinels. SCUMM v5 marks an unused limb with a frame ptr
+      // that can't be a real frame: 0x0000 (explicit), 0xFFFF (end
+      // marker), and — common in practice — any value where the
+      // 12-byte header (framePtr − 6 .. framePtr + 5) doesn't fit
+      // inside the payload. MI1's Guybrush costume groups limbs 3..15
+      // under one shared "unused" table whose entries happen to read
+      // as 0xFFDD; treating those as decode failures fills the
+      // inspector skip list with noise. Silently bypass instead.
+      if (
+        framePtr === 0 ||
+        framePtr < 6 ||
+        framePtr + 6 > costume.payload.length
+      ) {
+        continue;
+      }
       try {
         const frame = decodeCostumeFrame(costume.payload, framePtr);
         compositeActor({
