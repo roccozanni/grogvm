@@ -34,15 +34,354 @@ verb-click input → Phase 7.
 
 ### Goal
 
-Make MI1 *playable*: a cursor, the verb bar (use / look / open /
-…), the inventory, click-to-walk routed through the existing
-pathfinder, click-to-look-at / pick-up / give wiring through verb
-scripts. By end of phase we should be able to start a new game from
-the title menu, walk Guybrush around the first real room, and use
-the verb UI to interact with objects.
+Make MI1 *playable*: a cursor, the verb bar (Give / Pick up / Use
+/ Open / Look at / Push / Close / Talk to / Pull), the inventory,
+click-to-walk routed through the existing pathfinder, click-to-X
+wiring through verb scripts. By end of phase we should be able to
+start a new game from the title menu, walk Guybrush around the
+first real room, and have him interact with objects via the
+standard MI1 sentence flow.
 
-This phase is where the engine becomes a *game*, not just a script
-runner. Tasks will be broken down when we start.
+This is the longest phase so far — the engine becomes a *game*,
+not just a script runner. The plan below is intentionally broken
+into small testable units so we can show visible progress at every
+step rather than going dark for days.
+
+### Definition of done
+
+By end of phase, all of the following should work end-to-end
+against real MI1 data:
+
+1. **Start a new game** from the title menu — click the "Start"
+   menu item → script #87 (or whichever the title menu actually
+   runs) → arrive in the first interactive room (Mêlée Island,
+   outside the Scumm Bar).
+2. **Walk** Guybrush around that room by clicking the floor.
+   Walk paths follow the existing pathfinder; arrival is
+   pixel-precise.
+3. **Look at** an object by clicking "Look at" + the object.
+   Guybrush walks to the object's walk-to point, faces it, says
+   the description; speech bubble renders above his head.
+4. **Pick up** an object that's pickable; it appears in the
+   inventory area below the verb bar.
+5. **Use** an inventory item on an object in the room. Sentence
+   line shows "Use stick with door", verb script runs, the right
+   thing happens.
+6. **Cutscenes** (in-script `cutscene` / `endCutscene` blocks)
+   hide the cursor and verb UI, run, then restore. Pressing
+   Escape during a cutscene triggers the override path.
+7. `npm run typecheck` clean, full test suite green.
+
+### Tasks
+
+Listed in dependency order. Each block is independently testable;
+several can progress in parallel after the input foundation lands.
+
+**Input foundation — `src/shell/player/input.ts`**
+
+- [ ] Translate mouse events on the VM frame canvas into native
+      room coordinates (account for the 2× CSS scale plus any
+      x-scroll from the camera). Surface as
+      `{ roomX, roomY, button, modifierKeys }`.
+- [ ] `pointermove` → updates `vm.mouseRoomX/Y` (new engine state)
+      so `VAR_MOUSE_X` / `VAR_MOUSE_Y` (44/45 per the wiki) get
+      read correctly by scripts that poll them.
+- [ ] `pointerdown` left / right → routes to the verb UI / object
+      hit-tester. Left = "use the current verb"; right = the v5
+      convention "look at" shortcut.
+- [ ] Disable click-to-walk during cutscenes (consult
+      `VAR_CUTSCENEEXIT_KEY` + the freeze-scripts flag).
+- [ ] `input.test.ts` — coordinate translation under scaled
+      canvas, mouse-button mapping, modifier-key passthrough.
+
+**Cursor — `src/engine/cursor.ts` + `src/shell/player/cursor.ts`**
+
+- [ ] Cursor visibility state on `vm` (already mutated by the
+      stubbed `cursorCommand` subops `0x01`/`0x02` — wire them to
+      actually toggle the cursor canvas).
+- [ ] User-input enable flag (`cursorCommand userputOn/Off` —
+      subops `0x03`/`0x04`). When off, clicks are ignored.
+- [ ] Default cursor: a simple crosshair sprite. Phase-deferred:
+      custom cursor images from `setCursorImage` (subop `0x0A`)
+      which point at a charset glyph — those need a small bitmap
+      decoder.
+- [ ] Cursor highlight when over an interactive object — flash /
+      colour-shift / outline; pick something simple.
+- [ ] `cursor.test.ts` — visibility flips, userput gates the
+      click handler, hover tracking against a synthetic object map.
+
+**Object hit-testing — `src/engine/object/hittest.ts`**
+
+- [ ] `pickObject(room, x, y) → objId | null`. Walks
+      `room.objects` topmost-first (drawObject queue order, then
+      OBCD source order as tiebreaker). Tests against each
+      object's CDHD bounding box in 8-pixel units (`x..x+w`,
+      `y..y+h`) — pixel-precise hit-testing against the object's
+      actual sprite is a polish item.
+- [ ] Honour the "untouchable" flag (CDHD `flags & 0x80`) — those
+      objects are invisible to hit-testing even if they have an
+      image.
+- [ ] `hittest.test.ts` — single object, overlapping objects
+      (topmost wins), no hit, untouchable skip.
+
+**Verb scripts — `src/engine/object/verbs.ts`**
+
+- [ ] Parse the OBCD `VERB` block. Layout per the wiki:
+      `(verb_id u8, script_offset u16)*` terminated by a
+      `verb_id = 0x00` byte. `script_offset` is byte offset into
+      the OBCD's bytecode, relative to a base we need to validate
+      empirically (probably the OBCD payload start).
+- [ ] Capture per-object: `Map<verbId, scriptBytecode>` on
+      `LoadedObject` (rename `LoadedObject.verbs?` from the
+      currently-elided slot).
+- [ ] `verbs.test.ts` — synthetic OBCD with two verbs, real MI1
+      door-object smoke check (look at + open verbs both decode
+      to non-empty bytecode).
+- [ ] Dispatch via `vm.startVerbScript(objId, verbId, args)` →
+      starts a labelled synthetic slot (`VERB-{objId}-{verbId}`)
+      from the bytecode we captured. Same scheduling as global
+      scripts.
+
+**Sentence stack — `src/engine/vm/sentence.ts`**
+
+- [ ] `vm.sentenceQueue: Array<{verb, obj1, obj2}>`. Sentences
+      get enqueued by the verb UI when the user commits a
+      verb+object combo.
+- [ ] `doSentence` opcode (`0x19`) — already partially stubbed —
+      either *enqueues* a sentence (when `verb != 0xFE`) or
+      *clears* the queue (`verb == 0xFE`). Wire it through.
+- [ ] **Sentence script driver**: each engine tick, if the queue
+      is non-empty and no sentence is currently running, dequeue
+      the front sentence and start the engine's global *sentence
+      script* (id from `VAR_SENTENCE_SCRIPT` = global #33) with
+      `(verb, obj1, obj2)` as the first three locals. The
+      sentence script then walks the actor, faces the object,
+      runs the appropriate verb script, etc.
+- [ ] `sentence.test.ts` — enqueue + dequeue, clear, script slot
+      labelling (`SENTENCE-{verb}-{obj1}-{obj2}`).
+
+**Verb bar — `src/engine/verbs.ts` + `src/shell/player/verb-bar.ts`**
+
+- [ ] `vm.verbs: Map<verbId, VerbSlot>` where `VerbSlot` carries
+      `{ name, color, hiColor, dimColor, key, x, y, state }`.
+      Populated by the existing `verbOps` opcode subops we
+      already decode but discard.
+- [ ] Render the verb bar below the VM frame canvas, using the
+      Phase 4 CHAR text renderer for verb names. Lay out by the
+      verb's `x` / `y` from `verbOps SO_VERB_AT`. Inks colour /
+      hi-colour / dim-colour from the verb's stored colours,
+      driven through the current room's CLUT.
+- [ ] Hover / click handlers: hovering a verb shows it in
+      hi-colour; clicking it sets `currentVerb` on the VM (new
+      state). Subsequent object clicks then form the sentence.
+- [ ] Verb state changes — `SO_VERB_ON` / `OFF` / `DELETE` /
+      `NEW` / `DIM` already mutate the slot but the bar isn't
+      drawn; wire the render path.
+- [ ] Right-click on the room → default "Look at" (the v5
+      convention) — bypass the verb selection step.
+- [ ] `verb-bar.test.ts` — render synthetic verb set, click
+      dispatches sentence, dim verbs don't accept clicks.
+
+**Sentence line — `src/shell/player/sentence-line.ts`**
+
+- [ ] Single-line preview above the verb bar showing the current
+      sentence being built. Driven by:
+        - `currentVerb` (the verb the user clicked)
+        - `hoveredObject` (the object the cursor is over)
+        - `selectedObject` (set after the user clicks the first
+          object in a two-object sentence)
+- [ ] Format: `"{verb} {obj1.name}"` or
+      `"{verb} {obj1.name} {preposition} {obj2.name}"`. The
+      preposition lives on the verb itself (`with` for Use,
+      `to` for Give, etc.) — looked up from a small table.
+- [ ] Updates in real time as the cursor moves over objects.
+      Reads object names from `LoadedObject.name` (OBNA).
+- [ ] `sentence-line.test.ts` — single-object verb, two-object
+      verb, hover updates, prepositions per verb.
+
+**Dialog / print — `src/engine/dialog/`**
+
+- [ ] Real `print` / `printEgo` opcode behaviour (the current
+      `0x14` / `0xD8` handlers consume their args but don't
+      display anything). New state: `vm.activeDialog: {
+      actorId, text, x, y, color, atY, clipped, …} | null`.
+- [ ] Render speech-bubble overlay on the VM frame canvas. Text
+      positioned above the actor's head by default (use the
+      actor's pos + a small Y offset), or at the `SO_AT` subop's
+      coords when present. Width-bounded by `SO_CLIPPED`; centred
+      when `SO_CENTER`.
+- [ ] Glyph rendering via the Phase 4 CHAR text renderer through
+      the dialog colour (a CLUT index from the print opcode's
+      `SO_COLOR` subop, default 0x0F).
+- [ ] Per-character reveal at a configurable rate (real MI1 uses
+      ~24ms/char). Caller can skip by left-clicking. After the
+      string is fully drawn, set `VAR_HAVE_MSG` (global #3) so
+      `wait for message` can release.
+- [ ] `dialog.test.ts` — full string reveal, click-to-skip,
+      VAR_HAVE_MSG flip on completion, multi-line wrap, CLIPPED
+      bound enforcement.
+
+**Dialog escape codes**
+
+- [ ] Decode the `0xFF NN` control sequences inside dialog
+      strings the renderer currently passes through verbatim:
+      `0x01` newline, `0x02` keep-text, `0x03` wait,
+      `0x04 NN NN` insert int var value, `0x06 NN NN` insert
+      var-name, `0x07 NN NN` insert string-resource value,
+      `0x08 NN NN` insert object/verb name, `0x09 NN NN`
+      sound, `0x0A NN NN` actor name, `0x0E NN NN` color.
+- [ ] `dialog-escape.test.ts` — each escape code rendered into
+      output text, color changes mid-string, variable
+      substitution.
+
+**Wait opcodes — `src/engine/vm/wait.ts`**
+
+- [ ] `wait` (`0xAE`) — multi-subop. The script slot yields with
+      a *condition* attached; the main loop re-checks the
+      condition each tick and resumes when satisfied.
+      - `0x01` SO_WAIT_FOR_ACTOR — wait until `actor.isMoving`
+        is false.
+      - `0x02` SO_WAIT_FOR_MESSAGE — wait until VAR_HAVE_MSG
+        is zero.
+      - `0x03` SO_WAIT_FOR_CAMERA — wait until the camera has
+        reached its destination x. (Camera follow-actor logic
+        is currently a stub; this opcode would unblock once
+        the camera actually moves.)
+      - `0x04` SO_WAIT_FOR_SENTENCE — wait until the sentence
+        queue is empty.
+- [ ] Slot-level "wait condition" hook on `ScriptSlot` — a
+      function called each tick that returns true when the
+      condition is met. Slot stays yielded until then.
+- [ ] `wait.test.ts` — synthetic script that yields on each
+      condition + a matching resolution.
+
+**Inventory — `src/shell/player/inventory.ts`**
+
+- [ ] Inventory area below or beside the verb bar (MI1's layout
+      is "verb bar left, inventory grid right"). Shows objects
+      owned by the player actor.
+- [ ] `setOwnerOf` opcode (`0x29`) — already in the wiki list
+      but not yet implemented. Writes to `vm.objectOwners`.
+- [ ] `getObjectOwner` opcode (`0x10`) — read side.
+- [ ] List = `[...vm.objectOwners.entries()].filter(([id,
+      owner]) => owner === ego)`. Render each as the object's
+      name (OBNA). Up/down arrows for paging when the list
+      overflows the grid (MI1 reserves 4 inventory slots
+      visible; arrows scroll).
+- [ ] Hover / click in inventory wires into the sentence builder
+      same as a room object — an inventory item becomes `obj1` or
+      `obj2` for the current sentence.
+- [ ] `inventory.test.ts` — owner filter, paging, click
+      dispatches sentence.
+
+**Cutscene control — `src/engine/vm/cutscene.ts`**
+
+- [ ] `cutscene` opcode (`0x40`) — already stub. Real
+      implementation: push a *cutscene frame* onto a stack on
+      `vm`, freeze non-resistant scripts, hide cursor + verb UI,
+      record the override script id (from the vararg).
+- [ ] `endCutscene` opcode (`0xC0`) — pop the frame, resume
+      frozen scripts, restore cursor / verb UI visibility.
+- [ ] Escape key handler: if a cutscene with an override script
+      is active, run the override script and pop the frame.
+- [ ] Coordinate with `beginOverride` / `endOverride` (already
+      stubbed) — those mark *where* in the cutscene the
+      override-jump should land.
+- [ ] `cutscene.test.ts` — push/pop stack, freeze/unfreeze
+      transitions, override flow.
+
+**Engine variables to wire**
+
+A handful of system vars (per the wiki list) are read by scripts
+and need real values. Most are read-only from the script's
+perspective.
+
+- [ ] `VAR_MOUSE_X` (44) / `VAR_MOUSE_Y` (45) — written each tick
+      from the input layer's current mouse position.
+- [ ] `VAR_VIRT_MOUSE_X` (20) / `VAR_VIRT_MOUSE_Y` (21) — same
+      values, but in room coords (corrected for camera scroll).
+- [ ] `VAR_USERPUT` (53) — current userput-enable flag.
+- [ ] `VAR_HAVE_MSG` (3) — written by dialog renderer (1 while
+      dialog is showing, 0 when done).
+- [ ] `VAR_CUTSCENEEXIT_KEY` (24) — the key code for "skip
+      cutscene" (Escape = 0x1B).
+- [ ] `VAR_TALK_ACTOR` (25) — currently-talking actor id (set
+      when the dialog renderer activates).
+
+**Inspector additions — `src/shell/player/vm-inspector.ts`**
+
+- [ ] **Sentence panel** — shows `currentVerb`, `hoveredObject`,
+      `selectedObject`, and the upcoming sentence string. Helps
+      diagnose verb routing.
+- [ ] **Verb-state panel** — list of every active verb slot with
+      its name, position, current state (on / off / dim).
+- [ ] **Inventory panel** — what's currently owned by ego, plus a
+      manual "give object N to ego" button for poking.
+- [ ] **Dialog panel** — current `vm.activeDialog` state, plus a
+      manual "skip current dialog" button (sets VAR_HAVE_MSG=0).
+- [ ] **Cutscene-stack panel** — pushed cutscene frames + their
+      override script ids.
+
+**Tests**
+
+Per-module tests listed in each section. Plus:
+
+- [ ] **End-to-end smoke**: starting from `bootGame` + the
+      synthetic input "click Start", the test framework drives
+      the engine through enough ticks to (a) leave the title
+      room and (b) arrive in the first interactive room with
+      Guybrush placed and the cursor active.
+- [ ] **Walk-around smoke**: in the first interactive room,
+      synthetic clicks at three floor positions; assert
+      Guybrush arrives at each in turn.
+- [ ] **Verb dispatch smoke**: synthetic "look at door" against
+      a real MI1 door object; assert a verb script slot starts
+      with the right bytecode and a dialog activates.
+- [ ] No regression in any earlier test.
+
+### Design notes
+
+- **Click semantics follow the v5 convention**: left = use the
+  selected verb on the clicked object (or walk if nothing
+  selected); right = "Look at" the clicked object (shortcut
+  for "Look at" without changing the current verb).
+- **Sentence flow is asynchronous**: clicking commits a sentence
+  into the queue, the global *sentence script* picks it up next
+  tick. We don't run the verb script directly from the click
+  handler — that would skip walk-to / face / wait steps the
+  sentence script normally handles.
+- **VAR_HAVE_MSG is the dialog gate**. Many scripts pattern as
+  `print "Hello." ; wait for message ; print "World."`. The
+  wait opcode polls this var, so the dialog renderer must set
+  it to 1 on start and 0 on completion (or user-skip).
+- **The verb bar lives outside the room canvas**. It's its own
+  DOM element below the canvas, not painted onto the
+  framebuffer. Speech bubbles overlay the canvas. Inventory
+  also lives below. Keeps the rendering paths simple.
+- **No save / restore in this phase.** The "save game" verb (a
+  bit-flag on its slot or a special id) is captured but
+  disabled. Phase 8 is the right home for state serialisation.
+- **Custom cursor images deferred.** The default crosshair gets
+  us through the playable goal; the `setCursorImage` /
+  `setCursorHotspot` path needs a charset-glyph-as-cursor
+  decoder that's its own small thing.
+- **Walk-box-derived actor scale** still deferred. Most MI1
+  rooms work fine without it; revisit when the docks /
+  Scumm Bar interior obviously need it.
+
+### Out of scope
+
+- **Save / restore** — Phase 8.
+- **Audio** — sound opcodes stay silent stubs. iMUSE + AdLib
+  is Phase 9.
+- **MI2 verification** — Phase 10.
+- **Native box-graph pathfinding** — grid A* is good enough; the
+  swap is mechanical and can land any time.
+- **Real cutscene-skip via mouse-click** — only Escape triggers
+  the override path for now. (MI1 traditionally also exits on
+  click, but we can wait.)
+- **Verb-bar fonts beyond MI1's defaults** — we use whichever
+  CHAR the script has selected. No theming.
 
 ---
 
