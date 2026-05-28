@@ -8,6 +8,7 @@
  */
 
 import { stepAllActorWalks } from '../../engine/actor/walk';
+import { stepAnim } from '../../engine/graphics/costume-anim';
 import { findPath } from '../../engine/pathfinding/grid';
 import { Canvas2DRenderer } from '../../engine/render/canvas2d';
 import { composeFrame } from '../../engine/render/compositor';
@@ -66,10 +67,11 @@ export function renderVmInspector(
   };
 
   /** Snapshot of every non-dead slot's (id, status, pc) plus the
-   *  position of every moving actor — used to detect "we're in a
-   *  wait loop where nothing observable changes". An actor walking
-   *  toward its target *is* observable progress, so its position is
-   *  part of the fingerprint and the streak resets each tick. */
+   *  position of every moving actor and the anim cursor of any
+   *  actively-animating actor — used to detect "we're in a wait loop
+   *  where nothing observable changes". Both walks and anim cycles
+   *  count as progress, so the loop keeps ticking while either is in
+   *  motion. */
   const yieldFingerprint = (vm: Vm): string => {
     const parts: string[] = [];
     for (const s of vm.slots) {
@@ -78,6 +80,19 @@ export function renderVmInspector(
     }
     for (const a of vm.actors.all()) {
       if (a.isMoving) parts.push(`a${a.id}@${a.x},${a.y}`);
+      // Sum each active limb's cursor — cheap signal that anim is
+      // mutating. Static no-loop anims hit `finished=true` and stop
+      // contributing to the sum once they've reached their final
+      // byte.
+      let cursorSum = 0;
+      let anyActive = false;
+      for (const limb of a.anim.limbs) {
+        if (limb.active && !limb.finished) {
+          cursorSum += limb.cursor;
+          anyActive = true;
+        }
+      }
+      if (anyActive) parts.push(`anim${a.id}=${cursorSum}`);
     }
     return parts.sort().join('|');
   };
@@ -104,6 +119,11 @@ export function renderVmInspector(
     }
     const ran = state.vm.runUntilAllYield();
     stepAllActorWalks(state.vm);
+    // Step every actor's anim playback. Dormant actors with no
+    // active limbs are a no-op (stepAnim short-circuits).
+    for (const actor of state.vm.actors.all()) {
+      actor.anim = stepAnim(actor.anim);
+    }
     state.tickCount++;
     const anyMoving = [...state.vm.actors.all()].some((a) => a.isMoving);
     return resumed || ran > 0 || anyMoving;

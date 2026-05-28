@@ -755,7 +755,19 @@ function animateActorHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const id = readVarOrByte(opcode, 1, slot, vm.vars);
   const animId = readVarOrByte(opcode, 2, slot, vm.vars);
   const actor = actorOrNull(vm, id);
-  if (actor) actor.anim = startAnim(actor.anim, animId);
+  if (actor) {
+    // Need the costume header + payload to decode the anim record.
+    // If the costume isn't loaded (id 0 / unknown), the actor's anim
+    // state stays where it is; SCUMM scripts often pre-set anim
+    // before setCostume, which the engine treats as a deferred
+    // assignment that fires once the costume binds.
+    const costume = vm.getCostume(actor.costume);
+    if (costume) {
+      actor.anim = startAnim(actor.anim, animId, costume.header, costume.payload);
+    } else {
+      actor.anim = { ...actor.anim, animId };
+    }
+  }
   vm.annotate(`animateActor actor=${id} anim=${animId}`);
 }
 register(0x11, animateActorHandler);
@@ -841,7 +853,9 @@ function actorOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
           actor.walkPath = [];
           actor.walkPathIdx = 0;
           actor.isMoving = false;
-          actor.anim = { animId: 0, perLimbFrame: [], perLimbTick: [] };
+          // setActorCostume resets anim via the same EMPTY_ANIM_STATE
+          // sentinel we use everywhere else; let it do the work.
+          actorSetCostume(actor, 0);
         }
         ops.push('init');
         break;

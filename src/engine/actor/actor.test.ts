@@ -63,12 +63,15 @@ describe('putActor', () => {
 describe('setActorCostume', () => {
   it('assigns the costume and resets anim state', () => {
     const a = createActor(1);
-    a.anim = { animId: 7, perLimbFrame: [1, 2, 3], perLimbTick: [10, 11, 12] };
+    // Pretend the actor was mid-anim — every limb active and cursored.
+    a.anim = {
+      animId: 7,
+      limbs: a.anim.limbs.map((l) => ({ ...l, active: true, cursor: 5 })),
+    };
     setActorCostume(a, 42);
     expect(a.costume).toBe(42);
     expect(a.anim.animId).toBe(0);
-    expect(a.anim.perLimbFrame).toHaveLength(0);
-    expect(a.anim.perLimbTick).toHaveLength(0);
+    expect(a.anim.limbs.every((l) => l.active === false)).toBe(true);
   });
 });
 

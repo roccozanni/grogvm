@@ -43,7 +43,7 @@
  */
 
 import type { Actor } from '../actor/actor';
-import { currentLimbFrame } from '../graphics/costume-anim';
+import { currentAnimCmd } from '../graphics/costume-anim';
 import { compositeActor } from '../graphics/composite';
 import type { LoadedCostume } from '../graphics/costume-loader';
 import { decodeCostumeFrame } from '../graphics/costume-frame';
@@ -215,7 +215,15 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
     for (let limbIdx = 0; limbIdx < costume.header.limbOffsets.length; limbIdx++) {
       const tableOffset = costume.header.limbOffsets[limbIdx]!;
       if (tableOffset === 0) continue; // unused limb
-      const frameIdx = currentLimbFrame(actor.anim, limbIdx);
+      // Per the SCUMM v5 anim-cmd convention: byte at
+      // `anim.limbs[i].start + cursor` in the costume payload is the
+      // picture index (frame number) when < 0x70. Commands (0x71-0x7C
+      // — sounds, hide, skip, stop) are surfaced too; for static
+      // rendering we just dereference whatever byte we read as a
+      // picture index. If it's a command code, the limb-table lookup
+      // typically points past the payload and we fall through the
+      // sentinel check.
+      const frameIdx = currentAnimCmd(actor.anim, limbIdx, costume.payload);
       const ptrOffset = tableOffset + frameIdx * 2;
       if (ptrOffset + 2 > costume.payload.length) {
         skippedLimbs.push({

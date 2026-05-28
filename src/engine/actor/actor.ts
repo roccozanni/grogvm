@@ -27,16 +27,12 @@
  *   `walkTarget`) but stepping them is Phase 6.6.
  */
 
+import type { AnimState } from '../graphics/costume-anim';
+
 export type Facing = 'N' | 'E' | 'S' | 'W';
 
-export interface ActorAnimState {
-  /** Anim id selected by the most recent script command (init/walk/talk/…). */
-  animId: number;
-  /** Per-limb playback index — populated by Phase 6.2's anim decoder. */
-  perLimbFrame: ReadonlyArray<number>;
-  /** Per-limb tick counter so each limb can advance at its own pace. */
-  perLimbTick: ReadonlyArray<number>;
-}
+/** Re-export so callers can name actor.anim's type without two imports. */
+export type { AnimState } from '../graphics/costume-anim';
 
 export interface Actor {
   /** Stable actor id (matches the table index for direct lookup). */
@@ -67,9 +63,22 @@ export interface Actor {
   /** Index into `walkPath` of the *next* waypoint to head toward. */
   walkPathIdx: number;
   isMoving: boolean;
-  /** Anim playback state — managed by Phase 6.2. */
-  anim: ActorAnimState;
+  /** Anim playback state — populated by `startAnim`, advanced by `stepAnim`. */
+  anim: AnimState;
 }
+
+/** Default empty AnimState — every limb inactive. */
+const EMPTY_ANIM_STATE: AnimState = {
+  animId: 0,
+  limbs: new Array(16).fill({
+    active: false,
+    start: 0,
+    length: 0,
+    noLoop: false,
+    cursor: 0,
+    finished: false,
+  }),
+};
 
 /** Default per-actor walk speed (8 pixels horizontally, 2 vertically per tick) — SCUMM convention. */
 export const DEFAULT_WALK_SPEED_X = 8;
@@ -95,7 +104,7 @@ export function createActor(id: number): Actor {
     walkPath: [],
     walkPathIdx: 0,
     isMoving: false,
-    anim: { animId: 0, perLimbFrame: [], perLimbTick: [] },
+    anim: EMPTY_ANIM_STATE,
   };
 }
 
@@ -122,7 +131,7 @@ export function putActor(actor: Actor, x: number, y: number, room: number): void
  */
 export function setActorCostume(actor: Actor, costumeId: number): void {
   actor.costume = costumeId | 0;
-  actor.anim = { animId: 0, perLimbFrame: [], perLimbTick: [] };
+  actor.anim = EMPTY_ANIM_STATE;
 }
 
 /**
