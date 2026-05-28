@@ -10,17 +10,19 @@ A room has two blocks for this:
 - **`BOXD`** — *box data*. The geometry of each box (four corner
   points), plus per-box flags and a SCAL slot.
 - **`BOXM`** — *box matrix*. A compressed `N × N` adjacency table
-  that the original engine uses to plan walks across boxes via a
-  graph search. We parse this lazily; Phase 6's pathfinder works
-  off a rasterized version of `BOXD` directly and doesn't need it.
+  the original engine uses to plan walks across boxes via a graph
+  search. webscumm doesn't decode it; the included pathfinder
+  works off a rasterized version of `BOXD` directly. See
+  [`PATHFINDING.md`](PATHFINDING.md).
 
 ## Sources
 
-- ScummVM Technical Reference — Room resources (walk-box section),
-  at
-  <https://wiki.scummvm.org/index.php?title=SCUMM/Technical_Reference/Room_resources#Walk_boxes>.
-  Documents the per-box record layout and the mask / flags / scale
-  fields. Cross-checked against MI1 rooms 10, 30, 32.
+The per-box record layout here was derived empirically from MI1
+rooms 10 (title), 30 (an interior with 9 boxes), and 32. The
+`2 + 20 × count` payload shape holds across every room we sampled,
+and the per-byte field interpretation is consistent with the way
+the SCAL block and `actorOps SO_IGNORE_BOXES` opcode reference
+these fields.
 
 ## 1. Where they live
 
@@ -46,8 +48,7 @@ back to straight-line walking in that case.
 └────────────────────┴─────────────────────────────────┘
 ```
 
-Total payload = `2 + 20 × count`. Empirically verified on every
-MI1 room we've inspected.
+Total payload = `2 + 20 × count`.
 
 ### Per-box record (20 bytes)
 
@@ -62,14 +63,15 @@ MI1 room we've inspected.
 | 18     | u8   | `scaleSlot`   | Index into the room's `SCAL` table (0 = no per-box scaling).  |
 | 19     | u8   | _padding_     | Always zero in MI1/MI2.                                       |
 
-**The corners are stored UL → UR → LR → LL.** That's the order our
-rasterizer walks edges in, so a box with `(0, 0, 100, 0, 100, 50, 0,
-50)` is the standard `0..100 × 0..50` rectangle.
+**The corners are stored UL → UR → LR → LL.** A box with corners
+`(0, 0, 100, 0, 100, 50, 0, 50)` is the standard `0..100 × 0..50`
+rectangle.
 
-**Corners are pixel positions, not pixel ranges.** A box from `(0, 0)`
-to `(4, 2)` covers pixels `(0..4, 0..2)` = 5×3 = **15 pixels**, not 8.
-Getting this wrong was the cause of the initial test-fixture bug in
-the rasterizer.
+**Corners are pixel positions, not pixel ranges.** A box from
+`(0, 0)` to `(4, 2)` covers pixels `(0..4, 0..2)` = 5×3 = **15
+pixels**, not 8. A common bug when implementing a rasterizer is
+treating the second corner as exclusive — the result is a box one
+pixel narrower and shorter than intended.
 
 ### The "invisible" flag
 
@@ -86,23 +88,21 @@ same: invisible = no walk.
 
 ## 3. Convex quad assumption
 
-Walk boxes in MI1 and MI2 are **always convex**. The wiki's prose
-insists, and every box we've sampled obeys. That lets the
-rasterizer use trapezoid scan-line fill — for each row in the box's
+Walk boxes in MI1 and MI2 are **always convex**. A rasterizer can
+therefore use trapezoid scan-line fill — for each row in the box's
 bounding span, compute the leftmost and rightmost edge
-intersection, then fill the inclusive span. Much cheaper than a
-general polygon fill and with no edge cases.
+intersection, then fill the inclusive span. Cheaper than a general
+polygon fill and with no edge cases.
 
 Concretely: at each row `y` between `yMin` and `yMax` (inclusive),
-the rasterizer iterates the four edges (UL→UR, UR→LR, LR→LL,
-LL→UL), and for any edge whose y-range straddles the row, computes
-its intersection x via linear interpolation. The min and max x
-become the row's left and right span. Spans are written into the
-mask byte by byte.
+iterate the four edges (UL→UR, UR→LR, LR→LL, LL→UL), and for any
+edge whose y-range straddles the row, compute its intersection x
+via linear interpolation. The min and max x become the row's left
+and right span.
 
 Degenerate boxes (a corner repeated, or all corners collinear like
-the box-0 sentinel) produce zero or single-pixel coverage, which is
-fine — the rasterizer doesn't special-case them.
+the box-0 sentinel) produce zero or single-pixel coverage — no
+special case needed.
 
 ## 4. The walkable mask
 
@@ -125,13 +125,13 @@ sequence of box transitions, then refines the in-box trajectory.
 Compressed format: per box, a list of `(toBox, viaBox)` runs
 terminated by `0xFF`.
 
-Phase 6 captures the BOXM block but doesn't decode it. The grid
-A* pathfinder over the rasterized mask handles every routing case
-the original box-graph would, with slightly different aesthetics
-(grid paths hug walls; box-graph paths cut diagonally through the
-middle of boxes). The original box-graph approach can replace the
-grid one without disturbing the `walkActorTo` call site — both
-populate `actor.walkPath`.
+webscumm currently doesn't decode BOXM. A grid A* pathfinder over
+the rasterized mask handles every routing case the original
+box-graph would, with slightly different aesthetics (grid paths
+hug walls; box-graph paths cut diagonally through the middle of
+boxes). A box-graph implementation can replace the grid one
+without changing the `walkActorTo` call site — both populate
+`actor.walkPath`.
 
 ## 6. The runtime: walk planning
 

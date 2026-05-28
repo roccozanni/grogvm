@@ -55,13 +55,13 @@ A real MI1 game room (id 10, the title screen) contains:
 | Tag    | Bytes | Purpose                                                                  |
 |--------|-------|--------------------------------------------------------------------------|
 | `RMHD` | 14    | Room header — width, height, num-objects. See §3.                        |
-| `CYCL` | 10    | Palette cycle table. Phase-deferred (visual polish).                     |
+| `CYCL` | 10    | Palette cycle table. Visual polish; webscumm doesn't yet honour it.      |
 | `TRNS` | 10    | Transparent palette index. See §4.                                       |
 | `EPAL` | 264   | EGA palette mirror (back-compat). Ignored by the VGA path.               |
 | `BOXD` | 50    | Walk-box geometry. See [`SCUMM-V5-WALK-BOXES.md`](SCUMM-V5-WALK-BOXES.md). |
 | `BOXM` | 16    | Walk-box adjacency matrix. Captured but not consumed yet.                |
 | `CLUT` | 776   | Room palette — 256 RGB triples + 8-byte block header.                    |
-| `SCAL` | 40    | Per-y actor scaling slots. Phase-deferred.                               |
+| `SCAL` | 40    | Per-y actor scaling slots. Not yet consumed by the compositor.           |
 | `RMIM` | big   | Room image container (SMAP + z-planes). See §5.                          |
 | `OBIM` | each  | Object image — one block per object. See [`SCUMM-V5-OBJECTS.md`](SCUMM-V5-OBJECTS.md). |
 | `OBCD` | each  | Object code — one block per object, paired with OBIM by id.              |
@@ -90,9 +90,8 @@ Three little-endian u16 fields:
 
 A two-byte field giving the **CLUT index that should render as
 transparent** anywhere it appears in the background or in an object
-image. The compositor honours it by emitting RGBA alpha-0 for that
-index in the final framebuffer; the inspector renders a checkerboard
-backdrop behind the canvas so transparent regions are visible.
+image. A renderer honours it by emitting alpha-0 for that index in
+the final framebuffer.
 
 When the room has no `TRNS` block, every CLUT index is opaque. Most
 MI1 rooms have TRNS = 5 (the bright magenta the encoder uses as a
@@ -113,34 +112,28 @@ RMIM
 ```
 
 The image is at native room dimensions (`RMHD.width × RMHD.height`).
-`webscumm` decodes `RMHD` for plane count, then `SMAP` for the bitmap
-and each `ZP##` in source order for occlusion. The compositor stacks
-the SMAP under any drawn objects and actors, with each z-plane index
+A decoder reads RMHD for plane count, then SMAP for the bitmap and
+each `ZP##` in source order for occlusion. A compositor stacks the
+SMAP under any drawn objects and actors, with each z-plane index
 hiding actors whose `actorZ` is less than the plane's 1-based index.
 
 ## 6. ENCD / EXCD — room entry / exit scripts
 
-Each is raw SCUMM bytecode (no header). The Phase 6 main loop runs
-them as **synthetic script slots** whenever the VM enters or leaves a
-room:
+Each is raw SCUMM bytecode (no header). The main loop runs them as
+**synthetic script slots** whenever the VM enters or leaves a room:
 
-1. When the script dispatches a `loadRoom` opcode, `vm.enterRoom`
-   first checks the **outgoing** room for an `EXCD`. If present, it
-   starts that bytecode in a free slot labelled `EXCD-{prevRoomId}`
-   so it runs alongside any still-live scripts.
-2. The new room's `LoadedRoom` (with palette, SMAP, etc.) is then
-   bound to `vm.loadedRoom`.
+1. When the script dispatches a `loadRoom` opcode, the engine first
+   checks the **outgoing** room for an `EXCD`. If present, it starts
+   that bytecode in a free slot labelled `EXCD-{prevRoomId}` so it
+   runs alongside any still-live scripts.
+2. The new room is bound as the current room.
 3. If the new room has an `ENCD`, that's started in another free
    slot labelled `ENCD-{newRoomId}`. Same scheduling as any global
    script — yields and runs over multiple engine ticks.
 
 These slots have `scriptId = 0` (they're not global scripts) and a
-non-empty `label` so the inspector can tell them apart in the slot
-table.
-
-The EXCD/ENCD bytecode is captured up-front into `Uint8Array` copies
-when the room loads; we don't need the original resource file open
-once `enterRoom` returns.
+non-empty `label` to distinguish them from numbered global scripts
+in trace output.
 
 ## 7. LSCR — local scripts
 
@@ -151,34 +144,31 @@ bytecode.
 
 SCUMM v5 routes `startScript` opcodes with id ≥ 200 through the
 current room's local-script table rather than the global directory.
-The room loader collects every `LSCR` into a `Map<id, Uint8Array>`,
-and the `startScript` handler dispatches to either `vm.loadedRoom?
-.localScripts.get(id)` (for `id >= 200`) or `vm.resolveGlobalScript
-(id)` (for `id < 200`).
+A room loader should collect every `LSCR` into a map keyed by id,
+and the `startScript` opcode handler should dispatch to that map for
+ids ≥ 200 and fall through to the global script resolver for lower
+ids.
 
 Mid-cutscene scripts often live as LSCRs — they're tightly bound to
 one room and don't need to be exposed in the global directory. MI1's
 title room has 5 LSCRs (200..204) covering the menu, intro music
 cue, and copy-protection check sequencing.
 
-When `enterRoom` swaps to a new room, the previous room's LSCR
-bytecode is no longer reachable (it lived inside the previous
-`LoadedRoom`). Any still-running slot referencing it keeps its
-`Uint8Array` alive by reference — JavaScript GC takes care of the
-rest.
+When the engine swaps to a new room, the previous room's LSCR
+bytecode goes out of scope. Any still-running slot referencing it
+should keep a reference to its bytecode buffer until that slot
+finishes.
 
-## 8. CYCL, SCAL — deferred
+## 8. CYCL, SCAL — not yet consumed
 
 - **CYCL** lists palette-index ranges that cycle on a timer (water,
-  flames, animated mouths). The compositor would mutate the
-  palette's RGB triplets in place at the cycle rate. Phase 9
-  alongside audio + polish.
+  flames, animated mouths). A renderer honouring it would mutate the
+  palette's RGB triplets in place at the cycle rate.
 - **SCAL** holds 4 perspective-scale slots, each `(scale1, y1,
   scale2, y2)`, defining a per-y interpolation that scales actors as
   they walk toward / away from the camera. Walk boxes reference one
-  of these slots via `box.scaleSlot`. Phase 7 polish item — most
-  MI1 rooms work fine without it visually until walking-into-distance
-  scenes need it (Scumm Bar dock, Big Whoop, …).
+  of these slots via `box.scaleSlot`. Without it, actors render at
+  100% scale regardless of room depth.
 
 ## 9. Reference implementation
 

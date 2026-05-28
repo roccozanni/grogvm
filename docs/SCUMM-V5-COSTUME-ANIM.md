@@ -8,11 +8,10 @@
   SlotModifier` and explains the cmd-byte magic values (`0x71-0x7C`).
 - ScummVM Technical Reference — Costume resources, at
   <https://wiki.scummvm.org/index.php?title=SCUMM/Technical_Reference/Costume_resources>.
-  Specifies "limbs are reverse-indexed" — mask bit `b` → limb
-  `15 - b` — and the special anim id ranges (244-247 turn, 248-251
-  change direction, 252-255 stop walking) we needed to interpret
-  Guybrush's behaviour at boot.
-## On-disk format (verified against the SCUMM v5 wiki + format spec)
+  Specifies "limbs are reverse-indexed" (mask bit `b` → limb
+  `15 - b`) and the special anim id ranges in the table below.
+
+## On-disk format
 
 Each anim record at `costume.payload[header.animOffsets[id]]`:
 
@@ -49,74 +48,72 @@ begin).
 252-255  stop walking                    ← pseudo-anims, no frame data
 ```
 
-So `animateActor(actor=1, anim=250)` from MI1's boot is a **direction
-change**, not a frame-cycle animation. The actor's state correctly
-shows `animId=250` with no active limbs — there's nothing for the
+So `animateActor(actor=1, anim=250)` is a **direction change**, not
+a frame-cycle animation. An actor whose `animId` is 250 will
+correctly show "no active limbs" — there's nothing for the
 compositor to advance.
 
-## What's in this codebase
+## Reference implementation
 
-**`src/engine/graphics/costume-anim.ts`**:
+[`src/engine/graphics/costume-anim.ts`](../src/engine/graphics/costume-anim.ts)
+exposes the runtime types and the three entry points consumers
+need:
 
-- `AnimState`: `{ animId, limbs[16] }` — each `LimbPlayback` is
-  `{ active, start, length, noLoop, cursor, finished }`.
-- `createAnimState`: every limb inactive.
-- `startAnim(state, animId, header, payload)`: decodes the anim
-  record at `animOffsets[animId]`. Pseudo-anim ids (244-255 range,
-  any id where the record decodes to zero modifiers) leave all limbs
-  inactive — the animId is recorded but no per-frame state changes.
-  Defensive fallback for malformed records: bad frame indices are
-  treated as inactive limbs.
-- `stepAnim`: advances every active limb's cursor each tick. Loops
-  on default anims, sticks-on-last for no-loop anims.
-- `currentAnimCmd(state, limbIdx, payload)`: reads
-  `payload[limb.start + cursor]` — the picture index the compositor
-  needs.
+- `AnimState` — `{ animId, limbs[16] }`, where each `LimbPlayback`
+  carries `{ active, start, length, noLoop, cursor, finished }`.
+- `createAnimState(header)` — initial state with every limb
+  inactive.
+- `startAnim(state, animId, header, payload)` — decodes the anim
+  record at `animOffsets[animId]`. Pseudo-anim ids (any id whose
+  record decodes to zero modifiers, including 244..255) record the
+  `animId` but leave limbs inactive. Bad frame indices fall through
+  to a defensive "inactive limb" rather than throwing.
+- `stepAnim(state)` — advances every active limb's cursor each
+  tick. Loops on default anims; sticks on the final cursor for
+  no-loop anims and flips `finished` true.
+- `currentAnimCmd(state, limbIdx, payload)` — reads
+  `payload[limb.start + cursor]`, the picture index for the
+  compositor.
 
-**Compositor**: calls `currentAnimCmd` to get the active picture
-index for each limb. Frame-pointer sentinel filter (`framePtr < 6` or
-`framePtr + 6 > payload.length`) silently drops out-of-range
-lookups, including cmd bytes that are actually commands (0x71-0x7C
-range — sound / stop / start / hide / skip — which our compositor
-doesn't dispatch yet).
+The compositor (`src/engine/render/compositor.ts`) calls
+`currentAnimCmd` per limb. A frame-pointer sentinel filter
+(`framePtr < 6` or `framePtr + 6 > payload.length`) silently drops
+out-of-range lookups, including cmd bytes in the `0x71-0x7C`
+command range — those would otherwise be interpreted as picture
+indices well outside the limb's frame table.
 
-**`animateActor` opcode** (0x11 / 0x91): wires through to `startAnim`
-when the costume is loaded, else stashes the anim id for binding
-after `setActorCostume`.
+The `animateActor` opcode (`0x11` / `0x91`) routes through to
+`startAnim` when the actor's costume is loaded; otherwise it
+stashes the anim id so it can bind on the next `setActorCostume`.
 
-**Inspector**: per-engine-tick `stepAnim` call. Actor table shows
-`animId (N L)` with active-limb count; expandable details panel
-shows each active limb's `start / cursor / length / noLoop / state`
-so anim playback is visible.
-
-## Known limitations (revisit when better visual reference is available)
+## Known limitations
 
 - **High-bit flag convention on `frameIndex` not fully decoded.**
   Some `frameIndex` values come out larger than the cmd array's
-  byte length (e.g. 0x0180, 0x0280, 0xff*). These probably encode
-  shared-cmd-pool or per-slot-image-table addressing that the wiki
-  prose doesn't cover. Defensive fallback keeps the limb inactive
-  rather than crash, so the actor renders correctly in its init
-  pose.
-- **Command-byte dispatch** (`0x71-0x7C`) — the compositor reads
-  these as picture indices, which land outside the limb's frame
-  table and get silently skipped by the existing sentinel guard.
-  Correct enough for static rendering; a future iteration could
-  short-circuit these and update slot state (pause / resume / hide).
-- **Validation requires a v5 reference renderer**. The decoder is
-  implemented from the format spec; without a running v5 game (in
-  ScummVM, for instance) to side-by-side compare, we don't have a
-  ground truth for "does the actor look right at frame N." Phase 7
-  + click-to-walk will trigger real walk anims, which will surface
-  any remaining decode issues empirically.
+  byte length (e.g. `0x0180`, `0x0280`, `0xff*`). These probably
+  encode shared-cmd-pool or per-slot-image-table addressing that
+  the documented format doesn't cover. The defensive fallback keeps
+  the limb inactive rather than rendering garbage, so the actor
+  stays in its init pose.
+- **Command-byte dispatch** (`0x71-0x7C`) — the implementation
+  treats these as picture indices, which land outside the limb's
+  frame table and get silently skipped by the sentinel guard.
+  Correct enough for static rendering; a complete implementation
+  should short-circuit these and update slot state directly
+  (pause / resume / hide / skip).
+- **Validation requires a reference renderer.** The decoder is
+  implemented from the format spec; ground truth for "does this
+  actor look right at frame N" requires side-by-side comparison
+  against a known-good v5 interpreter (for example ScummVM).
 
-## Validation path when revisiting
+## Validation path
 
-1. Run MI1 in a v5 reference engine (ScummVM). Record the cmd-byte
-   sequence for Guybrush's walk anim under each direction. This
-   gives ground truth for `(frameIndex, cursor, picture_idx)`
-   triples.
-2. Compare to webscumm's `startAnim` + `stepAnim` output for the
-   same anim id.
-3. Where they diverge, identify the high-bit flag or special-case
-   the decoder needs.
+1. Run MI1 in a v5 reference engine and record the cmd-byte
+   sequence for a known actor's walk anim under each direction.
+   This produces ground truth for `(frameIndex, cursor,
+   picture_idx)` triples.
+2. Run the same anim id through `startAnim` + `stepAnim` and
+   compare the cursor trajectory.
+3. Where they diverge, look at the high-bit pattern on the
+   diverging frameIndex values — that's where the missing format
+   convention lives.

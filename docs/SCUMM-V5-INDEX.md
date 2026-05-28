@@ -13,7 +13,7 @@ worth flagging up front.
 ## Sources
 
 - ScummVM Technical Reference — Index file, at
-  <https://wiki.scummvm.org/index.php?title=SCUMM/Technical_Reference/Index_file>.
+  <https://wiki.scummvm.org/index.php?title=SCUMM/Technical_Reference/Index_File>.
   Describes the directory layouts and the `LOFF` purpose; the
   lane-1-disk-vs-room distinction in §4 was derived empirically
   against MI1.

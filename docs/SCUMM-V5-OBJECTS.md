@@ -39,7 +39,7 @@ LECF
         ├── OBIM            ← next object's image
         ├── OBCD            ← per object: code
         │   ├── CDHD        code header
-        │   ├── VERB        verb-id → script-offset table  (Phase 7)
+        │   ├── VERB        verb-id → script-offset table
         │   └── OBNA        NUL-terminated object name
         └── OBCD            ← next object's code
 ```
@@ -72,11 +72,11 @@ CDHD for parent / walk-to / verb routing.
 
 ## 3. IMHD — object image header
 
-A variable-length header. The first 16 bytes match every MI1 / MI2
-object we've inspected; longer IMHDs add per-state hotspot tables
-that interactive UI overlays use to determine "which exact pixel of
-this object did the player click?" We don't need hotspots for Phase
-6 rendering, so we read the first 16 bytes only:
+A variable-length header. The first 16 bytes are consistent across
+MI1 / MI2 objects; longer IMHDs add per-state hotspot tables that
+interactive UI overlays use to determine which exact pixel of the
+object the player clicked. Rendering only requires the first 16
+bytes:
 
 | Offset | Size | Field        | Meaning                                                  |
 |--------|------|--------------|----------------------------------------------------------|
@@ -128,8 +128,8 @@ empty OBNA payloads or none at all.
 The OBCD's `VERB` block holds the **verb scripts** that fire when
 the player performs verb actions on this object. One sub-script per
 supported verb, typically `Look at`, `Open`, `Pick up`, `Use`,
-`Talk to`. Phase 6 captures the block but doesn't decode it; Phase
-7 wires verb dispatch.
+`Talk to`. webscumm captures the block on parse but verb dispatch
+is not yet wired.
 
 ## 7. The runtime: state tracking + draw queue
 
@@ -183,10 +183,9 @@ didn't appear.
 2. **Reading CDHD's position as pixels instead of 8-pixel units** —
    produces objects positioned 1/8 of where they should be.
 3. **Trusting RMHD.numObjects** — that count includes objects with
-   only OBCD (no image) and orphans the loader drops. Trust the
-   `objects.size` of the parsed map.
-4. **Drawing a queued object whose state is 0** — the compositor
-   correctly skips these but logs a `skippedObjects` entry. If you
-   see "state 0 (hidden)" in the inspector for an object you expect
-   visible, the script has explicitly hidden it (often via
-   `setState(obj, 0)` immediately before a cutscene).
+   only OBCD (no image) and orphans a loader would drop. Trust the
+   size of the parsed object map.
+4. **Drawing a queued object whose state is 0** — by spec, state 0
+   means hidden. Scripts often explicitly set an object's state to
+   0 immediately before a cutscene to remove a piece of scenery
+   that's about to be replaced by a sprite.

@@ -18,32 +18,29 @@ directly reachable from which other boxes. A path is planned as a
 sequence of box transitions (`5 → 7 → 8`), and the in-box trajectory
 is refined per transition.
 
-webscumm uses a different approach for Phase 6: **flatten the union
-of all visible walk boxes into a binary mask, then A* over that
-mask**. The boxes are still parsed for their flags and SCAL slots
-(per [`SCUMM-V5-WALK-BOXES.md`](SCUMM-V5-WALK-BOXES.md)), but only
-the geometry is used at planning time.
+webscumm uses a different approach: **flatten the union of all
+visible walk boxes into a binary mask, then A* over that mask**.
+The boxes are still parsed for their flags and SCAL slots (per
+[`SCUMM-V5-WALK-BOXES.md`](SCUMM-V5-WALK-BOXES.md)), but only the
+geometry is used at planning time.
 
-Why?
+Reasons to prefer the grid approach:
 
-- The mask is **straightforward to visualize** — the inspector
-  tints walkable pixels green so the user can see exactly where
-  the actor can step.
+- A binary mask is **straightforward to visualize** — tint
+  walkable pixels and the route options are obvious at a glance.
 - A* is **a well-known algorithm** with predictable performance
-  and known correctness — no need to chase down BOXM's compressed
-  adjacency encoding to make walking work.
+  and known correctness, with no dependence on decoding BOXM's
+  compressed adjacency encoding.
 - The output (a list of pixel waypoints) is the same shape as the
   box-graph approach, so the walker doesn't care which algorithm
-  produced it. Swapping in a box-graph pathfinder later is a
-  drop-in replacement.
+  produced it. A box-graph pathfinder is a drop-in replacement.
 
-Trade-off: A* paths **hug walls** (they take the shortest grid
-path) while box-graph paths **cut diagonally through the middle of
-boxes** (since each box transition is a single edge crossing).
-Aesthetically the box-graph version reads more like "the actor is
-walking through the room" while the grid version reads more like
-"the actor is hugging the corridor." For Phase 6 we accept the
-hugging style; Phase 7+ can switch if it matters.
+Trade-off: A* paths **hug walls** (shortest grid path) while
+box-graph paths **cut diagonally through the middle of boxes**
+(each box transition is a single edge crossing). The box-graph
+version reads more like "the actor walks through the room"; the
+grid version reads more like "the actor hugs the corridor." Choose
+based on the aesthetic you want.
 
 ## 2. The mask
 
@@ -72,49 +69,47 @@ per-query rasterization.
 - **Open list** — a binary min-heap keyed by `gScore + heuristic`.
   Storing cell indices as `Int32` rather than allocating objects
   per node keeps the hot loop allocation-free after warmup.
-- **Closed set** — a `Uint8Array` flag per cell; we skip cells
-  whose closed flag is set when popping from the heap, which
+- **Closed set** — a `Uint8Array` flag per cell; cells whose
+  closed flag is set are skipped when popped from the heap, which
   handles the "stale entry" case without needing a decrease-key
   operation.
 - **Neighbours** — 8-connectivity. Cardinal moves cost 1, diagonal
-  moves cost √2. This gives smoother paths than 4-connectivity
-  without much extra work.
+  moves cost √2. Gives smoother paths than 4-connectivity without
+  much extra work.
 - **Heuristic** — *octile distance*: `dx + dy + (√2 - 2) ×
   min(dx, dy)`. Admissible (never overestimates), tighter than
-  Manhattan for 8-connectivity. Faster than Euclidean (no sqrt
+  Manhattan for 8-connectivity, faster than Euclidean (no `sqrt`
   in the inner loop).
-- **Termination** — pop until we hit the goal, run out of nodes,
+- **Termination** — pop until the goal is reached, the heap empties,
   or every reachable cell has been expanded. The last case happens
   when the goal is in a disjoint region from the start (e.g. an
-  unreachable obstacle); we then return a partial path to the
-  closest cell we expanded.
+  unreachable obstacle); a partial path to the closest expanded
+  cell is returned instead.
 
 The output is a flat list of pixel waypoints from start to
-(best-reachable) goal. A `reachedGoal: false` flag tells the
-caller "we got close, but the goal proper is unreachable" — the
-walker still walks the partial path so the actor doesn't just
-stand there.
+(best-reachable) goal. A `reachedGoal: false` flag signals that the
+requested goal proper is unreachable — the walker can still walk
+the partial path so the actor doesn't appear stuck.
 
 ## 4. Snapping endpoints
 
 Start or goal coordinates **off the walkable mask** are normal —
-the script can call `walkActorTo(actor, 320, 200)` with no regard
-for whether `(320, 200)` is actually a walk-box pixel. We snap
-both endpoints to the nearest walkable cell via a bounded
-breadth-first search before launching A*. Returns `null` (and
-hence "no path") only when the entire mask is empty — the
-"no walk boxes at all" case.
+a script can call `walkActorTo(actor, 320, 200)` with no regard
+for whether `(320, 200)` is actually a walk-box pixel. Both
+endpoints should be snapped to the nearest walkable cell via a
+bounded breadth-first search before launching A*. The snap returns
+`null` (and hence "no path") only when the entire mask is empty.
 
-Out-of-bounds coords are first clamped to the mask's `[0, width)
-× [0, height)` rectangle, then snapped. So a click outside the
-room boundary still produces a sensible target inside the
-walkable area.
+Out-of-bounds coords should be clamped to the mask's
+`[0, width) × [0, height)` rectangle before snapping. A click
+outside the room boundary then produces a sensible target inside
+the walkable area.
 
-The snap distance can sometimes be large (an actor click far from
-any walkable region snaps to the nearest edge), but it's still
-bounded by the mask size and the search itself is `O(width ×
-height)` worst case. At MI1's typical 320×144 = 46k pixels, the
-worst-case snap is sub-millisecond.
+Snap distance can be large (a click far from any walkable region
+snaps to the nearest edge), but it's bounded by the mask size and
+the search itself is `O(width × height)` worst case. At MI1's
+typical 320×144 = 46k pixels, the worst-case snap is
+sub-millisecond.
 
 ## 5. Path simplification
 
@@ -177,33 +172,24 @@ case to ~100 ms which is still fine for once-per-walk planning.
 The mask itself is computed once at room-load time and reused for
 every walk that takes place in that room.
 
-## 8. Inspector overlay
+## 8. BOXM-style box-graph alternative
 
-The VM frame canvas has a "walk overlay" checkbox (see
-[`SCUMM-V5-WALK-BOXES.md`](SCUMM-V5-WALK-BOXES.md) §8). When on,
-it draws the walkable mask as a faint green tint plus the
-per-actor walkPath as a yellow polyline with waypoint dots and an
-orange marker on the actor's current position. Off by default —
-adds visual noise that's only useful while debugging walks.
+For the more cinematic "actor strides through the middle of the
+box" aesthetic — or to handle walk geometry that doesn't
+rasterize cleanly — a box-graph pathfinder can replace `findPath`
+without changing the call site. Both populate `actor.walkPath` with
+the same `Point[]` shape.
 
-## 9. Future: BOXM-style box-graph
+What's needed:
+- A BOXM decoder for the per-box "next-hop" adjacency table.
+- A path-planning routine that, given start box and goal box,
+  emits the corner-to-corner waypoint sequence the actor walks.
 
-If we ever want box-graph paths (for the more cinematic "actor
-strides through the middle of the box" aesthetic, or for
-correctness with custom walk geometry not representable as a
-rasterized mask), the architecture supports a swap:
+The existing walk-box parser already extracts everything else
+(corners, flags, scale slots), so a box-graph pathfinder is mostly
+a routing layer on top of it.
 
-- `findPath` becomes the only thing that changes. Same signature,
-  same return type.
-- Walk-box parsing (`parseWalkBoxes`) already extracts everything
-  the box-graph would need.
-- `BOXM` parsing would be a new module that decodes the per-box
-  "next-hop" adjacency table.
-
-Currently no plans to do this. Grid A* is correct, fast, and
-visually reasonable; the box-graph approach is a polish step.
-
-## 10. Reference implementation
+## 9. Reference implementation
 
 - [`src/engine/pathfinding/grid.ts`](../src/engine/pathfinding/grid.ts)
   — `findPath(mask, w, h, start, goal) → PathResult`, the binary
