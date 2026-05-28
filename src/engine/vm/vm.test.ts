@@ -180,6 +180,7 @@ describe('Vm — enterRoom + ENCD/EXCD', () => {
       entryScript: encd ? new Uint8Array(encd) : null,
       exitScript: excd ? new Uint8Array(excd) : null,
       localScripts: new Map(),
+      objects: new Map(),
     };
   }
 

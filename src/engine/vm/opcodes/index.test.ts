@@ -277,6 +277,7 @@ describe('seed opcodes — startScript LSCR routing', () => {
       entryScript: null,
       exitScript: null,
       localScripts: new Map([[201, localBytecode]]),
+      objects: new Map(),
     };
     (vm as unknown as { currentRoom: number }).currentRoom = 5;
     // bytecode: startScript #201 with no args

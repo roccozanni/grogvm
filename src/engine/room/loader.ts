@@ -30,6 +30,7 @@
 import { findChild, payloadOf, type ResourceFile } from '../resources/tree';
 import { decodeRoom, walkRooms, type DecodedRoom } from '../graphics/room';
 import { decodeZPlanes, type DecodedZPlane } from '../graphics/zplane';
+import { parseRoomObjects, type LoadedObject } from '../object/loader';
 import type { RoomOffsetTable } from '../resources/loff';
 
 export class RoomLoadError extends Error {
@@ -64,6 +65,14 @@ export interface LoadedRoom {
    * routes those ids to the current room's localScripts table.
    */
   readonly localScripts: ReadonlyMap<number, Uint8Array>;
+  /**
+   * Room objects (OBCD + OBIM pairs) keyed by `obj_id`. Each entry
+   * carries the object's position (CDHD/IMHD), per-state image data
+   * (IM01, IM02, …), and the OBNA name. Consumed by the frame
+   * compositor when `drawObject` queues an object for the current
+   * frame.
+   */
+  readonly objects: ReadonlyMap<number, LoadedObject>;
 }
 
 /**
@@ -125,6 +134,8 @@ export function loadRoom(
     localScripts.set(id, new Uint8Array(payload.subarray(1)));
   }
 
+  const objects = parseRoomObjects(file, roomBlock);
+
   return {
     id: roomId,
     width: decoded.width,
@@ -138,6 +149,7 @@ export function loadRoom(
     entryScript: encdBlock ? new Uint8Array(payloadOf(file, encdBlock)) : null,
     exitScript: excdBlock ? new Uint8Array(payloadOf(file, excdBlock)) : null,
     localScripts,
+    objects,
   };
 }
 

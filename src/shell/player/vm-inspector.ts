@@ -455,42 +455,56 @@ function renderVmFrame(vm: Vm): HTMLElement {
     framebuffer,
     actors,
     getCostume: (id) => vm.getCostume(id),
+    objectDrawQueue: vm.objectDrawQueue,
+    // Default to state 1 when the script hasn't explicitly set state
+    // — most room ENCDs drawObject things without touching state, so
+    // treating "default state" as "state 1" matches what real MI1
+    // does at room load. If a script wants the object hidden, it
+    // calls setState(0).
+    getObjectState: (id) => vm.objectStates.get(id) ?? 1,
   });
   renderer.present(framebuffer);
 
   wrap.appendChild(canvas);
 
-  // Caption: actors drawn + reasons anyone got skipped. We split
-  // skips by actor (e.g. costume not loadable) vs limb (frame decode
-  // failure inside an actor that drew at least one other limb).
+  // Caption: actors + objects drawn, with skip counts so the user
+  // can see at a glance why something didn't appear.
   const meta = document.createElement('p');
   meta.className = 'vm-frame-meta';
   const actorBits = actors.length === 0
     ? 'no actors in this room'
     : `${result.actorsDrawn}/${actors.length} actor${actors.length === 1 ? '' : 's'} drawn` +
       ` (ids: ${actors.map((a) => a.id).join(', ')})`;
+  const queueSize = vm.objectDrawQueue.size;
+  const objectBits = queueSize === 0
+    ? ''
+    : ` · ${result.objectsDrawn}/${queueSize} object${queueSize === 1 ? '' : 's'} drawn`;
   const limbSkips = result.skippedLimbs.length;
   const actorSkips = result.skippedActors.length;
+  const objectSkips = result.skippedObjects.length;
   const skipBits =
     (actorSkips > 0 ? ` · ${actorSkips} actor skip${actorSkips === 1 ? '' : 's'}` : '') +
+    (objectSkips > 0 ? ` · ${objectSkips} object skip${objectSkips === 1 ? '' : 's'}` : '') +
     (limbSkips > 0 ? ` · ${limbSkips} limb skip${limbSkips === 1 ? '' : 's'}` : '');
-  meta.textContent = `${actorBits}${skipBits}`;
+  meta.textContent = `${actorBits}${objectBits}${skipBits}`;
   wrap.appendChild(meta);
 
-  if (actorSkips > 0 || limbSkips > 0) {
+  if (actorSkips > 0 || limbSkips > 0 || objectSkips > 0) {
     const details = document.createElement('details');
-    // Default-open when there ARE skips so the user sees the reasons
-    // immediately without an extra click — these are the diagnostic
-    // signal that explains why an actor didn't show.
     details.open = true;
     const summary = document.createElement('summary');
-    summary.textContent = `Skipped (${actorSkips} actor, ${limbSkips} limb)`;
+    summary.textContent = `Skipped (${actorSkips} actor, ${objectSkips} object, ${limbSkips} limb)`;
     details.appendChild(summary);
     const list = document.createElement('ul');
     list.className = 'vm-frame-skip-list';
     for (const s of result.skippedActors) {
       const li = document.createElement('li');
       li.textContent = `actor ${s.actorId}: ${s.reason}`;
+      list.appendChild(li);
+    }
+    for (const s of result.skippedObjects) {
+      const li = document.createElement('li');
+      li.textContent = `object ${s.objectId}: ${s.reason}`;
       list.appendChild(li);
     }
     for (const s of result.skippedLimbs) {

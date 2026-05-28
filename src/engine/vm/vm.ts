@@ -144,6 +144,14 @@ export class Vm {
    */
   readonly objectOwners = new Map<number, number>();
   /**
+   * Object draw queue — set of object ids the compositor should
+   * include in the next frame. Populated by the `drawObject` opcode
+   * and cleared on room change. Order isn't significant for v5
+   * (object stacking comes from per-object z-planes inside the OBIM
+   * image, not from draw-queue order).
+   */
+  readonly objectDrawQueue = new Set<number>();
+  /**
    * Currently-loaded room id (per the VM's view). Set by `loadRoom`
    * (0x72/0xF2) and related opcodes; consumed by the room-render path
    * once the compositor lands. Zero = no room yet.
@@ -222,6 +230,10 @@ export class Vm {
    *   (verb scripts) will need that distinction.
    */
   enterRoom(roomId: number): void {
+    // New room = fresh draw queue. Objects whose state >= 1 stay in
+    // their state, but the queue itself starts empty — the new room's
+    // ENCD repopulates it for objects that should be visible.
+    this.objectDrawQueue.clear();
     const prev = this.loadedRoom;
     if (prev?.exitScript && prev.exitScript.length > 0) {
       try {
@@ -421,6 +433,7 @@ export class Vm {
     this.strings.clear();
     this.objectStates.clear();
     this.objectOwners.clear();
+    this.objectDrawQueue.clear();
     this.currentRoom = 0;
     this.loadedRoom = null;
     this.lastRoomLoadError = null;

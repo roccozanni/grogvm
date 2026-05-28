@@ -591,18 +591,24 @@ function drawObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
     const action = sub & 0x1f;
     switch (action) {
       case 0x00:
-        // "use defaults" — silent no-op
+        // "use defaults" — silent no-op; just keep the object's
+        // current state and enqueue it for drawing below.
         ops.push('default');
         break;
       case 0x01: {
         const x = readVarOrWord(sub, 1, slot, vm.vars);
         const y = readVarOrWord(sub, 2, slot, vm.vars);
+        // Phase 6 doesn't support object reposition yet — we draw at
+        // the IMHD-recorded position. Recording the args here so the
+        // trace is useful; ignored at composite time.
         ops.push(`at(${x},${y})`);
         break;
       }
       case 0x02: {
         const state = readVarOrWord(sub, 1, slot, vm.vars);
-        if (state !== 0) vm.objectStates.set(obj, state);
+        // setImage(0) = "hide". Anything else sets the state; the
+        // compositor picks IMxx where xx == state.
+        vm.objectStates.set(obj, state);
         ops.push(`setImage(${state})`);
         break;
       }
@@ -612,7 +618,11 @@ function drawObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
         );
     }
   }
-  vm.annotate(`drawObject obj=${obj} [${ops.join(',')}] (stub)`);
+  // Queue for the next compose. If the object's state is 0 (or never
+  // set), the compositor will skip it; the queue membership matters
+  // for "explicit redraw" semantics, not visibility.
+  vm.objectDrawQueue.add(obj);
+  vm.annotate(`drawObject obj=${obj} [${ops.join(',')}]`);
 }
 register(0x05, drawObjectHandler);
 register(0x25, drawObjectHandler);

@@ -47,6 +47,7 @@ import { currentLimbFrame } from '../graphics/costume-anim';
 import { compositeActor } from '../graphics/composite';
 import type { LoadedCostume } from '../graphics/costume-loader';
 import { decodeCostumeFrame } from '../graphics/costume-frame';
+import type { LoadedObject } from '../object/loader';
 import type { LoadedRoom } from '../room/loader';
 
 export class ComposeError extends Error {
@@ -80,11 +81,33 @@ export interface ComposeFrameInput {
    * implementation: `(id) => vm.getCostume(id)`.
    */
   readonly getCostume?: (costumeId: number) => LoadedCostume | null;
+  /**
+   * Object ids the script has queued for drawing this frame. The
+   * compositor draws each one's current-state image (from
+   * `room.objects[id]`) at its IMHD-recorded position, between the
+   * background and the actors. Typically:
+   *   `objectDrawQueue: vm.objectDrawQueue,`
+   *   `getObjectState: (id) => vm.objectStates.get(id) ?? 0,`
+   */
+  readonly objectDrawQueue?: Iterable<number>;
+  /**
+   * State for each object — drives which IMxx image variant gets
+   * drawn. State 0 = invisible (skipped). State N = `images.get(N)`.
+   * Defaults to "treat absent as state 1" so callers that don't
+   * track state explicitly still see something drawn.
+   */
+  readonly getObjectState?: (objectId: number) => number;
 }
 
 /** Reason an entire actor didn't draw — surfaced for diagnostics. */
 export interface SkippedActor {
   readonly actorId: number;
+  readonly reason: string;
+}
+
+/** Reason an object in the draw queue didn't render. */
+export interface SkippedObject {
+  readonly objectId: number;
   readonly reason: string;
 }
 
@@ -95,17 +118,29 @@ export interface ComposeFrameResult {
   readonly skippedActors: ReadonlyArray<SkippedActor>;
   /** Per-limb skips with reasons — populated for diagnostics. */
   readonly skippedLimbs: ReadonlyArray<SkippedLimb>;
+  /** Objects from the draw queue that successfully composited. */
+  readonly objectsDrawn: number;
+  /** Objects skipped from the draw queue, with reasons. */
+  readonly skippedObjects: ReadonlyArray<SkippedObject>;
 }
 
 export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
-  const { room, framebuffer, actors, getCostume } = input;
+  const { room, framebuffer, actors, getCostume, objectDrawQueue, getObjectState } = input;
   const skippedActors: SkippedActor[] = [];
   const skippedLimbs: SkippedLimb[] = [];
+  const skippedObjects: SkippedObject[] = [];
   let actorsDrawn = 0;
+  let objectsDrawn = 0;
 
   if (!room) {
     framebuffer.fill(0);
-    return { actorsDrawn: 0, skippedActors, skippedLimbs };
+    return {
+      actorsDrawn: 0,
+      skippedActors,
+      skippedLimbs,
+      objectsDrawn: 0,
+      skippedObjects,
+    };
   }
   const need = room.width * room.height;
   if (framebuffer.length < need) {
@@ -121,8 +156,38 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
   // Background.
   framebuffer.set(room.indexed);
 
+  // Objects — drawn between bg and actors. SCUMM uses TRNS-indexed
+  // transparency on object SMAPs (same convention as the room bg).
+  if (objectDrawQueue) {
+    for (const objId of objectDrawQueue) {
+      const obj = room.objects.get(objId);
+      if (!obj) {
+        skippedObjects.push({
+          objectId: objId,
+          reason: `not present in room ${room.id}`,
+        });
+        continue;
+      }
+      const state = getObjectState ? getObjectState(objId) : 1;
+      if (state <= 0) {
+        skippedObjects.push({ objectId: objId, reason: `state ${state} (hidden)` });
+        continue;
+      }
+      const image = obj.images.get(state);
+      if (!image) {
+        skippedObjects.push({
+          objectId: objId,
+          reason: `no image for state ${state} (have: ${[...obj.images.keys()].join(',') || 'none'})`,
+        });
+        continue;
+      }
+      drawObjectImage(framebuffer, room.width, room.height, obj, image.indexed, room.transparentIndex);
+      objectsDrawn++;
+    }
+  }
+
   if (!actors || actors.length === 0 || !getCostume) {
-    return { actorsDrawn, skippedActors, skippedLimbs };
+    return { actorsDrawn, skippedActors, skippedLimbs, objectsDrawn, skippedObjects };
   }
 
   // Render actors in id ascending order for stable layering.
@@ -217,5 +282,45 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
     }
   }
 
-  return { actorsDrawn, skippedActors, skippedLimbs };
+  return { actorsDrawn, skippedActors, skippedLimbs, objectsDrawn, skippedObjects };
+}
+
+/**
+ * Blit one object image into the framebuffer at its IMHD-recorded
+ * position, honouring the room's TRNS transparent index. Clipping
+ * keeps us inside the framebuffer for objects that overhang the
+ * room (rare but legal).
+ */
+function drawObjectImage(
+  framebuffer: Uint8Array,
+  fbWidth: number,
+  fbHeight: number,
+  obj: LoadedObject,
+  indexed: Uint8Array,
+  transparentIndex: number | null,
+): void {
+  const left = obj.imhd.x;
+  const top = obj.imhd.y;
+  const w = obj.imhd.width;
+  const h = obj.imhd.height;
+  if (w === 0 || h === 0) return;
+  if (indexed.length !== w * h) {
+    // Decoded image size doesn't match IMHD — defensive bail-out
+    // rather than read past end. The image was skipped at decode
+    // time too, so this is mostly belt-and-braces.
+    return;
+  }
+  const startX = Math.max(0, -left);
+  const endX = Math.min(w, fbWidth - left);
+  const startY = Math.max(0, -top);
+  const endY = Math.min(h, fbHeight - top);
+  for (let py = startY; py < endY; py++) {
+    const fbRow = (top + py) * fbWidth;
+    const imgRow = py * w;
+    for (let px = startX; px < endX; px++) {
+      const idx = indexed[imgRow + px]!;
+      if (transparentIndex !== null && idx === transparentIndex) continue;
+      framebuffer[fbRow + left + px] = idx;
+    }
+  }
 }

@@ -21,6 +21,7 @@ function makeRoom(width: number, height: number, fill: number): LoadedRoom {
     entryScript: null,
     exitScript: null,
     localScripts: new Map(),
+    objects: new Map(),
   };
 }
 
@@ -336,6 +337,127 @@ describe('composeFrame — actor compositing', () => {
     expect(result.skippedLimbs).toHaveLength(0);
     // Background still copied.
     for (let i = 0; i < 8; i++) expect(fb[i]).toBe(0x42);
+  });
+});
+
+// ─── object compositing ──────────────────────────────────────────────
+
+function makeObject(id: number, x: number, y: number, w: number, h: number, fillIdx: number, state = 1) {
+  const indexed = new Uint8Array(w * h);
+  indexed.fill(fillIdx);
+  return {
+    objId: id,
+    cdhd: { objId: id, x: 0, y: 0, width: w / 8, height: h / 8, flags: 0, parent: 0, walkX: 0, walkY: 0, actorDir: 0 },
+    imhd: { objId: id, numImages: 1, flags: 0, x, y, width: w, height: h },
+    images: new Map([[state, { state, indexed }]]),
+    name: `obj${id}`,
+  };
+}
+
+describe('composeFrame — object compositing', () => {
+  it('draws a queued object between the background and actors', () => {
+    // 16×8 room filled with bg 0x10. One object at (4, 2) sized 4×2 of index 0xAA.
+    const room: LoadedRoom = {
+      ...makeRoom(16, 8, 0x10),
+      objects: new Map([[1, makeObject(1, 4, 2, 4, 2, 0xaa)]]),
+    };
+    const fb = new Uint8Array(16 * 8);
+    const result = composeFrame({
+      room,
+      framebuffer: fb,
+      objectDrawQueue: [1],
+      getObjectState: () => 1,
+    });
+    expect(result.objectsDrawn).toBe(1);
+    expect(result.skippedObjects).toHaveLength(0);
+    // Object pixels written.
+    expect(fb[2 * 16 + 4]).toBe(0xaa);
+    expect(fb[3 * 16 + 7]).toBe(0xaa);
+    // Background outside the object intact.
+    expect(fb[0]).toBe(0x10);
+    expect(fb[7 * 16 + 15]).toBe(0x10);
+  });
+
+  it('honours TRNS-indexed transparency', () => {
+    // Room TRNS = 0xAA. Object pixels of that index don't overwrite.
+    const room: LoadedRoom = {
+      ...makeRoom(8, 4, 0x42),
+      transparentIndex: 0xaa,
+      objects: new Map([[1, makeObject(1, 0, 0, 8, 4, 0xaa)]]),
+    };
+    const fb = new Uint8Array(32);
+    composeFrame({
+      room,
+      framebuffer: fb,
+      objectDrawQueue: [1],
+      getObjectState: () => 1,
+    });
+    // Every pixel still bg — the object's 0xAA was transparent.
+    for (let i = 0; i < fb.length; i++) expect(fb[i]).toBe(0x42);
+  });
+
+  it('skips objects with state 0 (hidden)', () => {
+    const room: LoadedRoom = {
+      ...makeRoom(8, 4, 0x10),
+      objects: new Map([[1, makeObject(1, 0, 0, 4, 2, 0xaa)]]),
+    };
+    const fb = new Uint8Array(32);
+    const result = composeFrame({
+      room,
+      framebuffer: fb,
+      objectDrawQueue: [1],
+      getObjectState: () => 0,
+    });
+    expect(result.objectsDrawn).toBe(0);
+    expect(result.skippedObjects[0]!.reason).toMatch(/state 0/);
+    for (let i = 0; i < fb.length; i++) expect(fb[i]).toBe(0x10);
+  });
+
+  it('records skippedObjects when the id isn\'t in the room', () => {
+    const room = makeRoom(8, 4, 0x10);
+    const fb = new Uint8Array(32);
+    const result = composeFrame({
+      room,
+      framebuffer: fb,
+      objectDrawQueue: [999],
+    });
+    expect(result.objectsDrawn).toBe(0);
+    expect(result.skippedObjects).toHaveLength(1);
+    expect(result.skippedObjects[0]!.reason).toMatch(/not present/);
+  });
+
+  it('records skippedObjects when no image variant matches the state', () => {
+    const room: LoadedRoom = {
+      ...makeRoom(8, 4, 0x10),
+      // Object has only state 1; we ask for state 2.
+      objects: new Map([[1, makeObject(1, 0, 0, 4, 2, 0xaa)]]),
+    };
+    const fb = new Uint8Array(32);
+    const result = composeFrame({
+      room,
+      framebuffer: fb,
+      objectDrawQueue: [1],
+      getObjectState: () => 2,
+    });
+    expect(result.objectsDrawn).toBe(0);
+    expect(result.skippedObjects[0]!.reason).toMatch(/no image for state 2/);
+  });
+
+  it('clips objects that overhang the room bounds', () => {
+    // Object is 8×4 but room is only 4×2 — only the top-left quadrant draws.
+    const room: LoadedRoom = {
+      ...makeRoom(4, 2, 0x00),
+      objects: new Map([[1, makeObject(1, 0, 0, 8, 4, 0x99)]]),
+    };
+    const fb = new Uint8Array(8);
+    composeFrame({
+      room,
+      framebuffer: fb,
+      objectDrawQueue: [1],
+      getObjectState: () => 1,
+    });
+    // Every pixel of the room got overwritten by the (clipped) object.
+    for (let i = 0; i < 8; i++) expect(fb[i]).toBe(0x99);
   });
 });
 
