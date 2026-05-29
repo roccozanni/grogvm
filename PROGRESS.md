@@ -97,6 +97,15 @@ live scenes. Reference tables added so we stop guessing:
 - **Inspector dev tools**: 120 Hz Play (batches ticks/frame), "Skip
   cutscene", "Warp to room" probe; idle-detector ignores active
   cutscenes; `delay` countdown counts as progress.
+- **Text rendering — charset + credits layout**: the renderer froze the
+  charset at mount; now resolves it live from `vm.currentCharset`
+  (cached), so the credits' charset-4 serif font + gameplay fonts each
+  render correctly. Implemented SCUMM's **sticky `_string[0]` state**:
+  system `print`s persist position/colour/centre across calls (incl.
+  configure-only prints), so the credit roll inherits its `(160,150)`
+  centred anchor instead of falling to a font-naive bottom fallback;
+  actor talk stays separate (computes position from the actor). Bottom
+  fallback is now block-height-aware so tall/multi-line text can't clip.
 
 Recurring gotcha: **many v5 opcode families are non-orthogonal** — the
 same low-5-bits map to *different* ops selected by a high bit (e.g.
@@ -105,7 +114,7 @@ same low-5-bits map to *different* ops selected by a high bit (e.g.
 getActorRoom/Y/X/Facing). Never register all 8 high-bit variants of a
 family blindly — decode against the reference + real bytecode.
 
-Tests: **518 across 45 files**; typecheck clean.
+Tests: **530 across 46 files**; typecheck clean.
 
 ### Next steps
 
@@ -132,7 +141,23 @@ In rough dependency order:
 Polish / known gaps (any time):
 - Lookout (room 38) renders very dark — it's a night scene; the
   compositor doesn't honor `VAR_CURRENT_LIGHTS` (cosmetic).
-- Per-line centring for multi-line dialog text.
+- **No word-wrap / per-line centring for dialog text.** Long talk lines
+  (e.g. Guybrush's opening "Salve!…un pirata!") render as a single
+  unwrapped stream and overflow the viewport. SCUMM strings also carry
+  inline `\xff\x03` (wait/keep-text) breaks between phrases ("Salve!" /
+  "Mi chiamo…") that we currently strip, mashing the phrases together
+  with no separator. Proper fix = honor the wait/newline control codes
+  and word-wrap to a text-box width. Deferred (non-trivial); tracked.
+- **Credits colour: reference shows magenta, we render teal (color 3).**
+  Confirmed *not* a bug in our pipeline: the title *and* the credit roll
+  both use `SO_COLOR 3` (the credit roll inherits it from a sticky
+  configure-only print). Room-10 `palette[3]` is teal (correctly — the
+  water uses it), #152 issues no `roomOps`/palette ops, and charset 4's
+  baked colorMap has no magenta at the 2-bpp ramp entries. So color-3→
+  teal is the faithful render of this data. The reference's magenta
+  likely comes from a different MI1 release's palette/charset, or a
+  2-bpp text-colour semantic not yet understood. Needs a same-version
+  comparison before any change — do NOT hard-code magenta.
 - Smooth camera pan for `panCameraTo`; per-tick actor-follow tracking.
 - Costume-anim decoder vs MI1 Guybrush (see SCUMM-V5-COSTUME-ANIM.md).
 

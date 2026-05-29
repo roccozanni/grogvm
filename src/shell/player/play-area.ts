@@ -109,7 +109,22 @@ export interface PlayAreaHandles {
  */
 export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
   const { vm, roomWidth, roomHeight, palette, transparentIndex } = args;
-  const charset = loadCharset(args.resourceFile, vm.currentCharset);
+  // The active charset changes at runtime (`cursorCommand initCharset`):
+  // the credits use charset 4 (a 2-bpp serif title font), gameplay
+  // dialog/verbs another. Loading it once at mount froze us on whatever
+  // was current then — wrong glyphs for everything after. Resolve it
+  // live from `vm.currentCharset`, cached per id so we don't re-walk the
+  // LECF tree every repaint.
+  const charsetCache = new Map<number, ReturnType<typeof loadCharset>>();
+  const activeCharset = (): ReturnType<typeof loadCharset> => {
+    const id = vm.currentCharset;
+    let c = charsetCache.get(id);
+    if (c === undefined) {
+      c = loadCharset(args.resourceFile, id);
+      charsetCache.set(id, c);
+    }
+    return c;
+  };
 
   // ─── cursor overlay ───
   const cursorOverlay = document.createElement('canvas');
@@ -219,6 +234,7 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
 
   const drawDialog = (ctx: CanvasRenderingContext2D): void => {
     const d = vm.activeDialog;
+    const charset = activeCharset();
     if (!d || !charset) return;
     // SCUMM print `at(x, y)` is in SCREEN coords — relative to the
     // camera's viewport. To paint into the room canvas (which spans
@@ -238,9 +254,15 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
       dx = speaker?.x ?? Math.floor(roomWidth / 2);
       dy = (speaker?.y ?? Math.floor(roomHeight / 2)) - 24;
     } else {
-      // Default fallback — bottom-centre of the camera viewport.
+      // Default fallback — bottom-centre of the camera viewport. Anchor
+      // the BLOCK's bottom a few px above the frame edge: `drawText`
+      // paints downward from `dy`, so we must subtract the full rendered
+      // height (lineCount × fontHeight) or a tall / multi-line font runs
+      // off the bottom (charset 4 is 14px vs the old 8px default).
+      const lineCount = d.text.split('\n').length;
+      const blockH = lineCount * charset.header.fontHeight;
       dx = cameraLeft + VIEWPORT_HALF;
-      dy = roomHeight - 16;
+      dy = roomHeight - blockH - 2;
     }
     drawText(ctx, charset, d.text, dx, dy, palette, d.color, d.center);
   };
@@ -251,6 +273,7 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
 
   const paintVerbBar = (): void => {
     if (!vbctx) return;
+    const charset = activeCharset();
     vbctx.clearRect(0, 0, roomWidth, VERB_BAR_HEIGHT);
 
     // Background: solid CLUT colour or transparent (caller has CSS
@@ -312,6 +335,7 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
 
   // ─── verb-bar input ───
   const verbAt = (canvasX: number, canvasY: number): VerbSlot | null => {
+    const charset = activeCharset();
     if (!charset) return null;
     // Hit-test: a verb's bbox is its measured name width × fontHeight
     // starting at (verb.x, verb.y - VERB_BAR_START_Y). centred verbs

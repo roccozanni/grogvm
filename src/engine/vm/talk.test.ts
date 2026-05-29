@@ -126,3 +126,54 @@ describe('talk color + positioning defaults', () => {
     expect(d.color).toBe(0x0f);
   });
 });
+
+describe('sticky system-print state (SCUMM _string[0])', () => {
+  // print actor=255, SO_AT(160,150), SO_COLOR(3), SO_CENTER, end (no text).
+  const configureOnly = bytes(
+    0x14, 0xff,
+    0x00, 0xa0, 0x00, 0x96, 0x00, // SO_AT 160,150
+    0x01, 0x03, // SO_COLOR 3
+    0x04, // SO_CENTER
+    0xff, // end of subops, no TEXTSTRING → configure-only
+    0xa0, // stopObjectCode
+  );
+
+  it('a configure-only print persists position/colour/centre', () => {
+    const vm = makeVm();
+    vm.startScript({ scriptId: 1, bytecode: configureOnly });
+    while (vm.slots.find((s) => s.scriptId === 1 && s.runnable)) vm.step();
+    expect(vm.printState).toMatchObject({ x: 160, y: 150, color: 3, center: true });
+    expect(vm.activeDialog).toBeNull(); // no text drawn
+  });
+
+  it('a later bare system print inherits the sticky state', () => {
+    const vm = makeVm();
+    vm.startScript({ scriptId: 1, bytecode: configureOnly });
+    while (vm.slots.find((s) => s.scriptId === 1 && s.runnable)) vm.step();
+    // Bare print actor=255 "Hi" — no subops, should inherit 160,150/3/centre.
+    vm.startScript({ scriptId: 2, bytecode: bytes(0x14, 0xff, 0x0f, 0x48, 0x69, 0x00, 0xa0) });
+    vm.step();
+    const d = vm.activeDialog!;
+    expect(d.x).toBe(160);
+    expect(d.y).toBe(150);
+    expect(d.color).toBe(3);
+    expect(d.center).toBe(true);
+  });
+
+  it('actor talk does NOT read the sticky system state', () => {
+    const vm = makeVm();
+    vm.vars.writeGlobal(1, 1); // VAR_EGO = actor 1
+    const a = vm.actors.get(1);
+    a.room = 1;
+    a.talkColor = 15;
+    vm.startScript({ scriptId: 1, bytecode: configureOnly });
+    while (vm.slots.find((s) => s.scriptId === 1 && s.runnable)) vm.step();
+    // printEgo "Hi" — a real actor talking; ignores the sticky 160,150/3.
+    vm.startScript({ scriptId: 2, bytecode: bytes(0xd8, 0x0f, 0x48, 0x69, 0x00, 0xa0) });
+    vm.step();
+    const d = vm.activeDialog!;
+    expect(d.x).toBeNull(); // above-actor, not the sticky 160
+    expect(d.color).toBe(15); // talkColor, not the sticky 3
+    expect(d.overhead).toBe(true);
+  });
+});

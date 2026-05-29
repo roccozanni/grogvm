@@ -570,13 +570,6 @@ function readScummString(slot: ScriptSlot): Uint8Array {
 
 function printHandler(actor: number, vm: Vm, slot: ScriptSlot): void {
   const ops: string[] = [];
-  let atX: number | null = null;
-  let atY: number | null = null;
-  let color = 0x0f; // SCUMM default ink (white-ish in MI1 palettes)
-  let colorSet = false;
-  let center = false;
-  let overhead = false;
-  let clipped: number | null = null;
   // The speaking actor (printEgo / print actor=0 → ego). When this is a
   // real actor and the script gives no explicit SO_AT / SO_COLOR, it's
   // an actor talking: default to the actor's talk color and position the
@@ -584,15 +577,32 @@ function printHandler(actor: number, vm: Vm, slot: ScriptSlot): void {
   // bottom-centre fallback.
   const speaker = actorOrNull(vm, actor);
   const speakerId = actor === 0 ? vm.vars.readGlobal(VAR_EGO) : actor;
+  // System prints (no speaker — actor 255, credits/narrator) inherit the
+  // sticky `_string[0]` state so a bare `print` reuses the last set
+  // position/colour/centre (the MI1 credits depend on this). Actor talk
+  // starts fresh — its position/colour come from the actor, not the
+  // persisted state.
+  const isSystem = speaker === null;
+  const st = vm.printState;
+  let atX: number | null = isSystem ? st.x : null;
+  let atY: number | null = isSystem ? st.y : null;
+  let color = isSystem ? st.color : 0x0f; // SCUMM default ink (white-ish)
+  let colorSet = isSystem ? st.colorSet : false;
+  let center = isSystem ? st.center : false;
+  let overhead = isSystem ? st.overhead : false;
+  let clipped: number | null = isSystem ? st.clipped : null;
   while (true) {
     const sub = readU8(slot);
     if (sub === 0xff) break;
     const action = sub & 0x0f;
     switch (action) {
       case 0x00: {
-        // SO_AT — absolute screen position for the text anchor.
+        // SO_AT — absolute screen position for the text anchor. In
+        // SCUMM this also clears the overhead flag (an explicit anchor
+        // overrides "above the actor").
         atX = readVarOrWord(sub, 1, slot, vm.vars);
         atY = readVarOrWord(sub, 2, slot, vm.vars);
+        overhead = false;
         ops.push(`at(${atX},${atY})`);
         break;
       }
@@ -639,6 +649,19 @@ function printHandler(actor: number, vm: Vm, slot: ScriptSlot): void {
         // Commit the dialog to the VM so the shell renders it.
         // Empty strings count as "clear" — some scripts use a 0-byte
         // print to dismiss the previous bubble.
+        // Persist the (possibly subop-updated) string state for system
+        // prints so the next bare `print` inherits it. Done regardless
+        // of whether the text is empty — a 0-byte clear still leaves the
+        // position/colour set for what follows.
+        if (isSystem) {
+          st.x = atX;
+          st.y = atY;
+          st.color = color;
+          st.colorSet = colorSet;
+          st.center = center;
+          st.overhead = overhead;
+          st.clipped = clipped;
+        }
         if (text.length === 0) {
           vm.activeDialog = null;
           vm.endTalk();
@@ -673,7 +696,18 @@ function printHandler(actor: number, vm: Vm, slot: ScriptSlot): void {
     }
   }
   // No text-string subop → the script issued a "configure-only"
-  // print (just set position/color for a later print, or clear).
+  // print (just set position/color for a later print, or clear). The
+  // MI1 credits use exactly this to prime the sticky state for the
+  // following bare prints — so persist it on this path too.
+  if (isSystem) {
+    st.x = atX;
+    st.y = atY;
+    st.color = color;
+    st.colorSet = colorSet;
+    st.center = center;
+    st.overhead = overhead;
+    st.clipped = clipped;
+  }
   vm.annotate(`print actor=${actor} [${ops.join(',')}] (no text)`);
 }
 

@@ -333,6 +333,25 @@ export class Vm {
    */
   activeDialog: ActiveDialog | null = null;
   /**
+   * Persistent SCUMM `_string[0]` state for *system* `print`s (actor
+   * 255 / no speaker — credits, signs, narrator). In the original, a
+   * print's position/colour/centre fields are STICKY: a bare `print`
+   * with no subops reuses whatever the last positioned print set. The
+   * MI1 credits rely on this — only the first line of each screen
+   * carries `SO_AT`/`SO_CENTER`; the rest inherit it. Actor talk does
+   * NOT read this (it computes position above the actor each time), so
+   * we only persist/consult it on the system-message path.
+   */
+  printState: {
+    x: number | null;
+    y: number | null;
+    color: number;
+    colorSet: boolean;
+    center: boolean;
+    overhead: boolean;
+    clipped: number | null;
+  } = { x: null, y: null, color: 0x0f, colorSet: false, center: false, overhead: false, clipped: null };
+  /**
    * Ticks remaining that the current message is "being said". Set by a
    * text `print` (length × VAR_CHARINC, floored), counted down each
    * {@link beginTick}; when it hits 0, `VAR_HAVE_MSG` is cleared. This
@@ -985,6 +1004,15 @@ export class Vm {
     this.input.leftHold = false;
     this.input.rightHold = false;
     this.activeDialog = null;
+    this.printState = {
+      x: null,
+      y: null,
+      color: 0x0f,
+      colorSet: false,
+      center: false,
+      overhead: false,
+      clipped: null,
+    };
     this.talkDelay = 0;
     this.camera.x = 0;
     this.screen.top = 0;
