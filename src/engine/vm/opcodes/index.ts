@@ -703,24 +703,32 @@ register(0x58, (vm, slot) => {
 });
 
 // ─── 0x40  cutscene / 0xC0  endCutscene ──────────────────────────────
-// cutscene reads a word-vararg list of override-script args; the
-// matching endCutscene takes none. Phase 6 stub — input gating and
-// override-script handling lands with the verb UI.
+// cutscene reads a word-vararg arg list (passed to VAR_CUTSCENE_START_
+// SCRIPT) and freezes every other script; endCutscene thaws them and
+// runs VAR_CUTSCENE_END_SCRIPT. MI1's credits are wrapped in one — the
+// start/end scripts (#18/#19) hide and restore the cursor + user input.
 register(0x40, (vm, slot) => {
   const args = readWordVararg(slot, vm.vars);
-  vm.annotate(`cutscene [${args.join(',')}] (stub)`);
+  vm.beginCutscene(args, slot.slotIndex);
+  vm.annotate(`cutscene [${args.join(',')}]`);
 });
 register(0xc0, (vm) => {
-  vm.annotate('endCutscene (stub)');
+  vm.endCutscene();
+  vm.annotate('endCutscene');
 });
 
 // ─── 0x60 / 0xE0  freezeScripts ──────────────────────────────────────
-// Layout: u8 mask (var-or-byte via bit 0x80). Pause every running
-// slot whose freeze-resistant flag is unset. Phase 6 stub — slot
-// freezing semantics land alongside the main loop.
+// Layout: flag (var-or-byte via bit 0x80). flag == 0 thaws ALL scripts;
+// otherwise freeze every other slot (resistant ones too when
+// flag >= 0x80). Freezing is cumulative (per-slot count).
 function freezeScriptsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
-  const mask = readVarOrByte(opcode, 1, slot, vm.vars);
-  vm.annotate(`freezeScripts mask=${mask} (stub)`);
+  const flag = readVarOrByte(opcode, 1, slot, vm.vars);
+  if (flag === 0) {
+    vm.unfreezeAllScripts();
+  } else {
+    vm.freezeScripts(flag >= 0x80, slot.slotIndex);
+  }
+  vm.annotate(`freezeScripts flag=${flag}`);
 }
 register(0x60, freezeScriptsHandler);
 register(0xe0, freezeScriptsHandler);
@@ -1619,11 +1627,11 @@ function startScriptHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const scriptId = readVarOrByte(opcode, 1, slot, vm.vars);
   const args = readWordVararg(slot, vm.vars);
 
-  // Recursive (bit 0x40) and freeze-resistant (bit 0x20) flags on the
-  // opcode byte aren't honoured yet — every start lands in the lowest
-  // free slot regardless. Resolution (global DSCR vs room-local LSCR)
-  // lives in vm.startScriptById.
-  const child = vm.startScriptById(scriptId, { args });
+  // Bit 0x20 = freeze-resistant (skipped by a normal freezeScripts).
+  // Bit 0x40 = recursive (re-entry allowed) — not honoured yet.
+  // Resolution (global DSCR vs room-local LSCR) lives in startScriptById.
+  const freezeResistant = (opcode & 0x20) !== 0;
+  const child = vm.startScriptById(scriptId, { args, freezeResistant });
   vm.annotate(`startScript #${scriptId} slot=${child.slotIndex} args=[${args.join(',')}]`);
 }
 

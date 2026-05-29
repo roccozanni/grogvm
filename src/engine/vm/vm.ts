@@ -297,6 +297,17 @@ export class Vm {
    */
   readonly sentenceStack: Sentence[] = [];
   /**
+   * Active cutscene frames (`cutscene` pushes, `endCutscene` pops).
+   * Each records the room at begin-time and the slot that opened it, so
+   * the override (Escape-skip) path and any restore can find them.
+   * Nesting is allowed (depth = stack length).
+   */
+  readonly cutsceneStack: Array<{
+    readonly room: number;
+    readonly callerSlot: number;
+    readonly args: ReadonlyArray<number>;
+  }> = [];
+  /**
    * Currently-showing dialog / on-screen text. `null` outside a
    * `print` / `printEgo` opcode. The shell's overlay renderer reads
    * this each frame and paints the text via the Phase 4 CHAR
@@ -387,6 +398,11 @@ export class Vm {
    * MI1 writes 201 (a room-local LSCR). Started by {@link runInputScript}.
    */
   static readonly VAR_VERB_SCRIPT = VARS.VAR_VERB_SCRIPT;
+  /** Set to 0 by `cutscene`/`endCutscene`; bumped by `beginOverride`. */
+  static readonly VAR_OVERRIDE = VARS.VAR_OVERRIDE;
+  /** Scripts run by `cutscene` (start) / `endCutscene` (end). MI1: 18 / 19. */
+  static readonly VAR_CUTSCENE_START_SCRIPT = VARS.VAR_CUTSCENE_START_SCRIPT;
+  static readonly VAR_CUTSCENE_END_SCRIPT = VARS.VAR_CUTSCENE_END_SCRIPT;
 
   /** SCUMM v5 reserves script ids >= 200 for room-local LSCR scripts. */
   static readonly LSCR_THRESHOLD = 200;
@@ -531,6 +547,8 @@ export class Vm {
     room?: number;
     /** Optional label for synthetic scripts (ENCD/EXCD/verb/sentence). */
     label?: string;
+    /** Skipped by a normal `freezeScripts` (startScript opcode bit 0x20). */
+    freezeResistant?: boolean;
   }): ScriptSlot {
     const slot = this.slots.find((s) => s.status === 'dead');
     if (!slot) {
@@ -586,7 +604,11 @@ export class Vm {
    */
   startScriptById(
     scriptId: number,
-    opts: { args?: ReadonlyArray<number>; label?: string } = {},
+    opts: {
+      args?: ReadonlyArray<number>;
+      label?: string;
+      freezeResistant?: boolean;
+    } = {},
   ): ScriptSlot {
     let bytecode: Uint8Array;
     let room: number;
@@ -608,7 +630,77 @@ export class Vm {
       bytecode = resolved.bytecode;
       room = resolved.room;
     }
-    return this.startScript({ scriptId, bytecode, room, args: opts.args, label: opts.label });
+    return this.startScript({
+      scriptId,
+      bytecode,
+      room,
+      args: opts.args,
+      label: opts.label,
+      freezeResistant: opts.freezeResistant,
+    });
+  }
+
+  /**
+   * Freeze every slot except `exceptSlot` (the script issuing the
+   * freeze). Freeze-resistant slots are spared unless `force` is set
+   * (the `freezeScripts` flag ≥ 0x80). Cumulative — see
+   * {@link ScriptSlot.freezeCount}.
+   */
+  freezeScripts(force: boolean, exceptSlot: number): void {
+    for (const s of this.slots) {
+      if (s.slotIndex === exceptSlot || s.status === 'dead') continue;
+      // The script that opened an active cutscene is protected — it
+      // keeps running to play the cutscene out (e.g. MI1's credits
+      // script, which #18 would otherwise freeze). Matches SCUMM's
+      // "skip the cutscene script" rule.
+      if (this.cutsceneStack.some((f) => f.callerSlot === s.slotIndex)) continue;
+      if (s.freezeResistant && !force) continue;
+      s.freeze();
+    }
+  }
+
+  /** Thaw every slot completely (the `freezeScripts 0` reset). */
+  unfreezeAllScripts(): void {
+    for (const s of this.slots) s.freezeCount = 0;
+  }
+
+  /**
+   * Begin a cutscene (opcode 0x40). Pushes a frame, clears
+   * `VAR_OVERRIDE`, and runs `VAR_CUTSCENE_START_SCRIPT` (MI1 #18 —
+   * hides the cursor / disables user input). The caller keeps running
+   * (a cutscene does NOT freeze scripts — that's the separate
+   * `freezeScripts` opcode). Args pass through to the start script.
+   */
+  beginCutscene(args: ReadonlyArray<number>, callerSlot: number): void {
+    this.cutsceneStack.push({ room: this.currentRoom, callerSlot, args: [...args] });
+    this.vars.writeGlobal(Vm.VAR_OVERRIDE, 0);
+    const startScript = this.vars.readGlobal(Vm.VAR_CUTSCENE_START_SCRIPT);
+    if (startScript > 0) {
+      try {
+        this.startScriptById(startScript, { args });
+      } catch {
+        // Start script unresolvable — cutscene still proceeds.
+      }
+    }
+  }
+
+  /**
+   * End the current cutscene (opcode 0xC0). Pops the frame, clears
+   * `VAR_OVERRIDE`, and runs `VAR_CUTSCENE_END_SCRIPT` (MI1 #19 —
+   * restores the cursor / input) with the begin-time args. No-op if no
+   * cutscene is active.
+   */
+  endCutscene(): void {
+    const frame = this.cutsceneStack.pop();
+    this.vars.writeGlobal(Vm.VAR_OVERRIDE, 0);
+    const endScript = this.vars.readGlobal(Vm.VAR_CUTSCENE_END_SCRIPT);
+    if (endScript > 0) {
+      try {
+        this.startScriptById(endScript, { args: frame?.args ?? [] });
+      } catch {
+        // End script unresolvable.
+      }
+    }
   }
 
   /**
@@ -709,7 +801,7 @@ export class Vm {
    */
   step(): ScriptSlot | undefined {
     if (this._haltInfo) return undefined;
-    const slot = this.slots.find((s) => s.status === 'running');
+    const slot = this.slots.find((s) => s.runnable);
     if (!slot) return undefined;
 
     if (slot.pc >= slot.bytecode.length) {
@@ -808,7 +900,7 @@ export class Vm {
       // Treat exceeding the step budget as a loud halt: usually means
       // a runaway loop with no breakHere. Snapshot the current slot
       // so the inspector can see where we got stuck.
-      const slot = this.slots.find((s) => s.status === 'running');
+      const slot = this.slots.find((s) => s.runnable);
       if (slot) {
         this.haltFromOpcode(
           slot,
@@ -845,6 +937,7 @@ export class Vm {
     this.verbs.clear();
     this.currentVerb = null;
     this.sentenceStack.length = 0;
+    this.cutsceneStack.length = 0;
     this.input.leftHold = false;
     this.input.rightHold = false;
     this.activeDialog = null;

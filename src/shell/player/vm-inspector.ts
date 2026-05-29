@@ -243,7 +243,9 @@ export function renderVmInspector(
     state.vm.processSentence();
     let resumed = false;
     for (const s of state.vm.slots) {
-      if (s.status === 'yielded' || s.status === 'frozen') {
+      // Frozen slots (cutscene / freezeScripts) are skipped entirely —
+      // not resumed, and their delay countdown is paused.
+      if (s.status === 'yielded' && s.freezeCount === 0) {
         // Slots blocked on `delay N` ticks must stay yielded until
         // their per-slot countdown drains. We decrement each tick;
         // the slot only resumes when it hits 0.
@@ -792,7 +794,7 @@ function renderControls(
       state.vm.beginTick();
       let resumed = false;
       for (const s of state.vm.slots) {
-        if (s.status === 'yielded' || s.status === 'frozen') {
+        if (s.status === 'yielded' && s.freezeCount === 0) {
           if (s.delayRemaining > 0) {
             s.delayRemaining--;
             continue;
@@ -1619,13 +1621,11 @@ function anyRunnable(vm: Vm): boolean {
 
 /**
  * True if any slot is in a state that `resume() + dispatch` can
- * advance. Run tick calls `resume()` on every slot before
- * `runUntilAllYield()`, so yielded and frozen slots both count.
+ * advance. Run tick calls `resume()` on every (unfrozen) slot before
+ * `runUntilAllYield()`, so running and yielded slots both count.
  */
 function anyAdvanceable(vm: Vm): boolean {
-  return vm.slots.some(
-    (s) => s.status === 'running' || s.status === 'yielded' || s.status === 'frozen',
-  );
+  return vm.slots.some((s) => s.status === 'running' || s.status === 'yielded');
 }
 
 function button(label: string, variant: 'primary' | 'secondary' = 'secondary'): HTMLButtonElement {

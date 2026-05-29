@@ -70,15 +70,24 @@ describe('ScriptSlot', () => {
     expect(s.status).toBe('running');
   });
 
-  it('freeze() puts running/yielded slots into frozen, leaves dead alone', () => {
+  it('freeze() bumps a cumulative count; unfreeze() clears it; dead is untouched', () => {
     const s = new ScriptSlot(0);
     s.freeze();
     expect(s.status).toBe('dead');
+    expect(s.freezeCount).toBe(0); // dead slots don't freeze
     s.start({ scriptId: 1, bytecode: bytes(0x00) });
+    // status stays 'running'; freezing is tracked separately and is
+    // cumulative.
     s.freeze();
-    expect(s.status).toBe('frozen');
-    s.resume();
+    s.freeze();
     expect(s.status).toBe('running');
+    expect(s.freezeCount).toBe(2);
+    expect(s.runnable).toBe(false);
+    s.unfreeze();
+    expect(s.runnable).toBe(false); // still frozen once
+    s.unfreeze();
+    expect(s.freezeCount).toBe(0);
+    expect(s.runnable).toBe(true);
   });
 
   it('kill() wipes the slot back to dead', () => {
