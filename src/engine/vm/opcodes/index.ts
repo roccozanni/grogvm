@@ -31,6 +31,7 @@ import { pickObject } from '../../object/hittest';
 import { findPath } from '../../pathfinding/grid';
 import { evalExpression } from '../expression';
 import { SENTENCE_CLEAR_VERB } from '../sentence';
+import { VAR_HAVE_MSG } from '../vars';
 import {
   derefRead,
   formatRefLabel,
@@ -1517,6 +1518,67 @@ register(0x99, doSentenceHandler);
 register(0xb9, doSentenceHandler);
 register(0xd9, doSentenceHandler);
 register(0xf9, doSentenceHandler);
+
+// ─── 0xAE  wait ──────────────────────────────────────────────────────
+// Yield until a condition is satisfied. The subop byte selects the
+// condition (low 5 bits) and — for SO_WAIT_FOR_ACTOR — its 0x80 bit
+// selects var-vs-direct for the actor operand. Confirmed empirically:
+// MI1's sentence script (#2) emits `AE 81 <varref>` = wait-for-actor
+// on a var-supplied actor id (e.g. `01 00` = VAR_EGO — wait for
+// Guybrush to finish walking). See scratch/scan-wait.ts.
+//
+// Mechanism: if the condition isn't met we rewind PC to the 0xAE byte
+// and yield, so the next tick re-runs the opcode and re-checks — the
+// original engine's `_scriptPointer = _scriptOrgPointer; breakHere()`.
+const SO_WAIT_FOR_ACTOR = 0x01;
+const SO_WAIT_FOR_MESSAGE = 0x02;
+const SO_WAIT_FOR_CAMERA = 0x03;
+const SO_WAIT_FOR_SENTENCE = 0x04;
+
+function waitHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
+  const opcodeStart = slot.pc - 1; // the 0xAE byte itself
+  const subop = readU8(slot);
+
+  let shouldWait: boolean;
+  let detail: string;
+  switch (subop & 0x1f) {
+    case SO_WAIT_FOR_ACTOR: {
+      const actorId = readVarOrByte(subop, 1, slot, vm.vars);
+      const actor = actorOrNull(vm, actorId);
+      shouldWait = actor?.isMoving ?? false;
+      detail = `actor ${actorId}`;
+      break;
+    }
+    case SO_WAIT_FOR_MESSAGE:
+      // Waits while a message is on screen. VAR_HAVE_MSG isn't driven
+      // by the dialog renderer yet (per-char reveal / talk timing), so
+      // this reads 0 and never blocks until that lands.
+      shouldWait = vm.vars.readGlobal(VAR_HAVE_MSG) !== 0;
+      detail = 'message';
+      break;
+    case SO_WAIT_FOR_CAMERA:
+      // Camera is snap-only (no smooth pan yet) — it has always
+      // "arrived", so this never blocks.
+      shouldWait = false;
+      detail = 'camera';
+      break;
+    case SO_WAIT_FOR_SENTENCE:
+      shouldWait = vm.sentenceStack.length > 0;
+      detail = 'sentence';
+      break;
+    default:
+      throw new Error(`wait: unknown subop 0x${subop.toString(16)}`);
+  }
+
+  if (shouldWait) {
+    slot.pc = opcodeStart; // re-run + re-check next tick
+    slot.yield_();
+    vm.annotate(`wait ${detail} → yield`);
+  } else {
+    vm.annotate(`wait ${detail} → ready`);
+  }
+}
+register(0xae, waitHandler);
 
 // ─── 0x0C  resourceRoutines ──────────────────────────────────────────
 // Load / nuke / lock / unlock a resource (script, sound, costume,

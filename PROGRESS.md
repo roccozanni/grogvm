@@ -81,9 +81,22 @@ Where to pick up tomorrow (in dependency order):
    `(verb, obj1, obj2)`, the sentence-script driver dequeues
    and starts global script `VAR_SENTENCE_SCRIPT (#33)`. Wires
    the verb-bar click → sentence → walk-to → verb-script flow.
-3. **Wait opcodes (`0xAE`)** — multi-subop, gates scripts on
-   actor-not-moving, message-shown, camera-arrived, sentence-
-   queue-empty. Needed before sentence dispatch feels right.
+3. ✅ **Wait opcodes (`0xAE`)** — DONE. PC-rewind mechanism (no slot
+   condition hook needed); subops for actor / message / camera /
+   sentence. Layout grounded on MI1 script #2's `AE 81 <varref>` form
+   (`scratch/scan-wait.ts`). +10 tests (491 total).
+
+**Next up (in dependency order):**
+1. **UI click → sentence**: wire the room-click + verb-bar commit to
+   the sentence flow. Faithful path runs the verb input script
+   (`VAR_VERB_SCRIPT`=32, MI1 local #201) which calls `doSentence`;
+   needs the click-area VARs + a real interactive room. This is the
+   integration that makes verb dispatch *visible*.
+2. **`VAR_HAVE_MSG`** (global 3) — dialog renderer sets 1 on print /
+   0 when done; unblocks `wait`-for-message. Pairs with per-char
+   reveal.
+3. **Cutscene control** (`cutscene` 0x40 / `endCutscene` 0xC0 + Escape
+   override) — `beginOverride` already stores `slot.overridePc`.
 
 Lower priority polish (could land anytime):
 - Per-line centring for multi-line dialog text.
@@ -400,23 +413,31 @@ several can progress in parallel after the input foundation lands.
       each tick and only resumes when it hits 0. Critical for
       cutscene pacing — without this MI1's credits flash
       because every `delay 120` releases on the next frame.
-- [ ] `wait` (`0xAE`) — multi-subop. The script slot yields with
-      a *condition* attached; the main loop re-checks the
-      condition each tick and resumes when satisfied.
-      - `0x01` SO_WAIT_FOR_ACTOR — wait until `actor.isMoving`
-        is false.
-      - `0x02` SO_WAIT_FOR_MESSAGE — wait until VAR_HAVE_MSG
-        is zero.
-      - `0x03` SO_WAIT_FOR_CAMERA — wait until the camera has
-        reached its destination x. (Camera snap-only; pan
-        smoothness lands first.)
-      - `0x04` SO_WAIT_FOR_SENTENCE — wait until the sentence
-        queue is empty.
-- [ ] Slot-level "wait condition" hook on `ScriptSlot` — a
-      function called each tick that returns true when the
-      condition is met. Slot stays yielded until then.
-- [ ] `wait.test.ts` — synthetic script that yields on each
-      condition + a matching resolution.
+- [x] `wait` (`0xAE`) — multi-subop. **Mechanism: PC-rewind**, not a
+      stored condition hook — if the condition isn't met the handler
+      rewinds PC to the `0xAE` byte and yields, so the next tick
+      re-runs the opcode and re-checks (the original engine's
+      `_scriptPointer = _scriptOrgPointer; breakHere()`). The subop's
+      `0x80` bit selects var-vs-direct for the operand. Empirically
+      grounded: MI1's sentence script #2 emits `AE 81 01 00` =
+      wait-for-actor on VAR_EGO (see `scratch/scan-wait.ts`).
+      - `0x01` SO_WAIT_FOR_ACTOR — yields while `actor.isMoving`
+        (actor id direct or var per the 0x80 bit; id 0 → ego). ✓
+      - `0x02` SO_WAIT_FOR_MESSAGE — yields while `VAR_HAVE_MSG != 0`.
+        Reads the var correctly but never blocks yet (the dialog
+        renderer doesn't drive VAR_HAVE_MSG — lands with per-char
+        reveal). ✓ dispatch
+      - `0x03` SO_WAIT_FOR_CAMERA — never blocks (camera snap-only,
+        always "arrived"; revisit with smooth pan). ✓
+      - `0x04` SO_WAIT_FOR_SENTENCE — yields while `sentenceStack`
+        is non-empty. ✓
+      Unknown subops halt loudly (fail-loud design).
+- [x] No slot-level condition hook needed — the PC-rewind approach
+      reuses the existing yield/resume machinery, so `ScriptSlot`
+      gains no new state. (Simpler than the originally-planned hook.)
+- [x] `wait.test.ts` (10) — each condition's yield + rewind-to-opcode
+      + fall-through, var-operand actor read (the MI1 `AE 81` form),
+      resume-then-ready, unknown-subop halt.
 
 **Inventory — `src/shell/player/inventory.ts`**
 
