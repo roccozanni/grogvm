@@ -11,11 +11,15 @@ detail the next phase here.
 
 ## Status
 
-**Phase 7 in progress.** ✅ **The MI1 intro now plays end-to-end:
-credits cutscene (~5700 ticks) → automatically into the first room, the
-Mêlée Island lookout (room 38), with Guybrush + the lookout NPC, and
-the opening dialog cutscene (#203) running.** No boot-param hack — the
-real flow, confirmed against ScummVM.
+**Phase 7 in progress.** ✅ **The MI1 intro now plays automatically from
+boot:** credits cutscene (~5700 ticks) → the Mêlée Island lookout
+(room 38, Guybrush + the lookout NPC) → the opening dialog cutscene
+(#203) → onward through the next opening scenes (observed rooms 38 → 96
+→ 33). No boot-param hack — the real flow, confirmed against ScummVM.
+
+The opening eventually halts on the next unimplemented opcode (a nested
+`getInventoryCount` in an expression, room 33 — see "Next steps"); the
+opcode tail is being filled in as the intro demands each one.
 
 **How credits→lookout actually works** (it's the boot's L0==0 path, not
 L0!=0 — verified via ScummVM `scripts`): after the credits, boot #1's
@@ -58,92 +62,79 @@ VAR_CURSORSTATE + mouse instead of `handleSceneClick`), real verb-script
 dispatch end-to-end, the inventory subsystem, and `print` keep-text /
 per-line centring.
 
-### Resume notes (2026-05-29)
+### Session log (through credits → playable intro)
 
-What landed today:
-- Boot now plays the **full ~5700-tick credits cutscene** with
-  visible Italian text on the wide credits room (camera viewport
-  rectangle outlined on the canvas as a debug hint).
-- All buttons (Pause / Reset / Step / Run-tick / Click ← / etc.)
-  work during Play — controls + frame area are stable DOM, only
-  canvas pixels refresh per tick. Verb hover updates the
-  sentence-line in real time.
-- 5 opcode handlers fixed / wired: `findObject`, `findInventory`,
-  `delay` (multi-tick), `beginOverride` (consumes the embedded
-  jump triplet), expression subop 0x06 (nested opcode).
-- New engine state: `vm.camera.x`, `vm.screen.{top, bottom}`,
-  `vm.activeDialog`, `vm.input.{leftPressQueued, leftHold, …}`,
-  `slot.delayRemaining`, `slot.overridePc`.
-- New tick-driven mirroring in `Vm.beginTick()`:
-  `VAR_TIMER_1/2/3` (auto-increment), `VAR_LEFTBTN_DOWN`
-  (one-shot pulse), `VAR_USERPUT`.
-- `actorOrNull` resolves id 0 → ego (VAR_EGO=g1) — fixed missing
-  Guybrush placement.
-- `decodeScummString` converts `\xff\x01` → `\n` so multi-line
-  prints actually render multi-line.
-- Comparison opcodes now annotate as `isLess(g52=0, 0)` —
-  surfaces the polled variable name in the trace (catches
-  wait-loop progress in the idle fingerprint).
-- Charset decoder auto-detects bit-reversed glyph encoding (MI1
-  IT has one such charset out of five).
+Highlights of the work that got MI1 booting through its intro into
+live scenes. Reference tables added so we stop guessing:
+`src/engine/vm/vars.ts` (canonical system-var indices) and
+`docs/SCUMM-V5-OPCODE-REFERENCE.md` (per-opcode encodings).
 
-Where to pick up tomorrow (in dependency order):
-1. ✅ **OBCD VERB-block parser + script dispatch** — DONE.
-   `parseVerbScripts` (`src/engine/object/verbs.ts`) decodes the
-   `VERB` table (offset is relative to the VERB block header —
-   confirmed empirically), `LoadedObject.verbs` carries
-   `Map<verbId, bytecode>`, and `vm.startVerbScript(objId, verbId,
-   args)` launches it as a labelled synthetic slot with the 0xFF
-   default-verb fallback. +18 tests (471 total). Not yet UI-wired —
-   the click→verb-script path goes through the sentence flow (#2).
-2. ✅ **Sentence stack + `doSentence` (0x19)** — DONE.
-   `vm.sentenceStack` + `pushSentence`/`clearSentence`, the
-   `doSentence` opcode family, and `vm.processSentence()` (per-tick
-   driver reading the script id from `VAR_SENTENCE_SCRIPT`=33, which
-   MI1 sets to #2). +10 tests (481 total). Driver wired into the
-   inspector tick. Still needs the UI click → `pushSentence` path
-   (via the verb input script) — lands with the first interactive
-   room. **Next: wait opcodes (#3 below).**
-2. **(orig) Sentence stack + `doSentence` (0x19)** — enqueue
-   `(verb, obj1, obj2)`, the sentence-script driver dequeues
-   and starts global script `VAR_SENTENCE_SCRIPT (#33)`. Wires
-   the verb-bar click → sentence → walk-to → verb-script flow.
-3. ✅ **Wait opcodes (`0xAE`)** — DONE. PC-rewind mechanism (no slot
-   condition hook needed); subops for actor / message / camera /
-   sentence. Layout grounded on MI1 script #2's `AE 81 <varref>` form
-   (`scratch/scan-wait.ts`). +10 tests (491 total).
+- **Verb dispatch + sentence + wait subsystems**: `parseVerbScripts` +
+  `LoadedObject.verbs` + `vm.startVerbScript`; `vm.sentenceStack` +
+  `doSentence` + per-tick `vm.processSentence` (sentence script id from
+  `VAR_SENTENCE_SCRIPT`=33 → MI1 #2); `wait` (0xAE) via PC-rewind.
+- **Object classes**: `actorSetClass` (0x5D) + `vm.objectClasses`;
+  `getObjectState`/`getObjectOwner`; a batch of room-entry opcodes
+  (`stopScript`, `matrixOp` stub, `saveRestoreVerbs` stub,
+  getActor X/Y/Room/WalkBox, isSoundRunning) — rooms now load.
+- **Cutscene / freeze (real, was stubbed)**: cumulative
+  `ScriptSlot.freezeCount`; `cutscene`/`endCutscene` maintain a stack,
+  run `VAR_CUTSCENE_START/END_SCRIPT` (#18/#19), and the cutscene script
+  is protected from freezing; `freezeScripts` honoured.
+- **Canonical var table reconciliation**: 52 = `VAR_CURSORSTATE`
+  (removed a bogus press-pulse hack), 14 = `VAR_MUSIC_TIMER` (15/16 are
+  ACTOR_RANGE_MIN/MAX, no longer auto-incremented).
+- **Credits → lookout (the milestone)**: cracked via ScummVM `scripts`
+  output — boot #1's title path does `putActorInRoom(ego, 38)` then
+  `actorFollowCamera(ego)`, and following an actor in another room loads
+  it. Fixed 4 opcode bugs: `0xAD` is `putActorInRoom` not
+  `walkActorToActor` (split the non-orthogonal `low5=0x0D` family);
+  `putActor` keeps the actor's room; `actorFollowCamera` triggers the
+  room load; `animateActor` var-operand variants.
+- **Intro scenes**: `walkActorToObject`, `faceActor`, `setOwnerOf`,
+  `startObject`, `loadRoomWithEgo` — the opening dialog + scene changes
+  (rooms 38 → 96 → 33) now play.
+- **Inspector dev tools**: 120 Hz Play (batches ticks/frame), "Skip
+  cutscene", "Warp to room" probe; idle-detector ignores active
+  cutscenes; `delay` countdown counts as progress.
 
-**Next up (in dependency order):**
-1. ⏳ **UI click → sentence** — engine + shell wired; needs live-app
-   verification. Findings: MI1's input script #201 is a 13-byte *hook*
-   (`if (local0 == 4) g105 = 1`), NOT the sentence builder — so
-   `local0 = clickArea` is bytecode-confirmed, but the sentence is
-   built by the engine's built-in verb handler, and sentence script #2
-   is started *with* a sentence (reads args as locals). Built:
-   `vm.runInputScript(clickArea, code, button)` (fires #201),
-   `vm.handleVerbClick(verb)` (arms verb + hook), `vm.handleSceneClick(
-   obj, button)` (hook + builds single-object sentence when a verb is
-   armed). Shell verb-bar + room clicks now call these. Click-area
-   constants (CLICK_AREA_VERB/SCENE/INVENTORY) are **guessed** — only
-   the auxiliary #201 hook depends on them; the core flow (engine
-   builds sentence → `processSentence` runs #2) is independent. +7
-   tests (498 total). **Not yet verified end-to-end** — headless can't
-   reach an interactive room (gated behind the title-menu / start-game
-   milestone, def-of-done #1). Verify by clicking a verb then an object
-   in the live app. TODO: two-object "use X with Y", right-click
-   "look at", verb reset after a sentence.
-2. **`VAR_HAVE_MSG`** (global 3) — dialog renderer sets 1 on print /
-   0 when done; unblocks `wait`-for-message. Pairs with per-char
-   reveal.
-3. **Cutscene control** (`cutscene` 0x40 / `endCutscene` 0xC0 + Escape
-   override) — `beginOverride` already stores `slot.overridePc`.
+Recurring gotcha: **many v5 opcode families are non-orthogonal** — the
+same low-5-bits map to *different* ops selected by a high bit (e.g.
+`0x0D` walkActorToActor / `0x2D` putActorInRoom; `0x16` getRandomNumber
+/ `0x36` walkActorToObject / `0x56` getActorMoving; `0x03/0x23/0x43/0x63`
+getActorRoom/Y/X/Facing). Never register all 8 high-bit variants of a
+family blindly — decode against the reference + real bytecode.
 
-Lower priority polish (could land anytime):
+Tests: **518 across 45 files**; typecheck clean.
+
+### Next steps
+
+In rough dependency order:
+
+1. **Continue the opcode tail through the intro.** The opening halts on
+   the next unimplemented opcode each time we push further. Current
+   blocker: a nested `getInventoryCount` (0xB1) inside an `expression`
+   (room 33). Needs the **inventory subsystem** (count objects whose
+   `objectOwners` == ego) plus the expression inline-dispatch
+   convention (a nested result-bearing opcode writes `VAR_RESULT`).
+2. **Inventory subsystem** — `objectOwners` is already populated by
+   `setOwnerOf`; add `getInventoryCount`, `findInventory` (currently a
+   stub → 0), `pickupObject` (0x25), and the inventory UI strip.
+3. **Dialog text reveal + `VAR_HAVE_MSG`** — the dialog cutscene runs
+   but text appears instantly; wire per-char reveal and flip
+   `VAR_HAVE_MSG` (global 3) on print start/done so `wait`-for-message
+   gates correctly. (Pairs with talk timing / `VAR_TALK_ACTOR`.)
+4. **Real click input via #23** — clicks should feed `VAR_CURSORSTATE`
+   + mouse and let MI1's input loop (#23) build the sentence, rather
+   than the engine-side `handleSceneClick` shortcut wired earlier.
+   Revisit `handleSceneClick`/`handleVerbClick` once #23 drives input.
+
+Polish / known gaps (any time):
+- Lookout (room 38) renders very dark — it's a night scene; the
+  compositor doesn't honor `VAR_CURRENT_LIGHTS` (cosmetic).
 - Per-line centring for multi-line dialog text.
-- Smooth camera pan for `panCameraTo` (currently snaps).
-- Actor-follow-camera tracking per tick (currently snap-only).
-- Per-character text reveal + `VAR_HAVE_MSG`.
-- Inventory subsystem.
+- Smooth camera pan for `panCameraTo`; per-tick actor-follow tracking.
+- Costume-anim decoder vs MI1 Guybrush (see SCUMM-V5-COSTUME-ANIM.md).
 
 ---
 
