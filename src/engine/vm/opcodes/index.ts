@@ -1059,6 +1059,110 @@ for (const op of [0x1e, 0x3e, 0x5e, 0x7e, 0x9e, 0xbe, 0xde, 0xfe]) {
   register(op, walkToHandler);
 }
 
+// ─── walkActorToObject (0x36/0x76/0xB6/0xF6) ─────────────────────────
+// `actor[p8] (bit 0x80) object[p16] (bit 0x40)`. Walk the actor to the
+// object's CDHD walk-to point. Shares low5=0x16 with getRandomNumber
+// (0x16) and getActorMoving (0x56) — bit 0x20 selects this op. (MI1's
+// lookout dialog #203 uses 0xB6 to walk Guybrush to the lookout NPC.)
+function walkToObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
+  const id = readVarOrByte(opcode, 1, slot, vm.vars);
+  const objId = readVarOrWord(opcode, 2, slot, vm.vars);
+  const actor = actorOrNull(vm, id);
+  const obj = vm.loadedRoom?.objects.get(objId);
+  if (actor && obj) {
+    startWalk(vm, actor, { x: obj.cdhd.walkX, y: obj.cdhd.walkY });
+  }
+  vm.annotate(`walkActorToObject actor=${id} obj=${objId}`);
+}
+for (const op of [0x36, 0x76, 0xb6, 0xf6]) register(op, walkToObjectHandler);
+
+// ─── faceActor (0x09/0x49/0x89/0xC9) ─────────────────────────────────
+// `actor[p8] (bit 0x80) object[p16] (bit 0x40)`. Turn the actor to face
+// a target (an actor, or a room object). We pick the cardinal facing
+// from the dx/dy to the target — enough for the right costume frame.
+// Shares low5=0x09 with setOwnerOf (0x29); bit 0x20 selects.
+function faceActorHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
+  const id = readVarOrByte(opcode, 1, slot, vm.vars);
+  const targetId = readVarOrWord(opcode, 2, slot, vm.vars);
+  const actor = actorOrNull(vm, id);
+  if (actor) {
+    let tx: number | null = null;
+    let ty = 0;
+    const ta =
+      targetId > 0 && targetId <= vm.actors.capacity ? vm.actors.get(targetId) : null;
+    if (ta && ta.room === actor.room) {
+      tx = ta.x;
+      ty = ta.y;
+    } else {
+      const obj = vm.loadedRoom?.objects.get(targetId);
+      if (obj) {
+        tx = obj.cdhd.x * 8;
+        ty = obj.cdhd.y * 8;
+      }
+    }
+    if (tx !== null) {
+      const dx = tx - actor.x;
+      const dy = ty - actor.y;
+      actor.facing =
+        Math.abs(dx) >= Math.abs(dy) ? (dx >= 0 ? 'E' : 'W') : dy >= 0 ? 'S' : 'N';
+    }
+  }
+  vm.annotate(`faceActor actor=${id} target=${targetId}`);
+}
+for (const op of [0x09, 0x49, 0x89, 0xc9]) register(op, faceActorHandler);
+
+// ─── setOwnerOf (0x29/0x69/0xA9/0xE9) ────────────────────────────────
+// `object[p16] (bit 0x80) owner[p8] (bit 0x40)`. Records who owns an
+// object (0 = nobody / in the room). Read back by getObjectOwner.
+function setOwnerOfHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
+  const obj = readVarOrWord(opcode, 1, slot, vm.vars);
+  const owner = readVarOrByte(opcode, 2, slot, vm.vars);
+  vm.objectOwners.set(obj, owner);
+  vm.annotate(`setOwnerOf obj=${obj} owner=${owner}`);
+}
+for (const op of [0x29, 0x69, 0xa9, 0xe9]) register(op, setOwnerOfHandler);
+
+// ─── startObject (0x37/0xB7) ─────────────────────────────────────────
+// `object[p16] (bit 0x80) script[p8] (bit 0x40) args[v16]`. Runs the
+// object's OBCD verb script — exactly what vm.startVerbScript does
+// (resolve the verb bytecode + start a labelled slot). (low5=0x17 is
+// shared with `and`/`or`; bit 0x20 selects startObject.)
+function startObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
+  const objId = readVarOrWord(opcode, 1, slot, vm.vars);
+  const verbId = readVarOrByte(opcode, 2, slot, vm.vars);
+  const args = readWordVararg(slot, vm.vars);
+  vm.startVerbScript(objId, verbId, args);
+  vm.annotate(`startObject obj=${objId} script=${verbId} args=[${args.join(',')}]`);
+}
+for (const op of [0x37, 0xb7]) register(op, startObjectHandler);
+
+// ─── loadRoomWithEgo (0x24/0xA4) ─────────────────────────────────────
+// `object[p16] (bit 0x80) room[p8] x[16] y[16]`. Enter `room`, place ego
+// at `object`'s walk-to point there, and — when x != -1 — start ego
+// walking toward (x, y). The intro cutscene uses this to move Guybrush
+// between scenes. (low5=0x04 shared with isGreaterEqual/isLess; bit
+// 0x20 selects this op, so only 0x24/0xA4 are loadRoomWithEgo.)
+function loadRoomWithEgoHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
+  const objId = readVarOrWord(opcode, 1, slot, vm.vars);
+  const room = readVarOrByte(opcode, 2, slot, vm.vars);
+  const x = readI16(slot);
+  const y = readI16(slot);
+  vm.enterRoom(room);
+  const ego = actorOrNull(vm, 0);
+  if (ego) {
+    ego.room = room;
+    const obj = vm.loadedRoom?.objects.get(objId);
+    if (obj) {
+      ego.x = obj.cdhd.walkX;
+      ego.y = obj.cdhd.walkY;
+    }
+    if (x !== -1) startWalk(vm, ego, { x, y });
+  }
+  vm.annotate(`loadRoomWithEgo obj=${objId} room=${room} (${x},${y})`);
+}
+register(0x24, loadRoomWithEgoHandler);
+register(0xa4, loadRoomWithEgoHandler);
+
 // ─── 0x01 / 0x21 / 0x41 / 0x61 / 0x81 / 0xA1 / 0xC1 / 0xE1  putActor ─
 // Place actor at (x, y) (no walk, instant). Per SCUMM's `o5_putActor`,
 // the actor KEEPS its existing room (`a->putActor(x, y, a->_room)`) —

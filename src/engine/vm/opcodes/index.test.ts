@@ -703,3 +703,48 @@ describe('actor placement + room-transition opcodes (boot→lookout fixes)', () 
     expect(vm.actors.get(3).anim.animId).toBe(250);
   });
 });
+
+describe('intro-cutscene opcodes', () => {
+  it('setOwnerOf sets the object owner (round-trips via getObjectOwner)', () => {
+    const vm = makeVm();
+    // setOwnerOf obj=42 owner=5; getObjectOwner g0 = owner(42); stop.
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(0x29, 0x2a, 0x00, 0x05, 0x10, 0x00, 0x00, 0x2a, 0x00, 0xa0),
+    });
+    vm.step();
+    vm.step();
+    expect(vm.objectOwners.get(42)).toBe(5);
+    expect(vm.vars.readGlobal(0)).toBe(5);
+  });
+
+  it('faceActor turns the actor toward a target actor (east)', () => {
+    const vm = makeVm();
+    const a = vm.actors.get(1);
+    a.room = 1;
+    a.x = 100;
+    a.y = 100;
+    const b = vm.actors.get(2);
+    b.room = 1;
+    b.x = 200;
+    b.y = 100; // due east
+    // faceActor actor=1 target=2 (0x09 = both direct), stop.
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x09, 0x01, 0x02, 0x00, 0xa0) });
+    vm.step();
+    expect(vm.actors.get(1).facing).toBe('E');
+  });
+
+  it('loadRoomWithEgo enters the room and assigns ego to it', () => {
+    const vm = makeVm();
+    vm.vars.writeGlobal(1, 1); // VAR_EGO = actor 1
+    vm.actors.get(1).room = 0;
+    // loadRoomWithEgo obj=42 room=7 x=-1 (no walk) y=0; stop.
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(0x24, 0x2a, 0x00, 0x07, 0xff, 0xff, 0x00, 0x00, 0xa0),
+    });
+    vm.step();
+    expect(vm.currentRoom).toBe(7);
+    expect(vm.actors.get(1).room).toBe(7);
+  });
+});
