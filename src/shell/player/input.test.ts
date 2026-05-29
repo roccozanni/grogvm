@@ -219,6 +219,37 @@ describe('mountVmFrameInput — pointerdown', () => {
     expect(right).toHaveLength(0);
   });
 
+  it('syncs the mouse-coord vars to the click point before dispatch', () => {
+    // The faithful floor-walk relies on MI1's verb-input script reading
+    // VAR_MOUSE / VAR_VIRT_MOUSE at click time, so pointerdown must write
+    // them even when no pointermove preceded it (touch / synthetic).
+    const vm = makeVm();
+    const canvas = new FakeCanvas();
+    let varsAtDispatch = { mx: -1, my: -1, vmx: -1, vmy: -1 };
+    mountVmFrameInput({
+      canvas: canvas as unknown as HTMLCanvasElement,
+      vm,
+      roomWidth: 320,
+      roomHeight: 200,
+      onLeftClick: () => {
+        // Captured inside the handler → proves the write happened *before*
+        // dispatch, which is the order the input script depends on.
+        varsAtDispatch = {
+          mx: vm.vars.readGlobal(VAR_MOUSE_X),
+          my: vm.vars.readGlobal(VAR_MOUSE_Y),
+          vmx: vm.vars.readGlobal(20),
+          vmy: vm.vars.readGlobal(21),
+        };
+      },
+    });
+
+    canvas.dispatch('pointerdown', makeEvent({ clientX: 100, clientY: 60, button: 0 }));
+
+    expect(varsAtDispatch).toEqual({ mx: 50, my: 30, vmx: 50, vmy: 30 });
+    expect(vm.mouseRoomX).toBe(50);
+    expect(vm.mouseRoomY).toBe(30);
+  });
+
   it('button=2 → onRightClick (v5 look-at shortcut)', () => {
     const vm = makeVm();
     const canvas = new FakeCanvas();

@@ -1139,6 +1139,32 @@ export class Vm {
   }
 
   /**
+   * Return the id of the actor under room-space point `(x, y)`, or `0`
+   * if none — backing the `actorFromPos` opcode (and Talk-to clicks).
+   *
+   * Mirrors SCUMM's `getActorFromPos`: test each actor in the current
+   * room against the box it actually drew last frame ({@link Actor.drawBounds},
+   * the engine's stand-in for the original's gfx-usage bits), skipping
+   * actors with the Untouchable class (32). Actors paint in ascending
+   * id order — later ids on top — so among overlapping hits we return
+   * the highest id (the topmost), matching the rendered z-order.
+   */
+  actorFromPos(x: number, y: number): number {
+    let hit = 0;
+    for (const actor of this.actors.all()) {
+      if (actor.room !== this.currentRoom || !actor.visible) continue;
+      const b = actor.drawBounds;
+      if (!b) continue;
+      // Untouchable = class 32 → bit 31 of the class mask.
+      if ((this.objectClasses.get(actor.id) ?? 0) & (1 << 31)) continue;
+      if (x >= b.left && x < b.right && y >= b.top && y < b.bottom) {
+        hit = actor.id; // keep the highest-id (topmost) match
+      }
+    }
+    return hit;
+  }
+
+  /**
    * Step until every slot is dead/yielded/frozen — i.e. until the
    * next `step()` would return undefined. Caps at `maxSteps` to
    * prevent runaway tight loops.

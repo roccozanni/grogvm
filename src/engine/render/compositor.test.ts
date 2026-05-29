@@ -207,6 +207,32 @@ describe('composeFrame — actor compositing', () => {
     expect(fb[2 * 8 + 5]).toBe(0x10);
   });
 
+  it('records the drawn actor\'s room-space bounds for hit-testing', () => {
+    // 2×2 frame at (3,1) with redirX/Y = 0 → bounds [3,5) × [1,3).
+    const room = makeRoom(8, 4, 0x10);
+    const fb = new Uint8Array(8 * 4);
+    const cost = makeOneFrameCostume({ frameW: 2, frameH: 2, pixelIdx: 1, clutIdx: 0x99 });
+    const actor = makeActorAt(1, 3, 1, 1, 1);
+    composeFrame({ room, framebuffer: fb, actors: [actor], getCostume: () => cost });
+    expect(actor.drawBounds).toEqual({ left: 3, top: 1, right: 5, bottom: 3 });
+  });
+
+  it('offsets drawn bounds by the frame redir + clears them when the actor is skipped', () => {
+    const room = makeRoom(16, 16, 0x10);
+    const fb = new Uint8Array(16 * 16);
+    const cost = makeOneFrameCostume({
+      frameW: 3, frameH: 4, pixelIdx: 1, clutIdx: 0x99, redirX: -1, redirY: -2,
+    });
+    const actor = makeActorAt(1, 6, 8, 1, 1);
+    composeFrame({ room, framebuffer: fb, actors: [actor], getCostume: () => cost });
+    // left = 6 + (-1) = 5, top = 8 + (-2) = 6, right = 5+3 = 8, bottom = 6+4 = 10.
+    expect(actor.drawBounds).toEqual({ left: 5, top: 6, right: 8, bottom: 10 });
+    // Now make it undrawable — bounds must reset to null (off-screen).
+    actor.visible = false;
+    composeFrame({ room, framebuffer: fb, actors: [actor], getCostume: () => cost });
+    expect(actor.drawBounds).toBeNull();
+  });
+
   it('records skippedActors when an actor is invisible or has no costume', () => {
     const room = makeRoom(8, 4, 0x10);
     const fb = new Uint8Array(8 * 4);

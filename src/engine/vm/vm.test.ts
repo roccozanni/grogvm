@@ -174,6 +174,7 @@ describe('Vm — talk timer + dialog clearing', () => {
   });
 });
 
+
 describe('Vm — handleSceneClick verb reset', () => {
   it('queues the sentence then deselects the verb', () => {
     const vm = makeVm();
@@ -207,6 +208,63 @@ describe('Vm — walkActorTo', () => {
     const vm = makeVm();
     expect(() => vm.walkActorTo(0, 10, 10)).not.toThrow();
     expect(() => vm.walkActorTo(9999, 10, 10)).not.toThrow();
+  });
+});
+
+describe('Vm — actorFromPos', () => {
+  // Place an actor in the current room with an explicit drawn bbox.
+  const place = (vm: Vm, id: number, bounds: { left: number; top: number; right: number; bottom: number }) => {
+    vm.currentRoom = 1;
+    const a = vm.actors.get(id);
+    a.room = 1;
+    a.visible = true;
+    a.drawBounds = bounds;
+    return a;
+  };
+
+  it('returns the actor whose drawn bounds contain the point', () => {
+    const vm = makeVm();
+    place(vm, 3, { left: 90, top: 40, right: 110, bottom: 60 });
+    expect(vm.actorFromPos(100, 50)).toBe(3);
+  });
+
+  it('returns 0 when the point is outside every actor (right/bottom exclusive)', () => {
+    const vm = makeVm();
+    place(vm, 3, { left: 90, top: 40, right: 110, bottom: 60 });
+    expect(vm.actorFromPos(80, 50)).toBe(0); // left of box
+    expect(vm.actorFromPos(110, 50)).toBe(0); // right edge exclusive
+    expect(vm.actorFromPos(100, 60)).toBe(0); // bottom edge exclusive
+  });
+
+  it('ignores actors not in the current room', () => {
+    const vm = makeVm();
+    const a = place(vm, 3, { left: 90, top: 40, right: 110, bottom: 60 });
+    a.room = 2; // elsewhere
+    expect(vm.actorFromPos(100, 50)).toBe(0);
+  });
+
+  it('ignores invisible actors and actors with no drawn bounds', () => {
+    const vm = makeVm();
+    const a = place(vm, 3, { left: 90, top: 40, right: 110, bottom: 60 });
+    a.visible = false;
+    expect(vm.actorFromPos(100, 50)).toBe(0);
+    a.visible = true;
+    a.drawBounds = null; // off-screen last frame
+    expect(vm.actorFromPos(100, 50)).toBe(0);
+  });
+
+  it('skips actors flagged Untouchable (class 32)', () => {
+    const vm = makeVm();
+    place(vm, 3, { left: 90, top: 40, right: 110, bottom: 60 });
+    vm.objectClasses.set(3, 1 << 31); // class 32 = bit 31
+    expect(vm.actorFromPos(100, 50)).toBe(0);
+  });
+
+  it('returns the highest-id (topmost) actor among overlapping hits', () => {
+    const vm = makeVm();
+    place(vm, 2, { left: 80, top: 30, right: 120, bottom: 70 });
+    place(vm, 5, { left: 90, top: 40, right: 110, bottom: 60 });
+    expect(vm.actorFromPos(100, 50)).toBe(5);
   });
 });
 

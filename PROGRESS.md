@@ -100,6 +100,48 @@ needed for Talk-to an actor).
 The inspector has stable DOM during Play; controls + frame stack mount
 once and only canvas pixels update per tick.
 
+### Session log (Talk-to / actorFromPos + faithful click-to-walk)
+
+Closed both engine "faithful input refinements" (next-steps #3 b+c):
+
+- **`actorFromPos` is real now** (was a 0-stub). The opcode read its
+  coords as bytes; the reference says `p16` (words) — fixed, matching
+  ScummVM's `getVarOrWord`. New `vm.actorFromPos(x,y)` hit-tests the
+  point against each actor's **`drawBounds`** — a room-space bbox the
+  compositor records every frame (union of the actor's drawn limb
+  extents), the engine's stand-in for SCUMM's per-actor gfx-usage bits.
+  Skips the Untouchable class (32); returns the topmost (highest-id)
+  overlapping actor. Wired into the play-area hover so clicking an actor
+  feeds the sentence → **Talk-to**; the hover box outlines a hovered
+  actor too. Cosmetic gap: the sentence line still shows `obj #N` for
+  actors (no actor-name table). +8 tests.
+- **Faithful click-to-walk — the shortcut is gone.** Investigation
+  (`scratch/inspect-walk-click.ts`) showed MI1's verb-input **script #4**
+  *already* walks ego to a bare floor click by itself (it reads the
+  mouse-coord vars and issues `walkActorToObject`). So instead of
+  routing a Walk-to sentence, the fix was to delete the engine-side
+  `vm.walkActorTo` call from `onRoomClick` and rely on
+  `handleSceneClick` → #4. `input.ts` now also syncs the mouse-coord
+  vars on `pointerdown` so the click point is authoritative for touch /
+  synthetic input. Headless proof: ego walks 346→160 to the click with
+  no shortcut. +1 test.
+
+(A per-char dialog "typewriter" reveal was also tried this session and
+then **reverted** — Rocco confirmed MI1 talk pops in all at once in
+ScummVM; v5 has no per-char reveal. `VAR_CHARINC` is the hold-duration
+multiplier, not a reveal rate. See next-steps #2.)
+
+Tests: **579 across 46 files**; typecheck clean. ⚠️ Both wins are
+proven headlessly but the *visual* result (clicking an NPC to talk;
+click-to-walk feel) wants a quick in-browser look when convenient.
+
+The one untouched next-steps #3 item is **(a) drive `VAR_CURSORSTATE`
+(g52) on clicks for MI1's #23 in-engine hover** — deliberately left:
+it's the lowest-value of the three (the inspector already draws its own
+hover box, now for actors too), it's purely cosmetic, and it's the one
+that most needs live visual tuning to confirm #23 doesn't misbehave when
+g52 is driven. Best done with eyes on the browser.
+
 ### Session log (input-model correction + dialog/inventory fixes)
 
 This session: investigated the real input model (above) and, in the
@@ -332,19 +374,43 @@ In rough dependency order:
    done *after* #3 below, since the second-object logic lives in MI1's
    scripts, not engine-side (a hardcoded two-object verb list would be
    throwaway).
-2. **Dialog text reveal** — `VAR_HAVE_MSG` start/done flip + pacing is
-   wired, and **system vs actor text are now separate channels** (the
-   ego-print masking fix — `vm.systemText` / `vm.activeDialog`). What
-   remains is the *visible* per-char reveal — text still paints
-   instantly. (Pairs with `VAR_TALK_ACTOR`; limited until word-wrap.)
+2. **Dialog text reveal — NOT a thing in v5 (per-char typewriter was
+   reverted).** I briefly added a per-character reveal, but Rocco
+   confirmed against ScummVM that MI1 talk **pops in all at once** — the
+   v5 engine draws the whole talk string in one pass and `VAR_CHARINC`
+   only sets the *hold duration* (`talkDelay = length × charinc`, already
+   wired and correct). There is no typewriter for actor talk; the
+   reveal was unfaithful and is gone. Remaining dialog polish (real,
+   still open): **word-wrap / per-line centring** for long lines (they
+   overflow the viewport), and honoring the inline `\xff\x03`
+   wait/keep-text breaks between phrases (the "Salve!" / "Mi chiamo…"
+   split currently renders as one mashed stream).
 3. **Faithful input refinements** — the big "rebuild input through #23"
    premise was a misread (see the corrected input-model note up top:
-   `handleSceneClick`'s enqueue IS faithful). The real remaining items:
+   `handleSceneClick`'s enqueue IS faithful). Remaining items:
    (a) drive `VAR_CURSORSTATE` (g52) on real clicks so MI1's #23 does
-   in-engine hover highlighting; (b) **faithful click-to-walk** — route
-   a Walk-to sentence through #2 instead of the direct `walkActorTo`
-   pathfinder shortcut (the one genuine shortcut left); (c) implement
-   `actorFromPos` (still a 0-stub) for **Talk-to** an actor.
+   in-engine hover highlighting *(still open; lowest value — the
+   inspector already draws its own hover box)*;
+   (b) **faithful click-to-walk — DONE.** It turned out NOT to need a
+   Walk-to sentence at all: MI1's verb-input script **#4** (the
+   `VAR_VERB_SCRIPT` for room 33) already walks ego to a bare floor
+   click on its own — it reads the mouse-coord vars and issues
+   `walkActorToObject`. So the fix was to *remove* the engine-side
+   `vm.walkActorTo` shortcut from `onRoomClick` and let `handleSceneClick`
+   → #4 do the walk. `input.ts` now also writes the mouse-coord vars on
+   `pointerdown` (not just `pointermove`) so the click point is
+   authoritative. Proven headlessly in `scratch/inspect-walk-click.ts`
+   (ego walks 346→160 to the click, no shortcut).
+   (c) **`actorFromPos` — DONE** (was a 0-stub reading bytes; the
+   reference says p16 words). Now backed by `vm.actorFromPos(x,y)` which
+   hit-tests against each actor's last-drawn bounds — `Actor.drawBounds`,
+   the union of limb frame extents the compositor now records each frame
+   (our stand-in for SCUMM's per-actor gfx-usage bits). Skips the
+   Untouchable class (32); returns the highest-id (topmost) match. Wired
+   into the play-area hover so clicking an actor feeds the sentence
+   (**Talk-to**); the hover box now also outlines a hovered actor.
+   ⚠️ Cosmetic gap: the sentence line shows `obj #N` for an actor (no
+   actor-name table is loaded — SCUMM stores actor names separately).
 
 Polish / known gaps (any time):
 - **Sentence line should render in-canvas (top of the verb panel), not a
@@ -645,9 +711,11 @@ several can progress in parallel after the input foundation lands.
       by adding `(camera.x - 160)`; `overhead` mode positions
       above the speaking actor; fallback is centre-bottom of the
       camera viewport.
-- [ ] Per-character reveal at a configurable rate. Currently text
-      appears instantly. Real MI1 uses ~24 ms/char. Caller would
-      skip by left-clicking. Lands with `VAR_HAVE_MSG`.
+- [n/a] Per-character reveal — **does not exist in SCUMM v5.** A
+      typewriter reveal was tried and reverted: MI1 draws the full talk
+      string at once (confirmed vs ScummVM). `VAR_CHARINC` is the
+      *hold-duration* multiplier (`talkDelay = length × charinc`), not a
+      reveal rate. Text appears whole and lingers for `talkDelay` ticks.
 - [ ] `VAR_HAVE_MSG` (global #3) flip on print start / completion.
       Wait-for-message can't release until this is wired.
 - [ ] Per-line centring for multi-line text. The CHAR renderer
@@ -764,8 +832,13 @@ model is just `vm.objectOwners` queried two ways:
 - [x] `setOwnerOf` (`0x29`) / `getObjectOwner` (`0x10`) — already wired
       (write/read `vm.objectOwners`).
 - [x] `actorFromPos` (`0x15`/`0x55`/`0x95`/`0xd5`) — corrected from the
-      bogus "findInventory" label; decodes `p8` coords (not words) and
-      returns 0 (actor screen hit-test deferred to the input phase).
+      bogus "findInventory" label. **Now fully implemented** (was a
+      0-stub): decodes `p16` coords (words — the earlier `p8`/byte claim
+      was wrong, per the opcode reference) and returns the actor under
+      the point via `vm.actorFromPos`, which hit-tests against each
+      actor's `drawBounds` (recorded by the compositor each frame),
+      skips the Untouchable class (32), and returns the topmost
+      (highest-id) match. Wired into play-area hover → Talk-to.
 - [x] 12 new tests (8 in `opcodes/index.test.ts`: getInventoryCount
       direct/var/empty, findInventory order/out-of-range, pickupObject,
       actorFromPos PC=7/PC=5; getVerbEntryPoint present/absent. 3 in

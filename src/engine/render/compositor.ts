@@ -193,6 +193,10 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
   // Render actors in id ascending order for stable layering.
   const sorted = [...actors].sort((a, b) => a.id - b.id);
   for (const actor of sorted) {
+    // Clear last frame's hit-test bounds up front; only a successful
+    // composite re-establishes them (so a skipped / undrawn actor reads
+    // as "not on screen" for actorFromPos).
+    actor.drawBounds = null;
     if (!actor.visible) {
       skippedActors.push({ actorId: actor.id, reason: 'visible=false' });
       continue;
@@ -211,6 +215,9 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
     }
 
     let drewLimb = false;
+    // Union of every drawn limb's room-space extent — becomes the
+    // actor's hit-test box (mirrors SCUMM's per-actor gfx-usage bits).
+    let bLeft = Infinity, bTop = Infinity, bRight = -Infinity, bBottom = -Infinity;
     const limbSkipsBefore = skippedLimbs.length;
     for (let limbIdx = 0; limbIdx < costume.header.limbOffsets.length; limbIdx++) {
       const tableOffset = costume.header.limbOffsets[limbIdx]!;
@@ -268,6 +275,13 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
           zPlanes: room.zPlanes,
         });
         drewLimb = true;
+        // Same extent compositeActor draws into: actor anchor + frame redir.
+        const left = actor.x + frame.redirX;
+        const top = actor.y + frame.redirY;
+        if (left < bLeft) bLeft = left;
+        if (top < bTop) bTop = top;
+        if (left + frame.width > bRight) bRight = left + frame.width;
+        if (top + frame.height > bBottom) bBottom = top + frame.height;
       } catch (err) {
         skippedLimbs.push({
           actorId: actor.id,
@@ -278,6 +292,7 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
     }
     if (drewLimb) {
       actorsDrawn++;
+      actor.drawBounds = { left: bLeft, top: bTop, right: bRight, bottom: bBottom };
     } else if (skippedLimbs.length === limbSkipsBefore) {
       // Iterated every limb, nothing drew and nothing was logged as
       // a skip — every limb must have hit a sentinel framePtr (or

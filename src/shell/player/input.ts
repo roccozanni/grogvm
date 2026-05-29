@@ -151,14 +151,21 @@ export function mountVmFrameInput(args: MountInputArgs): MountedInput {
     meta: ev.metaKey,
   });
 
-  const onMove = (ev: PointerEvent): void => {
-    const p = point(ev);
+  // Push a resolved room point into the VM's mouse state + the coord
+  // vars MI1's scripts poll (the verb-input script #4 reads these to
+  // walk ego to a floor click — see scratch/inspect-walk-click.ts).
+  const writeMouse = (p: RoomPoint): void => {
     vm.mouseRoomX = p.roomX;
     vm.mouseRoomY = p.roomY;
     vm.vars.writeGlobal(VAR_MOUSE_X, p.roomX);
     vm.vars.writeGlobal(VAR_MOUSE_Y, p.roomY);
     vm.vars.writeGlobal(VAR_VIRT_MOUSE_X, p.roomX);
     vm.vars.writeGlobal(VAR_VIRT_MOUSE_Y, p.roomY);
+  };
+
+  const onMove = (ev: PointerEvent): void => {
+    const p = point(ev);
+    writeMouse(p);
     args.onMove?.(p);
   };
 
@@ -173,6 +180,10 @@ export function mountVmFrameInput(args: MountInputArgs): MountedInput {
     if (button === 'left') vm.input.leftHold = true;
     else vm.input.rightHold = true;
     const p = point(ev);
+    // The click point is authoritative — sync the mouse vars to it
+    // before dispatching so the input script walks to the exact click
+    // even if no pointermove preceded it (touch / synthetic input).
+    writeMouse(p);
     const evt: ClickEvent = { ...p, button, modifiers: modsOf(ev) };
     if (button === 'left') args.onLeftClick?.(evt);
     else args.onRightClick?.(evt);

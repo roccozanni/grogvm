@@ -65,6 +65,14 @@ export interface Actor {
   isMoving: boolean;
   /** Anim playback state — populated by `startAnim`, advanced by `stepAnim`. */
   anim: AnimState;
+  /**
+   * Room-space bounding box the compositor last drew this actor into
+   * (the union of its limb frame extents; right/bottom exclusive), or
+   * `null` if the actor wasn't drawn on the last frame. This is the
+   * engine's stand-in for SCUMM's per-actor gfx-usage bits — `actorFromPos`
+   * hit-tests clicks against it. Transient render output, not game state.
+   */
+  drawBounds: { left: number; top: number; right: number; bottom: number } | null;
 }
 
 /** Default empty AnimState — every limb inactive. */
@@ -105,6 +113,7 @@ export function createActor(id: number): Actor {
     walkPathIdx: 0,
     isMoving: false,
     anim: EMPTY_ANIM_STATE,
+    drawBounds: null,
   };
 }
 

@@ -761,10 +761,16 @@ describe('inventory subsystem', () => {
     expect(vm.objectName(99)).toBe('the rubber chicken');
   });
 
-  it('actorFromPos (0xd5) reads both coords as vars, writes 0, advances PC by 7', () => {
+  it('actorFromPos (0xd5) reads both coords as vars, returns the actor under them, advances PC by 7', () => {
     const vm = makeVm();
     vm.vars.writeGlobal(20, 100);
     vm.vars.writeGlobal(21, 50);
+    // An actor drawn over (100,50) in the current room.
+    vm.currentRoom = 7;
+    const actor = vm.actors.get(3);
+    actor.room = 7;
+    actor.visible = true;
+    actor.drawBounds = { left: 90, top: 40, right: 110, bottom: 60 };
     // 0xd5: dest local0, x = var g20, y = var g21 (MI1 #23's form).
     vm.startScript({
       scriptId: 1,
@@ -772,7 +778,7 @@ describe('inventory subsystem', () => {
     });
     const slot = vm.slots.find((s) => s.status === 'running')!;
     vm.step();
-    expect(slot.locals[0]).toBe(0);
+    expect(slot.locals[0]).toBe(3);
     expect(slot.pc).toBe(7);
   });
 
@@ -809,18 +815,19 @@ describe('inventory subsystem', () => {
     expect(vm.vars.readGlobal(1)).toBe(0);
   });
 
-  it('actorFromPos (0x15) reads direct coords as bytes (p8), advances PC by 5', () => {
+  it('actorFromPos (0x15) reads direct coords as words (p16), returns 0 when no actor is hit, advances PC by 7', () => {
     const vm = makeVm();
-    // 0x15: dest local0, x = 50 (1 byte), y = 60 (1 byte). Word-sized
-    // reads would land PC at 7 and misalign — bytes land it at 5.
+    // 0x15: dest local0, x = 50 (word), y = 60 (word). Per the opcode
+    // reference the coords are p16 — byte reads would misalign PC to 5.
+    // No actors placed, so the hit-test returns 0.
     vm.startScript({
       scriptId: 1,
-      bytecode: bytes(0x15, 0x00, 0x40, 0x32, 0x3c, 0x00),
+      bytecode: bytes(0x15, 0x00, 0x40, 0x32, 0x00, 0x3c, 0x00, 0x00),
     });
     const slot = vm.slots.find((s) => s.status === 'running')!;
     vm.step();
     expect(slot.locals[0]).toBe(0);
-    expect(slot.pc).toBe(5);
+    expect(slot.pc).toBe(7);
   });
 });
 

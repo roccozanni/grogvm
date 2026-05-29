@@ -1088,22 +1088,24 @@ function getDistHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
 for (const op of [0x34, 0x74, 0xb4, 0xf4]) register(op, getDistHandler);
 
 // ─── 0x15 / 0x55 / 0x95 / 0xd5  actorFromPos ─────────────────────────
-// `opcode result x[p8] y[p8]`. Returns the actor under screen coords
-// `(x, y)`, or 0 when none. (This is 0x15 — NOT findInventory, which is
-// 0x3D; an earlier pass mislabeled it. The params are bytes, p8, not
-// the words findObject uses.) MI1 boot's #23 hits 0xd5 (both-var form)
-// when polling whether a click landed on an actor.
+// `opcode result x[p16] y[p16]`. Returns the actor under room-space
+// coords `(x, y)`, or 0 when none. (This is 0x15 — NOT findInventory,
+// which is 0x3D; an earlier pass mislabeled it AND read the coords as
+// bytes. Per the opcode reference the params are words, p16, like
+// findObject.) MI1 boot's #23 hits 0xd5 (both-var form) when polling
+// whether a click landed on an actor.
 //
-// Stub returning 0 — actor screen hit-testing needs the rendered
-// costume bbox, which lands with the input phase. "No actor under
-// cursor" is the correct answer during the credits/intro cutscenes
-// (no clicks), so this is safe until then.
+// Backed by vm.actorFromPos, which hit-tests against each actor's
+// last-drawn bounds (SCUMM's gfx-usage-bit equivalent). Returns 0 when
+// no actor is on screen — the correct answer during the credits/intro
+// cutscenes (no clicks, nothing drawn yet).
 function actorFromPosHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const dest = readDestRef(slot, vm.vars);
-  const x = readVarOrByte(opcode, 1, slot, vm.vars);
-  const y = readVarOrByte(opcode, 2, slot, vm.vars);
-  writeRef(dest, 0, slot, vm.vars);
-  vm.annotate(`actorFromPos(${x},${y}) → 0 (stub: actor hit-test deferred)`);
+  const x = readVarOrWord(opcode, 1, slot, vm.vars);
+  const y = readVarOrWord(opcode, 2, slot, vm.vars);
+  const id = vm.actorFromPos(x, y);
+  writeRef(dest, id, slot, vm.vars);
+  vm.annotate(`actorFromPos(${x},${y}) → ${id}`);
 }
 register(0x15, actorFromPosHandler);
 register(0x55, actorFromPosHandler);

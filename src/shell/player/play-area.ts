@@ -196,17 +196,21 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
     // the cursor so the crosshair stays on top.
     drawDialog(cctx);
 
-    // Hover highlight box around the hovered object.
+    // Hover highlight box around the hovered object — or, when an actor
+    // is hovered, around its last-drawn bounds (Talk-to feedback).
     if (hoveredObject !== null) {
       const obj = vm.loadedRoom?.objects.get(hoveredObject);
+      let box: { left: number; top: number; w: number; h: number } | null = null;
       if (obj) {
-        const left = obj.cdhd.x * 8;
-        const top = obj.cdhd.y * 8;
-        const w = obj.cdhd.width * 8;
-        const h = obj.cdhd.height * 8;
+        box = { left: obj.cdhd.x * 8, top: obj.cdhd.y * 8, w: obj.cdhd.width * 8, h: obj.cdhd.height * 8 };
+      } else if (hoveredObject >= 1 && hoveredObject <= vm.actors.capacity) {
+        const b = vm.actors.get(hoveredObject).drawBounds;
+        if (b) box = { left: b.left, top: b.top, w: b.right - b.left, h: b.bottom - b.top };
+      }
+      if (box) {
         cctx.strokeStyle = clutCss(palette, CURSOR_COLOR_HOVER_OBJECT);
         cctx.lineWidth = 1;
-        cctx.strokeRect(left + 0.5, top + 0.5, w - 1, h - 1);
+        cctx.strokeRect(box.left + 0.5, box.top + 0.5, box.w - 1, box.h - 1);
       }
     }
 
@@ -451,12 +455,20 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
       hoveredObject = null;
       return;
     }
-    hoveredObject = pickObject({
-      objects: room.objects,
-      drawQueue: vm.objectDrawQueue,
-      x: vm.mouseRoomX,
-      y: vm.mouseRoomY,
-    });
+    // Actors paint on top of room objects, so an actor under the cursor
+    // wins the hover (enables Talk-to). Its id feeds the scene-click /
+    // sentence the same way an object id does — SCUMM sentences carry
+    // actor ids as objectA. Falls back to object hit-testing.
+    const actorHit = vm.actorFromPos(vm.mouseRoomX, vm.mouseRoomY);
+    hoveredObject =
+      actorHit !== 0
+        ? actorHit
+        : pickObject({
+            objects: room.objects,
+            drawQueue: vm.objectDrawQueue,
+            x: vm.mouseRoomX,
+            y: vm.mouseRoomY,
+          });
   };
 
   const onPointerMove = (): void => {
@@ -560,25 +572,18 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
 
   // ─── room-click handler (wired from the inspector's pointerdown).
   //     Routes the click into the engine's scene-click handler, which
-  //     fires the input-script hook and — when a verb is armed — builds
-  //     a sentence for the per-tick sentence driver to run. Returns the
+  //     fires MI1's verb-input script (VAR_VERB_SCRIPT = #4 in room 33).
+  //     That script does the faithful work for BOTH cases: with a verb
+  //     armed + an object hit it builds the sentence (#2 walks-to/faces/
+  //     acts), and on a bare floor click it walks ego to the clicked
+  //     point itself — it reads the mouse-coord vars the input layer
+  //     wrote. Confirmed in scratch/inspect-walk-click.ts: ego walks to
+  //     the click with no engine-side walkActorTo shortcut. Returns the
   //     hit-tested object id so the inspector can still log the click.
   const onRoomClick = (button: 'left' | 'right'): { objId: number | null } => {
     recomputeHover();
     const btn = button === 'left' ? 1 : 2;
-    if (hoveredObject !== null && vm.currentVerb !== null) {
-      // Armed verb + object → build the sentence (walk-to / face / act
-      // is handled by the sentence script). Right-click as the v5
-      // "look-at" shortcut isn't wired yet; both buttons use the verb.
-      vm.handleSceneClick(hoveredObject, btn);
-    } else {
-      // Floor click (or no verb armed) → walk ego to the clicked point.
-      // Direct walk via the pathfinder — a shortcut until the faithful
-      // input script (#23) drives walk sentences from the click coords.
-      vm.handleSceneClick(hoveredObject ?? 0, btn); // still fire the input hook
-      const ego = vm.vars.readGlobal(VAR_EGO) || 1;
-      vm.walkActorTo(ego, vm.mouseRoomX, vm.mouseRoomY);
-    }
+    vm.handleSceneClick(hoveredObject ?? 0, btn);
     return { objId: hoveredObject };
   };
 
