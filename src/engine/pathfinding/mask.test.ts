@@ -130,4 +130,57 @@ describe('buildWalkableMask', () => {
     expect(mask[5 * 16 + 5]).toBe(1);
     expect(countWalkable(mask)).toBe(1);
   });
+
+  // Degenerate "line" box (UL==UR, LR==LL) — a diagonal connector, like
+  // MI1 room 33's staircase boxes. Both orientations must rasterize to
+  // an 8-connected pixel chain, or the pathfinder islands them.
+  function lineBox(x0: number, y0: number, x1: number, y1: number): WalkBox {
+    return {
+      id: 0,
+      ulx: x0, uly: y0, urx: x0, ury: y0,
+      lrx: x1, lry: y1, llx: x1, lly: y1,
+      mask: 0x83, flags: 0, scaleSlot: 0,
+    };
+  }
+  function reachable(mask: Uint8Array, w: number, h: number, sx: number, sy: number, tx: number, ty: number): boolean {
+    const seen = new Uint8Array(mask.length);
+    const stack: Array<[number, number]> = [[sx, sy]];
+    seen[sy * w + sx] = 1;
+    while (stack.length) {
+      const [x, y] = stack.pop()!;
+      if (x === tx && y === ty) return true;
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx, ny = y + dy, i = ny * w + nx;
+          if (nx >= 0 && ny >= 0 && nx < w && ny < h && !seen[i] && mask[i]) {
+            seen[i] = 1;
+            stack.push([nx, ny]);
+          }
+        }
+    }
+    return false;
+  }
+
+  it('rasterizes a shallow diagonal line-box as an 8-connected chain', () => {
+    // dx (21) ≫ dy (4): a row-only scan leaves pixels ~5 apart in x.
+    const mask = buildWalkableMask([lineBox(26, 93, 47, 97)], 64, 128);
+    expect(mask[93 * 64 + 26]).toBe(1);
+    expect(mask[97 * 64 + 47]).toBe(1);
+    expect(reachable(mask, 64, 128, 26, 93, 47, 97)).toBe(true);
+  });
+
+  it('rasterizes a steep diagonal line-box as an 8-connected chain', () => {
+    // dy (8) ≫ dx (2): the column-only scan would island the pixels.
+    const mask = buildWalkableMask([lineBox(21, 76, 23, 84)], 64, 128);
+    expect(reachable(mask, 64, 128, 21, 76, 23, 84)).toBe(true);
+  });
+
+  it('keeps two line-boxes sharing an endpoint connected (staircase)', () => {
+    const mask = buildWalkableMask(
+      [lineBox(21, 76, 23, 84), lineBox(23, 84, 47, 88)],
+      64,
+      128,
+    );
+    expect(reachable(mask, 64, 128, 21, 76, 47, 88)).toBe(true);
+  });
 });

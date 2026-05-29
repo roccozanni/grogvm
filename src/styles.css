@@ -1243,6 +1243,7 @@ code {
 }
 
 .vm-sentence-line {
+  box-sizing: border-box;
   margin: 0.5rem 0 0;
   padding: 0.35rem 0.6rem;
   border: 1px solid var(--border);
@@ -1255,6 +1256,7 @@ code {
 }
 
 .vm-verb-bar {
+  box-sizing: border-box;
   display: block;
   margin: 0.25rem 0 0;
   image-rendering: pixelated;

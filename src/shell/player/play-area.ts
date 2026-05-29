@@ -37,6 +37,7 @@ import { renderText } from '../../engine/graphics/text';
 import { pickObject } from '../../engine/object/hittest';
 import type { ResourceFile } from '../../engine/resources/tree';
 import type { Vm, VerbSlot } from '../../engine/vm/vm';
+import { VAR_EGO } from '../../engine/vm/vars';
 
 /**
  * MI1 verb area starts at screen y = 144 (rooms are 200 tall total,
@@ -49,6 +50,25 @@ import type { Vm, VerbSlot } from '../../engine/vm/vm';
 const VERB_BAR_START_Y = 144;
 const VERB_BAR_HEIGHT = 56;
 const CSS_SCALE = 2;
+
+/**
+ * On-screen viewport width. The room canvas is drawn at the full room
+ * width (a debug view — rooms can be 640+ wide and scroll), but the
+ * verb bar and sentence line are fixed *screen* UI: MI1 lays verbs out
+ * in screen-space coords (0..319, via `verbOps setXY`), and the player
+ * only ever sees a 320-wide slice. So those strips are sized to this,
+ * NOT to the room width.
+ */
+const VIEWPORT_W = 320;
+
+/**
+ * MI1's inventory occupies verb ids 200..207 (a 4×2 grid of image
+ * slots; 208/209 are the scroll arrows). Slot `200 + i` shows the
+ * `i`-th inventory item (1-based via `findInventory`) — the order #9
+ * assigns them. No scroll offset yet, so slot 200 = item 1.
+ */
+const INVENTORY_VERB_FIRST = 200;
+const INVENTORY_VERB_LAST = 207;
 
 /** Default CLUT colours when a verb's slot doesn't specify one. */
 const DEFAULT_VERB_COLOR = 7; // light-grey ink
@@ -108,7 +128,7 @@ export interface PlayAreaHandles {
  * where to mount the returned canvases / elements.
  */
 export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
-  const { vm, roomWidth, roomHeight, palette, transparentIndex } = args;
+  const { vm, roomWidth, roomHeight, palette } = args;
   // The active charset changes at runtime (`cursorCommand initCharset`):
   // the credits use charset 4 (a 2-bpp serif title font), gameplay
   // dialog/verbs another. Loading it once at mount froze us on whatever
@@ -136,16 +156,22 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
   const cctx = cursorOverlay.getContext('2d');
 
   // ─── sentence line ───
+  // Screen-width, not room-width: this strip is screen UI, sized to the
+  // 320-wide viewport (× CSS scale) to line up with the verb bar below.
   const sentenceLine = document.createElement('div');
   sentenceLine.className = 'vm-sentence-line';
+  sentenceLine.style.width = `${VIEWPORT_W * CSS_SCALE}px`;
   sentenceLine.textContent = sentenceText(vm, null, null);
 
   // ─── verb bar ───
+  // The verb bar is a fixed 320-wide screen element (verbs are placed in
+  // screen-space coords), so its backing canvas is VIEWPORT_W — not the
+  // room width, which would over-size it on wide/scrolling rooms.
   const verbBar = document.createElement('canvas');
   verbBar.className = 'vm-verb-bar';
-  verbBar.width = roomWidth;
+  verbBar.width = VIEWPORT_W;
   verbBar.height = VERB_BAR_HEIGHT;
-  verbBar.style.width = `${roomWidth * CSS_SCALE}px`;
+  verbBar.style.width = `${VIEWPORT_W * CSS_SCALE}px`;
   verbBar.style.height = `${VERB_BAR_HEIGHT * CSS_SCALE}px`;
   const vbctx = verbBar.getContext('2d');
 
@@ -153,6 +179,8 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
   let hoveredObject: number | null = null;
   /** Most recently computed hovered verb id (or null). */
   let hoveredVerb: number | null = null;
+  /** Inventory item under the cursor when hovering an inventory slot (or null). */
+  let hoveredInvItem: number | null = null;
 
   const drawCursor = (): void => {
     if (!cctx) return;
@@ -217,7 +245,6 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
    * slice of pixels the real game would display on screen.
    */
   const drawViewportRect = (ctx: CanvasRenderingContext2D): void => {
-    const VIEWPORT_W = 320;
     const cameraLeft = vm.camera.x - VIEWPORT_W / 2;
     const top = vm.screen.top;
     const height = Math.max(1, vm.screen.bottom - vm.screen.top);
@@ -268,22 +295,110 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
   };
 
   const updateSentence = (): void => {
-    sentenceLine.textContent = sentenceText(vm, hoveredObject, hoveredVerb);
+    // An inventory item under the cursor (verb-bar hover) takes priority
+    // over a room object; otherwise show the room hover.
+    sentenceLine.textContent = sentenceText(
+      vm,
+      hoveredInvItem ?? hoveredObject,
+      hoveredVerb,
+    );
+  };
+
+  // ─── image verbs (inventory slots) ───
+  // Verbs can show an object sprite instead of text (verbOps setImage /
+  // setImageInRoom) — MI1's inventory slots draw the frame objects from
+  // the UI room (99). Resolving an object's image means loading the
+  // room it lives in (which may NOT be the current room), so we cache
+  // LoadedRoom by id (room data is immutable). `vm.resolveRoom` is the
+  // same loader the `loadRoom` opcode uses.
+  const roomCache = new Map<number, ReturnType<NonNullable<Vm['resolveRoom']>> | null>();
+  const resolveRoomCached = (roomId: number): ReturnType<NonNullable<Vm['resolveRoom']>> | null => {
+    if (!roomCache.has(roomId)) {
+      let r: ReturnType<NonNullable<Vm['resolveRoom']>> | null = null;
+      try {
+        r = vm.resolveRoom ? vm.resolveRoom(roomId) : null;
+      } catch {
+        r = null;
+      }
+      roomCache.set(roomId, r);
+    }
+    return roomCache.get(roomId) ?? null;
+  };
+
+  // Scratch canvas for per-image alpha-blended compositing.
+  const imgCanvas = document.createElement('canvas');
+  const imgCtx = imgCanvas.getContext('2d');
+
+  /** Resolve an image verb's bound object (cross-room, cached). */
+  const imageVerbObject = (image: { obj: number; room: number }) =>
+    resolveRoomCached(image.room)?.objects.get(image.obj) ?? null;
+
+  /**
+   * The inventory item shown in an inventory-slot verb (200..207), or
+   * null for non-slot / empty slots. Maps the slot's grid position to
+   * the owner's `findInventory` index (no scroll offset yet).
+   */
+  const inventoryItemForVerb = (verbId: number): number | null => {
+    if (verbId < INVENTORY_VERB_FIRST || verbId > INVENTORY_VERB_LAST) return null;
+    const ego = vm.vars.readGlobal(VAR_EGO) || 1;
+    const obj = vm.findInventory(ego, verbId - INVENTORY_VERB_FIRST + 1);
+    return obj || null;
+  };
+
+  /**
+   * Composite an image verb's object sprite into the verb bar at
+   * (destX, destY). Colours resolve through the *current* room's
+   * palette (SCUMM draws verb images with the active palette);
+   * transparency uses the sprite's own room's TRNS index. No-op if the
+   * room/object/image can't be resolved (stale or absent).
+   */
+  const drawVerbImage = (
+    image: { obj: number; room: number },
+    destX: number,
+    destY: number,
+  ): void => {
+    if (!vbctx || !imgCtx) return;
+    const srcRoom = resolveRoomCached(image.room);
+    const obj = srcRoom?.objects.get(image.obj);
+    if (!srcRoom || !obj) return;
+    // Prefer the object's current state image; fall back to its first.
+    const state = vm.objectStates.get(obj.objId) ?? obj.images.keys().next().value;
+    const img = state !== undefined ? obj.images.get(state) : undefined;
+    const w = obj.imhd.width;
+    const h = obj.imhd.height;
+    if (!img || w <= 0 || h <= 0 || img.indexed.length !== w * h) return;
+    const pal = vm.loadedRoom?.palette ?? palette;
+    const trns = srcRoom.transparentIndex;
+    imgCanvas.width = w;
+    imgCanvas.height = h;
+    const id = imgCtx.createImageData(w, h);
+    for (let i = 0; i < w * h; i++) {
+      const idx = img.indexed[i]!;
+      const o = i * 4;
+      if (trns !== null && idx === trns) {
+        id.data[o + 3] = 0;
+        continue;
+      }
+      id.data[o] = pal[idx * 3] ?? 0;
+      id.data[o + 1] = pal[idx * 3 + 1] ?? 0;
+      id.data[o + 2] = pal[idx * 3 + 2] ?? 0;
+      id.data[o + 3] = 255;
+    }
+    imgCtx.putImageData(id, 0, 0);
+    vbctx.drawImage(imgCanvas, destX, destY);
   };
 
   const paintVerbBar = (): void => {
     if (!vbctx) return;
     const charset = activeCharset();
-    vbctx.clearRect(0, 0, roomWidth, VERB_BAR_HEIGHT);
+    vbctx.clearRect(0, 0, VIEWPORT_W, VERB_BAR_HEIGHT);
 
-    // Background: solid CLUT colour or transparent (caller has CSS
-    // backdrop). MI1 verb-bar background is the room palette's
-    // colour 0 (typically black).
-    const bgIdx = transparentIndex ?? 0;
-    if (bgIdx !== null) {
-      vbctx.fillStyle = clutCss(palette, bgIdx);
-      vbctx.fillRect(0, 0, roomWidth, VERB_BAR_HEIGHT);
-    }
+    // Background: CLUT colour 0 (black in MI1). NB: do NOT use the
+    // room's transparent index here — that's a transparency *key*, not a
+    // background colour (room 33's is idx 5 = magenta), and filling with
+    // it painted the bar's uncovered strip purple.
+    vbctx.fillStyle = clutCss(palette, 0);
+    vbctx.fillRect(0, 0, VIEWPORT_W, VERB_BAR_HEIGHT);
 
     if (!charset) {
       vbctx.fillStyle = '#888';
@@ -295,10 +410,16 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
 
     for (const v of vm.verbs.values()) {
       if (v.state === 'deleted' || v.state === 'off') continue;
-      if (!v.name) continue;
       const x = v.x;
       const y = v.y - VERB_BAR_START_Y;
       if (y < 0 || y >= VERB_BAR_HEIGHT) continue;
+      // Image verbs (inventory slots) draw an object sprite; text verbs
+      // draw their name. A verb is one or the other.
+      if (v.image) {
+        drawVerbImage(v.image, x, y);
+        continue;
+      }
+      if (!v.name) continue;
       const ink = pickInk(v, v.id === hoveredVerb, v.id === vm.currentVerb);
       drawText(vbctx, charset, v.name, x, y, palette, ink, v.centered);
     }
@@ -336,31 +457,47 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
   // ─── verb-bar input ───
   const verbAt = (canvasX: number, canvasY: number): VerbSlot | null => {
     const charset = activeCharset();
-    if (!charset) return null;
-    // Hit-test: a verb's bbox is its measured name width × fontHeight
-    // starting at (verb.x, verb.y - VERB_BAR_START_Y). centred verbs
-    // shift left by half the measured width.
+    // Prefer an interactive ('on') hit over a 'dim' one. MI1's verb
+    // panel background is itself a (dim) image verb (verb 1, obj 1030,
+    // 144×48) that covers the whole command-verb region — without this
+    // preference it would shadow every command verb and swallow clicks.
+    let dimHit: VerbSlot | null = null;
     for (const v of vm.verbs.values()) {
       if (v.state !== 'on' && v.state !== 'dim') continue;
-      if (!v.name) continue;
       const y = v.y - VERB_BAR_START_Y;
-      const measured = measureName(charset, v.name);
-      const x = v.centered ? v.x - Math.floor(measured.width / 2) : v.x;
-      if (
-        canvasX >= x &&
-        canvasX < x + measured.width &&
-        canvasY >= y &&
-        canvasY < y + measured.height
-      ) {
-        return v;
+      let hit = false;
+      if (v.image) {
+        // Image verbs (inventory slots / arrows / panel bg): bbox is the
+        // sprite's own dimensions starting at (x, y). No charset needed.
+        const obj = imageVerbObject(v.image);
+        if (!obj) continue;
+        hit =
+          canvasX >= v.x &&
+          canvasX < v.x + obj.imhd.width &&
+          canvasY >= y &&
+          canvasY < y + obj.imhd.height;
+      } else {
+        // Text verbs: bbox is the measured name width × fontHeight.
+        // centred verbs shift left by half the measured width.
+        if (!charset || !v.name) continue;
+        const measured = measureName(charset, v.name);
+        const x = v.centered ? v.x - Math.floor(measured.width / 2) : v.x;
+        hit =
+          canvasX >= x &&
+          canvasX < x + measured.width &&
+          canvasY >= y &&
+          canvasY < y + measured.height;
       }
+      if (!hit) continue;
+      if (v.state === 'on') return v; // interactive wins immediately
+      dimHit ??= v; // remember the first dim match as a fallback
     }
-    return null;
+    return dimHit;
   };
 
   const localToCanvas = (ev: { clientX: number; clientY: number }): { x: number; y: number } => {
     const rect = verbBar.getBoundingClientRect();
-    const sx = rect.width > 0 ? rect.width / roomWidth : 1;
+    const sx = rect.width > 0 ? rect.width / VIEWPORT_W : 1;
     const sy = rect.height > 0 ? rect.height / VERB_BAR_HEIGHT : 1;
     return {
       x: Math.floor((ev.clientX - rect.left) / sx),
@@ -372,15 +509,18 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
     const { x, y } = localToCanvas(ev);
     const v = verbAt(x, y);
     const newHover = v?.id ?? null;
-    if (newHover !== hoveredVerb) {
+    const newInv = v ? inventoryItemForVerb(v.id) : null;
+    if (newHover !== hoveredVerb || newInv !== hoveredInvItem) {
       hoveredVerb = newHover;
+      hoveredInvItem = newInv;
       paintVerbBar();
       updateSentence();
     }
   });
   verbBar.addEventListener('pointerleave', () => {
-    if (hoveredVerb !== null) {
+    if (hoveredVerb !== null || hoveredInvItem !== null) {
       hoveredVerb = null;
+      hoveredInvItem = null;
       paintVerbBar();
       updateSentence();
     }
@@ -389,8 +529,15 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
     const { x, y } = localToCanvas(ev);
     const v = verbAt(x, y);
     if (!v || v.state !== 'on') return;
-    // Engine click handling: arm the verb + fire the input-script hook.
-    vm.handleVerbClick(v.id);
+    const invItem = inventoryItemForVerb(v.id);
+    if (invItem !== null) {
+      // Inventory slot: the click targets the ITEM (an object), not a
+      // command verb — route it like a scene-object click.
+      vm.handleSceneClick(invItem, ev.button === 2 ? 2 : 1);
+    } else {
+      // Command verb: arm it + fire the input-script hook.
+      vm.handleVerbClick(v.id);
+    }
     paintVerbBar();
     updateSentence();
     args.onCommit();
@@ -403,9 +550,20 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
   //     hit-tested object id so the inspector can still log the click.
   const onRoomClick = (button: 'left' | 'right'): { objId: number | null } => {
     recomputeHover();
-    // Right-click as the v5 "look-at" shortcut isn't wired yet (needs
-    // the look-at verb id); for now both buttons use the armed verb.
-    vm.handleSceneClick(hoveredObject ?? 0, button === 'left' ? 1 : 2);
+    const btn = button === 'left' ? 1 : 2;
+    if (hoveredObject !== null && vm.currentVerb !== null) {
+      // Armed verb + object → build the sentence (walk-to / face / act
+      // is handled by the sentence script). Right-click as the v5
+      // "look-at" shortcut isn't wired yet; both buttons use the verb.
+      vm.handleSceneClick(hoveredObject, btn);
+    } else {
+      // Floor click (or no verb armed) → walk ego to the clicked point.
+      // Direct walk via the pathfinder — a shortcut until the faithful
+      // input script (#23) drives walk sentences from the click coords.
+      vm.handleSceneClick(hoveredObject ?? 0, btn); // still fire the input hook
+      const ego = vm.vars.readGlobal(VAR_EGO) || 1;
+      vm.walkActorTo(ego, vm.mouseRoomX, vm.mouseRoomY);
+    }
     return { objId: hoveredObject };
   };
 

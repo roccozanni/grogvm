@@ -18,6 +18,7 @@ import type { ResourceFile } from '../../engine/resources/tree';
 import { bootGame, type GameId } from '../../engine/vm/boot';
 import type { ScriptSlot } from '../../engine/vm/slot';
 import type { HaltInfo, TraceEntry, Vm } from '../../engine/vm/vm';
+import { VAR_EGO } from '../../engine/vm/vars';
 import { mountVmFrameInput, type ClickEvent } from './input';
 import { mountPlayArea } from './play-area';
 
@@ -869,6 +870,29 @@ function renderControls(
     }
   });
   bar.appendChild(warp);
+
+  // Debug: hand the player a room object so the inventory verb slots
+  // populate without playing far enough to pick something up. Sets the
+  // object's owner to ego and runs MI1's inventory script (#9), which
+  // lays the slot frames into verbs 200–207 — visible in the verb bar.
+  const giveItem = button('Give item');
+  giveItem.disabled = !state.vm || state.vm.isHalted;
+  giveItem.title =
+    'Debug: give ego the first named room object + run the inventory script (verbs 200–207)';
+  giveItem.addEventListener('click', () => {
+    const vm = state.vm;
+    if (!vm) return;
+    const ego = vm.vars.readGlobal(VAR_EGO) || 1;
+    const objs = [...(vm.loadedRoom?.objects.values() ?? [])];
+    const item =
+      objs.find((o) => o.name.length > 0 && !vm.objectOwners.has(o.objId)) ??
+      objs.find((o) => !vm.objectOwners.has(o.objId));
+    if (!item) return;
+    vm.objectOwners.set(item.objId, ego);
+    vm.runInventoryScript(1);
+    repaint();
+  });
+  bar.appendChild(giveItem);
 
   const reset = button('Reset');
   reset.disabled = !state.vm;

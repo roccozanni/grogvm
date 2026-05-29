@@ -133,6 +133,162 @@ describe('Vm — startVerbScript', () => {
   });
 });
 
+describe('Vm — talk timer + dialog clearing', () => {
+  const dialog = (actorId: number) => ({
+    actorId,
+    text: 'hi',
+    x: null,
+    y: null,
+    color: 1,
+    center: false,
+    overhead: false,
+    clipped: null,
+  });
+
+  it('clears actor speech when the message finishes', () => {
+    const vm = makeVm();
+    vm.activeDialog = dialog(1);
+    vm.beginTalk('hi');
+    for (let i = 0; i < 200 && vm.activeDialog; i++) vm.beginTick();
+    expect(vm.activeDialog).toBeNull();
+    expect(vm.vars.readGlobal(Vm.VAR_HAVE_MSG)).toBe(0);
+  });
+
+  it('keeps system text (actor 255) after the timer drains', () => {
+    const vm = makeVm();
+    vm.activeDialog = dialog(255);
+    vm.beginTalk('hi');
+    for (let i = 0; i < 200; i++) vm.beginTick();
+    expect(vm.activeDialog).not.toBeNull();
+  });
+});
+
+describe('Vm — handleSceneClick verb reset', () => {
+  it('queues the sentence then deselects the verb', () => {
+    const vm = makeVm();
+    vm.currentVerb = 8;
+    vm.handleSceneClick(42, 1);
+    expect(vm.sentenceStack).toEqual([{ verb: 8, objectA: 42, objectB: 0 }]);
+    expect(vm.currentVerb).toBeNull();
+  });
+
+  it('does nothing when no verb is armed', () => {
+    const vm = makeVm();
+    vm.handleSceneClick(42, 1);
+    expect(vm.sentenceStack.length).toBe(0);
+  });
+});
+
+describe('Vm — walkActorTo', () => {
+  it('plans a walk: sets the target + isMoving on the actor', () => {
+    const vm = makeVm();
+    vm.loadedRoom = roomWithObjects(1, []); // empty walkable mask → straight-line
+    const a = vm.actors.get(3);
+    a.room = 1;
+    a.x = 10;
+    a.y = 20;
+    vm.walkActorTo(3, 100, 60);
+    expect(a.isMoving).toBe(true);
+    expect(a.walkTarget).toEqual({ x: 100, y: 60 });
+  });
+
+  it('is a no-op for an out-of-range actor id', () => {
+    const vm = makeVm();
+    expect(() => vm.walkActorTo(0, 10, 10)).not.toThrow();
+    expect(() => vm.walkActorTo(9999, 10, 10)).not.toThrow();
+  });
+});
+
+describe('Vm — moveCameraFollow', () => {
+  const wideRoom = (w: number) => ({ ...roomWithObjects(1, []), width: w });
+
+  it('scrolls to keep the followed actor in the dead-zone band', () => {
+    const vm = makeVm();
+    vm.loadedRoom = wideRoom(1008);
+    vm.currentRoom = 1;
+    const a = vm.actors.get(1);
+    a.room = 1;
+    a.x = 500;
+    vm.cameraFollowActor = 1;
+    vm.camera.x = 160;
+    vm.moveCameraFollow();
+    expect(vm.camera.x).toBe(420); // 500 − 80 (dead zone)
+  });
+
+  it('does not move while the actor stays within the dead zone', () => {
+    const vm = makeVm();
+    vm.loadedRoom = wideRoom(1008);
+    vm.currentRoom = 1;
+    const a = vm.actors.get(1);
+    a.room = 1;
+    a.x = 200;
+    vm.cameraFollowActor = 1;
+    vm.camera.x = 160;
+    vm.moveCameraFollow();
+    expect(vm.camera.x).toBe(160);
+  });
+
+  it('clamps the camera centre to the room bounds', () => {
+    const vm = makeVm();
+    vm.loadedRoom = wideRoom(1008);
+    vm.currentRoom = 1;
+    const a = vm.actors.get(1);
+    a.room = 1;
+    a.x = 1000;
+    vm.cameraFollowActor = 1;
+    vm.camera.x = 800;
+    vm.moveCameraFollow();
+    expect(vm.camera.x).toBe(848); // 1008 − 160 (max centre)
+  });
+
+  it('no-ops when nothing is followed', () => {
+    const vm = makeVm();
+    vm.loadedRoom = wideRoom(1008);
+    vm.currentRoom = 1;
+    vm.camera.x = 160;
+    vm.moveCameraFollow();
+    expect(vm.camera.x).toBe(160);
+  });
+});
+
+describe('Vm — runInventoryScript', () => {
+  const invCode = new Uint8Array([0xa0]); // stopObjectCode
+  function vmWithResolver(): Vm {
+    return new Vm({
+      numVariables: 800,
+      numBitVariables: 64,
+      handlers: new Map(),
+      resolveGlobalScript: () => ({ bytecode: invCode, room: 0 }),
+    });
+  }
+
+  it('starts the VAR_INVENTORY_SCRIPT script with arg as local0', () => {
+    const vm = vmWithResolver();
+    vm.vars.writeGlobal(Vm.VAR_INVENTORY_SCRIPT, 9);
+    vm.runInventoryScript(1);
+    const slot = vm.slots.find((s) => s.scriptId === 9 && s.status !== 'dead');
+    expect(slot).toBeDefined();
+    expect(slot!.label).toBe('INVENTORY');
+    expect(slot!.locals[0]).toBe(1);
+  });
+
+  it('is a no-op when VAR_INVENTORY_SCRIPT is unset (0)', () => {
+    const vm = vmWithResolver();
+    vm.runInventoryScript(1);
+    expect(vm.slots.every((s) => s.status === 'dead')).toBe(true);
+  });
+
+  it('stops the previous instance before restarting (non-recursive)', () => {
+    const vm = vmWithResolver();
+    vm.vars.writeGlobal(Vm.VAR_INVENTORY_SCRIPT, 9);
+    vm.runInventoryScript(1);
+    vm.runInventoryScript(2);
+    const live = vm.slots.filter((s) => s.scriptId === 9 && s.status !== 'dead');
+    expect(live.length).toBe(1); // exactly one instance, not stacked
+    expect(live[0]!.locals[0]).toBe(2);
+  });
+});
+
 describe('Vm — slot allocation', () => {
   it('startScript picks the first dead slot', () => {
     const vm = makeVm();

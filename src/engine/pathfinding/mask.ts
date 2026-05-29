@@ -54,14 +54,18 @@ export function buildWalkableMask(
 }
 
 /**
- * Fill one quadrilateral by scan-line. Walks each y in the box's
- * bounding rows; at each row, computes the leftmost and rightmost
- * x covered by the box's edges. Edges are clamped to the framebuffer.
+ * Fill one quadrilateral into the mask. We scan along BOTH axes and
+ * union the result:
  *
- * For convex quads the "row coverage" is simply the min/max x over
- * the four edges' intersections with the row. We iterate edges
- * (UL→UR, UR→LR, LR→LL, LL→UL) and for each row that an edge crosses,
- * compute the edge's x at that y and update the running min/max.
+ *   - by rows (interpolate the x-span at each y), and
+ *   - by columns (interpolate the y-span at each x).
+ *
+ * A single-axis scan loses connectivity for boxes thinner than a pixel
+ * along that axis. MI1 room 33's staircase boxes 2–6 are degenerate
+ * (UL==UR, LR==LL) — i.e. diagonal *lines*. A steep line keeps its
+ * pixels 8-connected under a row scan but not a column scan; a shallow
+ * line is the reverse. Scanning both axes connects either orientation,
+ * and is idempotent for ordinary (filled) convex quads.
  */
 function fillBox(
   mask: Uint8Array,
@@ -71,44 +75,70 @@ function fillBox(
 ): void {
   const xs = [box.ulx, box.urx, box.lrx, box.llx];
   const ys = [box.uly, box.ury, box.lry, box.lly];
-  let yMin = Math.max(0, Math.min(ys[0]!, ys[1]!, ys[2]!, ys[3]!));
-  let yMax = Math.min(height - 1, Math.max(ys[0]!, ys[1]!, ys[2]!, ys[3]!));
-  if (yMax < yMin) return;
+  // Rows: primary axis = y (clamped to height), span axis = x (width).
+  scanAxis(ys, xs, height, width, (y, lo, hi) => {
+    const base = y * width;
+    for (let x = lo; x <= hi; x++) mask[base + x] = 1;
+  });
+  // Columns: primary axis = x (clamped to width), span axis = y (height).
+  scanAxis(xs, ys, width, height, (x, lo, hi) => {
+    for (let y = lo; y <= hi; y++) mask[y * width + x] = 1;
+  });
+}
 
-  // Pre-compute the four edges as (x0, y0) → (x1, y1).
-  const edges: Array<[number, number, number, number]> = [
-    [xs[0]!, ys[0]!, xs[1]!, ys[1]!], // UL → UR
-    [xs[1]!, ys[1]!, xs[2]!, ys[2]!], // UR → LR
-    [xs[2]!, ys[2]!, xs[3]!, ys[3]!], // LR → LL
-    [xs[3]!, ys[3]!, xs[0]!, ys[0]!], // LL → UL
+/**
+ * Scan a convex quad along one axis. `primary` holds the four corner
+ * coordinates on the scan axis (length `primaryMax`), `span` the four
+ * on the other axis (length `spanMax`). For each integer line along the
+ * primary axis it computes the covered `[lo, hi]` span and calls
+ * `plot(line, lo, hi)`. Sub-pixel-thin spans keep one centre pixel so
+ * thin/diagonal boxes stay connected.
+ */
+function scanAxis(
+  primary: number[],
+  span: number[],
+  primaryMax: number,
+  spanMax: number,
+  plot: (line: number, lo: number, hi: number) => void,
+): void {
+  const pMin = Math.max(0, Math.min(primary[0]!, primary[1]!, primary[2]!, primary[3]!));
+  const pMax = Math.min(primaryMax - 1, Math.max(primary[0]!, primary[1]!, primary[2]!, primary[3]!));
+  if (pMax < pMin) return;
+  const edges: ReadonlyArray<[number, number]> = [
+    [0, 1], // UL → UR
+    [1, 2], // UR → LR
+    [2, 3], // LR → LL
+    [3, 0], // LL → UL
   ];
-
-  for (let y = yMin; y <= yMax; y++) {
-    let xLo = Number.POSITIVE_INFINITY;
-    let xHi = Number.NEGATIVE_INFINITY;
-    for (const [x0, y0, x1, y1] of edges) {
-      // Skip edges that don't cross this scan row (including
-      // horizontal edges at y0==y1: their endpoints already
-      // contribute as the previous/next edge starts/ends).
-      if ((y < Math.min(y0, y1)) || (y > Math.max(y0, y1))) continue;
-      if (y0 === y1) {
-        // Horizontal edge — both endpoints lie on this row, so the
-        // segment itself bounds the row's coverage.
-        xLo = Math.min(xLo, x0, x1);
-        xHi = Math.max(xHi, x0, x1);
+  for (let a = pMin; a <= pMax; a++) {
+    let lo = Number.POSITIVE_INFINITY;
+    let hi = Number.NEGATIVE_INFINITY;
+    for (const [i, j] of edges) {
+      const p0 = primary[i]!;
+      const p1 = primary[j]!;
+      const s0 = span[i]!;
+      const s1 = span[j]!;
+      if (a < Math.min(p0, p1) || a > Math.max(p0, p1)) continue;
+      if (p0 === p1) {
+        // Edge runs along the scan line — both endpoints bound the span.
+        lo = Math.min(lo, s0, s1);
+        hi = Math.max(hi, s0, s1);
         continue;
       }
-      // Linear interpolation: x at this y.
-      const t = (y - y0) / (y1 - y0);
-      const x = x0 + (x1 - x0) * t;
-      if (x < xLo) xLo = x;
-      if (x > xHi) xHi = x;
+      const t = (a - p0) / (p1 - p0);
+      const s = s0 + (s1 - s0) * t;
+      if (s < lo) lo = s;
+      if (s > hi) hi = s;
     }
-    if (!Number.isFinite(xLo) || !Number.isFinite(xHi)) continue;
-    const left = Math.max(0, Math.ceil(xLo));
-    const right = Math.min(width - 1, Math.floor(xHi));
+    if (!Number.isFinite(lo) || !Number.isFinite(hi)) continue;
+    let left = Math.ceil(lo);
+    let right = Math.floor(hi);
+    // Span thinner than a pixel → keep one centre pixel so the box
+    // doesn't drop the line entirely (breaks connectivity).
+    if (right < left) left = right = Math.round((lo + hi) / 2);
+    left = Math.max(0, left);
+    right = Math.min(spanMax - 1, right);
     if (right < left) continue;
-    const rowBase = y * width;
-    for (let x = left; x <= right; x++) mask[rowBase + x] = 1;
+    plot(a, left, right);
   }
 }

@@ -478,6 +478,38 @@ describe('seed opcodes — verbOps state wiring', () => {
     expect(vm.verbs.get(3)!.state).toBe('on');
   });
 
+  it('setImageInRoom (0x16) binds {obj, room} to the verb; setName clears it', () => {
+    const vm = makeVm();
+    // verbOps verb=200: setImageInRoom(obj=1031, room=99) — subop 0x16,
+    // obj direct word (1031 = 0x0407), room direct byte (99 = 0x63) —
+    // then setName "Hi" on the same verb (subop 0x02), one slot.
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(
+        0x7a, 0xc8, 0x16, 0x07, 0x04, 0x63, 0xff,
+        0x7a, 0xc8, 0x02, 0x48, 0x69, 0x00, 0xff,
+        0x00,
+      ),
+    });
+    vm.step(); // setImageInRoom
+    expect(vm.verbs.get(200)!.image).toEqual({ obj: 1031, room: 99 });
+    vm.step(); // setName clears the image binding (text verb)
+    expect(vm.verbs.get(200)!.image).toBeNull();
+    expect(vm.verbs.get(200)!.name).toBe('Hi');
+  });
+
+  it('setImage (0x01) binds the object in the current room', () => {
+    const vm = makeVm();
+    vm.currentRoom = 7;
+    // verbOps verb=200: setImage(obj=42) — subop 0x01, obj direct word.
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(0x7a, 0xc8, 0x01, 0x2a, 0x00, 0xff, 0x00),
+    });
+    vm.step();
+    expect(vm.verbs.get(200)!.image).toEqual({ obj: 42, room: 7 });
+  });
+
   it('findObject (0xf5) returns 0 when no room loaded, writes dest, advances PC by 7', () => {
     const vm = makeVm();
     // 0xf5 (bits 7+6 set) — x is var-ref to g20 (=10), y is var-ref to g21 (=50)
@@ -639,6 +671,200 @@ describe('room-entry opcodes', () => {
     vm.startScript({ scriptId: 1, bytecode: bytes(0x62, 0x63) });
     vm.step();
     expect(victim.status).toBe('dead');
+  });
+});
+
+describe('inventory subsystem', () => {
+  it('getInventoryCount (0x31) counts objects owned by the actor', () => {
+    const vm = makeVm();
+    vm.objectOwners.set(10, 7);
+    vm.objectOwners.set(11, 7);
+    vm.objectOwners.set(12, 3); // owned by someone else
+    // getInventoryCount g0 = count(actor 7) — dest g0, actor 7 direct.
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x31, 0x00, 0x00, 0x07) });
+    vm.step();
+    expect(vm.vars.readGlobal(0)).toBe(2);
+  });
+
+  it('getInventoryCount (0xb1) reads the actor from a var', () => {
+    const vm = makeVm();
+    vm.objectOwners.set(10, 7);
+    vm.vars.writeGlobal(50, 7);
+    // dest g0, actor = var-ref g50.
+    vm.startScript({ scriptId: 1, bytecode: bytes(0xb1, 0x00, 0x00, 0x32, 0x00) });
+    vm.step();
+    expect(vm.vars.readGlobal(0)).toBe(1);
+  });
+
+  it('getInventoryCount returns 0 for an actor that owns nothing', () => {
+    const vm = makeVm();
+    vm.objectOwners.set(10, 7);
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x31, 0x00, 0x00, 0x09) });
+    vm.step();
+    expect(vm.vars.readGlobal(0)).toBe(0);
+  });
+
+  it('findInventory (0x3d) returns the index-th owned object in pickup order', () => {
+    const vm = makeVm();
+    vm.objectOwners.set(10, 7);
+    vm.objectOwners.set(11, 7);
+    // findInventory g0 = owner 7, index 2 → 11 (second inserted).
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x3d, 0x00, 0x00, 0x07, 0x02) });
+    vm.step();
+    expect(vm.vars.readGlobal(0)).toBe(11);
+  });
+
+  it('findInventory returns 0 when the index is out of range', () => {
+    const vm = makeVm();
+    vm.objectOwners.set(10, 7);
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x3d, 0x00, 0x00, 0x07, 0x05) });
+    vm.step();
+    expect(vm.vars.readGlobal(0)).toBe(0);
+  });
+
+  it('pickupObject (0x25) gives the object to ego, sets state 1, dequeues it', () => {
+    const vm = makeVm();
+    vm.vars.writeGlobal(1, 4); // VAR_EGO = actor 4
+    vm.objectDrawQueue.add(99); // object currently drawn in the room
+    // pickupObject object=99, room=0 (current).
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x25, 0x63, 0x00, 0x00) });
+    vm.step();
+    expect(vm.objectOwners.get(99)).toBe(4);
+    expect(vm.objectStates.get(99)).toBe(1);
+    expect(vm.objectDrawQueue.has(99)).toBe(false);
+    expect(vm.inventoryCount(4)).toBe(1);
+  });
+
+  it('actorFromPos (0xd5) reads both coords as vars, writes 0, advances PC by 7', () => {
+    const vm = makeVm();
+    vm.vars.writeGlobal(20, 100);
+    vm.vars.writeGlobal(21, 50);
+    // 0xd5: dest local0, x = var g20, y = var g21 (MI1 #23's form).
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(0xd5, 0x00, 0x40, 0x14, 0x00, 0x15, 0x00, 0x00),
+    });
+    const slot = vm.slots.find((s) => s.status === 'running')!;
+    vm.step();
+    expect(slot.locals[0]).toBe(0);
+    expect(slot.pc).toBe(7);
+  });
+
+  it('getVerbEntryPoint (0x0b) → 1 when the object has the verb, 0 otherwise', () => {
+    const vm = makeVm();
+    vm.loadedRoom = {
+      id: 1, width: 320, height: 200, numObjects: 1,
+      palette: new Uint8Array(768), transparentIndex: null,
+      indexed: new Uint8Array(0), stripMethods: [], zPlanes: [],
+      entryScript: null, exitScript: null, localScripts: new Map(),
+      objects: new Map([
+        [42, {
+          objId: 42,
+          cdhd: { objId: 42, x: 0, y: 0, width: 0, height: 0, flags: 0, parent: 0, walkX: 0, walkY: 0, actorDir: 0 },
+          imhd: { objId: 42, numImages: 0, flags: 0, x: 0, y: 0, width: 0, height: 0 },
+          images: new Map(), name: 'thing',
+          verbs: new Map([[8, new Uint8Array([0x00])]]),
+        }],
+      ]),
+      walkBoxes: [], walkableMask: new Uint8Array(0),
+    };
+    // getVerbEntryPoint g0 = (obj 42, verb 8) → 1; g1 = (obj 42, verb 9) → 0.
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(
+        0x0b, 0x00, 0x00, 0x2a, 0x00, 0x08, 0x00,
+        0x0b, 0x01, 0x00, 0x2a, 0x00, 0x09, 0x00,
+        0x00,
+      ),
+    });
+    vm.step();
+    vm.step();
+    expect(vm.vars.readGlobal(0)).toBe(1);
+    expect(vm.vars.readGlobal(1)).toBe(0);
+  });
+
+  it('actorFromPos (0x15) reads direct coords as bytes (p8), advances PC by 5', () => {
+    const vm = makeVm();
+    // 0x15: dest local0, x = 50 (1 byte), y = 60 (1 byte). Word-sized
+    // reads would land PC at 7 and misalign — bytes land it at 5.
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(0x15, 0x00, 0x40, 0x32, 0x3c, 0x00),
+    });
+    const slot = vm.slots.find((s) => s.status === 'running')!;
+    vm.step();
+    expect(slot.locals[0]).toBe(0);
+    expect(slot.pc).toBe(5);
+  });
+});
+
+describe('getDist + ifClassOfIs', () => {
+  function roomWithObj(objId: number, x8: number, y8: number) {
+    return {
+      id: 1, width: 320, height: 200, numObjects: 1,
+      palette: new Uint8Array(768), transparentIndex: null,
+      indexed: new Uint8Array(0), stripMethods: [], zPlanes: [],
+      entryScript: null, exitScript: null, localScripts: new Map(),
+      objects: new Map([[objId, {
+        objId,
+        cdhd: { objId, x: x8, y: y8, width: 0, height: 0, flags: 0, parent: 0, walkX: 0, walkY: 0, actorDir: 0 },
+        imhd: { objId, numImages: 0, flags: 0, x: 0, y: 0, width: 0, height: 0 },
+        images: new Map(), name: 'thing', verbs: new Map(),
+      }]]),
+      walkBoxes: [], walkableMask: new Uint8Array(0),
+    };
+  }
+
+  it('getDist (0x34) → Chebyshev distance between an actor and an object', () => {
+    const vm = makeVm();
+    vm.loadedRoom = roomWithObj(50, 5, 5) as never; // object at (40, 40) px
+    const a = vm.actors.get(1);
+    a.x = 10; a.y = 20;
+    // getDist g0 = dist(actor 1, object 50) → max(|10-40|,|20-40|) = 30.
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x34, 0x00, 0x00, 0x01, 0x00, 0x32, 0x00) });
+    vm.step();
+    expect(vm.vars.readGlobal(0)).toBe(30);
+  });
+
+  it('getDist → 0xFF when an id cannot be resolved', () => {
+    const vm = makeVm();
+    // No room loaded → object 50 unresolvable → 0xFF.
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x34, 0x00, 0x00, 0x01, 0x00, 0x32, 0x00) });
+    vm.step();
+    expect(vm.vars.readGlobal(0)).toBe(0xff);
+  });
+
+  it('ifClassOfIs (0x1d) continues when the object is in the class', () => {
+    const vm = makeVm();
+    vm.objectClasses.set(17, 1 << 15); // class 16 set (bit 15)
+    // ifClassOfIs(obj 17, [class 16 must-be-in = 0x90]) skip+5 ; setVar g1=99 ; stop
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(
+        0x1d, 0x11, 0x00, 0x01, 0x90, 0x00, 0xff, 0x05, 0x00,
+        0x1a, 0x01, 0x00, 0x63, 0x00,
+        0x00,
+      ),
+    });
+    vm.step(); // ifClassOfIs → condition true → no jump
+    vm.step(); // setVar runs
+    expect(vm.vars.readGlobal(1)).toBe(99);
+  });
+
+  it('ifClassOfIs jumps (skips the body) when the object lacks the class', () => {
+    const vm = makeVm();
+    // obj 17 has no classes → condition false → jump over the setVar.
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(
+        0x1d, 0x11, 0x00, 0x01, 0x90, 0x00, 0xff, 0x05, 0x00,
+        0x1a, 0x01, 0x00, 0x63, 0x00,
+        0x00,
+      ),
+    });
+    vm.step(); // ifClassOfIs → false → jump +5 past setVar
+    vm.step(); // lands on stopObjectCode
+    expect(vm.vars.readGlobal(1)).toBe(0);
   });
 });
 

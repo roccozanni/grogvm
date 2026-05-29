@@ -32,6 +32,7 @@
  */
 
 import { ActorTable, DEFAULT_ACTOR_COUNT } from '../actor/actor';
+import { startWalk } from '../actor/walk';
 import { findVerbScript } from '../object/verbs';
 import type { LoadedCostume } from '../graphics/costume-loader';
 import type { LoadedRoom } from '../room/loader';
@@ -123,6 +124,16 @@ export interface VerbSlot {
   key: number;
   /** Whether the rendered name is centred around `x` rather than left-aligned. */
   centered: boolean;
+  /**
+   * Image-backed verb: the object (and the room it lives in) whose
+   * sprite is drawn in this slot *instead of* a text name. Set by
+   * `verbOps` `setImage` (0x01, current room) / `setImageInRoom` (0x16,
+   * explicit room). MI1's inventory slots are image verbs — script #9
+   * assigns the slot-frame objects (1031 filled / 1032 empty) + the
+   * arrow (1033) from the UI room (99). `null` for ordinary text verbs;
+   * `setName` clears it back to text.
+   */
+  image: { obj: number; room: number } | null;
   /**
    * Lifecycle state — `on` participates in hit-test + paint; `dim`
    * paints with `dimColor` and rejects clicks; `off` is hidden but
@@ -375,6 +386,13 @@ export class Vm {
    */
   readonly camera = { x: 0 };
   /**
+   * Actor the camera tracks (0 = none), set by `actorFollowCamera`.
+   * Each tick {@link moveCameraFollow} scrolls the camera to keep this
+   * actor inside a central dead-zone band — without it the camera snaps
+   * once and the actor walks off the edge.
+   */
+  cameraFollowActor = 0;
+  /**
    * Active playable-screen vertical bounds, set by `roomOps setScreen`
    * (0x33 subop 0x03). The engine treats rows `[top, bottom)` of the
    * room as the camera viewport; rows below `bottom` are typically the
@@ -441,6 +459,14 @@ export class Vm {
   /** Scripts run by `cutscene` (start) / `endCutscene` (end). MI1: 18 / 19. */
   static readonly VAR_CUTSCENE_START_SCRIPT = VARS.VAR_CUTSCENE_START_SCRIPT;
   static readonly VAR_CUTSCENE_END_SCRIPT = VARS.VAR_CUTSCENE_END_SCRIPT;
+  /**
+   * Global holding the id of the *inventory script* — the engine runs
+   * it (via {@link runInventoryScript}) whenever the inventory changes;
+   * it reads each owned object via `findInventory` and lays the items
+   * out into the inventory verb slots (verbs 200–207, arrows 208/209).
+   * MI1 = #9.
+   */
+  static readonly VAR_INVENTORY_SCRIPT = VARS.VAR_INVENTORY_SCRIPT;
 
   /** SCUMM v5 reserves script ids >= 200 for room-local LSCR scripts. */
   static readonly LSCR_THRESHOLD = 200;
@@ -793,6 +819,10 @@ export class Vm {
     this.runInputScript(Vm.CLICK_AREA_SCENE, objId, button);
     if (objId !== 0 && this.currentVerb !== null) {
       this.pushSentence({ verb: this.currentVerb, objectA: objId, objectB: 0 });
+      // The verb is consumed by the click — deselect it so the UI falls
+      // back to the default ("Walk to"), matching MI1's reset-after-
+      // action. The queued sentence already captured the verb id.
+      this.currentVerb = null;
     }
   }
 
@@ -920,12 +950,47 @@ export class Vm {
       Vm.VAR_MUSIC_TIMER,
       this.vars.readGlobal(Vm.VAR_MUSIC_TIMER) + 1,
     );
-    // Tick the talk timer. When it drains, the message is "done" and
-    // VAR_HAVE_MSG clears so a wait-for-message can release.
+    // Tick the talk timer. When it drains, the message is "done":
+    // VAR_HAVE_MSG clears (so a wait-for-message releases) and actor
+    // speech disappears. System / credit text (no real speaker, id 255)
+    // persists until the script overwrites it — only actor speech
+    // auto-clears, matching the original's stopTalk.
     if (this.talkDelay > 0) {
       this.talkDelay--;
-      if (this.talkDelay === 0) this.vars.writeGlobal(Vm.VAR_HAVE_MSG, 0);
+      if (this.talkDelay === 0) {
+        this.vars.writeGlobal(Vm.VAR_HAVE_MSG, 0);
+        const d = this.activeDialog;
+        if (d && d.actorId >= 1 && d.actorId <= this.actors.capacity) {
+          this.activeDialog = null;
+        }
+      }
     }
+    this.moveCameraFollow();
+  }
+
+  /**
+   * Scroll the camera to keep the followed actor (`cameraFollowActor`)
+   * within a central dead-zone band. The actor can drift up to
+   * `CAMERA_DEAD_ZONE` px off-centre before the camera moves — small
+   * movements don't scroll (no jitter), but the actor never leaves the
+   * 320-wide viewport. The camera centre is clamped to the room's valid
+   * range. No-op when no actor is followed or it isn't in this room.
+   */
+  moveCameraFollow(): void {
+    const id = this.cameraFollowActor;
+    if (id < 1 || id > this.actors.capacity) return;
+    const actor = this.actors.get(id);
+    const room = this.loadedRoom;
+    if (!room || actor.room !== this.currentRoom) return;
+    const DEAD = 80;
+    let x = this.camera.x;
+    if (actor.x > x + DEAD) x = actor.x - DEAD;
+    else if (actor.x < x - DEAD) x = actor.x + DEAD;
+    else return;
+    const half = 160;
+    const min = Math.min(half, room.width);
+    const max = Math.max(min, room.width - half);
+    this.camera.x = Math.max(min, Math.min(max, x));
   }
 
   /**
@@ -945,6 +1010,72 @@ export class Vm {
   endTalk(): void {
     this.talkDelay = 0;
     this.vars.writeGlobal(Vm.VAR_HAVE_MSG, 0);
+  }
+
+  /**
+   * How many objects the actor `owner` carries. SCUMM v5 ties inventory
+   * membership to ownership, so an object is "in someone's inventory"
+   * exactly when its {@link objectOwners} entry names that actor.
+   * owner 0 (nobody / still in the room) owns nothing. Backs the
+   * `getInventoryCount` opcode ($31).
+   */
+  inventoryCount(owner: number): number {
+    if (owner === 0) return 0;
+    let n = 0;
+    for (const o of this.objectOwners.values()) if (o === owner) n++;
+    return n;
+  }
+
+  /**
+   * The `index`-th (1-based) object owned by `owner`, in pickup order
+   * (Map insertion order mirrors SCUMM's inventory-array append order).
+   * Returns 0 when `owner` is nobody or `index` is out of range. Backs
+   * the `findInventory` opcode ($3D).
+   */
+  findInventory(owner: number, index: number): number {
+    if (owner === 0 || index < 1) return 0;
+    let n = 0;
+    for (const [obj, o] of this.objectOwners) {
+      if (o === owner && ++n === index) return obj;
+    }
+    return 0;
+  }
+
+  /**
+   * Run MI1's inventory script (the id in `VAR_INVENTORY_SCRIPT`, #9 for
+   * MI1) with `arg` as `local0`. SCUMM calls this whenever the inventory
+   * changes (e.g. after `pickupObject`) — the script walks the owner's
+   * items via `findInventory` and writes their names/images into the
+   * inventory verb slots, so the inventory renders through the verb bar.
+   *
+   * Faithful to the original's non-recursive `runScript`: any existing
+   * instance is stopped first so the slots don't stack. No-op when the
+   * var is unset (0) or no resolver/slot is available (never throws — a
+   * failed inventory refresh shouldn't take down the engine).
+   */
+  runInventoryScript(arg: number): void {
+    const scriptId = this.vars.readGlobal(Vm.VAR_INVENTORY_SCRIPT);
+    if (!scriptId) return;
+    for (const s of this.slots) {
+      if (s.status !== 'dead' && s.scriptId === scriptId) s.kill();
+    }
+    try {
+      this.startScriptById(scriptId, { args: [arg], label: 'INVENTORY' });
+    } catch {
+      // No free slot / unresolved script — leave the inventory stale
+      // rather than halt. Surfaced via the absence of a refresh, not a crash.
+    }
+  }
+
+  /**
+   * Walk an actor to a room coordinate, pathfinding through the current
+   * room's walkable mask (same planner the `walkActorTo` opcode uses).
+   * No-op for an out-of-range / unplaced actor. Used by click-to-walk;
+   * `stepAllActorWalks` advances the walk per tick.
+   */
+  walkActorTo(actorId: number, x: number, y: number): void {
+    if (actorId < 1 || actorId > this.actors.capacity) return;
+    startWalk(this, this.actors.get(actorId), { x, y });
   }
 
   /**
@@ -1015,6 +1146,7 @@ export class Vm {
     };
     this.talkDelay = 0;
     this.camera.x = 0;
+    this.cameraFollowActor = 0;
     this.screen.top = 0;
     this.screen.bottom = 200;
   }

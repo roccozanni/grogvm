@@ -11,15 +11,32 @@ detail the next phase here.
 
 ## Status
 
-**Phase 7 in progress.** ✅ **The MI1 intro now plays automatically from
-boot:** credits cutscene (~5700 ticks) → the Mêlée Island lookout
-(room 38, Guybrush + the lookout NPC) → the opening dialog cutscene
-(#203) → onward through the next opening scenes (observed rooms 38 → 96
-→ 33). No boot-param hack — the real flow, confirmed against ScummVM.
+**Phase 7 in progress — MI1 is now interactively playable in the first
+room.** The intro plays automatically from boot through the full opening
+with no halt (credits ~5700 ticks → Mêlée lookout room 38 → opening
+dialog cutscene #203 → rooms 38 → 96 → 33), and in room 33 the player
+can now actually *play*: the verb bar works (hover/click), **Look at**
+an object makes Guybrush respond ("Non si riesce, troppo buio"),
+**click-to-walk** moves him around with the **camera following**, the
+**inventory** renders through the verb slots, and interactions clear
+their dialog + deselect the verb. No boot-param hack — the real flow,
+confirmed against ScummVM.
 
-The opening eventually halts on the next unimplemented opcode (a nested
-`getInventoryCount` in an expression, room 33 — see "Next steps"); the
-opcode tail is being filled in as the intro demands each one.
+This session's work (all below): the inventory subsystem + verb-image
+rendering, the click→sentence→verb-script loop, click-to-walk, the
+room-33 walkbox-rasterization fix (degenerate staircase boxes), per-tick
+camera follow, the door opcode tail (`getDist` / `ifClassOfIs` /
+`startObject` variants), and a batch of UI fixes (verb-bar width, the
+purple-strip bg, dialog-clear, verb-reset).
+
+⚠️ **Harness note:** `scratch/run-boot.ts` resumes slots unconditionally
+and never steps actor walks, so once dialog became paced (the talk-timing
+commits) it falsely stalls in room 38 — `wait-for-actor` never releases
+because Guybrush never finishes walking. Use **`scratch/drive-intro.ts`**
+for end-to-end intro runs: it mirrors the inspector's per-tick loop
+(freeze-aware resume + `delayRemaining` countdown, `runUntilAllYield`,
+then `stepAllActorWalks` + `stepAnim`). That's what confirmed 0→10→38→96
+→33 above.
 
 **How credits→lookout actually works** (it's the boot's L0==0 path, not
 L0!=0 — verified via ScummVM `scripts`): after the credits, boot #1's
@@ -111,34 +128,179 @@ Recurring gotcha: **many v5 opcode families are non-orthogonal** — the
 same low-5-bits map to *different* ops selected by a high bit (e.g.
 `0x0D` walkActorToActor / `0x2D` putActorInRoom; `0x16` getRandomNumber
 / `0x36` walkActorToObject / `0x56` getActorMoving; `0x03/0x23/0x43/0x63`
-getActorRoom/Y/X/Facing). Never register all 8 high-bit variants of a
-family blindly — decode against the reference + real bytecode.
+getActorRoom/Y/X/Facing; `0x05` drawObject / `0x25` pickupObject). Never
+register all 8 high-bit variants of a family blindly — decode against
+the reference + real bytecode. (This pass found three such bugs: a
+blanket `drawObject` registration had eaten `pickupObject`'s opcodes,
+and `findInventory` was wired at `0x15` which is really `actorFromPos`.)
 
-Tests: **530 across 46 files**; typecheck clean.
+- **Inventory subsystem + opcode mis-registration fixes** (cleared the
+  last intro blocker). Added `getInventoryCount` ($31/0xB1),
+  `findInventory` ($3D family) and `pickupObject` ($25 family); the
+  inventory model reuses `vm.objectOwners` (SCUMM ties inventory
+  membership to ownership) via new `vm.inventoryCount(owner)` /
+  `vm.findInventory(owner, index)` (Map-insertion = pickup order).
+  Fixed **three non-orthogonal-family mis-registrations** the previous
+  pass left: (a) `findInventory` was wired at `0x15` — but `0x15` is
+  `actorFromPos` (now correctly named + decoded with `p8` coords, still
+  a return-0 stub until actor hit-testing lands), and the real
+  `findInventory` is `$3D`; (b) `drawObject` ($05) was blindly
+  registered across all 8 high-bit variants, swallowing `0x25/0x65/
+  0xa5/0xe5` which are `pickupObject`; drawObject now owns only
+  `0x05/0x85` (its sole `object[p16]` operand). With these, the intro
+  runs 0→10→38→96→33 with no halt and script #9 (the inventory-display
+  script) polls all 8 slots via `findInventory 0xfd` correctly.
+
+- **Inventory is verb-based — `runInventoryScript` + `getVerbEntryPoint`
+  wired** (chose the faithful path over a separate widget). Confirmed
+  via the live trace that **MI1's script #9 IS `runInventoryScript`**:
+  it reads ego's items via `findInventory` and lays them into the
+  **inventory verb slots** (verbs 200–207; 208/209 = scroll arrows), so
+  inventory renders *through the verb bar* — no separate widget. Added
+  `vm.runInventoryScript(arg)` (runs `VAR_INVENTORY_SCRIPT` = g34 = #9,
+  `local0 = arg`, non-recursive — stops any prior instance), called from
+  `pickupObject(1)`. Implemented `getVerbEntryPoint` ($0B family) — #9
+  used it as "does this object have this verb?" and halted on `0x8b`
+  without it. With both, #9 runs to completion and turns verbs 200–207
+  **on**. ⚠️ **Items aren't visible yet:** #9 assigns each slot an
+  object via `verbOps` subop `0x16` = `SO_VERB_IMAGE_IN_ROOM` — **MI1
+  inventory items are object ICONS, not text**. Our `0x16` only
+  annotates today; rendering icons needs storing `{obj, room}` on the
+  `VerbSlot`, cross-room object-image loading (new), and compositing the
+  icon into the verb-bar slot rect. Open question: #9 assigned fixed ids
+  1031/1032/1033 from "room 99" (not the live item 426) — understand
+  whether those are per-slot UI display objects before building it.
+
+- **Verb bar + sentence line are now screen-width (320), not room-width**
+  (they're fixed screen UI; verbs sit in 0..319 screen-space). New
+  `VIEWPORT_W` constant drives the canvas width, CSS width, clear/fill,
+  and the click hit-test scale. The full-room debug frame + cursor
+  overlay stay room-width (correct).
+
+- **Inventory slots now render (image verbs).** Resolved the
+  1031/1032/1033 question: **room 99 is the global UI room**; obj 1032 =
+  empty bordered slot cell (40×24), obj 1031 = a "filled" slot cell
+  (same picture for *every* occupied slot — verified by giving two
+  different items, both slots got 1031, so it's a generic occupied
+  placeholder, NOT a per-item icon), obj 1033 = the scroll arrow
+  (16×24). Implemented the rendering faithfully: `VerbSlot.image
+  {obj, room}` set by `verbOps` `setImage` (0x01, current room) /
+  `setImageInRoom` (0x16, explicit room) and cleared by `setName`; the
+  verb bar composites the object's sprite (cross-room via
+  `vm.resolveRoom`, cached by id) into the slot rect — colours through
+  the current room's palette, transparency via the sprite's room's TRNS.
+  Added an inspector **"Give item"** debug button (gives ego a room
+  object + runs #9) so the slots can be seen populating without a real
+  pickup. ⚠️ **Open:** since 1031 is a generic placeholder, item
+  *identity* (which item is in a slot) must come from a path my
+  synthetic scenery-object test can't trigger — needs a real takeable
+  item picked up in-game to confirm (text-on-hover via the sentence
+  line, or a per-item icon assignment #9 takes for real items).
+
+- **Click-to-walk wired + verb-bar hit-test fix.** Confirmed the
+  single-object interaction loop works end-to-end: arm a verb (e.g.
+  Esamina) + click a room object → `handleSceneClick` queues the
+  sentence → `processSentence` runs script #2 → Guybrush responds
+  (verified headlessly: looking at the room-33 poster yields *"Non si
+  riesce, troppo buio"*). Added **click-to-walk**: clicking the floor
+  (or any click with no verb armed) walks ego to the room coords via
+  the pathfinder. Refactor: `startWalk` (walk planner) moved from
+  `opcodes/index.ts` into `actor/walk.ts` (exported, shared) and
+  surfaced as `vm.walkActorTo(actorId, x, y)`.
+  ⚠️ **Pre-existing walkbox/placement issue surfaced in room 33:** ego
+  spawns at (13,76) inside an **isolated 13-cell walkable pocket**,
+  while the room's real floor is at y≈120–142 (~6000 cells), 1008px
+  wide. A* (correctly) can't route out of the pocket — so click-to-walk
+  *and* the `walkActorTo` opcode both strand ego there. Not a wiring
+  bug; the walkable-mask rasterization or ego's entry Y for room 33 is
+  off. Flagged for the pathfinding/walkbox pass.
+
+- **Two interaction-loop fixes** (from live testing the look-at flow):
+  (1) **Actor speech now clears when the talk finishes** — `beginTick`
+  was draining `talkDelay`/`VAR_HAVE_MSG` but never nulling
+  `activeDialog`, so a `print` description lingered forever (and tracked
+  the actor as he walked). It now clears actor speech on talk-done;
+  system/credit text (actor 255) still persists until overwritten.
+  (2) **The armed verb deselects after the action** — `handleSceneClick`
+  now resets `currentVerb` to null once the sentence is queued (the
+  queued sentence already captured the verb id), matching MI1's
+  reset-after-action. +4 tests.
+
+- **Door opcode tail (open-door no longer halts).** Opening a door
+  surfaced three missing opcodes in sentence script #2; all are
+  fundamental/broadly-used, not door-specific: **`getDist`** (`$34`
+  family) — distance between two objects/actors (actor-or-object
+  resolved like `faceActor`; SCUMM Chebyshev `max(|dx|,|dy|)`; 0xFF when
+  unresolvable) — used as a proximity gate; **`ifClassOfIs`**
+  (`0x1d`/`0x9d`) — the read side of the object-class system (was
+  write-only via `actorSetClass`): `unless (object matches every listed
+  class) goto target`, class value low-7-bits = class, bit 0x80 =
+  polarity; **`startObject`** var-mode variants (`0x77`/`0xf7`) — the
+  non-orthogonal `low5=0x17` family only had `0x37`/`0xb7` registered.
+  Door-open now runs to completion (it won't *visibly* open in room 33
+  yet — ego can't reach it, the walkbox issue above). +8 tests.
+
+- **Verb-bar background fix (the purple strip).** The bar filled its
+  background with `transparentIndex`-as-colour — but that's a
+  transparency *key*, not a colour (room 33's is idx 5 = magenta), so
+  the uncovered top strip painted purple. Now fills CLUT 0 (black), per
+  MI1.
+
+- **Walkbox rasterization fix — room 33 ego no longer stranded.** Ego
+  spawned in a disconnected pocket because room 33's staircase boxes
+  (2–6) are *degenerate zero-area quads* — diagonal connector **lines**
+  (UL==UR, LR==LL). The mask rasterizer scanned by rows only, so a thin
+  line lost connectivity: steep lines survive a row scan but **shallow**
+  ones (dx≫dy) put their one-pixel-per-row dots ~5px apart → islanded.
+  Fix: `buildWalkableMask` now scans **both axes** (rows *and* columns)
+  and unions — connects a thin line of any orientation, idempotent for
+  filled quads — plus keeps one centre pixel for sub-pixel-thin spans.
+  Ego's walkable component went 13 cells → **100% (6277)**; he now walks
+  the full staircase to the floor, and the door gives its real response
+  (*"Non riesco ad arrivarci"*) instead of being unreachable. +3 tests.
+
+- **Camera now follows the actor per tick.** `actorFollowCamera` only
+  snapped once, so once ego walked he left the static viewport (entered
+  room 33 in-view at x=13, walked to x=346 with the camera stuck at
+  160 → off-screen). Added `vm.cameraFollowActor` + `moveCameraFollow()`
+  (called from `beginTick`, so every driver gets it): a central
+  dead-zone band (±80px) — the actor drifts a little before the camera
+  scrolls (no jitter) but never leaves the 320-wide view; centre clamped
+  to the room. +4 tests.
+
+Tests: **561 across 46 files**; typecheck clean.
 
 ### Next steps
 
 In rough dependency order:
 
-1. **Continue the opcode tail through the intro.** The opening halts on
-   the next unimplemented opcode each time we push further. Current
-   blocker: a nested `getInventoryCount` (0xB1) inside an `expression`
-   (room 33). Needs the **inventory subsystem** (count objects whose
-   `objectOwners` == ego) plus the expression inline-dispatch
-   convention (a nested result-bearing opcode writes `VAR_RESULT`).
-2. **Inventory subsystem** — `objectOwners` is already populated by
-   `setOwnerOf`; add `getInventoryCount`, `findInventory` (currently a
-   stub → 0), `pickupObject` (0x25), and the inventory UI strip.
-3. **Dialog text reveal + `VAR_HAVE_MSG`** — the dialog cutscene runs
-   but text appears instantly; wire per-char reveal and flip
-   `VAR_HAVE_MSG` (global 3) on print start/done so `wait`-for-message
-   gates correctly. (Pairs with talk timing / `VAR_TALK_ACTOR`.)
-4. **Real click input via #23** — clicks should feed `VAR_CURSORSTATE`
+1. **Inventory polish** — slot rendering + hover (item name on the
+   sentence line) + click (item routed as an object) are done. Remaining:
+   (a) a **carried-item name table** so names survive leaving the pickup
+   room (today a carried item shows `obj #N`); (b) **scroll arrows**
+   (verbs 208/209) for paging when >8 items; (c) **two-object
+   sentences** (`Use X with Y`) — needs `selectedObject` state so the
+   first click holds an object while the verb + second object complete.
+2. **Dialog text reveal** — `VAR_HAVE_MSG` start/done flip + pacing is
+   now wired (the talk-timing commits: `beginTalk` sets it and a
+   length-proportional `talkDelay` drains it), so `wait`-for-message
+   gates correctly. What remains is the *visible* per-char reveal —
+   text still paints instantly. (Pairs with `VAR_TALK_ACTOR`.)
+3. **Real click input via #23** — clicks should feed `VAR_CURSORSTATE`
    + mouse and let MI1's input loop (#23) build the sentence, rather
-   than the engine-side `handleSceneClick` shortcut wired earlier.
-   Revisit `handleSceneClick`/`handleVerbClick` once #23 drives input.
+   than the engine-side `handleSceneClick` shortcut wired earlier
+   (and the click-to-walk shortcut). Revisit `handleSceneClick` /
+   `handleVerbClick` / `walkActorTo` once #23 drives input.
 
 Polish / known gaps (any time):
+- **Sentence line should render in-canvas (top of the verb panel), not a
+  separate DOM div.** MI1 draws the sentence ("Walk to door") on the
+  strip at the top of the verb area (screen y≈144–151). We currently
+  render it as an HTML `<div>` above the verb-bar canvas, separate from
+  the engine's layout. Faithful fix: draw the sentence text into the
+  verb-bar canvas at that strip (via the CHAR renderer) and drop the
+  div. Cosmetic/architectural; deferred. (Spotted alongside the purple
+  strip, which was a separate bg-colour bug, now fixed.)
 - Lookout (room 38) renders very dark — it's a night scene; the
   compositor doesn't honor `VAR_CURRENT_LIGHTS` (cosmetic).
 - **No word-wrap / per-line centring for dialog text.** Long talk lines
@@ -457,10 +619,10 @@ several can progress in parallel after the input foundation lands.
       `[VIEWPORT_W=320, bottom - top]`. Debug-only; shows the
       slice a real player would see on screen.
 - [ ] Smooth camera pan for `panCameraTo` — currently snaps.
-- [ ] Camera-following an actor whose position is changing.
-      Currently `actorFollowCamera` records the actor id but
-      doesn't track them per tick; the camera stays at the last
-      snap. Wire when actor walks are visible on screen.
+- [x] Camera-following an actor whose position is changing —
+      `vm.cameraFollowActor` + `moveCameraFollow()` (per-tick dead-zone
+      follow, ±80px, clamped to room). `actorFollowCamera` sets the
+      follow target + snaps once; `beginTick` tracks thereafter.
 
 **Wait opcodes — `src/engine/vm/wait.ts`**
 
@@ -495,24 +657,85 @@ several can progress in parallel after the input foundation lands.
       + fall-through, var-operand actor read (the MI1 `AE 81` form),
       resume-then-ready, unknown-subop halt.
 
-**Inventory — `src/shell/player/inventory.ts`**
+**Inventory — opcode/data layer (`vm` + `opcodes/index.ts`) + UI strip
+(`src/shell/player/inventory.ts`)**
 
-- [ ] Inventory area below or beside the verb bar (MI1's layout
-      is "verb bar left, inventory grid right"). Shows objects
-      owned by the player actor.
-- [ ] `setOwnerOf` opcode (`0x29`) — already in the wiki list
-      but not yet implemented. Writes to `vm.objectOwners`.
-- [ ] `getObjectOwner` opcode (`0x10`) — read side.
-- [ ] List = `[...vm.objectOwners.entries()].filter(([id,
-      owner]) => owner === ego)`. Render each as the object's
-      name (OBNA). Up/down arrows for paging when the list
-      overflows the grid (MI1 reserves 4 inventory slots
-      visible; arrows scroll).
-- [ ] Hover / click in inventory wires into the sentence builder
-      same as a room object — an inventory item becomes `obj1` or
-      `obj2` for the current sentence.
-- [ ] `inventory.test.ts` — owner filter, paging, click
-      dispatches sentence.
+Data layer ✅ — SCUMM v5 ties inventory membership to ownership, so the
+model is just `vm.objectOwners` queried two ways:
+
+- [x] `vm.inventoryCount(owner)` / `vm.findInventory(owner, index)` —
+      count and 1-based lookup over `objectOwners` (Map-insertion order
+      = pickup order, mirroring SCUMM's inventory-array append).
+- [x] `getInventoryCount` opcode (`$31`/`0xB1`) — `result actor[p8]`.
+      MI1's intro reads it (sometimes nested inside an `expression`).
+- [x] `findInventory` opcode (`$3D`/`0x7D`/`0xBD`/`0xFD`) —
+      `result owner[p8] index[p8]`. **Was mis-wired at `0x15`** (which
+      is actually `actorFromPos`); moved to the real `$3D` family. MI1
+      script #9 (inventory display) polls all 8 visible slots via
+      `0xfd` — now returns the right object ids (0 when empty).
+- [x] `pickupObject` opcode (`$25`/`0x65`/`0xa5`/`0xe5`) —
+      `object[p16] room[p8]`. Sets owner=ego, state 1, dequeues from
+      the room, then calls `runInventoryScript(1)`. **`0x25` was
+      previously swallowed by `drawObject`'s blanket 8-variant
+      registration** — drawObject now owns only `0x05`/`0x85`.
+      (Untouchable-class still deferred.)
+- [x] `vm.runInventoryScript(arg)` — runs `VAR_INVENTORY_SCRIPT` (g34 =
+      #9 for MI1) with `local0 = arg`, non-recursive (stops any prior
+      instance). This is the engine hook MI1 uses to repaint inventory.
+- [x] `getVerbEntryPoint` (`$0B`/`0x4B`/`0x8B`/`0xCB`) —
+      `result object[p16] verb[p16]`; returns 1 if the object has that
+      verb, else 0 (we keep bytecode slices, not offsets — callers test
+      truthiness). #9 halted on `0x8b` without it.
+- [x] `setOwnerOf` (`0x29`) / `getObjectOwner` (`0x10`) — already wired
+      (write/read `vm.objectOwners`).
+- [x] `actorFromPos` (`0x15`/`0x55`/`0x95`/`0xd5`) — corrected from the
+      bogus "findInventory" label; decodes `p8` coords (not words) and
+      returns 0 (actor screen hit-test deferred to the input phase).
+- [x] 12 new tests (8 in `opcodes/index.test.ts`: getInventoryCount
+      direct/var/empty, findInventory order/out-of-range, pickupObject,
+      actorFromPos PC=7/PC=5; getVerbEntryPoint present/absent. 3 in
+      `vm.test.ts`: runInventoryScript starts/no-op/non-recursive.)
+
+Verb-based inventory display — slots now render. MI1 lays slot-frame
+objects into verbs 200–207 (+ arrows 208/209) via `verbOps` subop `0x16`
+(`SO_VERB_IMAGE_IN_ROOM`), all from the global UI room 99:
+
+- [x] `VerbSlot.image {obj, room}` — set by `verbOps` `setImage` (0x01,
+      current room) / `setImageInRoom` (0x16, explicit room); cleared by
+      `setName`. Defaults null (text verb).
+- [x] Cross-room object-image loading in the verb bar via
+      `vm.resolveRoom`, cached by room id; composites the sprite into
+      the slot rect (current-room palette, sprite-room TRNS).
+- [x] Resolved the ids: room 99 = UI room; 1032 = empty slot cell, 1031
+      = generic "occupied" cell (same for every item — NOT per-item),
+      1033 = scroll arrow.
+- [x] Inspector **"Give item"** debug button (give ego a room object +
+      run #9) to see slots populate.
+- [x] 3 tests (verbOps setImage/setImageInRoom bind + setName clear).
+- [x] **Item identity on hover** — hovering an inventory slot now shows
+      the item in the sentence line. The verb-bar hit-test (`verbAt`)
+      matches image verbs by their sprite bbox; slot `200+i` maps to
+      `findInventory(ego, i+1)`, and that item id feeds the sentence
+      line (taking priority over a room hover). MI1 shows item identity
+      as the *name* here (1031 is just a generic "occupied" cell), so
+      e.g. hovering the rock shows "Esamina lo scoglio".
+      ⚠️ Name resolves via the **current room's** object table —
+      correct for just-picked-up items, but a *carried* item (from
+      another room) shows `obj #N` until there's an inventory name table
+      (populated at pickup). Tracked.
+- [x] Inventory-slot **click** routes the item as an object
+      (`handleSceneClick`), not as a command verb (`handleVerbClick`) —
+      so clicking an item feeds the sentence rather than arming verb 200.
+- [x] Hit-test precedence: `verbAt` prefers an `on` verb over a `dim`
+      one. **Gotcha:** MI1's command-verb panel *background* is itself a
+      dim image verb (verb 1 → obj 1030, 144×48, covering the whole
+      command region). Once image verbs became hittable it shadowed
+      every command verb and swallowed clicks; the `on`-over-`dim`
+      preference fixes it (the bg is dim, command verbs are on).
+- [ ] Carried-item name table (so names survive leaving the pickup room).
+- [ ] Scroll arrows (208/209) → paging + two-object sentence
+      (`Use X with Y`) once selectedObject lands.
+- [ ] `inventory.test.ts`.
 
 **Cutscene control — `src/engine/vm/cutscene.ts`**
 
@@ -540,8 +763,11 @@ several can progress in parallel after the input foundation lands.
 - [x] `findObject` (0x35 / 0x75 / 0xb5 / 0xf5) — reads dest +
       x + y (var-or-word), calls `pickObject` on the loaded
       room, writes the result. Returns 0 when no room is loaded.
-- [x] `findInventory` (0x15 / 0x55 / 0x95 / 0xd5) — stub
-      returning 0 until the inventory subsystem lands.
+- [x] `findInventory` (0x3D / 0x7D / 0xBD / 0xFD) — real, backed by
+      `vm.findInventory`. (See the Inventory section. The old stub was
+      wrongly at `0x15`, which is `actorFromPos`.)
+- [x] `getVerbEntryPoint` (0x0B / 0x4B / 0x8B / 0xCB) — 1 when the
+      object has the verb, else 0. (See the Inventory section.)
 
 **Expression mini-VM additions**
 

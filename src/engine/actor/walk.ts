@@ -21,6 +21,42 @@
 
 import type { Actor } from './actor';
 import type { Vm } from '../vm/vm';
+import { findPath } from '../pathfinding/grid';
+
+/**
+ * Set up an actor's walk: store the target, compute a waypoint path
+ * through the current room's walkable mask (or straight-line fall-back
+ * when there's no mask), and flip `isMoving` on. Shared by the
+ * `walkActorTo` opcode family, `vm.walkActorTo`, and click-to-walk.
+ *
+ * The actor's `ignoreBoxes` flag bypasses pathfinding — used for
+ * cutscene movement that can cross non-walkable regions.
+ */
+export function startWalk(
+  vm: Vm,
+  actor: Actor,
+  target: { x: number; y: number },
+): void {
+  actor.walkTarget = target;
+  actor.walkPath = [];
+  actor.walkPathIdx = 0;
+  actor.isMoving = true;
+
+  const mask = vm.loadedRoom?.walkableMask;
+  if (!mask || mask.length === 0 || actor.ignoreBoxes) {
+    // No pathfinding context — actor walks the straight line via
+    // stepWalk's walkTarget fall-back.
+    return;
+  }
+  const room = vm.loadedRoom!;
+  const path = findPath(mask, room.width, room.height, { x: actor.x, y: actor.y }, target);
+  if (path.waypoints.length === 0) return;
+  // The first waypoint is the snapped start position — drop it so we
+  // don't make the actor "teleport" to the box edge before walking.
+  // Keep all the rest, including the (possibly snapped) final waypoint.
+  actor.walkPath = path.waypoints.slice(1);
+  actor.walkPathIdx = 0;
+}
 
 /**
  * Advance one actor one tick along its path. No-op when the actor is

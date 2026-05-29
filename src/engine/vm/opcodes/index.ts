@@ -26,9 +26,9 @@ import {
   setActorCostume as actorSetCostume,
   type Actor,
 } from '../../actor/actor';
+import { startWalk } from '../../actor/walk';
 import { startAnim } from '../../graphics/costume-anim';
 import { pickObject } from '../../object/hittest';
-import { findPath } from '../../pathfinding/grid';
 import { evalExpression } from '../expression';
 import { SENTENCE_CLEAR_VERB } from '../sentence';
 import { VAR_HAVE_MSG } from '../vars';
@@ -71,38 +71,6 @@ function actorOrNull(vm: Vm, id: number): Actor | null {
 
 /** Global variable holding the current ego (player-character) actor id. */
 const VAR_EGO = 1;
-
-/**
- * Set up an actor's walk: store the target, compute a waypoint
- * path through the current room's walkable mask (or straight-line
- * fall-back if there's no mask), and flip isMoving on.
- *
- * The actor's `ignoreBoxes` flag bypasses pathfinding — used for
- * cutscene movement that can cross non-walkable regions.
- */
-function startWalk(vm: Vm, actor: Actor, target: { x: number; y: number }): void {
-  actor.walkTarget = target;
-  actor.walkPath = [];
-  actor.walkPathIdx = 0;
-  actor.isMoving = true;
-
-  const mask = vm.loadedRoom?.walkableMask;
-  if (!mask || mask.length === 0 || actor.ignoreBoxes) {
-    // No pathfinding context — actor walks the straight line via
-    // stepWalk's walkTarget fall-back.
-    return;
-  }
-  const room = vm.loadedRoom!;
-  const path = findPath(mask, room.width, room.height, { x: actor.x, y: actor.y }, target);
-  if (path.waypoints.length === 0) return;
-  // The first waypoint is the snapped start position — drop it so
-  // we don't make the actor "teleport" to the box edge before
-  // walking. Keep all the rest, including the (possibly snapped)
-  // final waypoint.
-  const trimmed = path.waypoints.slice(1);
-  actor.walkPath = trimmed;
-  actor.walkPathIdx = 0;
-}
 
 const handlers = new Map<number, OpcodeHandler>();
 
@@ -265,6 +233,35 @@ register(0xa8, (vm, slot) => {
   if (a === 0) slot.pc += delta;
   vm.annotate(`notEqualZero(${a}) → ${a !== 0 ? 'continue' : `jump ${delta}`}`);
 });
+
+// ─── 0x1D / 0x9D  ifClassOfIs ────────────────────────────────────────
+// `opcode object[p16] {class[v16]}... 0xFF target[16]`. Conditional
+// branch: `unless (object matches every listed class) goto target`.
+// Each class value carries the class in its low 7 bits and a polarity
+// in bit 0x80 (set = "must be IN this class", clear = "must NOT be"),
+// the same encoding `actorSetClass` (0x5D) writes. Class N occupies bit
+// N-1 of `vm.objectClasses` (classes are 1-based). The read side of the
+// class system — previously `objectClasses` was write-only. MI1 uses it
+// heavily (e.g. the door script checks the object's class before acting).
+function ifClassOfIsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
+  const obj = readVarOrWord(opcode, 1, slot, vm.vars);
+  const classes = readWordVararg(slot, vm.vars);
+  const delta = readI16(slot);
+  const mask = vm.objectClasses.get(obj) ?? 0;
+  let cond = true;
+  for (const c of classes) {
+    const cls = c & 0x7f;
+    const wantIn = (c & 0x80) !== 0;
+    const inClass = cls > 0 && (mask & (1 << (cls - 1))) !== 0;
+    if (inClass !== wantIn) cond = false;
+  }
+  if (!cond) slot.pc += delta;
+  vm.annotate(
+    `ifClassOfIs obj=${obj} [${classes.join(',')}] → ${cond ? 'continue' : `jump ${delta}`}`,
+  );
+}
+register(0x1d, ifClassOfIsHandler);
+register(0x9d, ifClassOfIsHandler);
 
 // ─── 0x26 / 0xA6  setVarRange ────────────────────────────────────────
 // Initialise a contiguous run of variables from inline literals.
@@ -435,6 +432,8 @@ function actorFollowCameraHandler(vm: Vm, slot: ScriptSlot, opcode: number): voi
     if (actor.room > 0 && actor.room !== vm.currentRoom) {
       vm.enterRoom(actor.room);
     }
+    // Snap once now, then track per tick (vm.moveCameraFollow).
+    vm.cameraFollowActor = actor.id;
     setCameraTo(vm, actor.x);
   }
   vm.annotate(`actorFollowCamera ${id} → room=${vm.currentRoom} camera.x=${vm.camera.x}`);
@@ -863,6 +862,25 @@ function getObjectOwnerHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
 register(0x10, getObjectOwnerHandler);
 register(0x90, getObjectOwnerHandler);
 
+// ─── 0x0B / 0x4B / 0x8B / 0xCB  getVerbEntryPoint ────────────────────
+// `opcode result object[p16] verb[p16]`. Result var ← the script entry
+// offset for `verb` on `object`, or 0 when the object has no such verb.
+// Scripts (e.g. MI1's inventory script #9) use it as a boolean "does
+// this object respond to this verb?" — so we return 1 when the verb is
+// present, 0 otherwise. (We keep per-verb bytecode slices, not raw
+// offsets; the truthiness is what callers test. NB: the exact-verb
+// query does NOT take the 0xFF default-verb fallback.)
+function getVerbEntryPointHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
+  const dest = readDestRef(slot, vm.vars);
+  const obj = readVarOrWord(opcode, 1, slot, vm.vars);
+  const verb = readVarOrWord(opcode, 2, slot, vm.vars);
+  const has = vm.loadedRoom?.objects.get(obj)?.verbs.has(verb) ?? false;
+  const entry = has ? 1 : 0;
+  writeRef(dest, entry, slot, vm.vars);
+  vm.annotate(`getVerbEntryPoint obj=${obj} verb=${verb} → ${entry}`);
+}
+for (const op of [0x0b, 0x4b, 0x8b, 0xcb]) register(op, getVerbEntryPointHandler);
+
 // ─── 0xAB  saveRestoreVerbs ──────────────────────────────────────────
 // `opcode sub-opcode start[p8] end[p8] mode[p8]` — save / restore /
 // delete verb slots in a range. Used for menu/UI verb juggling. We
@@ -957,14 +975,41 @@ function drawObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   vm.objectDrawQueue.add(obj);
   vm.annotate(`drawObject obj=${obj} [${ops.join(',')}]`);
 }
+// drawObject's only top-level operand is `object[p16]` (mode bit 0x80);
+// it has no second param at this level (the rest is a 0xFF-terminated
+// subop list). So it owns exactly 0x05 / 0x85 — NOT all eight high-bit
+// variants. The low5=0x05 family is non-orthogonal: 0x25 / 0x65 / 0xa5 /
+// 0xe5 are `pickupObject` (see below), and registering drawObject across
+// the whole family silently swallowed them.
 register(0x05, drawObjectHandler);
-register(0x25, drawObjectHandler);
-register(0x45, drawObjectHandler);
-register(0x65, drawObjectHandler);
 register(0x85, drawObjectHandler);
-register(0xa5, drawObjectHandler);
-register(0xc5, drawObjectHandler);
-register(0xe5, drawObjectHandler);
+
+// ─── 0x25 / 0x65 / 0xa5 / 0xe5  pickupObject ─────────────────────────
+// `opcode object[p16] room[p8]`. Picks an object up into Ego's
+// inventory: SCUMM ties inventory membership to ownership, so we set
+// the object's owner to `VAR_EGO`, mark it state 1 (the "carried"
+// image variant), and drop it from the room's draw queue. The inventory
+// strip repaints from `vm.objectOwners`.
+//
+// `room == 0` means "the current room" (the arg only matters for
+// loading an object's image from a room it isn't currently in — we
+// resolve images lazily, so we just record it in the trace).
+//
+// Deferred vs. the original: the untouchable-class flag and
+// `runInventoryScript` (VAR_INVENTORY_SCRIPT) — neither is needed to
+// own/count an item, and the inventory UI script isn't wired yet.
+function pickupObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
+  const obj = readVarOrWord(opcode, 1, slot, vm.vars);
+  const room = readVarOrByte(opcode, 2, slot, vm.vars);
+  const ego = vm.vars.readGlobal(VAR_EGO);
+  vm.objectOwners.set(obj, ego);
+  vm.objectStates.set(obj, 1);
+  vm.objectDrawQueue.delete(obj);
+  // Refresh the inventory display (lays the item into the verb slots).
+  vm.runInventoryScript(1);
+  vm.annotate(`pickupObject obj=${obj} room=${room} → owner ${ego}`);
+}
+for (const op of [0x25, 0x65, 0xa5, 0xe5]) register(op, pickupObjectHandler);
 
 // ─── 0x35 / 0x75 / 0xb5 / 0xf5  findObject ───────────────────────────
 // Identify the topmost object at room coords `(x, y)`. Writes the
@@ -997,27 +1042,90 @@ register(0x75, findObjectHandler);
 register(0xb5, findObjectHandler);
 register(0xf5, findObjectHandler);
 
-// ─── 0x15 / 0x55 / 0x95 / 0xd5  findInventory ────────────────────────
-// Identify the inventory object at screen coords `(x, y)`. Same
-// bytecode shape as findObject (`dest, x, y`), but searches the
-// inventory grid instead of room objects. Used by scripts polling
-// for clicks on the inventory area (below the verb bar in MI1).
+// ─── 0x34 / 0x74 / 0xb4 / 0xf4  getDist ──────────────────────────────
+// `opcode result objA[p16] objB[p16]`. Result var ← the distance
+// between two objects/actors. Each id resolves actor-or-object the same
+// way `faceActor` does (id within the actor table → actor position,
+// else a room object's CDHD position). Distance is SCUMM's Chebyshev
+// metric `max(|dx|, |dy|)`; an unresolvable id yields 0xFF ("far").
+// MI1's sentence script #2 uses it as a proximity gate (e.g. open the
+// door only once ego is close enough).
+function objActPos(vm: Vm, id: number): { x: number; y: number } | null {
+  if (id > 0 && id <= vm.actors.capacity) {
+    const a = vm.actors.get(id);
+    return { x: a.x, y: a.y };
+  }
+  const obj = vm.loadedRoom?.objects.get(id);
+  return obj ? { x: obj.cdhd.x * 8, y: obj.cdhd.y * 8 } : null;
+}
+function getDistHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
+  const dest = readDestRef(slot, vm.vars);
+  const a = readVarOrWord(opcode, 1, slot, vm.vars);
+  const b = readVarOrWord(opcode, 2, slot, vm.vars);
+  const pa = objActPos(vm, a);
+  const pb = objActPos(vm, b);
+  const dist =
+    pa && pb ? Math.max(Math.abs(pa.x - pb.x), Math.abs(pa.y - pb.y)) : 0xff;
+  writeRef(dest, dist, slot, vm.vars);
+  vm.annotate(`getDist ${a},${b} → ${dist}`);
+}
+for (const op of [0x34, 0x74, 0xb4, 0xf4]) register(op, getDistHandler);
+
+// ─── 0x15 / 0x55 / 0x95 / 0xd5  actorFromPos ─────────────────────────
+// `opcode result x[p8] y[p8]`. Returns the actor under screen coords
+// `(x, y)`, or 0 when none. (This is 0x15 — NOT findInventory, which is
+// 0x3D; an earlier pass mislabeled it. The params are bytes, p8, not
+// the words findObject uses.) MI1 boot's #23 hits 0xd5 (both-var form)
+// when polling whether a click landed on an actor.
 //
-// Stub returning 0 — the inventory subsystem hasn't landed yet, so
-// "no inventory under cursor" is always the correct answer. Without
-// this stub, MI1 boot's script #23 halts on 0xd5 after a click misses
-// any room object.
+// Stub returning 0 — actor screen hit-testing needs the rendered
+// costume bbox, which lands with the input phase. "No actor under
+// cursor" is the correct answer during the credits/intro cutscenes
+// (no clicks), so this is safe until then.
+function actorFromPosHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
+  const dest = readDestRef(slot, vm.vars);
+  const x = readVarOrByte(opcode, 1, slot, vm.vars);
+  const y = readVarOrByte(opcode, 2, slot, vm.vars);
+  writeRef(dest, 0, slot, vm.vars);
+  vm.annotate(`actorFromPos(${x},${y}) → 0 (stub: actor hit-test deferred)`);
+}
+register(0x15, actorFromPosHandler);
+register(0x55, actorFromPosHandler);
+register(0x95, actorFromPosHandler);
+register(0xd5, actorFromPosHandler);
+
+// ─── 0x31 / 0xb1  getInventoryCount ──────────────────────────────────
+// `opcode result actor[p8]`. Result var ← how many objects the given
+// actor owns (its inventory size). actor's var-mode is bit 0x80, so the
+// family is just 0x31 / 0xb1. MI1's intro reads this inside an
+// `expression` (nested via the 0x06 subop) on the way into room 33.
+function getInventoryCountHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
+  const dest = readDestRef(slot, vm.vars);
+  const actor = readVarOrByte(opcode, 1, slot, vm.vars);
+  const count = vm.inventoryCount(actor);
+  writeRef(dest, count, slot, vm.vars);
+  vm.annotate(`getInventoryCount actor=${actor} → ${count}`);
+}
+register(0x31, getInventoryCountHandler);
+register(0xb1, getInventoryCountHandler);
+
+// ─── 0x3d / 0x7d / 0xbd / 0xfd  findInventory ────────────────────────
+// `opcode result owner[p8] index[p8]`. Result var ← the `index`-th
+// (1-based) object owned by `owner`, in pickup order; 0 when out of
+// range. owner's mode bit is 0x80, index's is 0x40. Used to walk an
+// actor's inventory (e.g. to lay out the inventory strip).
 function findInventoryHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const dest = readDestRef(slot, vm.vars);
-  const x = readVarOrWord(opcode, 1, slot, vm.vars);
-  const y = readVarOrWord(opcode, 2, slot, vm.vars);
-  writeRef(dest, 0, slot, vm.vars);
-  vm.annotate(`findInventory(${x},${y}) → 0 (stub: no inventory)`);
+  const owner = readVarOrByte(opcode, 1, slot, vm.vars);
+  const index = readVarOrByte(opcode, 2, slot, vm.vars);
+  const obj = vm.findInventory(owner, index);
+  writeRef(dest, obj, slot, vm.vars);
+  vm.annotate(`findInventory owner=${owner} index=${index} → ${obj}`);
 }
-register(0x15, findInventoryHandler);
-register(0x55, findInventoryHandler);
-register(0x95, findInventoryHandler);
-register(0xd5, findInventoryHandler);
+register(0x3d, findInventoryHandler);
+register(0x7d, findInventoryHandler);
+register(0xbd, findInventoryHandler);
+register(0xfd, findInventoryHandler);
 
 // ─── 0x06 / 0x86  getActorElevation ──────────────────────────────────
 // ─── getActor* read family ───────────────────────────────────────────
@@ -1175,11 +1283,12 @@ function setOwnerOfHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
 }
 for (const op of [0x29, 0x69, 0xa9, 0xe9]) register(op, setOwnerOfHandler);
 
-// ─── startObject (0x37/0xB7) ─────────────────────────────────────────
+// ─── startObject (0x37/0x77/0xB7/0xF7) ───────────────────────────────
 // `object[p16] (bit 0x80) script[p8] (bit 0x40) args[v16]`. Runs the
 // object's OBCD verb script — exactly what vm.startVerbScript does
 // (resolve the verb bytecode + start a labelled slot). (low5=0x17 is
-// shared with `and`/`or`; bit 0x20 selects startObject.)
+// shared with `and`/`or`; bit 0x20 selects startObject.) All four
+// param-mode variants exist — the script id is var-mode in 0x77/0xf7.
 function startObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const objId = readVarOrWord(opcode, 1, slot, vm.vars);
   const verbId = readVarOrByte(opcode, 2, slot, vm.vars);
@@ -1187,7 +1296,7 @@ function startObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   vm.startVerbScript(objId, verbId, args);
   vm.annotate(`startObject obj=${objId} script=${verbId} args=[${args.join(',')}]`);
 }
-for (const op of [0x37, 0xb7]) register(op, startObjectHandler);
+for (const op of [0x37, 0x77, 0xb7, 0xf7]) register(op, startObjectHandler);
 
 // ─── loadRoomWithEgo (0x24/0xA4) ─────────────────────────────────────
 // `object[p16] (bit 0x80) room[p8] x[16] y[16]`. Enter `room`, place ego
@@ -1467,10 +1576,10 @@ function verbOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
     switch (action) {
       case 0x01: {
         const obj = readVarOrWord(sub, 1, slot, vm.vars);
-        // setImage replaces the verb's text with an object sprite —
-        // we don't render image-based verbs yet, so just ensure the
-        // slot exists.
-        getOrCreateVerb(vm, verbId);
+        // setImage: the verb shows object `obj`'s sprite (from the
+        // current room) instead of text. Stored on the slot; the verb
+        // bar composites the object image.
+        getOrCreateVerb(vm, verbId).image = { obj, room: vm.currentRoom };
         subops.push(`setImage(${obj})`);
         break;
       }
@@ -1485,6 +1594,7 @@ function verbOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
         slot.pc++;
         const v = getOrCreateVerb(vm, verbId);
         v.name = decodeScummString(nameBytes);
+        v.image = null; // text verb — drop any prior image binding
         subops.push(`setName("${v.name}")`);
         break;
       }
@@ -1540,6 +1650,7 @@ function verbOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
           y: 0,
           key: 0,
           centered: false,
+          image: null,
           state: 'on',
         });
         subops.push('new');
@@ -1573,10 +1684,14 @@ function verbOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
         break;
       }
       case 0x16: {
+        // setImageInRoom: the verb shows object `a`'s sprite, loaded
+        // from room `b` (which may not be the current room — MI1's
+        // inventory slots draw from the UI room 99). Stored for the
+        // verb bar to composite.
         const a = readVarOrWord(sub, 1, slot, vm.vars);
         const b = readVarOrByte(sub, 2, slot, vm.vars);
-        getOrCreateVerb(vm, verbId);
-        subops.push(`assignObj(obj=${a},room=${b})`);
+        getOrCreateVerb(vm, verbId).image = { obj: a, room: b };
+        subops.push(`setImageInRoom(obj=${a},room=${b})`);
         break;
       }
       case 0x17: {
@@ -1610,6 +1725,7 @@ function getOrCreateVerb(vm: Vm, id: number): VerbSlot {
       y: 0,
       key: 0,
       centered: false,
+      image: null,
       state: 'off',
     };
     vm.verbs.set(id, v);
