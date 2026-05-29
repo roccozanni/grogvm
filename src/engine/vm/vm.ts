@@ -385,6 +385,11 @@ export class Vm {
   static readonly VAR_CURSORSTATE = VARS.VAR_CURSORSTATE;
   static readonly VAR_USERPUT = VARS.VAR_USERPUT;
   static readonly VAR_SENTENCE_SCRIPT = VARS.VAR_SENTENCE_SCRIPT;
+  /**
+   * Global holding the id of the *input script* (the verb/click hook).
+   * MI1 writes 201 (a room-local LSCR). Started by {@link runInputScript}.
+   */
+  static readonly VAR_VERB_SCRIPT = VARS.VAR_VERB_SCRIPT;
 
   /** SCUMM v5 reserves script ids >= 200 for room-local LSCR scripts. */
   static readonly LSCR_THRESHOLD = 200;
@@ -595,6 +600,35 @@ export class Vm {
       room = resolved.room;
     }
     return this.startScript({ scriptId, bytecode, room, args: opts.args, label: opts.label });
+  }
+
+  /**
+   * Run the input script — the engine's per-click hook into game
+   * bytecode. Starts `VAR_VERB_SCRIPT` (MI1 = room-local #201) with
+   * locals `[clickArea, code, button]`.
+   *
+   * `local0 = clickArea` is bytecode-confirmed: MI1's #201 begins
+   * `if (local0 == 4) g105 = 1` (see scratch/inspect-input-script.ts).
+   * The input script is a *notification hook* — in MI1 it only sets a
+   * flag. The engine's built-in verb handler is what actually builds
+   * the sentence; this hook lets the game react to raw clicks.
+   *
+   * Returns the started slot, or `null` when the var is unset or no
+   * slot is free. Never throws.
+   */
+  runInputScript(clickArea: number, code: number, button: number): ScriptSlot | null {
+    const scriptId = this.vars.readGlobal(Vm.VAR_VERB_SCRIPT);
+    if (scriptId <= 0) return null;
+    try {
+      return this.startScriptById(scriptId, {
+        args: [clickArea, code, button],
+        label: `INPUT-${clickArea}-${code}-${button}`,
+      });
+    } catch {
+      // Script not resolvable (e.g. a local id with no current room) —
+      // a click with no usable input script is a no-op, not a crash.
+      return null;
+    }
   }
 
   /** Push a sentence onto the queue for the sentence driver to run. */

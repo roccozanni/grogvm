@@ -124,6 +124,49 @@ describe('processSentence', () => {
   });
 });
 
+// ─── runInputScript (the click hook) ────────────────────────────────────
+
+describe('runInputScript', () => {
+  const INPUT_SCRIPT = 77;
+
+  function vmWithInputScript(): Vm {
+    const vm = makeVm((id) =>
+      id === INPUT_SCRIPT
+        ? { bytecode: bytes(0xa0), room: 4 } // stopObjectCode
+        : (() => {
+            throw new Error(`unexpected script id ${id}`);
+          })(),
+    );
+    vm.vars.writeGlobal(Vm.VAR_VERB_SCRIPT, INPUT_SCRIPT);
+    return vm;
+  }
+
+  it('starts VAR_VERB_SCRIPT with [clickArea, code, button] locals', () => {
+    const vm = vmWithInputScript();
+    const slot = vm.runInputScript(4, 7, 1);
+    expect(slot).not.toBeNull();
+    expect(slot!.scriptId).toBe(INPUT_SCRIPT);
+    expect(slot!.label).toBe('INPUT-4-7-1');
+    expect(slot!.locals[0]).toBe(4); // clickArea (local0 — bytecode-confirmed)
+    expect(slot!.locals[1]).toBe(7); // code
+    expect(slot!.locals[2]).toBe(1); // button
+  });
+
+  it('returns null when VAR_VERB_SCRIPT is unset', () => {
+    const vm = vmWithInputScript();
+    vm.vars.writeGlobal(Vm.VAR_VERB_SCRIPT, 0);
+    expect(vm.runInputScript(4, 7, 1)).toBeNull();
+  });
+
+  it('returns null (no throw) when the script id cannot be resolved', () => {
+    const vm = vmWithInputScript();
+    // 201 is a local id but no room is loaded → startScriptById throws,
+    // runInputScript swallows it.
+    vm.vars.writeGlobal(Vm.VAR_VERB_SCRIPT, 201);
+    expect(vm.runInputScript(4, 7, 1)).toBeNull();
+  });
+});
+
 // ─── reset + clear ──────────────────────────────────────────────────────
 
 describe('sentence state lifecycle', () => {
