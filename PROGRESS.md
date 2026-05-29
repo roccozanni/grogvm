@@ -509,16 +509,25 @@ Polish / known gaps (any time):
   timer). See next-steps #2. Still open (minor): `\xff\x04+`
   substitutions are dropped, and the overhead-bubble vertical anchor is
   approximate.
-- **Credits colour: reference shows magenta, we render teal (color 3).**
-  Confirmed *not* a bug in our pipeline: the title *and* the credit roll
-  both use `SO_COLOR 3` (the credit roll inherits it from a sticky
-  configure-only print). Room-10 `palette[3]` is teal (correctly — the
-  water uses it), #152 issues no `roomOps`/palette ops, and charset 4's
-  baked colorMap has no magenta at the 2-bpp ramp entries. So color-3→
-  teal is the faithful render of this data. The reference's magenta
-  likely comes from a different MI1 release's palette/charset, or a
-  2-bpp text-colour semantic not yet understood. Needs a same-version
-  comparison before any change — do NOT hard-code magenta.
+- **Credits *fill* colour: reference shows magenta, we render teal.**
+  Re-investigated exhaustively (2nd pass). Conclusive: **every** credit
+  line in script #152 prints with `SO_COLOR 3` literally — traced all of
+  them, incl. "Animazione di / Steve Purcell…" (the screenshotted line);
+  only the copyright line uses `SO_COLOR 5`. Our `color 5 → CLUT5 →
+  magenta` renders correctly, which *proves* the colour→CLUT mapping is
+  right, so `color 3 → CLUT3 → teal` is equally faithful. Room 10 issues
+  **no** `roomOps`/palette ops and **no** `charsetColor` (verified by
+  trace — the only `charsetColor` is room 38's). v5 rooms carry a single
+  `CLUT` (no PALS variants), CLUT3 = teal (the water uses it). So nothing
+  in the engine is remapping it; teal is what this exact CD-ROM data
+  specifies. The reference's magenta must be a **different release**
+  (this data is the Italian VGA CD — "Conversione CD-ROM di Aric
+  Wilmunder"; the 2009 Special Edition / other localisations recolour the
+  credits). **Do NOT hard-code magenta.** ⚠️ Note: `charsetColor` (0x0e)
+  IS still a stub, but implementing it naïvely would REGRESS the lookout
+  scene (room 38 sets `[0,6,2]`, which doesn't map to the now-correct
+  white-fill/black-outline) — our "fill = text colour, outline = black"
+  model is the faithful one; leave charsetColor stubbed.
 - Smooth camera pan for `panCameraTo`; per-tick actor-follow tracking.
 - Costume-anim decoder vs MI1 Guybrush (see SCUMM-V5-COSTUME-ANIM.md).
 - **"Le tre prove" cutscene runs too fast.** The short cutscene between
