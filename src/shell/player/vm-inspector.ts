@@ -34,6 +34,20 @@ interface RecentClick extends ClickEvent {
 
 const RECENT_CLICKS_CAP = 12;
 
+/**
+ * Max engine ticks per animation frame. rAF fires at the display
+ * refresh (~60 Hz), so tick rates above that need >1 tick per frame to
+ * keep up. The cap stops a backgrounded-then-foregrounded tab (rAF
+ * paused, so a huge `elapsed`) from unleashing a catch-up avalanche.
+ */
+const MAX_TICKS_PER_FRAME = 64;
+
+/**
+ * Hard cap on the "Skip cutscene" fast-forward so a script that never
+ * settles can't hang the tab. MI1's opening credits is ~5700 ticks.
+ */
+const MAX_SKIP_TICKS = 20000;
+
 interface InspectorState {
   vm: Vm | null;
   /** How many globals to render — start small, expand on demand. */
@@ -294,39 +308,49 @@ export function renderVmInspector(
       // schedule the next one without running a tick.
       const now = performance.now();
       const minIntervalMs = 1000 / state.tickRateHz;
-      if (now - state.lastTickAt < minIntervalMs - 0.5) {
+      const elapsed = now - state.lastTickAt;
+      if (elapsed < minIntervalMs - 0.5) {
         // Not time yet — try again next rAF.
         scheduleNextTick();
         return;
       }
       state.lastTickAt = now;
-      const progressed = oneTick();
-      if (state.vm.haltInfo) {
-        state.playing = false;
-        state.idleReason = null;
-        repaint();
-        return;
-      }
-      if (!progressed) {
-        // Truly nothing left — everything's dead. Pause cleanly.
-        state.playing = false;
-        state.idleReason = 'all slots dead';
-        repaint();
-        return;
-      }
-      if (checkIdleAndUpdateStreak()) {
-        // We've been ticking the same set of yielded slots for
-        // ~10 frames straight. The game is in a wait-for-input
-        // loop (likely the title-screen tick or a cutscene wait).
-        // Pause and surface why.
-        state.playing = false;
-        const liveSlots = state.vm.slots
-          .filter((s) => s.status !== 'dead')
-          .map((s) => `#${s.scriptId}`)
-          .join(', ');
-        state.idleReason = `engine in idle wait loop — only ${liveSlots} live, no observable progress for ${IDLE_STREAK_THRESHOLD} ticks`;
-        repaint();
-        return;
+      // Run a batch sized to the elapsed time so rates above the
+      // display refresh (e.g. 120 Hz) actually run faster instead of
+      // being capped at one tick per frame. At <= refresh this is 1.
+      const batch = Math.min(
+        MAX_TICKS_PER_FRAME,
+        Math.max(1, Math.floor(elapsed / minIntervalMs)),
+      );
+      for (let i = 0; i < batch; i++) {
+        const progressed = oneTick();
+        if (state.vm.haltInfo) {
+          state.playing = false;
+          state.idleReason = null;
+          repaint();
+          return;
+        }
+        if (!progressed) {
+          // Truly nothing left — everything's dead. Pause cleanly.
+          state.playing = false;
+          state.idleReason = 'all slots dead';
+          repaint();
+          return;
+        }
+        if (checkIdleAndUpdateStreak()) {
+          // We've been ticking the same set of yielded slots for
+          // ~10 ticks straight. The game is in a wait-for-input
+          // loop (likely the title-screen tick or a cutscene wait).
+          // Pause and surface why.
+          state.playing = false;
+          const liveSlots = state.vm.slots
+            .filter((s) => s.status !== 'dead')
+            .map((s) => `#${s.scriptId}`)
+            .join(', ');
+          state.idleReason = `engine in idle wait loop — only ${liveSlots} live, no observable progress for ${IDLE_STREAK_THRESHOLD} ticks`;
+          repaint();
+          return;
+        }
       }
       // Inside the rAF loop, only the live panels refresh — the
       // controls bar (buttons + tick counter) stays stable so clicks
@@ -409,10 +433,43 @@ export function renderVmInspector(
     repaint();
   };
 
+  // Fast-forward through a cutscene without waiting on rAF: run ticks
+  // synchronously until the engine settles into an idle wait loop AND
+  // the verb bar is interactive again (a verb in the `on` state) — i.e.
+  // control has returned to the player. Cutscenes turn the verbs off
+  // and back on, so "idle with an active verb" is the post-cutscene
+  // signal. MI1's opening credits gate this at tick ~5710 (g14 > 5700).
+  //
+  // Idle alone is NOT enough: the credits' timer/delay wait *looks*
+  // idle (stable slot fingerprint) from tick ~12, long before control
+  // returns — so we also require an active verb to stop there.
+  const skipCutscene = (): void => {
+    if (!state.vm) return;
+    stopLoop();
+    state.playing = false;
+    state.idleStreak = 0;
+    let reached = false;
+    for (let i = 0; i < MAX_SKIP_TICKS; i++) {
+      if (!oneTick()) break; // everything dead
+      if (state.vm.haltInfo) break;
+      const interactive = [...state.vm.verbs.values()].some((v) => v.state === 'on');
+      if (checkIdleAndUpdateStreak() && interactive) {
+        reached = true;
+        break;
+      }
+    }
+    state.idleReason = reached
+      ? 'skipped past cutscene — verb bar active (note: title menu has no room art, so the canvas is black until you start/enter a room)'
+      : state.vm.haltInfo
+        ? null
+        : `skip ran ${MAX_SKIP_TICKS} ticks without control returning to the verb bar`;
+    repaint();
+  };
+
   const repaintControls = (): void => {
     const h2 = document.createElement('h2');
     h2.textContent = 'VM';
-    const controls = renderControls(state, repaint, bootFresh, togglePlay);
+    const controls = renderControls(state, repaint, bootFresh, togglePlay, skipCutscene);
     controlsContainer.replaceChildren(h2, controls);
   };
 
@@ -618,6 +675,7 @@ function renderControls(
   repaint: () => void,
   bootFresh: () => void,
   togglePlay: () => void,
+  skipCutscene: () => void,
 ): HTMLElement {
   const bar = document.createElement('div');
   bar.className = 'vm-controls';
@@ -633,7 +691,7 @@ function renderControls(
   play.disabled = !state.vm || state.vm.isHalted || (!state.playing && !anyAdvanceable(state.vm));
   play.title = state.playing
     ? 'Stop the rAF loop'
-    : 'Run an engine tick every animation frame (~60 Hz). Auto-pauses on halt or steady state.';
+    : 'Run the engine at the selected rate (rates above ~60 Hz run multiple ticks per frame). Auto-pauses on halt or steady state.';
   play.addEventListener('click', togglePlay);
   bar.appendChild(play);
 
@@ -645,7 +703,7 @@ function renderControls(
   rateWrap.title = 'Target engine ticks per second when Play is running';
   rateWrap.appendChild(document.createTextNode('rate '));
   const rateSelect = document.createElement('select');
-  for (const hz of [1, 5, 15, 30, 60]) {
+  for (const hz of [1, 5, 15, 30, 60, 120]) {
     const opt = document.createElement('option');
     opt.value = String(hz);
     opt.textContent = `${hz} Hz`;
@@ -725,6 +783,16 @@ function renderControls(
     repaint();
   });
   bar.appendChild(idle);
+
+  // Fast-forward through the long opening cutscene (~5700 ticks) without
+  // waiting on rAF. Runs ticks synchronously until the engine settles
+  // into its idle wait loop (the post-cutscene title state) — the same
+  // detection the Play loop uses — or halts, or hits the safety cap.
+  const skip = button('Skip cutscene');
+  skip.disabled = !state.vm || state.vm.isHalted || !anyAdvanceable(state.vm);
+  skip.title = 'Fast-forward ticks until the engine reaches the title idle state (or halts)';
+  skip.addEventListener('click', skipCutscene);
+  bar.appendChild(skip);
 
   // Synthesises a left-button-down pulse without needing the room
   // canvas — critical for the title-menu state where no room is
