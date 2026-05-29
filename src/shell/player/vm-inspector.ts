@@ -242,15 +242,20 @@ export function renderVmInspector(
     // before draining so it runs this tick.
     state.vm.processSentence();
     let resumed = false;
+    let delaying = false;
     for (const s of state.vm.slots) {
       // Frozen slots (cutscene / freezeScripts) are skipped entirely —
       // not resumed, and their delay countdown is paused.
       if (s.status === 'yielded' && s.freezeCount === 0) {
         // Slots blocked on `delay N` ticks must stay yielded until
         // their per-slot countdown drains. We decrement each tick;
-        // the slot only resumes when it hits 0.
+        // the slot only resumes when it hits 0. A ticking countdown IS
+        // progress — without counting it, a cutscene whose only live
+        // script is mid-`delay` (everything else frozen) looks "all
+        // dead" and Play auto-pauses a few ticks into the credits.
         if (s.delayRemaining > 0) {
           s.delayRemaining--;
+          delaying = true;
           continue;
         }
         s.resume();
@@ -266,7 +271,7 @@ export function renderVmInspector(
     }
     state.tickCount++;
     const anyMoving = [...state.vm.actors.all()].some((a) => a.isMoving);
-    return resumed || ran > 0 || anyMoving;
+    return resumed || ran > 0 || anyMoving || delaying;
   };
 
   /**
@@ -278,6 +283,18 @@ export function renderVmInspector(
    */
   const checkIdleAndUpdateStreak = (): boolean => {
     if (!state.vm) return false;
+    // A running cutscene is intentional scripted progress, not idle —
+    // even when the slot fingerprint looks stable. During a cutscene
+    // the background scripts are (correctly) frozen and the cutscene
+    // script sits in a timer/delay wait, so the fingerprint stops
+    // changing; without this guard Play would auto-pause a few ticks
+    // into MI1's credits. The cutscene ends itself (endCutscene pops
+    // the stack), and idle-detection resumes at the title-idle.
+    if (state.vm.cutsceneStack.length > 0) {
+      state.idleStreak = 0;
+      state.lastIdleFingerprint = null;
+      return false;
+    }
     const fp = yieldFingerprint(state.vm);
     if (fp === state.lastIdleFingerprint) {
       state.idleStreak++;
