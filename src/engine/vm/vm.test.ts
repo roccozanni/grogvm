@@ -172,6 +172,39 @@ describe('Vm — talk timer + dialog clearing', () => {
     expect(vm.activeDialog).toBeNull(); // speech finished + cleared
     expect(vm.systemText).not.toBeNull(); // the sign is still up
   });
+
+  it('advances queued sentence pages on the talk timer before clearing', () => {
+    const vm = makeVm();
+    // Page 0 showing; pages "two"/"three" queued (\xff\x03-separated source).
+    vm.activeDialog = { ...dialog(1), text: 'one' };
+    vm.beginTalk('one');
+    vm.queueTalkPages(['two', 'three'], { ...dialog(1), text: 'one' }, false);
+    // Capture each distinct text the dialog cycles through over time.
+    const seen: (string | null)[] = ['one'];
+    let haveMsgWhileTwo = -1;
+    for (let i = 0; i < 200; i++) {
+      vm.beginTick();
+      const t = vm.activeDialog?.text ?? null;
+      if (t !== seen[seen.length - 1]) {
+        seen.push(t);
+        if (t === 'two') haveMsgWhileTwo = vm.vars.readGlobal(Vm.VAR_HAVE_MSG);
+      }
+    }
+    expect(seen).toEqual(['one', 'two', 'three', null]);
+    expect(haveMsgWhileTwo).toBe(1); // message not "done" mid-pages
+    expect(vm.vars.readGlobal(Vm.VAR_HAVE_MSG)).toBe(0); // done after last page
+  });
+
+  it('endTalk drops any queued pages', () => {
+    const vm = makeVm();
+    vm.activeDialog = { ...dialog(1), text: 'one' };
+    vm.beginTalk('one');
+    vm.queueTalkPages(['two'], { ...dialog(1), text: 'one' }, false);
+    vm.endTalk();
+    vm.activeDialog = null;
+    for (let i = 0; i < 200; i++) vm.beginTick();
+    expect(vm.activeDialog).toBeNull(); // page "two" never resurfaces
+  });
 });
 
 

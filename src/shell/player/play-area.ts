@@ -33,7 +33,7 @@ import {
   type CharsetEntry,
   type CharsetHeader,
 } from '../../engine/graphics/charset';
-import { renderText } from '../../engine/graphics/text';
+import { measureText, renderText, wrapText } from '../../engine/graphics/text';
 import { pickObject } from '../../engine/object/hittest';
 import type { ResourceFile } from '../../engine/resources/tree';
 import type { Vm, VerbSlot } from '../../engine/vm/vm';
@@ -60,6 +60,10 @@ const CSS_SCALE = 2;
  * NOT to the room width.
  */
 const VIEWPORT_W = 320;
+// Max pixel width for a talk/dialog line before word-wrap kicks in.
+// Leaves a ~16px margin each side of the 320-wide screen so centred
+// bubbles don't kiss the edges.
+const TALK_MAX_WIDTH = VIEWPORT_W - 32;
 
 /**
  * MI1's inventory occupies verb ids 200..207 (a 4×2 grid of image
@@ -287,9 +291,17 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
     // actor.x which is room-space), so no offset there.
     const VIEWPORT_HALF = 160;
     const cameraLeft = vm.camera.x - VIEWPORT_HALF;
+    // Word-wrap to the talk text box so long lines don't overrun the
+    // viewport. SCUMM v5 breaks talk text at spaces against the screen
+    // margin; `drawText` then centres each wrapped line independently.
+    const text = wrapText(charset.payload, charset.header, d.text, TALK_MAX_WIDTH);
+    const fontH = charset.header.fontHeight;
+    const lineCount = text.split('\n').length;
+    const blockH = lineCount * fontH;
     let dx: number;
     let dy: number;
     if (d.x !== null && d.y !== null) {
+      // Explicit SO_AT — the script positioned it; honour it as the top.
       dx = d.x + cameraLeft;
       dy = d.y;
     } else if (d.overhead) {
@@ -298,19 +310,28 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
           ? vm.actors.get(d.actorId)
           : null;
       dx = speaker?.x ?? Math.floor(roomWidth / 2);
-      dy = (speaker?.y ?? Math.floor(roomHeight / 2)) - 24;
+      // Anchor the BLOCK's bottom where a single line previously sat
+      // (actor.y − 24 + one line), so a multi-line bubble grows UPWARD
+      // and stays above the speaker instead of creeping over them.
+      const anchorBottom = (speaker?.y ?? Math.floor(roomHeight / 2)) - 24 + fontH;
+      dy = anchorBottom - blockH;
     } else {
-      // Default fallback — bottom-centre of the camera viewport. Anchor
-      // the BLOCK's bottom a few px above the frame edge: `drawText`
-      // paints downward from `dy`, so we must subtract the full rendered
-      // height (lineCount × fontHeight) or a tall / multi-line font runs
-      // off the bottom (charset 4 is 14px vs the old 8px default).
-      const lineCount = d.text.split('\n').length;
-      const blockH = lineCount * charset.header.fontHeight;
+      // Default fallback — bottom-centre of the camera viewport, block
+      // bottom a few px above the frame edge (grows upward).
       dx = cameraLeft + VIEWPORT_HALF;
       dy = roomHeight - blockH - 2;
     }
-    drawText(ctx, charset, d.text, dx, dy, palette, d.color, d.center);
+    // Keep the (centred) bubble on screen: clamp the centre so the
+    // widest line stays inside the viewport, and the top below screen.top.
+    if (d.center) {
+      const maxW = measureText(charset.payload, charset.header, text).width;
+      const halfW = Math.floor(maxW / 2) + 2;
+      const lo = cameraLeft + halfW;
+      const hi = cameraLeft + VIEWPORT_W - halfW;
+      if (lo <= hi) dx = Math.max(lo, Math.min(hi, dx));
+    }
+    dy = Math.max(vm.screen.top, dy);
+    drawText(ctx, charset, text, dx, dy, palette, d.color, d.center);
   };
 
   const updateSentence = (): void => {
@@ -685,30 +706,40 @@ function drawText(
 ): void {
   const colorMap = new Uint8Array(charset.header.colorMap);
   colorMap[1] = inkColor;
-  let r;
-  try {
-    r = renderText(charset.payload, charset.header, text, colorMap);
-  } catch {
-    return;
-  }
-  if (r.width === 0 || r.height === 0) return;
-
-  const startX = centered ? x - Math.floor(r.width / 2) : x;
-  const img = ctx.createImageData(r.width, r.height);
-  for (let p = 0; p < r.pixels.length; p++) {
-    const v = r.pixels[p]!;
-    const o = p * 4;
-    if (v === CHARSET_TRANSPARENT) {
-      img.data[o + 3] = 0;
-      continue;
+  // Render each line separately so a centred multi-line block centres
+  // every line on `x` independently (a single whole-block render would
+  // left-align the lines within the widest line's bbox). Lines advance
+  // by the declared fontHeight.
+  let lineY = y;
+  for (const line of text.split('\n')) {
+    if (line.length > 0) {
+      let r;
+      try {
+        r = renderText(charset.payload, charset.header, line, colorMap);
+      } catch {
+        return;
+      }
+      if (r.width > 0 && r.height > 0) {
+        const startX = centered ? x - Math.floor(r.width / 2) : x;
+        const img = ctx.createImageData(r.width, r.height);
+        for (let p = 0; p < r.pixels.length; p++) {
+          const v = r.pixels[p]!;
+          const o = p * 4;
+          if (v === CHARSET_TRANSPARENT) {
+            img.data[o + 3] = 0;
+            continue;
+          }
+          const rgb = clutRgb(palette, v);
+          img.data[o] = rgb[0];
+          img.data[o + 1] = rgb[1];
+          img.data[o + 2] = rgb[2];
+          img.data[o + 3] = 255;
+        }
+        ctx.putImageData(img, startX, lineY);
+      }
     }
-    const rgb = clutRgb(palette, v);
-    img.data[o] = rgb[0];
-    img.data[o + 1] = rgb[1];
-    img.data[o + 2] = rgb[2];
-    img.data[o + 3] = 255;
+    lineY += charset.header.fontHeight;
   }
-  ctx.putImageData(img, startX, y);
 }
 
 /**

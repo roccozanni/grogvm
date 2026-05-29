@@ -85,6 +85,38 @@ export function measureText(
 }
 
 /**
+ * Word-wrap `text` to a maximum pixel `width`, returning the text with
+ * `\n` inserted at the chosen break points. Greedy line-packing on
+ * space boundaries — the SCUMM v5 convention (CHARSET_1 breaks talk
+ * text at spaces against the right margin). Explicit `\n` already in the
+ * text is preserved (each pre-split segment wraps independently). A
+ * single word wider than `width` is left whole on its own line (overflow
+ * rather than mid-word break), matching the original.
+ */
+export function wrapText(
+  payload: Uint8Array,
+  header: CharsetHeader,
+  text: string,
+  maxWidth: number,
+): string {
+  const out: string[] = [];
+  for (const paragraph of text.split('\n')) {
+    let line = '';
+    for (const word of paragraph.split(' ')) {
+      const candidate = line === '' ? word : `${line} ${word}`;
+      if (line === '' || measureText(payload, header, candidate).width <= maxWidth) {
+        line = candidate;
+      } else {
+        out.push(line);
+        line = word;
+      }
+    }
+    out.push(line);
+  }
+  return out.join('\n');
+}
+
+/**
  * Render `text` to an indexed pixel buffer.
  *
  * `colorMap` maps glyph bit-pattern values to CLUT indices: index 0 is

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { CHARSET_TRANSPARENT, parseCharHeader, type CharsetHeader } from './charset';
-import { measureText, renderText } from './text';
+import { measureText, renderText, wrapText } from './text';
 
 function u32le(n: number): number[] {
   return [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff];
@@ -177,5 +177,40 @@ describe('renderText', () => {
   it('throws when colorMap is shorter than 2^bpp', () => {
     const { payload, header } = makeAsciiCharset(1, 1, { A: [0x80] });
     expect(() => renderText(payload, header, 'A', new Uint8Array(1))).toThrow(/colorMap length/);
+  });
+});
+
+describe('wrapText', () => {
+  // Charset where 'A' and space are both 4px wide, fontHeight 8.
+  const cs = () =>
+    makeAsciiCharset(8, 4, {
+      A: [0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01],
+      ' ': [0, 0, 0, 0, 0, 0, 0, 0],
+    });
+
+  it('greedily packs words up to the max width', () => {
+    const { payload, header } = cs();
+    // widths: "AA"=8, "AA AA"=20, "AA AA AA"=32. maxWidth 20 fits two.
+    expect(wrapText(payload, header, 'AA AA AA', 20)).toBe('AA AA\nAA');
+  });
+
+  it('puts one word per line when the width is tight', () => {
+    const { payload, header } = cs();
+    expect(wrapText(payload, header, 'AA AA AA', 8)).toBe('AA\nAA\nAA');
+  });
+
+  it('keeps a single over-long word whole (overflow, no mid-word break)', () => {
+    const { payload, header } = cs();
+    expect(wrapText(payload, header, 'AAA', 4)).toBe('AAA');
+  });
+
+  it('preserves explicit newlines, wrapping each paragraph independently', () => {
+    const { payload, header } = cs();
+    expect(wrapText(payload, header, 'AA\nAA AA', 20)).toBe('AA\nAA AA');
+  });
+
+  it('is a no-op when the whole string fits', () => {
+    const { payload, header } = cs();
+    expect(wrapText(payload, header, 'AA AA', 100)).toBe('AA AA');
   });
 });

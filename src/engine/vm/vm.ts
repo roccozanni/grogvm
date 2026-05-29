@@ -366,6 +366,20 @@ export class Vm {
    */
   systemText: ActiveDialog | null = null;
   /**
+   * Remaining sentence pages of the current message (the text after each
+   * `\xff\x03` "wait" code), advanced by the talk timer in
+   * {@link beginTick}: when a page's `talkDelay` drains, the next page
+   * replaces it on the same channel and re-arms the timer, so a
+   * multi-sentence line ("Yikes!\xff\x03Non dovresti…") shows one
+   * sentence at a time instead of all at once. Empty for single-page
+   * lines — the common case — so paging is a no-op there.
+   */
+  private talkPages: string[] = [];
+  /** The dialog template (style/channel) the queued pages reuse. */
+  private talkPageDlg: ActiveDialog | null = null;
+  /** Whether the queued pages render on the system channel vs actor speech. */
+  private talkPageSystem = false;
+  /**
    * Persistent SCUMM `_string[0]` state for *system* `print`s (actor
    * 255 / no speaker — credits, signs, narrator). In the original, a
    * print's position/colour/centre fields are STICKY: a bare `print`
@@ -984,10 +998,22 @@ export class Vm {
     if (this.talkDelay > 0) {
       this.talkDelay--;
       if (this.talkDelay === 0) {
-        this.vars.writeGlobal(Vm.VAR_HAVE_MSG, 0);
-        const d = this.activeDialog;
-        if (d && d.actorId >= 1 && d.actorId <= this.actors.capacity) {
-          this.activeDialog = null;
+        if (this.talkPages.length > 0) {
+          // More sentence pages queued — flip to the next one and re-arm
+          // the timer instead of ending the message. VAR_HAVE_MSG stays
+          // set (beginTalk re-asserts it), so a wait-for-message keeps
+          // blocking until the final page finishes.
+          const next = this.talkPages.shift()!;
+          const dlg: ActiveDialog = { ...this.talkPageDlg!, text: next };
+          if (this.talkPageSystem) this.systemText = dlg;
+          else this.activeDialog = dlg;
+          this.beginTalk(next);
+        } else {
+          this.vars.writeGlobal(Vm.VAR_HAVE_MSG, 0);
+          const d = this.activeDialog;
+          if (d && d.actorId >= 1 && d.actorId <= this.actors.capacity) {
+            this.activeDialog = null;
+          }
         }
       }
     }
@@ -1032,9 +1058,25 @@ export class Vm {
     this.vars.writeGlobal(Vm.VAR_HAVE_MSG, 1);
   }
 
+  /**
+   * Queue the remaining sentence pages of a multi-part message (the text
+   * after each `\xff\x03`). `dlg` is the just-shown first page's dialog —
+   * reused as the style/channel template for each following page;
+   * `isSystem` selects the system vs actor-speech channel. Called by the
+   * `print` opcode right after `beginTalk` of the first page. A no-op for
+   * single-page lines, so it costs nothing in the common case.
+   */
+  queueTalkPages(pages: string[], dlg: ActiveDialog, isSystem: boolean): void {
+    this.talkPages = pages.slice();
+    this.talkPageDlg = dlg;
+    this.talkPageSystem = isSystem;
+  }
+
   /** Clear the current message immediately (empty `print`, room change). */
   endTalk(): void {
     this.talkDelay = 0;
+    this.talkPages = [];
+    this.talkPageDlg = null;
     this.vars.writeGlobal(Vm.VAR_HAVE_MSG, 0);
   }
 
@@ -1233,6 +1275,9 @@ export class Vm {
       clipped: null,
     };
     this.talkDelay = 0;
+    this.talkPages = [];
+    this.talkPageDlg = null;
+    this.talkPageSystem = false;
     this.camera.x = 0;
     this.cameraFollowActor = 0;
     this.screen.top = 0;

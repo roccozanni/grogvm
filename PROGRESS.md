@@ -100,6 +100,34 @@ needed for Talk-to an actor).
 The inspector has stable DOM during Play; controls + frame stack mount
 once and only canvas pixels update per tick.
 
+### Session log (dialog word-wrap + \xff\x03 sentence paging)
+
+Dialog text now lays out properly instead of overflowing / mashing:
+
+- **Word-wrap + per-line centring.** `wrapText` (graphics/text.ts) breaks
+  talk text on spaces to a `TALK_MAX_WIDTH` (screen − 32px) box; an
+  over-long single word stays whole. `drawText` was rewritten to render
+  each `\n`-separated line on its own and centre it independently — it
+  used to left-align every line within the widest line's bbox. The
+  overhead bubble grows upward (block bottom anchored above the speaker)
+  and is clamped on-screen. +5 wrapText tests.
+- **`\xff\x03` = sentence page break.** MI1 separates sentences with the
+  "wait" code, which we used to strip → "Salve!Mi chiamo…" mashed.
+  `decodeScummStringPages` splits a print into pages; the first shows
+  immediately, the rest queue via `vm.queueTalkPages` and the talk timer
+  flips to each in turn (`beginTick`), holding `VAR_HAVE_MSG` until the
+  last. Gated on page-count > 1, so single-page lines are unchanged.
+  Verified on real data ("Salve!" → "Mi chiamo Guybrush…"; "Yikes!" →
+  "Non dovresti…"). +2 vm tests.
+
+(Earlier the same session: actorFromPos/Talk-to + faithful click-to-walk,
+committed as d067108; a per-char typewriter was tried and reverted —
+v5 has no per-char reveal.)
+
+Tests: **586 across 46 files**; typecheck clean; intro still runs into
+room 33. ⚠️ Visual feel of the wrapped/centred bubbles + the page pacing
+wants an in-browser look when convenient.
+
 ### Session log (Talk-to / actorFromPos + faithful click-to-walk)
 
 Closed both engine "faithful input refinements" (next-steps #3 b+c):
@@ -380,11 +408,20 @@ In rough dependency order:
    v5 engine draws the whole talk string in one pass and `VAR_CHARINC`
    only sets the *hold duration* (`talkDelay = length × charinc`, already
    wired and correct). There is no typewriter for actor talk; the
-   reveal was unfaithful and is gone. Remaining dialog polish (real,
-   still open): **word-wrap / per-line centring** for long lines (they
-   overflow the viewport), and honoring the inline `\xff\x03`
-   wait/keep-text breaks between phrases (the "Salve!" / "Mi chiamo…"
-   split currently renders as one mashed stream).
+   reveal was unfaithful and is gone.
+   **Word-wrap + per-line centring + `\xff\x03` paging — DONE.** Long
+   talk lines now word-wrap to a text box (`wrapText` in
+   `graphics/text.ts`, greedy break on spaces to `TALK_MAX_WIDTH` =
+   screen − 32px) and `drawText` centres each wrapped line independently
+   (it used to left-align lines within one block). The inline `\xff\x03`
+   "wait" code — which MI1 puts between sentences — is now honoured as a
+   **sentence page break**: `decodeScummStringPages` splits the print
+   into pages, the first shows immediately and the rest are queued
+   (`vm.queueTalkPages`) and advanced by the talk timer in `beginTick`,
+   so "Yikes!" then "Non dovresti…" show one at a time (verified on real
+   data). Gated on page-count > 1 → zero change for single-page lines.
+   Remaining dialog polish (minor): the overhead bubble's vertical anchor
+   is rough, and `\xff\x04+` substitutions are still dropped.
 3. **Faithful input refinements** — the big "rebuild input through #23"
    premise was a misread (see the corrected input-model note up top:
    `handleSceneClick`'s enqueue IS faithful). Remaining items:
@@ -423,13 +460,13 @@ Polish / known gaps (any time):
   strip, which was a separate bg-colour bug, now fixed.)
 - Lookout (room 38) renders very dark — it's a night scene; the
   compositor doesn't honor `VAR_CURRENT_LIGHTS` (cosmetic).
-- **No word-wrap / per-line centring for dialog text.** Long talk lines
-  (e.g. Guybrush's opening "Salve!…un pirata!") render as a single
-  unwrapped stream and overflow the viewport. SCUMM strings also carry
-  inline `\xff\x03` (wait/keep-text) breaks between phrases ("Salve!" /
-  "Mi chiamo…") that we currently strip, mashing the phrases together
-  with no separator. Proper fix = honor the wait/newline control codes
-  and word-wrap to a text-box width. Deferred (non-trivial); tracked.
+- ~~No word-wrap / per-line centring; `\xff\x03` phrases mashed.~~
+  **DONE** — `wrapText` word-wraps talk to a text box, `drawText` centres
+  each line, and `\xff\x03` is honoured as a sentence page break
+  (`decodeScummStringPages` + `vm.queueTalkPages`, advanced by the talk
+  timer). See next-steps #2. Still open (minor): `\xff\x04+`
+  substitutions are dropped, and the overhead-bubble vertical anchor is
+  approximate.
 - **Credits colour: reference shows magenta, we render teal (color 3).**
   Confirmed *not* a bug in our pipeline: the title *and* the credit roll
   both use `SO_COLOR 3` (the credit roll inherits it from a sticky
@@ -739,7 +776,11 @@ several can progress in parallel after the input foundation lands.
       on them). Length tracking: codes 0x01–0x03 are 2-byte;
       0x04–0x0E are 4-byte.
 - [ ] `0x02` keep-text — see dialog section above.
-- [ ] `0x03` wait — pauses text rendering until user click.
+- [x] `0x03` wait — honoured as a **sentence page break** (not a
+      user-click pause). `decodeScummStringPages` splits the message at
+      each `\xff\x03`; the talk timer shows one page at a time via
+      `vm.queueTalkPages` (advanced in `beginTick`). Verified on MI1's
+      "Yikes!\xff\x03Non dovresti…".
 - [ ] `0x04..0x0A` variable / object / verb / actor / string
       substitution. None are wired; control sequences silently
       drop.

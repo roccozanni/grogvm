@@ -644,7 +644,10 @@ function printHandler(actor: number, vm: Vm, slot: ScriptSlot): void {
       case 0x0f: {
         // SO_TEXTSTRING — read NUL-terminated text and exit the opcode.
         const buf = readScummString(slot);
-        const text = decodeScummString(buf);
+        // Split into sentence pages at \xff\x03; the first shows now, the
+        // rest are queued and advanced by the talk timer (see queueTalkPages).
+        const pages = decodeScummStringPages(buf);
+        const text = pages[0] ?? '';
         const preview = Array.from(buf)
           .map((b) => (b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : `\\x${b.toString(16).padStart(2, '0')}`))
           .join('');
@@ -697,6 +700,9 @@ function printHandler(actor: number, vm: Vm, slot: ScriptSlot): void {
           // Pace the conversation: mark the message as "being said" so
           // a following wait-for-message holds until it's read.
           vm.beginTalk(text);
+          // Queue any further sentence pages (\xff\x03-separated); the
+          // talk timer flips to each in turn before the message clears.
+          vm.queueTalkPages(pages.slice(1), dlg, isSystem);
         }
         vm.annotate(`print actor=${actor} [${ops.join(',')}] "${preview}"`);
         return;
@@ -1792,6 +1798,34 @@ function decodeScummString(payload: Uint8Array): string {
     i++;
   }
   return String.fromCharCode(...out);
+}
+
+/**
+ * Decode a SCUMM string into **sentence pages**, split at the `\xff\x03`
+ * "wait" control code. The original engine shows the text up to a
+ * `\xff\x03`, waits out its talk delay, then displays the next chunk —
+ * MI1's dialog is full of these (e.g. "Yikes!\xff\x03Non dovresti…").
+ * Each page is decoded like {@link decodeScummString} (`\xff\x01` →
+ * newline; other control codes stripped). Empty pages are dropped.
+ * A string with no `\xff\x03` yields a single page == decodeScummString.
+ */
+function decodeScummStringPages(payload: Uint8Array): string[] {
+  const pages: number[][] = [[]];
+  let i = 0;
+  while (i < payload.length) {
+    const b = payload[i]!;
+    if (b === 0xff) {
+      const code = payload[i + 1] ?? 0;
+      if (code === 0x01) pages[pages.length - 1]!.push(0x0a); // newline
+      else if (code === 0x03) pages.push([]); // wait → start a new page
+      // 0x02 (keep-text) and 0x04+ (substitutions) are consumed + dropped.
+      i += code >= 0x04 ? 4 : 2;
+      continue;
+    }
+    pages[pages.length - 1]!.push(b);
+    i++;
+  }
+  return pages.map((p) => String.fromCharCode(...p)).filter((p) => p.length > 0);
 }
 
 // ─── 0xCC  pseudoRoom ────────────────────────────────────────────────
