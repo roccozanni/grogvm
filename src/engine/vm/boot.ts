@@ -36,14 +36,20 @@ export interface BootResult {
 
 /**
  * Boot script #1's first local (`L0`) is the **boot parameter**.
- * Verified against MI1: after the credits, `#1` branches on it —
- * `L0 == 0` → the attract / title-idle setup (places ego in room 0 and
- * spins the input loop #23, leaving a black screen waiting for input);
- * `L0 != 0` → the new-game path that loads the opening scene (Mêlée
- * Island lookout, room 38) with Guybrush placed. Both 1 and 2 land on
- * room 38, so it's a "start a new game" flag, not a level index.
- * Default 1 so a fresh boot plays the credits and then drops into the
- * first interactive room.
+ * Verified against MI1, it selects the boot's *late* branch (after the
+ * credits-wait):
+ * - `L0 == 0` → plays the credits cutscene (room 10), then the
+ *   attract / title-idle setup (parks ego in room 0, spins the input
+ *   loop #23). This is the real intro's first half.
+ * - `L0 != 0` → **skips the credits** and jumps straight to a new game
+ *   in the opening scene (Mêlée Island lookout, room 38). A "skip
+ *   intro / new game" shortcut — both 1 and 2 land on room 38.
+ *
+ * Default 0: a fresh boot plays the cutscene (matching the original
+ * intro). The credits → lookout auto-transition is NOT either param on
+ * its own — it's triggered from the title-idle state (TODO: still being
+ * reverse-engineered). `BOOT_PARAM_NEW_GAME` is exposed for testing the
+ * lookout directly.
  */
 export const BOOT_PARAM_NEW_GAME = 1;
 export const BOOT_PARAM_ATTRACT = 0;
@@ -53,7 +59,7 @@ export function bootGame(
   index: IndexFile,
   loff: RoomOffsetTable,
   gameId: GameId,
-  bootParam: number = BOOT_PARAM_NEW_GAME,
+  bootParam: number = BOOT_PARAM_ATTRACT,
 ): BootResult {
   const vm = new Vm({
     numVariables: Math.max(index.maxs.numVariables, 800),
