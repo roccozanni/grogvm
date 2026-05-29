@@ -167,17 +167,11 @@ export function mountVmFrameInput(args: MountInputArgs): MountedInput {
     // middle for now (panning could land here later).
     const button = ev.button === 2 ? 'right' : ev.button === 0 ? 'left' : null;
     if (!button) return;
-    // Queue the one-shot press + flip the sticky hold flag — the VM
-    // mirrors both into engine VARs (VAR_LEFTBTN_DOWN one-shot,
-    // VAR_LEFTBTN_HOLD sticky) at the start of each tick so scripts
-    // that poll for input see the right pulse.
-    if (button === 'left') {
-      vm.input.leftPressQueued = true;
-      vm.input.leftHold = true;
-    } else {
-      vm.input.rightPressQueued = true;
-      vm.input.rightHold = true;
-    }
+    // Flip the sticky hold flag (diagnostic). The discrete click is
+    // delivered via the onLeftClick / onRightClick callbacks below,
+    // which route into the engine's click handling.
+    if (button === 'left') vm.input.leftHold = true;
+    else vm.input.rightHold = true;
     const p = point(ev);
     const evt: ClickEvent = { ...p, button, modifiers: modsOf(ev) };
     if (button === 'left') args.onLeftClick?.(evt);

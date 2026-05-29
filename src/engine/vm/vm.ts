@@ -334,21 +334,13 @@ export class Vm {
    */
   readonly screen = { top: 0, bottom: 200 };
   /**
-   * Pending input state the runtime mirrors into engine VARs at the
-   * start of each tick. The shell input layer mutates these on
-   * pointerdown / pointerup; {@link Vm.beginTick} converts the queued
-   * "press" pulses into a one-tick `VAR_LEFTBTN_DOWN` pulse and the
-   * sticky hold flags into `VAR_LEFTBTN_HOLD` / `VAR_RIGHTBTN_HOLD`.
-   *
-   * Why a queue + sticky split: SCUMM scripts typically poll for
-   * "button just went down this frame" (the one-shot) AND "button is
-   * still held" (sticky). A single boolean conflates the two and
-   * causes wait-loops to either miss the press (if cleared too early)
-   * or fire forever (if never cleared).
+   * Sticky pointer-button hold state, mutated by the shell input layer
+   * on pointerdown / pointerup. Surfaced in the inspector's Input panel
+   * for diagnostics. Discrete clicks are handled event-driven via
+   * {@link handleSceneClick} / {@link handleVerbClick}, not by polling
+   * these flags.
    */
   readonly input = {
-    leftPressQueued: false,
-    rightPressQueued: false,
     leftHold: false,
     rightHold: false,
   };
@@ -375,14 +367,11 @@ export class Vm {
    *
    *   - `VAR_MUSIC_TIMER` (14) — auto-incremented per tick by
    *     {@link beginTick}. MI1's credits cutscene waits on it.
-   *   - `VAR_CURSORSTATE` (52) — `beginTick` pulses the left-press bit
-   *     here; MI1 boot script #23 polls it to enter the main menu.
    *   - `VAR_USERPUT` (53) — whether user input is currently enabled.
    *   - `VAR_SENTENCE_SCRIPT` (33) — *holds the id of* the sentence
    *     script (MI1 writes 2). Read by {@link processSentence}.
    */
   static readonly VAR_MUSIC_TIMER = VARS.VAR_MUSIC_TIMER;
-  static readonly VAR_CURSORSTATE = VARS.VAR_CURSORSTATE;
   static readonly VAR_USERPUT = VARS.VAR_USERPUT;
   static readonly VAR_SENTENCE_SCRIPT = VARS.VAR_SENTENCE_SCRIPT;
   /**
@@ -769,36 +758,26 @@ export class Vm {
   }
 
   /**
-   * Mirror pending input + cursor state into the engine VARs scripts
-   * poll. Called by the main-loop driver (the inspector) once at the
-   * start of each tick — *before* `runUntilAllYield` — so any script
-   * that runs this tick sees the freshest input state.
+   * Mirror engine state into the VARs scripts poll. Called by the
+   * main-loop driver (the inspector) once at the start of each tick —
+   * *before* `runUntilAllYield` — so any script that runs this tick
+   * sees the freshest state.
    *
-   * Pulse semantics:
-   *   - `VAR_CURSORSTATE` (52) carries the left-press bit: set to 1
-   *     only on the single tick where a press has been queued since
-   *     the last call, then cleared the following tick. Matches the
-   *     SCUMM convention where scripts poll "did the user press *this*
-   *     frame?" without having to clear after consuming. (Index 52 is
-   *     the full cursor-state var; we currently treat it as a press
-   *     pulse, which is enough for MI1 boot #23.)
-   *   - `VAR_USERPUT` is sticky — reflects {@link cursor.userput} as
-   *     the script understands it.
+   *   - `VAR_USERPUT` reflects {@link cursor.userput} (whether user
+   *     input is currently enabled).
+   *   - `VAR_MUSIC_TIMER` auto-increments — scripts reset it to 0 then
+   *     poll for a target to pace cutscenes (MI1's credits wait on it).
+   *
+   * We deliberately do NOT touch `VAR_CURSORSTATE` (52): it's an
+   * engine-managed cursor-state var, not a "button pressed this frame"
+   * flag. An earlier hack pulsed it on left-press believing MI1 boot
+   * #23 polled it to enter the title menu — but #23 idle-spins
+   * regardless (the menu appears purely from the music-timer gate), so
+   * the pulse drove nothing and only clobbered the var. Clicks now
+   * route through {@link handleSceneClick} / {@link handleVerbClick}.
    */
   beginTick(): void {
-    this.vars.writeGlobal(
-      Vm.VAR_CURSORSTATE,
-      this.input.leftPressQueued ? 1 : 0,
-    );
-    this.input.leftPressQueued = false;
-    // Right-button-down index isn't known yet — wire when a script
-    // surfaces the polling pattern.
-    this.input.rightPressQueued = false;
     this.vars.writeGlobal(Vm.VAR_USERPUT, this.cursor.userput ? 1 : 0);
-    // Tick the music timer. Scripts reset it to 0 then poll for a
-    // target value to pace cutscenes — MI1's credits wait on it.
-    // (Indices 15/16 are VAR_ACTOR_RANGE_MIN/MAX, NOT timers — the
-    // old code wrongly auto-incremented them; see vars.ts.)
     this.vars.writeGlobal(
       Vm.VAR_MUSIC_TIMER,
       this.vars.readGlobal(Vm.VAR_MUSIC_TIMER) + 1,
@@ -857,8 +836,6 @@ export class Vm {
     this.verbs.clear();
     this.currentVerb = null;
     this.sentenceStack.length = 0;
-    this.input.leftPressQueued = false;
-    this.input.rightPressQueued = false;
     this.input.leftHold = false;
     this.input.rightHold = false;
     this.activeDialog = null;

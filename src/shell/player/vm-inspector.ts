@@ -794,35 +794,6 @@ function renderControls(
   skip.addEventListener('click', skipCutscene);
   bar.appendChild(skip);
 
-  // Synthesises a left-button-down pulse without needing the room
-  // canvas — critical for the title-menu state where no room is
-  // loaded and the play-area canvas doesn't exist, but scripts are
-  // still polling VAR_LEFTBTN_DOWN waiting for a click. Advances one
-  // tick so the next-tick clear happens after the script consumes
-  // the pulse.
-  const click = button('Click ←');
-  click.disabled = !state.vm || state.vm.isHalted;
-  click.title = 'Queue a synthetic left-button press and advance one engine tick';
-  click.addEventListener('click', () => {
-    if (!state.vm) return;
-    state.vm.input.leftPressQueued = true;
-    state.vm.input.leftHold = true;
-    state.vm.beginTick();
-    for (const s of state.vm.slots) {
-      if (s.delayRemaining > 0) {
-        s.delayRemaining--;
-        continue;
-      }
-      s.resume();
-    }
-    state.vm.runUntilAllYield();
-    // Release the hold after the tick so a real script that latches
-    // on hold doesn't think the user is dragging.
-    state.vm.input.leftHold = false;
-    repaint();
-  });
-  bar.appendChild(click);
-
   const reset = button('Reset');
   reset.disabled = !state.vm;
   reset.title = 'Wipe slots, vars, trace, halt — return to pre-Boot state';

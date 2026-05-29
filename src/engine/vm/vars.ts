@@ -17,10 +17,14 @@
  * A few indices the engine already touches were named by reverse-
  * engineering before this table existed. The truth:
  *
- *   - **52 is `VAR_CURSORSTATE`**, not a dedicated "left button down"
- *     var. `beginTick` currently pulses index 52 on left-press because
- *     MI1 boot script #23 polls it — the press bit lives *inside*
- *     cursor state. Behaviour kept; name corrected here.
+ *   - **52 is `VAR_CURSORSTATE`** (engine-managed cursor state), not a
+ *     "left button down" var. An earlier hack pulsed index 52 on
+ *     left-press believing MI1 boot #23 polled it to enter the title
+ *     menu — but #23 idle-spins regardless and the menu actually
+ *     appears from the music-timer gate (g14 > 5700). The pulse drove
+ *     nothing and clobbered the var, so it was removed; the VM no
+ *     longer writes 52. Clicks route through vm.handleSceneClick /
+ *     handleVerbClick instead.
  *   - **14 is `VAR_MUSIC_TIMER`.** The credits cutscene waits on it,
  *     which is why auto-incrementing index 14 each tick is correct.
  *   - **15 / 16 are `VAR_ACTOR_RANGE_MIN` / `_MAX`**, NOT timers.

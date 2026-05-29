@@ -285,40 +285,21 @@ describe('Vm — reset', () => {
     expect(vm.mouseRoomY).toBe(0);
   });
 
-  it('clears pending + sticky input flags', () => {
+  it('clears sticky input hold flags', () => {
     const vm = makeVm();
-    vm.input.leftPressQueued = true;
     vm.input.leftHold = true;
     vm.input.rightHold = true;
     vm.reset();
-    expect(vm.input.leftPressQueued).toBe(false);
     expect(vm.input.leftHold).toBe(false);
     expect(vm.input.rightHold).toBe(false);
   });
 });
 
 describe('Vm — beginTick', () => {
-  /** beginTick writes to globals 52 / 53 — use a var bank big enough so
-   *  the writes aren't silently absorbed by the OOB-leniency handler. */
+  /** beginTick writes to global 53 — use a var bank big enough so the
+   *  write isn't silently absorbed by the OOB-leniency handler. */
   const makeWideVm = () =>
     new Vm({ numVariables: 100, numBitVariables: 64, handlers: new Map() });
-
-  it('pulses VAR_CURSORSTATE for exactly one tick after a queued press', () => {
-    const vm = makeWideVm();
-    vm.input.leftPressQueued = true;
-    vm.beginTick();
-    expect(vm.vars.readGlobal(Vm.VAR_CURSORSTATE)).toBe(1);
-    // Next tick — no new press queued — should be 0.
-    vm.beginTick();
-    expect(vm.vars.readGlobal(Vm.VAR_CURSORSTATE)).toBe(0);
-  });
-
-  it('consumes leftPressQueued so subsequent ticks see 0', () => {
-    const vm = makeWideVm();
-    vm.input.leftPressQueued = true;
-    vm.beginTick();
-    expect(vm.input.leftPressQueued).toBe(false);
-  });
 
   it('mirrors vm.cursor.userput into VAR_USERPUT', () => {
     const vm = makeWideVm();
