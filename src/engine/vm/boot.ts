@@ -91,10 +91,14 @@ function seedEngineVariables(vm: Vm, gameId: GameId): void {
   }
 }
 
-// The exact var indices vary slightly between v5 games; these are the
-// commonly-cited slots. We name them here so the seed call site reads
-// like docs, and we can adjust the numbers without hunting through
-// the codebase.
+// ⚠️ These indices DISAGREE with the canonical v5 table in `vars.ts`:
+// 17/18 are VAR_CAMERA_MIN_X/MAX_X, 19 is VAR_TIMER_NEXT, 21 is
+// VAR_VIRT_MOUSE_Y — there is no "screen width/height" var in v5
+// (screen dims come from the room). These seeds are early empirical
+// guesses kept as anti-uninitialised-read scaffolding; the boot plays
+// through with them, so a proper pass to seed the *right* indices is
+// deferred until something observably needs it. Do not trust these
+// names — see vars.ts.
 const VAR_SCREEN_WIDTH = 17;
 const VAR_SCREEN_HEIGHT = 18;
 const VAR_GAME_ID = 19;

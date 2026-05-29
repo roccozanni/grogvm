@@ -30,6 +30,7 @@ import { startAnim } from '../../graphics/costume-anim';
 import { pickObject } from '../../object/hittest';
 import { findPath } from '../../pathfinding/grid';
 import { evalExpression } from '../expression';
+import { SENTENCE_CLEAR_VERB } from '../sentence';
 import {
   derefRead,
   formatRefLabel,
@@ -1477,44 +1478,45 @@ register(0x8a, startScriptHandler);
 register(0xaa, startScriptHandler);
 register(0xca, startScriptHandler);
 register(0xea, startScriptHandler);
-/**
- * SCUMM v5 reserves script ids >= 200 for LSCR local scripts. Those
- * live inside the current room's ROOM block and have to be resolved
- * via `vm.loadedRoom.localScripts`, not the global DSCR directory.
- */
-const LSCR_THRESHOLD = 200;
-
 function startScriptHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const scriptId = readVarOrByte(opcode, 1, slot, vm.vars);
   const args = readWordVararg(slot, vm.vars);
 
-  let bytecode: Uint8Array;
-  let room: number;
-  if (scriptId >= LSCR_THRESHOLD) {
-    const localBytecode = vm.loadedRoom?.localScripts.get(scriptId);
-    if (!localBytecode) {
-      throw new Error(
-        `startScript: local script #${scriptId} not present in current room ` +
-          `${vm.currentRoom} (loaded=${vm.loadedRoom?.id ?? 'none'})`,
-      );
-    }
-    bytecode = localBytecode;
-    room = vm.loadedRoom!.id;
-  } else {
-    if (!vm.resolveGlobalScript) {
-      throw new Error('startScript: no global script resolver configured');
-    }
-    const resolved = vm.resolveGlobalScript(scriptId);
-    bytecode = resolved.bytecode;
-    room = resolved.room;
-  }
-
   // Recursive (bit 0x40) and freeze-resistant (bit 0x20) flags on the
   // opcode byte aren't honoured yet — every start lands in the lowest
-  // free slot regardless.
-  const child = vm.startScript({ scriptId, bytecode, room, args });
+  // free slot regardless. Resolution (global DSCR vs room-local LSCR)
+  // lives in vm.startScriptById.
+  const child = vm.startScriptById(scriptId, { args });
   vm.annotate(`startScript #${scriptId} slot=${child.slotIndex} args=[${args.join(',')}]`);
 }
+
+// ─── 0x19  doSentence ────────────────────────────────────────────────
+// Enqueue a (verb, objectA, objectB) sentence for the sentence-script
+// driver, OR clear the queue when verb == 0xFE. Layout: verb (var-or-
+// byte via bit 0x80), then — only when not clearing — objectA and
+// objectB (each var-or-word via bits 0x40 / 0x20). The clear form
+// carries no object operands, matching the original engine's early
+// return. The eight family variants share param-mode bits.
+function doSentenceHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
+  const verb = readVarOrByte(opcode, 1, slot, vm.vars);
+  if (verb === SENTENCE_CLEAR_VERB) {
+    vm.clearSentence();
+    vm.annotate('doSentence clear');
+    return;
+  }
+  const objectA = readVarOrWord(opcode, 2, slot, vm.vars);
+  const objectB = readVarOrWord(opcode, 3, slot, vm.vars);
+  vm.pushSentence({ verb, objectA, objectB });
+  vm.annotate(`doSentence verb=${verb} objA=${objectA} objB=${objectB}`);
+}
+register(0x19, doSentenceHandler);
+register(0x39, doSentenceHandler);
+register(0x59, doSentenceHandler);
+register(0x79, doSentenceHandler);
+register(0x99, doSentenceHandler);
+register(0xb9, doSentenceHandler);
+register(0xd9, doSentenceHandler);
+register(0xf9, doSentenceHandler);
 
 // ─── 0x0C  resourceRoutines ──────────────────────────────────────────
 // Load / nuke / lock / unlock a resource (script, sound, costume,

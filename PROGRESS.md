@@ -69,7 +69,15 @@ Where to pick up tomorrow (in dependency order):
    args)` launches it as a labelled synthetic slot with the 0xFF
    default-verb fallback. +18 tests (471 total). Not yet UI-wired —
    the click→verb-script path goes through the sentence flow (#2).
-2. **Sentence stack + `doSentence` (0x19)** — enqueue
+2. ✅ **Sentence stack + `doSentence` (0x19)** — DONE.
+   `vm.sentenceStack` + `pushSentence`/`clearSentence`, the
+   `doSentence` opcode family, and `vm.processSentence()` (per-tick
+   driver reading the script id from `VAR_SENTENCE_SCRIPT`=33, which
+   MI1 sets to #2). +10 tests (481 total). Driver wired into the
+   inspector tick. Still needs the UI click → `pushSentence` path
+   (via the verb input script) — lands with the first interactive
+   room. **Next: wait opcodes (#3 below).**
+2. **(orig) Sentence stack + `doSentence` (0x19)** — enqueue
    `(verb, obj1, obj2)`, the sentence-script driver dequeues
    and starts global script `VAR_SENTENCE_SCRIPT (#33)`. Wires
    the verb-bar click → sentence → walk-to → verb-script flow.
@@ -239,21 +247,32 @@ several can progress in parallel after the input foundation lands.
 
 **Sentence stack — `src/engine/vm/sentence.ts`**
 
-- [ ] `vm.sentenceQueue: Array<{verb, obj1, obj2}>`. Sentences
-      get enqueued by the verb UI when the user commits a
-      verb+object combo.
-- [ ] `doSentence` opcode (`0x19`) — already partially stubbed —
-      either *enqueues* a sentence (when `verb != 0xFE`) or
-      *clears* the queue (`verb == 0xFE`). Wire it through.
-- [ ] **Sentence script driver**: each engine tick, if the queue
-      is non-empty and no sentence is currently running, dequeue
-      the front sentence and start the engine's global *sentence
-      script* (id from `VAR_SENTENCE_SCRIPT` = global #33) with
-      `(verb, obj1, obj2)` as the first three locals. The
-      sentence script then walks the actor, faces the object,
-      runs the appropriate verb script, etc.
-- [ ] `sentence.test.ts` — enqueue + dequeue, clear, script slot
-      labelling (`SENTENCE-{verb}-{obj1}-{obj2}`).
+- [x] `vm.sentenceStack: Sentence[]` (`{verb, objectA, objectB}`),
+      treated as LIFO to match the original engine's
+      `_sentence[_sentenceNum-1]` pop order. `pushSentence` /
+      `clearSentence` mutate it; cleared on `reset()`.
+- [x] `doSentence` opcode (`0x19` + family) — *enqueues* a sentence
+      when `verb != 0xFE`, or *clears* the queue when `verb == 0xFE`
+      (the clear form reads no object operands, matching the
+      original's early return). Param modes via the family bits.
+- [x] **Sentence script driver** `vm.processSentence()` — called
+      once per tick by the inspector (after `beginTick`, before
+      draining). If a sentence is queued and the sentence script
+      isn't already running, pops the most-recent sentence and starts
+      the script whose id is **held in `VAR_SENTENCE_SCRIPT` (global
+      33)** with `[verb, objA, objB]` as locals[0..2]. Empirically
+      confirmed: MI1's VAR[33] = script **#2**, whose prologue reads
+      local1 / local2 (`scratch/inspect-sentence.ts`) — so locals,
+      not VARs, are the arg channel.
+- [x] `sentence.test.ts` (10) — enqueue (direct + var operands),
+      0xFE clear, LIFO pop, locals + `SENTENCE-{v}-{a}-{b}` label,
+      no-op while running / empty / unset-var, clear + reset.
+- [ ] **Not yet: UI click → `pushSentence`.** The room-click handler
+      still only identifies the object. The faithful path runs the
+      *verb input script* (`VAR_VERB_SCRIPT` = 32, MI1 = local #201)
+      which itself calls `doSentence` — that needs the click-area
+      VARs and a real interactive room, so it lands with the
+      first-room milestone rather than here.
 
 **Verb bar — `vm.verbs` state + `src/shell/player/play-area.ts`**
 
@@ -458,9 +477,14 @@ several can progress in parallel after the input foundation lands.
 
 **Engine variables to wire**
 
-A handful of system vars (per the wiki list) are read by scripts
-and need real values. Most are read-only from the script's
-perspective.
+📋 **The complete canonical SCUMM v5 system-var index table now
+lives in `src/engine/vm/vars.ts`** — the single source of truth, so
+we stop guessing indices empirically. A constant existing there only
+records its *meaning*; the engine acts on one only when wired. Several
+earlier empirical names were wrong and are reconciled in that file's
+header (notably: 52 = `VAR_CURSORSTATE` not "leftbtn", 14 =
+`VAR_MUSIC_TIMER`, 15/16 = `VAR_ACTOR_RANGE_MIN/MAX` and must NOT
+auto-increment — fixed). Below: which ones the engine currently acts on.
 
 - [x] `VAR_MOUSE_X` (44) / `VAR_MOUSE_Y` (45) — written on every
       `pointermove` by the input layer.
@@ -469,25 +493,28 @@ perspective.
       camera scrolls.
 - [x] `VAR_USERPUT` (53) — mirrored each tick from
       `vm.cursor.userput` by `Vm.beginTick()`.
-- [x] `VAR_LEFTBTN_DOWN` (g52, empirical) — one-shot pulse on
-      left pointerdown, cleared the following tick. Index
-      identified by tracing MI1 boot's script #23 wait loop with
-      the new var-ref annotations on the comparison opcodes.
-      `VAR_RIGHTBTN_DOWN` left out — index unknown until a script
-      surfaces the polling pattern.
+- [x] `VAR_CURSORSTATE` (g52) — one-shot left-press pulse, cleared
+      the following tick. MI1 boot's script #23 polls it to enter the
+      main menu. (Index found by tracing #23's wait loop; the
+      canonical name is `VAR_CURSORSTATE` — the press bit lives inside
+      the cursor-state var. `VAR_RIGHTBTN_DOWN` has no v5 index.)
 - [x] `VAR_EGO` (g1) — set by the boot script. Used by
       `actorOrNull` to resolve `actor=0` to the player character
       (SCUMM v5 ego shorthand). MI1 boot's title-menu setup uses
       `putActor 0` to place Guybrush — without ego resolution
       Guybrush was never placed.
-- [x] `VAR_TIMER_1 / 2 / 3` (g14 / g15 / g16) —
-      auto-incrementing per-tick timers, written by
-      `Vm.beginTick()`. Scripts reset to 0 and poll for a target
-      to implement delays (MI1 credits wait `g14 > 5700`).
+- [x] `VAR_MUSIC_TIMER` (g14) — auto-incremented per tick by
+      `Vm.beginTick()`. Scripts reset it to 0 and poll for a target
+      to pace cutscenes (MI1 credits wait `g14 > 5700`). **Only 14
+      is incremented now** — the old code also bumped 15/16, which
+      are `VAR_ACTOR_RANGE_MIN/MAX`, not timers (boot still settles
+      at 125 ticks after the fix, confirming only 14 mattered).
+- [x] `VAR_SENTENCE_SCRIPT` (g33) — read by `vm.processSentence()`;
+      holds the sentence script id (MI1 = #2).
 - [ ] `VAR_HAVE_MSG` (3) — written by dialog renderer (1 while
       dialog is showing, 0 when done).
-- [ ] `VAR_CUTSCENEEXIT_KEY` (24) — the key code for "skip
-      cutscene" (Escape = 0x1B).
+- [ ] `VAR_CUTSCENEEXIT_KEY` (24) — key code for "skip cutscene"
+      (Escape = 0x1B = 27; confirmed MI1 seeds g24 = 27).
 - [ ] `VAR_TALK_ACTOR` (25) — currently-talking actor id (set
       when the dialog renderer activates).
 

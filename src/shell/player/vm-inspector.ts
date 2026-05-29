@@ -220,6 +220,10 @@ export function renderVmInspector(
     // resuming scripts so any wait loop polling VAR_LEFTBTN_DOWN /
     // VAR_USERPUT sees the freshest value this tick.
     state.vm.beginTick();
+    // Sentence-script driver: if the user committed a verb+object this
+    // tick (or a script pushed a follow-up), start the sentence script
+    // before draining so it runs this tick.
+    state.vm.processSentence();
     let resumed = false;
     for (const s of state.vm.slots) {
       if (s.status === 'yielded' || s.status === 'frozen') {
@@ -580,7 +584,7 @@ function renderInputPanel(state: InspectorState): HTMLElement {
   varsRow.className = 'vm-input-live';
   varsRow.textContent =
     `leftHold=${vm.input.leftHold} · rightHold=${vm.input.rightHold} · ` +
-    `VAR_LEFTBTN_DOWN(g52)=${vm.vars.readGlobal(52)} · ` +
+    `VAR_CURSORSTATE(g52)=${vm.vars.readGlobal(52)} · ` +
     `VAR_USERPUT(g53)=${vm.vars.readGlobal(53)}`;
   panel.appendChild(varsRow);
 

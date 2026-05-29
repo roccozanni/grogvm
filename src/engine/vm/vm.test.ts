@@ -303,14 +303,14 @@ describe('Vm — beginTick', () => {
   const makeWideVm = () =>
     new Vm({ numVariables: 100, numBitVariables: 64, handlers: new Map() });
 
-  it('pulses VAR_LEFTBTN_DOWN for exactly one tick after a queued press', () => {
+  it('pulses VAR_CURSORSTATE for exactly one tick after a queued press', () => {
     const vm = makeWideVm();
     vm.input.leftPressQueued = true;
     vm.beginTick();
-    expect(vm.vars.readGlobal(Vm.VAR_LEFTBTN_DOWN)).toBe(1);
+    expect(vm.vars.readGlobal(Vm.VAR_CURSORSTATE)).toBe(1);
     // Next tick — no new press queued — should be 0.
     vm.beginTick();
-    expect(vm.vars.readGlobal(Vm.VAR_LEFTBTN_DOWN)).toBe(0);
+    expect(vm.vars.readGlobal(Vm.VAR_CURSORSTATE)).toBe(0);
   });
 
   it('consumes leftPressQueued so subsequent ticks see 0', () => {

@@ -35,8 +35,10 @@ import { ActorTable, DEFAULT_ACTOR_COUNT } from '../actor/actor';
 import { findVerbScript } from '../object/verbs';
 import type { LoadedCostume } from '../graphics/costume-loader';
 import type { LoadedRoom } from '../room/loader';
+import type { Sentence } from './sentence';
 import { ScriptSlot } from './slot';
 import { Variables } from './variables';
+import * as VARS from './vars';
 
 export class UnknownOpcodeError extends Error {
   constructor(public readonly opcode: number) {
@@ -281,6 +283,12 @@ export class Vm {
    */
   currentVerb: number | null = null;
   /**
+   * Pending sentences awaiting the sentence-script driver. Treated as
+   * a stack (LIFO) — `doSentence` pushes, {@link processSentence} pops
+   * the most-recent one. See `sentence.ts`.
+   */
+  readonly sentenceStack: Sentence[] = [];
+  /**
    * Currently-showing dialog / on-screen text. `null` outside a
    * `print` / `printEgo` opcode. The shell's overlay renderer reads
    * this each frame and paints the text via the Phase 4 CHAR
@@ -360,24 +368,26 @@ export class Vm {
   private lastAnnotation: string | undefined;
 
   /**
-   * Engine-side var indices written by {@link beginTick}. Identified
-   * empirically + SCUMM v5 convention:
-   *   - `VAR_TIMER_1/2/3 = 14/15/16` — auto-incrementing per-tick
-   *     timers. Scripts reset to 0 and poll for a target value to
-   *     implement delays (MI1's credits cutscene waits on g14 > 250).
-   *   - `VAR_LEFTBTN_DOWN = 52` — MI1 boot script #23 polls this
-   *     waiting for a button press to enter the main menu.
-   *   - `VAR_USERPUT = 53` — per the SCUMM v5 wiki; scripts read this
-   *     to know whether userput is currently enabled.
-   * Other vars from the wiki list (`VAR_HAVE_MSG`, `VAR_LEFTBTN_HOLD`,
-   * `VAR_CUTSCENEEXIT_KEY`, `VAR_TALK_ACTOR`) land as their consumers
-   * appear.
+   * Engine-side var indices the VM acts on. All sourced from the
+   * canonical table in `vars.ts` — see there for the full list and the
+   * reconciliation notes (several earlier empirical names were wrong).
+   * Re-exposed as statics so existing call sites keep working.
+   *
+   *   - `VAR_MUSIC_TIMER` (14) — auto-incremented per tick by
+   *     {@link beginTick}. MI1's credits cutscene waits on it.
+   *   - `VAR_CURSORSTATE` (52) — `beginTick` pulses the left-press bit
+   *     here; MI1 boot script #23 polls it to enter the main menu.
+   *   - `VAR_USERPUT` (53) — whether user input is currently enabled.
+   *   - `VAR_SENTENCE_SCRIPT` (33) — *holds the id of* the sentence
+   *     script (MI1 writes 2). Read by {@link processSentence}.
    */
-  static readonly VAR_TIMER_1 = 14;
-  static readonly VAR_TIMER_2 = 15;
-  static readonly VAR_TIMER_3 = 16;
-  static readonly VAR_LEFTBTN_DOWN = 52;
-  static readonly VAR_USERPUT = 53;
+  static readonly VAR_MUSIC_TIMER = VARS.VAR_MUSIC_TIMER;
+  static readonly VAR_CURSORSTATE = VARS.VAR_CURSORSTATE;
+  static readonly VAR_USERPUT = VARS.VAR_USERPUT;
+  static readonly VAR_SENTENCE_SCRIPT = VARS.VAR_SENTENCE_SCRIPT;
+
+  /** SCUMM v5 reserves script ids >= 200 for room-local LSCR scripts. */
+  static readonly LSCR_THRESHOLD = 200;
 
   constructor(init: VmInit) {
     this.vars = new Variables({
@@ -553,6 +563,78 @@ export class Vm {
   }
 
   /**
+   * Resolve a script id to its bytecode and start it in a free slot.
+   * Routes ids >= {@link LSCR_THRESHOLD} to the current room's local
+   * scripts and everything else to the global DSCR directory (via the
+   * configured resolver). Shared by the `startScript` opcode and the
+   * sentence/verb drivers. Throws if the script can't be resolved or
+   * no slot is free.
+   */
+  startScriptById(
+    scriptId: number,
+    opts: { args?: ReadonlyArray<number>; label?: string } = {},
+  ): ScriptSlot {
+    let bytecode: Uint8Array;
+    let room: number;
+    if (scriptId >= Vm.LSCR_THRESHOLD) {
+      const local = this.loadedRoom?.localScripts.get(scriptId);
+      if (!local) {
+        throw new Error(
+          `startScriptById: local script #${scriptId} not present in current ` +
+            `room ${this.currentRoom} (loaded=${this.loadedRoom?.id ?? 'none'})`,
+        );
+      }
+      bytecode = local;
+      room = this.loadedRoom!.id;
+    } else {
+      if (!this.resolveGlobalScript) {
+        throw new Error('startScriptById: no global script resolver configured');
+      }
+      const resolved = this.resolveGlobalScript(scriptId);
+      bytecode = resolved.bytecode;
+      room = resolved.room;
+    }
+    return this.startScript({ scriptId, bytecode, room, args: opts.args, label: opts.label });
+  }
+
+  /** Push a sentence onto the queue for the sentence driver to run. */
+  pushSentence(sentence: Sentence): void {
+    this.sentenceStack.push(sentence);
+  }
+
+  /** Drop all pending sentences (the `doSentence` 0xFE / reset path). */
+  clearSentence(): void {
+    this.sentenceStack.length = 0;
+  }
+
+  /**
+   * Sentence-script driver — call once per engine tick.
+   *
+   * If a sentence is queued and the sentence script (id from
+   * `VAR_SENTENCE_SCRIPT`) isn't already running, pop the most-recent
+   * sentence and start that script with `[verb, objectA, objectB]` as
+   * its first three locals. Returns the started slot, or `null` when
+   * there's nothing to run, the script is already active, or the var
+   * is unset.
+   *
+   * Mirrors the original engine's once-per-frame sentence check.
+   */
+  processSentence(): ScriptSlot | null {
+    if (this.sentenceStack.length === 0) return null;
+    const scriptId = this.vars.readGlobal(Vm.VAR_SENTENCE_SCRIPT);
+    if (scriptId <= 0) return null;
+    // Don't re-enter while the previous sentence is still being run.
+    if (this.slots.some((s) => s.status !== 'dead' && s.scriptId === scriptId)) {
+      return null;
+    }
+    const s = this.sentenceStack.pop()!;
+    return this.startScriptById(scriptId, {
+      args: [s.verb, s.objectA, s.objectB],
+      label: `SENTENCE-${s.verb}-${s.objectA}-${s.objectB}`,
+    });
+  }
+
+  /**
    * Dispatch a single opcode in the next runnable slot. Returns the
    * slot that ran (or undefined if no slot was runnable / VM halted).
    */
@@ -621,17 +703,19 @@ export class Vm {
    * that runs this tick sees the freshest input state.
    *
    * Pulse semantics:
-   *   - `VAR_LEFTBTN_DOWN` is set to 1 only on the single tick where
-   *     a press has been queued since the last call, then cleared back
-   *     to 0 the following tick. Matches the SCUMM convention where
-   *     scripts poll "did the user press *this* frame?" and don't have
-   *     to manually clear after consuming.
+   *   - `VAR_CURSORSTATE` (52) carries the left-press bit: set to 1
+   *     only on the single tick where a press has been queued since
+   *     the last call, then cleared the following tick. Matches the
+   *     SCUMM convention where scripts poll "did the user press *this*
+   *     frame?" without having to clear after consuming. (Index 52 is
+   *     the full cursor-state var; we currently treat it as a press
+   *     pulse, which is enough for MI1 boot #23.)
    *   - `VAR_USERPUT` is sticky — reflects {@link cursor.userput} as
    *     the script understands it.
    */
   beginTick(): void {
     this.vars.writeGlobal(
-      Vm.VAR_LEFTBTN_DOWN,
+      Vm.VAR_CURSORSTATE,
       this.input.leftPressQueued ? 1 : 0,
     );
     this.input.leftPressQueued = false;
@@ -639,13 +723,14 @@ export class Vm {
     // surfaces the polling pattern.
     this.input.rightPressQueued = false;
     this.vars.writeGlobal(Vm.VAR_USERPUT, this.cursor.userput ? 1 : 0);
-    // Tick the SCUMM auto-timers. Scripts reset these to 0 then poll
-    // for a target value to implement delays — without the increment,
-    // every cutscene that uses them hangs forever (e.g. MI1's credits
-    // wait on VAR_TIMER_1 > 250).
-    this.vars.writeGlobal(Vm.VAR_TIMER_1, this.vars.readGlobal(Vm.VAR_TIMER_1) + 1);
-    this.vars.writeGlobal(Vm.VAR_TIMER_2, this.vars.readGlobal(Vm.VAR_TIMER_2) + 1);
-    this.vars.writeGlobal(Vm.VAR_TIMER_3, this.vars.readGlobal(Vm.VAR_TIMER_3) + 1);
+    // Tick the music timer. Scripts reset it to 0 then poll for a
+    // target value to pace cutscenes — MI1's credits wait on it.
+    // (Indices 15/16 are VAR_ACTOR_RANGE_MIN/MAX, NOT timers — the
+    // old code wrongly auto-incremented them; see vars.ts.)
+    this.vars.writeGlobal(
+      Vm.VAR_MUSIC_TIMER,
+      this.vars.readGlobal(Vm.VAR_MUSIC_TIMER) + 1,
+    );
   }
 
   /**
@@ -699,6 +784,7 @@ export class Vm {
     this.currentCharset = 0;
     this.verbs.clear();
     this.currentVerb = null;
+    this.sentenceStack.length = 0;
     this.input.leftPressQueued = false;
     this.input.rightPressQueued = false;
     this.input.leftHold = false;
