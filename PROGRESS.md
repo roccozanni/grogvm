@@ -11,30 +11,36 @@ detail the next phase here.
 
 ## Status
 
-**Phase 7 in progress.** The MI1 IT credits cutscene plays through
-end-to-end (~5700 ticks). The **credits → first-room transition is NOT
-yet solved** — see below.
+**Phase 7 in progress.** ✅ **The MI1 intro now plays end-to-end:
+credits cutscene (~5700 ticks) → automatically into the first room, the
+Mêlée Island lookout (room 38), with Guybrush + the lookout NPC, and
+the opening dialog cutscene (#203) running.** No boot-param hack — the
+real flow, confirmed against ScummVM.
 
-**Boot flow (reverse-engineered, but the auto-transition is missing):**
-boot script #1's first local `L0` is the boot parameter. After the
-credits-wait (it waits on credits script #152, gated by music timer
-g14 > 5700), #1 branches on `L0`:
-- `L0 == 0` (default `BOOT_PARAM_ATTRACT`) → plays the credits, then the
-  attract / title-idle setup: parks ego in room 0, spins the input loop
-  #23, leaving a **black canvas waiting for input**.
-- `L0 != 0` (`BOOT_PARAM_NEW_GAME`) → **skips the credits** and jumps
-  straight to a new game in room 38 (the Mêlée lookout) with Guybrush.
+**How credits→lookout actually works** (it's the boot's L0==0 path, not
+L0!=0 — verified via ScummVM `scripts`): after the credits, boot #1's
+title block does `putActorInRoom(ego, 38)` then `actorFollowCamera(ego)`
+— and *following an actor in another room loads that room* (SCUMM's
+startScene). Cracking it fixed four real opcode bugs:
+- `0xAD` was mis-registered as `walkActorToActor`; it's `putActorInRoom`
+  (the `low5=0x0D` family is non-orthogonal — bit 0x20 selects).
+- `putActor` (0x01) clobbered the actor's room with `currentRoom`; SCUMM
+  keeps the actor's existing room (`a->putActor(x,y,a->_room)`).
+- `actorFollowCamera` didn't load the followed actor's room.
+- `animateActor` missing var-operand variants (0x51/0xD1).
 
-Neither param alone gives the real intro (credits → lookout). The
-real flow must trigger the new-game path *from* the title-idle (a key /
-click / timeout we haven't found). `bootGame` defaults to param 0 so the
-cutscene plays; param 1 is exposed for testing the lookout directly.
+Also implemented `cutscene`/`endCutscene`/`freezeScripts` faithfully
+(cumulative freeze count; the cutscene script is protected from
+freezing) — `endCutscene` runs #19 which restores cursor/input.
 
 ⚠️ **Room 38 (lookout) renders very dark** — it's a night scene: its
 background is mostly black + dark-blue sky (idx 0 = (0,0,0), idx 20-24 =
 (16,16,56)..(36,36,116)), avg pixel brightness ~15%. Reads as "black"
-but the data + palette are intact; it's not a render bug and NOT a
-lights issue (the compositor doesn't honor `VAR_CURRENT_LIGHTS`).
+but the data + palette are intact; not a render bug and NOT a lights
+issue (the compositor doesn't honor `VAR_CURRENT_LIGHTS`).
+
+`bootGame` defaults to param 0 (`BOOT_PARAM_ATTRACT`); param 1
+(`BOOT_PARAM_NEW_GAME`) is a debug shortcut that skips the credits.
 
 **MI1's input is script-driven, in script #23** (the engine's
 checkExecVerbs equivalent): each frame it polls `g52` (VAR_CURSORSTATE)

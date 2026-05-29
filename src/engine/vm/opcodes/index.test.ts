@@ -641,3 +641,65 @@ describe('room-entry opcodes', () => {
     expect(victim.status).toBe('dead');
   });
 });
+
+describe('actor placement + room-transition opcodes (boot→lookout fixes)', () => {
+  it('putActorInRoom (0x2D) sets the actor room, distinct from walkActorToActor (0x0D)', () => {
+    const vm = makeVm();
+    vm.actors.get(3).room = 1;
+    // 0x2D putActorInRoom actor=3 room=38, then stop.
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x2d, 0x03, 0x26, 0xa0) });
+    vm.step();
+    expect(vm.actors.get(3).room).toBe(38);
+    expect(vm.currentRoom).toBe(0); // assigning a room does not load it
+  });
+
+  it('walkActorToActor (0x0D) does NOT change the actor room (it is a different op)', () => {
+    const vm = makeVm();
+    const a = vm.actors.get(1);
+    a.room = 5;
+    const b = vm.actors.get(2);
+    b.room = 5;
+    b.x = 40;
+    b.y = 50;
+    // 0x0D walkActorToActor walker=1 walkee=2 dist=4 — 3 operands (vs
+    // putActorInRoom's 2), then stop. Room must stay 5.
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x0d, 0x01, 0x02, 0x04, 0xa0) });
+    vm.step();
+    expect(vm.actors.get(1).room).toBe(5);
+    expect(vm.slots[0]!.pc).toBe(4); // consumed opcode + 3 operand bytes
+  });
+
+  it('putActor (0x01) keeps the actor existing room, not currentRoom', () => {
+    const vm = makeVm();
+    vm.actors.get(3).room = 38; // e.g. just placed by putActorInRoom
+    // 0x01 putActor actor=3 x=10 y=20, then stop.
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(0x01, 0x03, 0x0a, 0x00, 0x14, 0x00, 0xa0),
+    });
+    vm.step();
+    expect(vm.actors.get(3).room).toBe(38); // kept, not clobbered to 0
+    expect(vm.actors.get(3).x).toBe(10);
+    expect(vm.actors.get(3).y).toBe(20);
+  });
+
+  it('actorFollowCamera (0x52) loads the followed actor room when it differs', () => {
+    const vm = makeVm();
+    vm.actors.get(3).room = 38;
+    // 0x52 actorFollowCamera actor=3, then stop. currentRoom (0) != 38.
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x52, 0x03, 0xa0) });
+    vm.step();
+    expect(vm.currentRoom).toBe(38); // entered the actor's room
+  });
+
+  it('animateActor 0xD1 reads both actor and anim as vars', () => {
+    const vm = makeVm();
+    vm.vars.writeGlobal(10, 3); // actor id
+    vm.vars.writeGlobal(11, 250); // anim id
+    vm.actors.get(3).room = 1;
+    // 0xD1 animateActor actor=var10 anim=var11, then stop.
+    vm.startScript({ scriptId: 1, bytecode: bytes(0xd1, 0x0a, 0x00, 0x0b, 0x00, 0xa0) });
+    vm.step();
+    expect(vm.actors.get(3).anim.animId).toBe(250);
+  });
+});

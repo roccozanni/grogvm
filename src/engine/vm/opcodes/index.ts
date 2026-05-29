@@ -422,17 +422,22 @@ register(0x32, makeCameraOp('setCameraAt'));
 register(0xb2, makeCameraOp('setCameraAt'));
 
 // ─── 0x52 / 0xD2  actorFollowCamera ──────────────────────────────────
-// Lock the camera to track an actor. Per-tick follow logic isn't
-// wired yet (the camera doesn't pan on actor walk); for now we just
-// snap the camera to the actor's current X so static-screen scenes
-// look right.
+// Lock the camera to track an actor. Per the SCUMM v5 engine, following
+// an actor that is in a DIFFERENT room than the current one switches to
+// that room (startScene) — this is how MI1's boot enters the opening
+// lookout: it putActorInRoom(ego, 38) then actorFollowCamera(ego), and
+// the follow triggers the room load. Per-tick camera panning still
+// isn't wired; we snap to the actor's X.
 function actorFollowCameraHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const id = readVarOrByte(opcode, 1, slot, vm.vars);
   const actor = actorOrNull(vm, id);
   if (actor) {
+    if (actor.room > 0 && actor.room !== vm.currentRoom) {
+      vm.enterRoom(actor.room);
+    }
     setCameraTo(vm, actor.x);
   }
-  vm.annotate(`actorFollowCamera ${id} → camera.x=${vm.camera.x} (snap-only)`);
+  vm.annotate(`actorFollowCamera ${id} → room=${vm.currentRoom} camera.x=${vm.camera.x}`);
 }
 register(0x52, actorFollowCameraHandler);
 register(0xd2, actorFollowCameraHandler);
@@ -1003,15 +1008,15 @@ register(0xc3, makeActorReadOp('getActorX', (a) => a.x, true));
 register(0x7b, makeActorReadOp('getActorWalkBox', () => 0));
 register(0xfb, makeActorReadOp('getActorWalkBox', () => 0));
 
-// ─── 0x0D / 0x2D … walkActorToActor ──────────────────────────────────
-// Walk actor to where another actor is standing, stopping at `dist`
-// pixels short. Layout (per the SCUMM v5 wiki):
-//   actor[p8]   — var-or-byte, mode via bit 0x80 of opcode
-//   walkee[p8]  — var-or-byte, mode via bit 0x40
-//   distance[8] — **always** direct u8 (no mode bit)
-// Phase 6: stores the walk intent on the actor (target = walkee's
-// position) and flips isMoving = true. Real path stepping lands with
-// the walk/pathfinding sub-phase.
+// ─── walkActorToActor / putActorInRoom (non-orthogonal low5=0x0D) ─────
+// These two opcodes SHARE the low 5 bits — **bit 0x20 selects which**:
+//   bit 0x20 clear → walkActorToActor (0x0D/0x4D/0x8D/0xCD)
+//   bit 0x20 set   → putActorInRoom   (0x2D/0x6D/0xAD/0xED)
+// (We previously registered all 8 as walkActorToActor, which silently
+// turned MI1's `putActorInRoom(ego, 38)` at the end of the boot into a
+// no-op — that's the opcode that puts Guybrush in the lookout room.)
+//
+// walkActorToActor: walker[p8] (bit 0x80) walkee[p8] (bit 0x40) dist[8].
 function walkToActorHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const id = readVarOrByte(opcode, 1, slot, vm.vars);
   const otherId = readVarOrByte(opcode, 2, slot, vm.vars);
@@ -1023,9 +1028,19 @@ function walkToActorHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   }
   vm.annotate(`walkActorToActor actor=${id} other=${otherId} dist=${dist}`);
 }
-for (const op of [0x0d, 0x2d, 0x4d, 0x6d, 0x8d, 0xad, 0xcd, 0xed]) {
-  register(op, walkToActorHandler);
+for (const op of [0x0d, 0x4d, 0x8d, 0xcd]) register(op, walkToActorHandler);
+
+// putActorInRoom: actor[p8] (bit 0x80) room[p8] (bit 0x40). Assigns the
+// actor to a room — does NOT load it (that happens when the camera
+// follows the actor, or via loadRoom).
+function putActorInRoomHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
+  const id = readVarOrByte(opcode, 1, slot, vm.vars);
+  const room = readVarOrByte(opcode, 2, slot, vm.vars);
+  const actor = actorOrNull(vm, id);
+  if (actor) actor.room = room;
+  vm.annotate(`putActorInRoom actor=${id} room=${room}`);
 }
+for (const op of [0x2d, 0x6d, 0xad, 0xed]) register(op, putActorInRoomHandler);
 
 // ─── 0x1E / 0x3E / 0x5E / 0x7E / 0x9E / 0xBE / 0xDE / 0xFE  walkActorTo ─
 // Walk an actor to (x, y). Records the intent on the actor; the walk
@@ -1045,16 +1060,19 @@ for (const op of [0x1e, 0x3e, 0x5e, 0x7e, 0x9e, 0xbe, 0xde, 0xfe]) {
 }
 
 // ─── 0x01 / 0x21 / 0x41 / 0x61 / 0x81 / 0xA1 / 0xC1 / 0xE1  putActor ─
-// Place actor at (x, y) in the **current** room (no walk, instant).
-// Mirrors SCUMM's `putActor` — the actor's room is the VM's current
-// room, NOT a parameter.
+// Place actor at (x, y) (no walk, instant). Per SCUMM's `o5_putActor`,
+// the actor KEEPS its existing room (`a->putActor(x, y, a->_room)`) —
+// it does NOT move to the current room. This matters at boot: MI1 does
+// putActorInRoom(ego, 38) then putActor(ego, x, y), and putActor must
+// not clobber room 38 back to the (still-0) current room, or the
+// following actorFollowCamera won't load the lookout.
 function putActorHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const id = readVarOrByte(opcode, 1, slot, vm.vars);
   const x = readVarOrWord(opcode, 2, slot, vm.vars);
   const y = readVarOrWord(opcode, 3, slot, vm.vars);
   const actor = actorOrNull(vm, id);
-  if (actor) actorPut(actor, x, y, vm.currentRoom);
-  vm.annotate(`putActor actor=${id} (${x},${y}) room=${vm.currentRoom}`);
+  if (actor) actorPut(actor, x, y, actor.room);
+  vm.annotate(`putActor actor=${id} (${x},${y}) room=${actor?.room ?? 0}`);
 }
 for (const op of [0x01, 0x21, 0x41, 0x61, 0x81, 0xa1, 0xc1, 0xe1]) {
   register(op, putActorHandler);
@@ -1083,8 +1101,13 @@ function animateActorHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   }
   vm.annotate(`animateActor actor=${id} anim=${animId}`);
 }
+// actor = bit 0x80, anim = bit 0x40 → variants 0x11/0x51/0x91/0xD1.
+// (0x31 getInventoryCount and 0x71 getActorCostume share low5=0x11 but
+// are different opcodes — not registered here.)
 register(0x11, animateActorHandler);
+register(0x51, animateActorHandler);
 register(0x91, animateActorHandler);
+register(0xd1, animateActorHandler);
 
 // ─── 0x13 / 0x53 / 0x93 / 0xD3  actorOps ─────────────────────────────
 // Configure an actor's costume, walk speed, animation frames, talk
