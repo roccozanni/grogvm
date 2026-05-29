@@ -204,6 +204,14 @@ export class Vm {
    */
   readonly objectOwners = new Map<number, number>();
   /**
+   * Per-object class bitmask, mutated by `actorSetClass` (0x5D) and
+   * tested by `ifClassOfIs` (0x1D). Class N occupies bit `N-1` (classes
+   * are 1-based in v5). Default 0 (no classes). v5 named classes
+   * include 20 NeverClip, 21 AlwaysClip, 22 IgnoreBoxes, 30 XFlip,
+   * 31 Player, 32 Untouchable.
+   */
+  readonly objectClasses = new Map<number, number>();
+  /**
    * Object draw queue — set of object ids the compositor should
    * include in the next frame. Populated by the `drawObject` opcode
    * and cleared on room change. Order isn't significant for v5
@@ -822,6 +830,7 @@ export class Vm {
     this.strings.clear();
     this.objectStates.clear();
     this.objectOwners.clear();
+    this.objectClasses.clear();
     this.objectDrawQueue.clear();
     this.currentRoom = 0;
     this.loadedRoom = null;

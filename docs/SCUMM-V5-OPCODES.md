@@ -10,11 +10,11 @@ dispatch infrastructure every opcode plugs into.
 
 ## Sources
 
-- ScummVM v5 opcodes reference (wiki), at
-  <https://wiki.scummvm.org/index.php?title=SCUMM/V5_opcodes>.
-  Per-opcode descriptions for the full 256-entry table, including
-  the parameter conventions (`p8`, `p16`, `v16`, etc.). Single best
-  source for opcode-by-opcode details not repeated here.
+- **Per-opcode encoding table: [SCUMM-V5-OPCODE-REFERENCE.md](SCUMM-V5-OPCODE-REFERENCE.md)**
+  — every opcode's operand layout + semantics, transcribed from the
+  ScummVM wiki (<https://wiki.scummvm.org/index.php?title=SCUMM/V5_opcodes>).
+  Consult it before decoding/implementing an opcode; the parameter
+  conventions (`p8`, `p16`, `v16`, etc.) are defined there.
 - Cross-checked against MI1's boot bytecode (`SCRP` script #1)
   opcode-by-opcode. Several conventions easily misread on a first
   pass — surfacing as runaway loops or out-of-range variable

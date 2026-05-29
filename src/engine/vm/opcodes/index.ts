@@ -453,6 +453,56 @@ register(0x1c, makeSoundOp('startSound'));
 register(0x9c, makeSoundOp('startSound'));
 register(0x3c, makeSoundOp('stopSound'));
 register(0xbc, makeSoundOp('stopSound'));
+
+// ─── 0x7C / 0xFC  isSoundRunning ─────────────────────────────────────
+// `opcode result sound[p8]`. Audio is stubbed (Phase 9), so nothing is
+// ever playing — always write 0. Scripts poll this in loops; returning
+// 0 lets them proceed instead of waiting forever.
+function isSoundRunningHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
+  const dest = readDestRef(slot, vm.vars);
+  const sound = readVarOrByte(opcode, 1, slot, vm.vars);
+  writeRef(dest, 0, slot, vm.vars);
+  vm.annotate(`isSoundRunning ${sound} → 0 (stub)`);
+}
+register(0x7c, isSoundRunningHandler);
+register(0xfc, isSoundRunningHandler);
+
+// ─── 0x62 / 0xE2  stopScript ─────────────────────────────────────────
+// `opcode script[p8]`. Kill every slot running the given global script
+// id. Script 0 = "stop the current script" in the original; we treat
+// 0 as a no-op (the caller keeps running) since the common use is
+// stopping *another* script.
+function stopScriptHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
+  const scriptId = readVarOrByte(opcode, 1, slot, vm.vars);
+  if (scriptId !== 0) {
+    for (const s of vm.slots) {
+      if (s.status !== 'dead' && s.scriptId === scriptId) s.kill();
+    }
+  }
+  vm.annotate(`stopScript #${scriptId}`);
+}
+register(0x62, stopScriptHandler);
+register(0xe2, stopScriptHandler);
+
+// ─── 0x30  matrixOp ──────────────────────────────────────────────────
+// `opcode sub-opcode [box[p8] val[p8]]` — manipulate walk-box flags /
+// scale / rebuild the box matrix. Sub-opcodes: $01 setBoxFlags,
+// $02/$03 setBoxScale, $04 createBoxMatrix (no args). We use grid A*
+// over the walkable mask rather than the box matrix, and don't apply
+// per-box flags yet, so this consumes operands and no-ops. Note: box
+// flags (locked/invisible boxes) aren't honoured until the pathfinder
+// reads them.
+function matrixOpHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
+  const sub = readU8(slot);
+  if (sub === 0x04) {
+    vm.annotate('matrixOp createBoxMatrix (stub)');
+    return;
+  }
+  const box = readVarOrByte(sub, 1, slot, vm.vars);
+  const val = readVarOrByte(sub, 2, slot, vm.vars);
+  vm.annotate(`matrixOp sub=0x${sub.toString(16)} box=${box} val=${val} (stub)`);
+}
+register(0x30, matrixOpHandler);
 register(0x02, makeSoundOp('startMusic'));
 register(0x82, makeSoundOp('startMusic'));
 register(0x20, (vm) => {
@@ -720,6 +770,74 @@ register(0x47, setStateHandler);
 register(0x87, setStateHandler);
 register(0xc7, setStateHandler);
 
+// ─── 0x0F / 0x8F  getObjectState ─────────────────────────────────────
+// `opcode result object[p16]`. Result var ← the object's current state
+// (0 if never set). Mirror of setState; rooms read it on entry to
+// branch on door open/closed etc.
+function getObjectStateHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
+  const dest = readDestRef(slot, vm.vars);
+  const obj = readVarOrWord(opcode, 1, slot, vm.vars);
+  const state = vm.objectStates.get(obj) ?? 0;
+  writeRef(dest, state, slot, vm.vars);
+  vm.annotate(`getObjectState obj=${obj} → ${state}`);
+}
+register(0x0f, getObjectStateHandler);
+register(0x8f, getObjectStateHandler);
+
+// ─── 0x10 / 0x90  getObjectOwner ─────────────────────────────────────
+// `opcode result object[p16]`. Result var ← the object's owner actor
+// id (0 = nobody / still in the room). Mirror of setOwnerOf.
+function getObjectOwnerHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
+  const dest = readDestRef(slot, vm.vars);
+  const obj = readVarOrWord(opcode, 1, slot, vm.vars);
+  const owner = vm.objectOwners.get(obj) ?? 0;
+  writeRef(dest, owner, slot, vm.vars);
+  vm.annotate(`getObjectOwner obj=${obj} → ${owner}`);
+}
+register(0x10, getObjectOwnerHandler);
+register(0x90, getObjectOwnerHandler);
+
+// ─── 0xAB  saveRestoreVerbs ──────────────────────────────────────────
+// `opcode sub-opcode start[p8] end[p8] mode[p8]` — save / restore /
+// delete verb slots in a range. Used for menu/UI verb juggling. We
+// don't persist verb save-slots yet, so consume the operands and
+// no-op (the verbs themselves stay as verbOps left them).
+function saveRestoreVerbsHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
+  const sub = readU8(slot);
+  const start = readVarOrByte(sub, 1, slot, vm.vars);
+  const end = readVarOrByte(sub, 2, slot, vm.vars);
+  const mode = readVarOrByte(sub, 3, slot, vm.vars);
+  vm.annotate(`saveRestoreVerbs sub=0x${sub.toString(16)} [${start}..${end}] mode=${mode} (stub)`);
+}
+register(0xab, saveRestoreVerbsHandler);
+
+// ─── 0x5D / 0xDD  actorSetClass ──────────────────────────────────────
+// Layout: `object[p16] classes[v16]...` (no jump). The object inherits
+// each listed class. Per-class value: 0 clears ALL classes; otherwise
+// the low 7 bits are the class number (1-based) and bit 0x80 selects
+// set (1) vs clear (0) — derived from MI1 room 1's ENCD, which toggles
+// class 32 (Untouchable) on/off as `32` and `0x80|32`. Class N → bit
+// N-1 of the object's mask. (Distinct opcode from ifClassOfIs 0x1D,
+// which is the same family + bit 0x40 and carries a jump target.)
+function actorSetClassHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
+  const obj = readVarOrWord(opcode, 1, slot, vm.vars);
+  const classes = readWordVararg(slot, vm.vars);
+  for (const v of classes) {
+    if (v === 0) {
+      vm.objectClasses.set(obj, 0);
+      continue;
+    }
+    const classNum = v & 0x7f;
+    const bit = (1 << (classNum - 1)) >>> 0;
+    const cur = vm.objectClasses.get(obj) ?? 0;
+    const next = (v & 0x80) !== 0 ? cur | bit : cur & ~bit;
+    vm.objectClasses.set(obj, next >>> 0);
+  }
+  vm.annotate(`actorSetClass obj=${obj} [${classes.join(',')}]`);
+}
+register(0x5d, actorSetClassHandler);
+register(0xdd, actorSetClassHandler);
+
 // ─── 0x05 / 0x25 / 0x45 / … drawObject ───────────────────────────────
 // Place an object on screen. Layout: obj (var-or-word), then a loop
 // of subops terminated by 0xFF (same shape as verbOps/actorOps).
@@ -836,18 +954,25 @@ register(0x95, findInventoryHandler);
 register(0xd5, findInventoryHandler);
 
 // ─── 0x06 / 0x86  getActorElevation ──────────────────────────────────
-// ─── 0x03 / 0x83  getActorRoom ───────────────────────────────────────
-// Result var ← the actor's elevation / current room. Layout (both):
-// result var-ref (raw u16) + actor (var-or-byte). For invalid actor
-// ids (0 sentinel, out of range) we write 0 — matches the original
-// engine's "no actor" fallback.
+// ─── getActor* read family ───────────────────────────────────────────
+// `opcode result actor[pN]` — write an actor property to a result var.
+// IMPORTANT: bits 5-6 of the opcode SELECT THE OPERATION (this family
+// is non-orthogonal), bit 7 is the actor's var-mode:
+//   0x03 getActorRoom (p8)   0x23 getActorY (p16)
+//   0x43 getActorX (p16)     0x63 getActorFacing (p8)
+//   0x06 getActorElevation (p8)
+// Invalid actor ids (0 sentinel / out of range) write 0 — the
+// original engine's "no actor" fallback.
 function makeActorReadOp(
   label: string,
   read: (a: Actor) => number,
+  word = false,
 ): OpcodeHandler {
   return (vm, slot, opcode) => {
     const dest = readDestRef(slot, vm.vars);
-    const id = readVarOrByte(opcode, 1, slot, vm.vars);
+    const id = word
+      ? readVarOrWord(opcode, 1, slot, vm.vars)
+      : readVarOrByte(opcode, 1, slot, vm.vars);
     const actor = actorOrNull(vm, id);
     const value = actor ? read(actor) : 0;
     writeRef(dest, value, slot, vm.vars);
@@ -858,6 +983,17 @@ register(0x06, makeActorReadOp('getActorElevation', (a) => a.elevation));
 register(0x86, makeActorReadOp('getActorElevation', (a) => a.elevation));
 register(0x03, makeActorReadOp('getActorRoom', (a) => a.room));
 register(0x83, makeActorReadOp('getActorRoom', (a) => a.room));
+register(0x23, makeActorReadOp('getActorY', (a) => a.y, true));
+register(0xa3, makeActorReadOp('getActorY', (a) => a.y, true));
+register(0x43, makeActorReadOp('getActorX', (a) => a.x, true));
+register(0xc3, makeActorReadOp('getActorX', (a) => a.x, true));
+// getActorWalkBox (0x7B/0xFB) — same non-orthogonal low-5-bits family
+// as multiply/getActorScale/divide. Returns the walk box the actor
+// stands in. STUB: returns 0 ("no box") until we wire box-containment
+// against the actor's position; enough to load rooms whose entry
+// scripts query it. p8 actor.
+register(0x7b, makeActorReadOp('getActorWalkBox', () => 0));
+register(0xfb, makeActorReadOp('getActorWalkBox', () => 0));
 
 // ─── 0x0D / 0x2D … walkActorToActor ──────────────────────────────────
 // Walk actor to where another actor is standing, stopping at `dist`

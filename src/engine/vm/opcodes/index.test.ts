@@ -571,3 +571,73 @@ describe('seed opcodes — verbOps state wiring', () => {
     expect(vm.currentVerb).toBeNull();
   });
 });
+
+describe('room-entry opcodes', () => {
+  it('actorSetClass sets, clears, and resets object class bits', () => {
+    const vm = makeVm();
+    // Three setClass ops on obj 17 + stopObjectCode, stepped one opcode
+    // at a time:
+    //   setClass(17, [0xA0])  — 0x80|32 → SET class 32 → bit 31
+    //   setClass(17, [0x20])  — no 0x80 → CLEAR class 32
+    //   setClass(17, [0x00])  — class 0 → reset all
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(
+        0x5d, 0x11, 0x00, 0x01, 0xa0, 0x00, 0xff,
+        0x5d, 0x11, 0x00, 0x01, 0x20, 0x00, 0xff,
+        0x5d, 0x11, 0x00, 0x01, 0x00, 0x00, 0xff,
+        0xa0,
+      ),
+    });
+    vm.step();
+    expect(vm.objectClasses.get(17)).toBe((1 << 31) >>> 0);
+    vm.step();
+    expect(vm.objectClasses.get(17)).toBe(0);
+    vm.step();
+    expect(vm.objectClasses.get(17)).toBe(0);
+  });
+
+  it('getObjectState / getObjectOwner read back into a result var', () => {
+    const vm = makeVm();
+    vm.objectStates.set(42, 3);
+    vm.objectOwners.set(42, 5);
+    // getObjectState g0 = state(42); getObjectOwner g1 = owner(42).
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(0x0f, 0x00, 0x00, 0x2a, 0x00, 0x10, 0x01, 0x00, 0x2a, 0x00),
+    });
+    vm.step();
+    vm.step();
+    expect(vm.vars.readGlobal(0)).toBe(3);
+    expect(vm.vars.readGlobal(1)).toBe(5);
+  });
+
+  it('getActorX reads the actor position into a result var (p16 actor)', () => {
+    const vm = makeVm();
+    const a = vm.actors.get(5);
+    a.room = 1;
+    a.x = 120;
+    a.y = 80;
+    // getActorX g0 = x(actor 5) — 0x43, dest word, actor word.
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x43, 0x00, 0x00, 0x05, 0x00) });
+    vm.step();
+    expect(vm.vars.readGlobal(0)).toBe(120);
+  });
+
+  it('isSoundRunning always returns 0 (audio stubbed)', () => {
+    const vm = makeVm();
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x7c, 0x00, 0x00, 0x09) });
+    vm.step();
+    expect(vm.vars.readGlobal(0)).toBe(0);
+  });
+
+  it('stopScript kills slots running the given script id', () => {
+    const vm = makeVm();
+    const victim = vm.startScript({ scriptId: 99, bytecode: bytes(0x80, 0x00) });
+    victim.yield_();
+    // stopScript #99.
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x62, 0x63) });
+    vm.step();
+    expect(victim.status).toBe('dead');
+  });
+});
