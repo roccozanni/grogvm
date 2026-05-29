@@ -435,7 +435,10 @@ Tests: **561 across 46 files**; typecheck clean.
 
 ### Next steps
 
-In rough dependency order:
+> **Canonical remaining-work list = "Remaining to close Phase 7 — LOCKED
+> LIST" in the Active Phase section below.** The notes here are kept as
+> historical narrative of what was investigated/done; trust the locked
+> list for what's still open.
 
 1. **Inventory polish** — slot rendering + hover + click + **(a) the
    carried-item name table (DONE this session)**. Remaining:
@@ -596,6 +599,67 @@ against real MI1 data:
    Escape during a cutscene triggers the override path.
 7. `npm run typecheck` clean, full test suite green.
 
+### Remaining to close Phase 7 — LOCKED LIST
+
+This is the authoritative checklist to wrap the phase. The detailed
+task blocks below are partly **stale** (later sessions completed many
+items the inline boxes still show open); trust THIS list. Done already:
+click→sentence enqueue, verb-script dispatch, `VAR_HAVE_MSG` driving,
+carried-item names, word-wrap + per-line centring, `\xff\x03` paging,
+charset-id resolution, `actorFromPos`/Talk-to, faithful click-to-walk,
+`cutscene`/`endCutscene` (run #18/#19).
+
+**Blocks the Definition of Done:**
+
+- [ ] **Two-object sentences — "Use X with Y"** (DoD #5). Only
+      single-object sentences exist; need `selectedObject` + preposition
+      + `objectB` through the sentence flow. The biggest gap.
+- [ ] **Cutscene UX** (DoD #6): wire a **keyboard Escape** to the
+      override path (`slot.overridePc` exists; only an inspector button
+      uses it today), and **hide the cursor + verb bar** during a
+      cutscene, restoring after.
+- [ ] **Right-click → default "Look at"** (DoD #3 / design note). The
+      hit-tester finds the object on right-click but nothing arms Look-at.
+- [ ] **Gate click-to-walk during cutscenes** (consult freeze /
+      `VAR_USERPUT`) so floor clicks don't walk ego mid-cutscene.
+- [ ] **"Start a new game" from the title menu** (DoD #1). Verify the
+      interactive menu path vs. the current auto-attract→intro→room 33.
+- [ ] **Room lighting / `VAR_CURRENT_LIGHTS` (g9) stuck at 0** —
+      INVESTIGATE. In room 33, examining the poster says *"Non si riesce,
+      troppo buio"* instead of the Governor Marley description, because
+      sentence #2 gates the look-at on `g9 != 0` and g9 is **0**.
+      Renders fine visually — this is a *logic* bug. Findings so far:
+      the **`lights` opcode (0x70) is unimplemented** (not registered)
+      and g9 is never set, so it sits at its boot default of 0 (every
+      room reads as dark; room 38 being a night scene only *masked* it).
+      Room 33's own scripts don't dispatch 0x70 (no halt), so the lit
+      state must come from a global / room-enter path — find who sets
+      `lights` for a normal room, implement `o5_lights` (sets
+      `VAR_CURRENT_LIGHTS`, plus the flashlight/actor-light variants),
+      and confirm g9 becomes lit on entering room 33. Distinct from the
+      cosmetic "compositor doesn't honor `VAR_CURRENT_LIGHTS`" gap.
+- [ ] **End-to-end smoke tests** (3): start→first-room, walk-around,
+      verb-dispatch (the suite is green but these scripted integration
+      tests aren't written).
+
+**Polish — may land in Phase 7 or slip to 7.5:**
+
+- [ ] Inventory **scroll arrows** (verbs 208/209) for >8 items.
+- [ ] Dialog escape codes: keep-text `0x02`, substitutions
+      `0x04–0x0A` (var/object/verb/actor/string), mid-string colour `0x0E`.
+- [ ] Inspector dev panels (sentence / verb-state / inventory / dialog /
+      cutscene-stack).
+- [ ] Per-module tests (cursor, verb-bar, sentence-line, dialog, inventory).
+
+**Known bugs — tabled / cross-cutting (not Phase-7 blockers):**
+
+- [ ] Credits *fill* colour teal vs magenta — **tabled** (Rocco confirms
+      same data files show magenta in ScummVM, so genuinely open; every
+      credit line is `color 3` in the bytecode — see the known-gaps note).
+- [ ] "Le tre prove" cutscene runs too fast (pacing).
+- [ ] Z-plane occlusion wrong (fire over wall; actors over scenery).
+- [ ] Room 38 darkness — compositor doesn't honor `VAR_CURRENT_LIGHTS` (cosmetic).
+
 ### Tasks
 
 Listed in dependency order. Each block is independently testable;
@@ -694,11 +758,11 @@ several can progress in parallel after the input foundation lands.
       synthetic slot (`VERB-{objId}-{verbId}`) with locals seeded
       `[verb, obj, ...args]`. Returns `null` (never throws) when the
       object/verb is absent or no slot is free. 6 `vm.test.ts` cases.
-- [ ] **Not yet UI-wired.** The room-click handler still only
-      identifies the object (`onRoomClick`); it does not call
-      `startVerbScript` directly — per the design note, verb scripts
-      run via the async sentence flow (next task), not straight off
-      the click. `startVerbScript` is the primitive that flow calls.
+- [x] **UI-wired (via the sentence flow).** `onRoomClick` →
+      `handleSceneClick` enqueues the sentence; `processSentence` runs
+      sentence script #2, which dispatches the verb. Confirmed end-to-end
+      (look-at the room-33 poster → script #2 → ego responds).
+      `startVerbScript` remains the primitive that flow uses.
 - ⚠️ **Known gap:** `parseRoomObjects` still drops OBCDs that have
       no OBIM image, so image-less hotspots (some have verbs) aren't
       loaded and can't be clicked yet. Broadening the loader touches
@@ -727,12 +791,11 @@ several can progress in parallel after the input foundation lands.
 - [x] `sentence.test.ts` (10) — enqueue (direct + var operands),
       0xFE clear, LIFO pop, locals + `SENTENCE-{v}-{a}-{b}` label,
       no-op while running / empty / unset-var, clear + reset.
-- [ ] **Not yet: UI click → `pushSentence`.** The room-click handler
-      still only identifies the object. The faithful path runs the
-      *verb input script* (`VAR_VERB_SCRIPT` = 32, MI1 = local #201)
-      which itself calls `doSentence` — that needs the click-area
-      VARs and a real interactive room, so it lands with the
-      first-room milestone rather than here.
+- [x] **UI click → sentence is wired.** `handleSceneClick` fires the
+      verb-input script (`VAR_VERB_SCRIPT`) AND enqueues the sentence
+      engine-side (the faithful model — the input-model investigation
+      showed the enqueue is engine-side, not script-side). Single-object
+      only; two-object "Use X with Y" is the remaining sentence work.
 
 **Verb bar — `vm.verbs` state + `src/shell/player/play-area.ts`**
 
@@ -804,12 +867,12 @@ several can progress in parallel after the input foundation lands.
       string at once (confirmed vs ScummVM). `VAR_CHARINC` is the
       *hold-duration* multiplier (`talkDelay = length × charinc`), not a
       reveal rate. Text appears whole and lingers for `talkDelay` ticks.
-- [ ] `VAR_HAVE_MSG` (global #3) flip on print start / completion.
-      Wait-for-message can't release until this is wired.
-- [ ] Per-line centring for multi-line text. The CHAR renderer
-      currently left-aligns each line within the measured bbox; a
-      centred 3-line credit card has all lines starting at the
-      same x. Cosmetic.
+- [x] `VAR_HAVE_MSG` (global #3) flip on print start / completion —
+      `beginTalk` sets it to 1, `beginTick` clears it when `talkDelay`
+      drains (held across `\xff\x03` pages). Wait-for-message releases.
+- [x] Per-line centring for multi-line text — `drawText` now renders
+      each `\n`-separated line independently and centres it on `x`
+      (was left-aligning lines within the widest line's bbox).
 - [ ] Keep-text (`0xFF 0x02`) — credits emit prints with
       `\xff\x02` to accumulate text across separate prints. We
       currently overwrite on each print. Affects multi-stage
@@ -986,15 +1049,18 @@ objects into verbs 200–207 (+ arrows 208/209) via `verbOps` subop `0x16`
       unconditionally skipped the cutscene body. The resolved
       target is stored as `slot.overridePc` for future Escape
       handling.
-- [ ] `cutscene` opcode (`0x40`) — still stub. Real
-      implementation: push a cutscene frame on `vm`, freeze
-      non-resistant scripts, hide cursor + verb UI, record
-      override script id (from the vararg).
-- [ ] `endCutscene` opcode (`0xC0`) — pop the frame, resume
-      frozen scripts, restore cursor / verb UI visibility.
-- [ ] Escape key handler: if a cutscene with an override is
-      active, jump the active slot to `slot.overridePc` and pop
-      the frame.
+- [x] `cutscene` opcode (`0x40`) — implemented (`beginCutscene`): pushes
+      a frame on `vm.cutsceneStack`, freezes non-resistant scripts, runs
+      `VAR_CUTSCENE_START_SCRIPT` (#18). Cumulative freeze count; the
+      cutscene script itself is protected from freezing.
+- [x] `endCutscene` opcode (`0xC0`) — implemented (`endCutscene`): pops
+      the frame, runs `VAR_CUTSCENE_END_SCRIPT` (#19, restores
+      cursor/input), unfreezes.
+- [~] Escape key handler — PARTIAL. `beginOverride` records
+      `slot.overridePc`, and the inspector has a "Skip cutscene" button,
+      but a **keyboard Escape** isn't wired to the override path yet.
+      ⇒ see the locked list (Cutscene UX). Also: hiding the cursor/verb
+      bar *during* a cutscene still needs confirming.
 - [ ] `cutscene.test.ts` — push/pop stack, freeze/unfreeze
       transitions, override flow.
 
@@ -1054,10 +1120,11 @@ auto-increment — fixed). Below: which ones the engine currently acts on.
       at 125 ticks after the fix, confirming only 14 mattered).
 - [x] `VAR_SENTENCE_SCRIPT` (g33) — read by `vm.processSentence()`;
       holds the sentence script id (MI1 = #2).
-- [ ] `VAR_HAVE_MSG` (3) — written by dialog renderer (1 while
-      dialog is showing, 0 when done).
+- [x] `VAR_HAVE_MSG` (3) — driven by `beginTalk` (set 1) / `beginTick`
+      (clear 0 when the talk timer + any `\xff\x03` pages finish).
 - [ ] `VAR_CUTSCENEEXIT_KEY` (24) — key code for "skip cutscene"
-      (Escape = 0x1B = 27; confirmed MI1 seeds g24 = 27).
+      (Escape = 0x1B = 27; confirmed MI1 seeds g24 = 27). Pairs with the
+      keyboard-Escape handler in the locked list.
 - [ ] `VAR_TALK_ACTOR` (25) — currently-talking actor id (set
       when the dialog renderer activates).
 
