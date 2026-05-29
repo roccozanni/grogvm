@@ -11,25 +11,37 @@ detail the next phase here.
 
 ## Status
 
-**Phase 7 in progress.** The MI1 IT credits cutscene now plays
-through end-to-end (~5700 ticks at 60Hz, ~95 sec) with text rendering
-on the camera-viewport slice of the wide credits room. The boot
-correctly transitions into the title-menu state after the cutscene:
-verb bar populated (Dai / Apri / Chiudi / Prendi / Esamina / Parla /
-Usa / Premi / Tira), sentence-line preview reacts to verb hover,
-clicks deliver the `VAR_LEFTBTN_DOWN` pulse that script #23 polls.
+**Phase 7 in progress.** The MI1 IT credits cutscene plays through
+end-to-end (~5700 ticks) and **the game now naturally enters the first
+interactive room — the Mêlée Island lookout (room 38) — with Guybrush
+(actor 1, costume 1) placed.** No more black screen after the credits.
 
-The inspector now has stable DOM during Play — controls bar +
-frame stack (room canvas + cursor overlay + verb bar + sentence line)
-are mounted once and only their canvas pixels update per tick.
-Buttons / hover / click no longer drop events across rAF boundaries.
+**How the title→first-room transition works (reverse-engineered):**
+boot script #1's first local `L0` is the boot parameter. After the
+credits (it waits on the credits script #152 to finish, gated by the
+music timer g14 > 5700), #1 branches on `L0`:
+- `L0 == 0` → attract / title-idle: places ego in room 0 (nothing),
+  spins the input loop #23, leaves a black canvas. (This is what we
+  were stuck on — looked like a hang; it's the no-new-game path.)
+- `L0 != 0` → new-game path (a 3092-byte block): loads room 38, the
+  opening lookout scene. `bootGame` now defaults the param to 1
+  (`BOOT_PARAM_NEW_GAME`), so a fresh boot plays the intro.
 
-What's MISSING for a "playable" title state: room art behind the
-title menu (`vm.loadedRoom = null` after the credits — MI1's
-intentional unload, but it leaves a black canvas), real verb-script
-dispatch (clicks on verbs just set `vm.currentVerb`; no sentence
-is executed), the inventory subsystem, and `print` keep-text /
-per-line centring for multi-line cards.
+**MI1's input is script-driven, in script #23** (the engine's
+checkExecVerbs equivalent): each frame it polls `g52` (VAR_CURSORSTATE)
+> 0 as "a click happened this frame", reads `VAR_MOUSE_X/Y`,
+`findObject`s under the cursor, builds the sentence, and dispatches the
+verb via script #12 (which branches on `g107` = active verb). So the
+faithful click path is **feed g52 + mouse → let #23 do it**, NOT the
+engine-side `handleSceneClick` shortcut (which now needs revisiting).
+
+The inspector has stable DOM during Play; controls + frame stack mount
+once and only canvas pixels update per tick.
+
+What's still MISSING toward "playable": clicks wired through #23 (feed
+VAR_CURSORSTATE + mouse instead of `handleSceneClick`), real verb-script
+dispatch end-to-end, the inventory subsystem, and `print` keep-text /
+per-line centring.
 
 ### Resume notes (2026-05-29)
 

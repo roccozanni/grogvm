@@ -34,11 +34,26 @@ export interface BootResult {
   readonly bytecodeLength: number;
 }
 
+/**
+ * Boot script #1's first local (`L0`) is the **boot parameter**.
+ * Verified against MI1: after the credits, `#1` branches on it —
+ * `L0 == 0` → the attract / title-idle setup (places ego in room 0 and
+ * spins the input loop #23, leaving a black screen waiting for input);
+ * `L0 != 0` → the new-game path that loads the opening scene (Mêlée
+ * Island lookout, room 38) with Guybrush placed. Both 1 and 2 land on
+ * room 38, so it's a "start a new game" flag, not a level index.
+ * Default 1 so a fresh boot plays the credits and then drops into the
+ * first interactive room.
+ */
+export const BOOT_PARAM_NEW_GAME = 1;
+export const BOOT_PARAM_ATTRACT = 0;
+
 export function bootGame(
   resourceFile: ResourceFile,
   index: IndexFile,
   loff: RoomOffsetTable,
   gameId: GameId,
+  bootParam: number = BOOT_PARAM_NEW_GAME,
 ): BootResult {
   const vm = new Vm({
     numVariables: Math.max(index.maxs.numVariables, 800),
@@ -59,6 +74,7 @@ export function bootGame(
     scriptId: boot.id,
     bytecode: boot.bytecode,
     room: boot.room,
+    args: [bootParam],
   });
   return { vm, bootScriptId: boot.id, bytecodeLength: boot.bytecode.length };
 }
