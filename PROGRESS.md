@@ -12,20 +12,29 @@ detail the next phase here.
 ## Status
 
 **Phase 7 in progress.** The MI1 IT credits cutscene plays through
-end-to-end (~5700 ticks) and **the game now naturally enters the first
-interactive room — the Mêlée Island lookout (room 38) — with Guybrush
-(actor 1, costume 1) placed.** No more black screen after the credits.
+end-to-end (~5700 ticks). The **credits → first-room transition is NOT
+yet solved** — see below.
 
-**How the title→first-room transition works (reverse-engineered):**
+**Boot flow (reverse-engineered, but the auto-transition is missing):**
 boot script #1's first local `L0` is the boot parameter. After the
-credits (it waits on the credits script #152 to finish, gated by the
-music timer g14 > 5700), #1 branches on `L0`:
-- `L0 == 0` → attract / title-idle: places ego in room 0 (nothing),
-  spins the input loop #23, leaves a black canvas. (This is what we
-  were stuck on — looked like a hang; it's the no-new-game path.)
-- `L0 != 0` → new-game path (a 3092-byte block): loads room 38, the
-  opening lookout scene. `bootGame` now defaults the param to 1
-  (`BOOT_PARAM_NEW_GAME`), so a fresh boot plays the intro.
+credits-wait (it waits on credits script #152, gated by music timer
+g14 > 5700), #1 branches on `L0`:
+- `L0 == 0` (default `BOOT_PARAM_ATTRACT`) → plays the credits, then the
+  attract / title-idle setup: parks ego in room 0, spins the input loop
+  #23, leaving a **black canvas waiting for input**.
+- `L0 != 0` (`BOOT_PARAM_NEW_GAME`) → **skips the credits** and jumps
+  straight to a new game in room 38 (the Mêlée lookout) with Guybrush.
+
+Neither param alone gives the real intro (credits → lookout). The
+real flow must trigger the new-game path *from* the title-idle (a key /
+click / timeout we haven't found). `bootGame` defaults to param 0 so the
+cutscene plays; param 1 is exposed for testing the lookout directly.
+
+⚠️ **Room 38 (lookout) renders very dark** — it's a night scene: its
+background is mostly black + dark-blue sky (idx 0 = (0,0,0), idx 20-24 =
+(16,16,56)..(36,36,116)), avg pixel brightness ~15%. Reads as "black"
+but the data + palette are intact; it's not a render bug and NOT a
+lights issue (the compositor doesn't honor `VAR_CURRENT_LIGHTS`).
 
 **MI1's input is script-driven, in script #23** (the engine's
 checkExecVerbs equivalent): each frame it polls `g52` (VAR_CURSORSTATE)
