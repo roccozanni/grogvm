@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import type { LoadedObject } from '../object/loader';
+import type { LoadedRoom } from '../room/loader';
 import { NUM_SLOTS, UnknownOpcodeError, Vm, type OpcodeHandler } from './vm';
 
 function makeVm(handlers: Record<number, OpcodeHandler> = {}): Vm {
@@ -20,6 +22,116 @@ const breakHere: OpcodeHandler = (vm, slot) => {
   vm.annotate('breakHere');
   slot.yield_();
 };
+
+/** A minimal LoadedRoom carrying just the objects a test needs. */
+function roomWithObjects(
+  id: number,
+  objects: ReadonlyArray<LoadedObject>,
+): LoadedRoom {
+  return {
+    id,
+    width: 320,
+    height: 200,
+    numObjects: objects.length,
+    palette: new Uint8Array(768),
+    transparentIndex: null,
+    indexed: new Uint8Array(0),
+    stripMethods: [],
+    zPlanes: [],
+    entryScript: null,
+    exitScript: null,
+    localScripts: new Map(),
+    objects: new Map(objects.map((o) => [o.objId, o])),
+    walkBoxes: [],
+    walkableMask: new Uint8Array(0),
+  };
+}
+
+/** A LoadedObject with just an id + verb map (other fields stubbed). */
+function objWithVerbs(
+  objId: number,
+  verbs: ReadonlyMap<number, Uint8Array>,
+): LoadedObject {
+  return {
+    objId,
+    cdhd: {
+      objId,
+      x: 0,
+      y: 0,
+      width: 0,
+      height: 0,
+      flags: 0,
+      parent: 0,
+      walkX: 0,
+      walkY: 0,
+      actorDir: 0,
+    },
+    imhd: { objId, numImages: 0, flags: 0, x: 0, y: 0, width: 0, height: 0 },
+    images: new Map(),
+    name: `obj${objId}`,
+    verbs,
+  };
+}
+
+describe('Vm — startVerbScript', () => {
+  it('starts a labelled slot from the verb bytecode', () => {
+    const vm = makeVm();
+    const code = new Uint8Array([0x48, 0x04, 0x00, 0xa0]);
+    vm.loadedRoom = roomWithObjects(7, [objWithVerbs(42, new Map([[11, code]]))]);
+
+    const slot = vm.startVerbScript(42, 11);
+    expect(slot).not.toBeNull();
+    expect(slot!.label).toBe('VERB-42-11');
+    expect(slot!.scriptId).toBe(42);
+    expect(slot!.room).toBe(7);
+    expect(slot!.bytecode).toBe(code);
+    expect(slot!.status).toBe('running');
+  });
+
+  it('seeds locals with [verb, obj, ...args]', () => {
+    const vm = makeVm();
+    vm.loadedRoom = roomWithObjects(1, [
+      objWithVerbs(50, new Map([[3, new Uint8Array([0xa0])]])),
+    ]);
+
+    const slot = vm.startVerbScript(50, 3, [99, 100])!;
+    expect(slot.locals[0]).toBe(3); // verb
+    expect(slot.locals[1]).toBe(50); // object
+    expect(slot.locals[2]).toBe(99);
+    expect(slot.locals[3]).toBe(100);
+  });
+
+  it('falls back to the default verb (0xFF)', () => {
+    const vm = makeVm();
+    const def = new Uint8Array([0xa0]);
+    vm.loadedRoom = roomWithObjects(1, [
+      objWithVerbs(42, new Map([[0xff, def]])),
+    ]);
+
+    const slot = vm.startVerbScript(42, 11);
+    expect(slot!.bytecode).toBe(def);
+    expect(slot!.label).toBe('VERB-42-11');
+  });
+
+  it('returns null when the object is not in the room', () => {
+    const vm = makeVm();
+    vm.loadedRoom = roomWithObjects(1, []);
+    expect(vm.startVerbScript(42, 11)).toBeNull();
+  });
+
+  it('returns null when no room is loaded', () => {
+    const vm = makeVm();
+    expect(vm.startVerbScript(42, 11)).toBeNull();
+  });
+
+  it('returns null when the verb and default are both absent', () => {
+    const vm = makeVm();
+    vm.loadedRoom = roomWithObjects(1, [
+      objWithVerbs(42, new Map([[3, new Uint8Array([0xa0])]])),
+    ]);
+    expect(vm.startVerbScript(42, 11)).toBeNull();
+  });
+});
 
 describe('Vm — slot allocation', () => {
   it('startScript picks the first dead slot', () => {
@@ -162,6 +274,60 @@ describe('Vm — reset', () => {
     expect(vm.isHalted).toBe(false);
     expect(vm.trace).toHaveLength(0);
     expect(vm.slots.every((s) => s.status === 'dead')).toBe(true);
+  });
+
+  it('clears mouseRoomX/Y', () => {
+    const vm = makeVm();
+    vm.mouseRoomX = 120;
+    vm.mouseRoomY = 40;
+    vm.reset();
+    expect(vm.mouseRoomX).toBe(0);
+    expect(vm.mouseRoomY).toBe(0);
+  });
+
+  it('clears pending + sticky input flags', () => {
+    const vm = makeVm();
+    vm.input.leftPressQueued = true;
+    vm.input.leftHold = true;
+    vm.input.rightHold = true;
+    vm.reset();
+    expect(vm.input.leftPressQueued).toBe(false);
+    expect(vm.input.leftHold).toBe(false);
+    expect(vm.input.rightHold).toBe(false);
+  });
+});
+
+describe('Vm — beginTick', () => {
+  /** beginTick writes to globals 52 / 53 — use a var bank big enough so
+   *  the writes aren't silently absorbed by the OOB-leniency handler. */
+  const makeWideVm = () =>
+    new Vm({ numVariables: 100, numBitVariables: 64, handlers: new Map() });
+
+  it('pulses VAR_LEFTBTN_DOWN for exactly one tick after a queued press', () => {
+    const vm = makeWideVm();
+    vm.input.leftPressQueued = true;
+    vm.beginTick();
+    expect(vm.vars.readGlobal(Vm.VAR_LEFTBTN_DOWN)).toBe(1);
+    // Next tick — no new press queued — should be 0.
+    vm.beginTick();
+    expect(vm.vars.readGlobal(Vm.VAR_LEFTBTN_DOWN)).toBe(0);
+  });
+
+  it('consumes leftPressQueued so subsequent ticks see 0', () => {
+    const vm = makeWideVm();
+    vm.input.leftPressQueued = true;
+    vm.beginTick();
+    expect(vm.input.leftPressQueued).toBe(false);
+  });
+
+  it('mirrors vm.cursor.userput into VAR_USERPUT', () => {
+    const vm = makeWideVm();
+    vm.cursor.userput = true;
+    vm.beginTick();
+    expect(vm.vars.readGlobal(Vm.VAR_USERPUT)).toBe(1);
+    vm.cursor.userput = false;
+    vm.beginTick();
+    expect(vm.vars.readGlobal(Vm.VAR_USERPUT)).toBe(0);
   });
 });
 

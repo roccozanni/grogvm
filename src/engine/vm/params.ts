@@ -106,6 +106,34 @@ export function readVarRef(slot: ScriptSlot, vars: Variables): number {
 }
 
 /**
+ * Like {@link readVarRef} but also returns the resolved ref word.
+ * Used by diagnostic-rich opcode handlers (currently the comparison
+ * family) so the trace can label *which* variable a script polled —
+ * critical for figuring out why a wait loop never releases.
+ */
+export function readVarRefWithRef(
+  slot: ScriptSlot,
+  vars: Variables,
+): { readonly ref: number; readonly value: number } {
+  const ref = resolveIndexedRef(readU16(slot), slot, vars);
+  return { ref, value: derefRead(ref, slot, vars) };
+}
+
+/**
+ * Render a (post-`resolveIndexedRef`) ref word as a human-readable
+ * label. The encoding (already documented in the file header):
+ *   bit 15 (0x8000) → bit-var
+ *   bit 14 (0x4000) → local var
+ *   else            → global var
+ * Indexed (0x2000) bit is already cleared by `resolveIndexedRef`.
+ */
+export function formatRefLabel(ref: number): string {
+  if (ref & 0x8000) return `bit#${ref & 0x7fff}`;
+  if (ref & 0x4000) return `L${ref & 0x0fff}`;
+  return `g${ref & 0x1fff}`;
+}
+
+/**
  * Read a var-reference word *as a destination* — returns the
  * (possibly indexed-resolved) ref, advancing PC past the ref and any
  * extra index word. The caller writes the value via `writeRef`.

@@ -18,6 +18,21 @@ import type { ResourceFile } from '../../engine/resources/tree';
 import { bootGame, type GameId } from '../../engine/vm/boot';
 import type { ScriptSlot } from '../../engine/vm/slot';
 import type { HaltInfo, TraceEntry, Vm } from '../../engine/vm/vm';
+import { mountVmFrameInput, type ClickEvent } from './input';
+import { mountPlayArea } from './play-area';
+
+/**
+ * Click captured by the inspector's input layer, with the engine tick
+ * count at the moment it landed — handy for correlating a click with
+ * trace entries / state changes that follow.
+ */
+interface RecentClick extends ClickEvent {
+  readonly tickCount: number;
+  /** Object id under the click, or null if the click hit empty room. */
+  readonly objId: number | null;
+}
+
+const RECENT_CLICKS_CAP = 12;
 
 interface InspectorState {
   vm: Vm | null;
@@ -50,6 +65,57 @@ interface InspectorState {
   tickRateHz: number;
   /** Last wall-clock time (performance.now()) we actually ticked. */
   lastTickAt: number;
+  /**
+   * Most recent left/right clicks on the VM frame canvas, newest
+   * first. Capped at {@link RECENT_CLICKS_CAP} so the panel stays
+   * compact. Verb / object hit-testing wires onto the same input
+   * pipeline in later Phase 7 tasks.
+   */
+  recentClicks: RecentClick[];
+  /**
+   * Most recent fully-decoded room palette. MI1's boot unloads to
+   * "no room" between the credits and the title menu, so the play
+   * area (cursor + verb bar + sentence line) would vanish during
+   * that interval if we relied on `vm.loadedRoom.palette`. We cache
+   * the last seen palette here so the verb-bar text keeps its colours
+   * through the unload. `null` until the first `loadRoom` succeeds.
+   */
+  lastPalette: Uint8Array | null;
+  lastTransparentIndex: number | null;
+  /**
+   * The frame area's stable DOM + cached renderer / play-area
+   * handles. Re-mounted only when the room dimensions change (or on
+   * Boot / Reset). Per-tick refreshes update pixels in place — keeps
+   * clickable canvases (verb bar, room canvas) stable across rAF
+   * boundaries so clicks don't drop.
+   */
+  mountedFrame: MountedFrame | null;
+}
+
+interface MountedFrame {
+  /** Frame width (matches `loadedRoom.width` or fallback 320). */
+  readonly width: number;
+  /** Frame height (matches `loadedRoom.height` or fallback 144). */
+  readonly height: number;
+  /** Root DOM element to attach into the section. */
+  readonly root: HTMLElement;
+  /** Heading text node updated each tick. */
+  readonly headingText: Text;
+  /** Frame canvas + its Canvas2D renderer. */
+  readonly frameCanvas: HTMLCanvasElement;
+  readonly frameRenderer: Canvas2DRenderer | null;
+  /** Reusable framebuffer; resized only when room dims change. */
+  readonly framebuffer: Uint8Array;
+  /** Play-area handles (cursor overlay, verb bar, sentence line). */
+  readonly play: ReturnType<typeof mountPlayArea>;
+  /** Bottom-of-frame caption (actors / objects / skip counts). */
+  readonly metaText: Text;
+  /** Detail list element for skip diagnostics. */
+  readonly skipDetails: HTMLDetailsElement;
+  readonly skipSummaryText: Text;
+  readonly skipList: HTMLUListElement;
+  /** Walk-overlay slot — present iff state.showWalkOverlay; replaced per tick when on. */
+  walkOverlay: HTMLCanvasElement | null;
 }
 
 export function renderVmInspector(
@@ -74,6 +140,10 @@ export function renderVmInspector(
     showWalkOverlay: false,
     tickRateHz: 60,
     lastTickAt: 0,
+    recentClicks: [],
+    lastPalette: null,
+    lastTransparentIndex: null,
+    mountedFrame: null,
   };
 
   /** Snapshot of every non-dead slot's (id, status, pc) plus the
@@ -81,12 +151,38 @@ export function renderVmInspector(
    *  actively-animating actor — used to detect "we're in a wait loop
    *  where nothing observable changes". Both walks and anim cycles
    *  count as progress, so the loop keeps ticking while either is in
-   *  motion. */
+   *  motion.
+   *
+   *  We also append each slot's last few TRACE MNEMONICS. The most
+   *  recent entry is always the yielding `breakHere` (worthless for
+   *  change detection); the entries just before it carry the
+   *  dereferenced variable values from comparison annotations
+   *  (`isLE(g14=2997, 5700)`). When a script is waiting on an
+   *  auto-incrementing timer, the value in the annotation changes
+   *  every tick → fingerprint differs → loop keeps running through
+   *  long timer waits (MI1's ~5700-tick end-of-credits hold). Pure
+   *  input-wait loops (`isLess(g52=0, 0)`) carry the same value every
+   *  tick → fingerprint stays stable → inspector still auto-pauses.
+   */
+  const MNEMONICS_PER_SLOT_IN_FINGERPRINT = 3;
   const yieldFingerprint = (vm: Vm): string => {
     const parts: string[] = [];
+    const tailBySlot = new Map<number, string[]>();
+    for (let i = vm.trace.length - 1; i >= 0; i--) {
+      const t = vm.trace[i]!;
+      let arr = tailBySlot.get(t.slotIndex);
+      if (!arr) {
+        arr = [];
+        tailBySlot.set(t.slotIndex, arr);
+      }
+      if (arr.length < MNEMONICS_PER_SLOT_IN_FINGERPRINT) {
+        arr.push(t.mnemonic ?? `op=0x${t.opcode.toString(16)}`);
+      }
+    }
     for (const s of vm.slots) {
       if (s.status === 'dead') continue;
-      parts.push(`s${s.slotIndex}:${s.status}:${s.scriptId}@${s.pc}`);
+      const tail = tailBySlot.get(s.slotIndex) ?? [];
+      parts.push(`s${s.slotIndex}:${s.status}:${s.scriptId}@${s.pc}|${tail.join('//')}`);
     }
     for (const a of vm.actors.all()) {
       if (a.isMoving) parts.push(`a${a.id}@${a.x},${a.y}`);
@@ -120,9 +216,20 @@ export function renderVmInspector(
    */
   const oneTick = (): boolean => {
     if (!state.vm || state.vm.haltInfo) return false;
+    // Mirror input + cursor state into the engine VARs *before*
+    // resuming scripts so any wait loop polling VAR_LEFTBTN_DOWN /
+    // VAR_USERPUT sees the freshest value this tick.
+    state.vm.beginTick();
     let resumed = false;
     for (const s of state.vm.slots) {
       if (s.status === 'yielded' || s.status === 'frozen') {
+        // Slots blocked on `delay N` ticks must stay yielded until
+        // their per-slot countdown drains. We decrement each tick;
+        // the slot only resumes when it hits 0.
+        if (s.delayRemaining > 0) {
+          s.delayRemaining--;
+          continue;
+        }
         s.resume();
         resumed = true;
       }
@@ -158,7 +265,14 @@ export function renderVmInspector(
     return state.idleStreak >= IDLE_STREAK_THRESHOLD;
   };
 
+  // Monotonic generation counter. Every Pause / Reset / Boot bumps
+  // this so any in-flight rAF callback can detect that it's stale and
+  // bail. Belt-and-braces against `cancelAnimationFrame` not taking
+  // (HMR reloads, browser quirks).
+  let loopGeneration = 0;
+
   const stopLoop = (): void => {
+    loopGeneration++;
     if (state.rafId !== null) cancelAnimationFrame(state.rafId);
     state.rafId = null;
     state.playing = false;
@@ -166,9 +280,10 @@ export function renderVmInspector(
 
   const scheduleNextTick = (): void => {
     if (!state.playing) return;
+    const myGen = loopGeneration;
     state.rafId = requestAnimationFrame(() => {
       state.rafId = null;
-      if (!state.playing || !state.vm) return;
+      if (!state.playing || !state.vm || myGen !== loopGeneration) return;
       // Throttle: skip this rAF if the configured tick interval
       // hasn't elapsed yet. 60 Hz = no throttling (every frame
       // ticks). Slower rates mean rAF still fires but we just
@@ -209,82 +324,141 @@ export function renderVmInspector(
         repaint();
         return;
       }
-      repaint();
+      // Inside the rAF loop, only the live panels refresh — the
+      // controls bar (buttons + tick counter) stays stable so clicks
+      // mid-stride don't drop.
+      repaintLive();
       scheduleNextTick();
     });
   };
 
-  const repaint = (): void => {
-    section.replaceChildren(
-      renderInner(
-        state,
-        () => repaint(),
-        () => {
-          stopLoop();
-          const { vm } = bootGame(resourceFile, index, loff, gameId);
-          state.vm = vm;
-          state.tickCount = 0;
-          state.lastIdleFingerprint = null;
-          state.idleStreak = 0;
-          state.idleReason = null;
-          (globalThis as { __vm?: Vm }).__vm = vm;
-          // Tiny dev helper: __walkActor(id, x, y) sets up an actor
-          // walk through the real pathfinder so you can see the
-          // overlay light up without touching the opcode handler.
-          (globalThis as { __walkActor?: (id: number, x: number, y: number) => void }).__walkActor =
-            (id, x, y) => {
-              const actor = vm.actors.get(id);
-              actor.walkTarget = { x, y };
-              actor.walkPath = [];
-              actor.walkPathIdx = 0;
-              actor.isMoving = true;
-              const mask = vm.loadedRoom?.walkableMask;
-              if (mask && mask.length > 0 && !actor.ignoreBoxes) {
-                const room = vm.loadedRoom!;
-                const path = findPath(mask, room.width, room.height, { x: actor.x, y: actor.y }, { x, y });
-                if (path.waypoints.length > 0) {
-                  actor.walkPath = path.waypoints.slice(1);
-                }
-              }
-            };
-          repaint();
-        },
-        () => {
-          if (state.playing) {
-            stopLoop();
-          } else if (state.vm) {
-            state.playing = true;
-            // Reset idle tracking so Play resumes cleanly after the
-            // user pokes at state in the console (the new state will
-            // produce a new fingerprint).
-            state.lastIdleFingerprint = null;
-            state.idleStreak = 0;
-            state.idleReason = null;
-            scheduleNextTick();
+  // The inspector splits into THREE subtrees:
+  //   - controlsContainer: buttons. Only rebuilt on state changes
+  //     (Boot / Pause / Reset). Rebuilding every tick would drop
+  //     clicks (mousedown lands on a button that's destroyed before
+  //     mouseup arrives).
+  //   - frameContainer: the room canvas + cursor overlay + verb bar
+  //     + sentence line. STABLE DOM — only re-mounted when room
+  //     dimensions change. Per-tick refresh updates canvas pixels in
+  //     place via the cached renderer. Same click-stability story as
+  //     the controls bar: the verb bar canvas is clickable, so it
+  //     must not be torn down per tick.
+  //   - liveContainer: tables / trace / globals / bits panels.
+  //     Rebuilt per tick. No clickable canvases inside.
+  const controlsContainer = document.createElement('div');
+  controlsContainer.className = 'vm-controls-host';
+  const frameContainer = document.createElement('div');
+  frameContainer.className = 'vm-frame-host';
+  const liveContainer = document.createElement('div');
+  liveContainer.className = 'vm-live-host';
+  section.appendChild(controlsContainer);
+  section.appendChild(frameContainer);
+  section.appendChild(liveContainer);
+
+  const bootFresh = (): void => {
+    stopLoop();
+    const { vm } = bootGame(resourceFile, index, loff, gameId);
+    state.vm = vm;
+    state.tickCount = 0;
+    state.lastIdleFingerprint = null;
+    state.idleStreak = 0;
+    state.idleReason = null;
+    state.recentClicks = [];
+    state.lastPalette = null;
+    state.lastTransparentIndex = null;
+    (globalThis as { __vm?: Vm }).__vm = vm;
+    // Tiny dev helper: __walkActor(id, x, y) sets up an actor walk
+    // through the real pathfinder so you can see the overlay light
+    // up without touching the opcode handler.
+    (globalThis as { __walkActor?: (id: number, x: number, y: number) => void }).__walkActor =
+      (id, x, y) => {
+        const actor = vm.actors.get(id);
+        actor.walkTarget = { x, y };
+        actor.walkPath = [];
+        actor.walkPathIdx = 0;
+        actor.isMoving = true;
+        const mask = vm.loadedRoom?.walkableMask;
+        if (mask && mask.length > 0 && !actor.ignoreBoxes) {
+          const room = vm.loadedRoom!;
+          const path = findPath(mask, room.width, room.height, { x: actor.x, y: actor.y }, { x, y });
+          if (path.waypoints.length > 0) {
+            actor.walkPath = path.waypoints.slice(1);
           }
-          repaint();
-        },
-      ),
-    );
+        }
+      };
+    repaint();
+  };
+
+  const togglePlay = (): void => {
+    if (state.playing) {
+      stopLoop();
+    } else if (state.vm) {
+      state.playing = true;
+      // Reset idle tracking so Play resumes cleanly after the user
+      // pokes at state in the console (the new state will produce a
+      // new fingerprint).
+      state.lastIdleFingerprint = null;
+      state.idleStreak = 0;
+      state.idleReason = null;
+      scheduleNextTick();
+    }
+    repaint();
+  };
+
+  const repaintControls = (): void => {
+    const h2 = document.createElement('h2');
+    h2.textContent = 'VM';
+    const controls = renderControls(state, repaint, bootFresh, togglePlay);
+    controlsContainer.replaceChildren(h2, controls);
+  };
+
+  /**
+   * Refresh the frame area. Re-mounts the canvases only when room
+   * dimensions change; otherwise just updates pixels in place.
+   */
+  const refreshFrame = (): void => {
+    if (!state.vm) {
+      state.mountedFrame = null;
+      frameContainer.replaceChildren();
+      return;
+    }
+    const room = state.vm.loadedRoom;
+    const width = room?.width ?? 320;
+    const height = room?.height ?? 144;
+    const palette = room?.palette ?? state.lastPalette ?? defaultGreyPalette();
+    if (
+      !state.mountedFrame ||
+      state.mountedFrame.width !== width ||
+      state.mountedFrame.height !== height
+    ) {
+      state.mountedFrame = buildFrame(state, resourceFile, width, height, palette, repaint);
+      frameContainer.replaceChildren(state.mountedFrame.root);
+    }
+    updateFrame(state, state.mountedFrame, palette);
+  };
+
+  const repaintLive = (): void => {
+    refreshFrame();
+    liveContainer.replaceChildren(renderLive(state, repaint));
+  };
+
+  const repaint = (): void => {
+    repaintControls();
+    repaintLive();
   };
 
   repaint();
   return section;
 }
 
-function renderInner(
-  state: InspectorState,
-  repaint: () => void,
-  bootFresh: () => void,
-  togglePlay: () => void,
-): DocumentFragment {
+/**
+ * Build the live-state subtree (tables / trace / panels — things
+ * that update per tick but have NO clickable canvases). The
+ * controls bar and the frame area are built separately and reused
+ * across tick repaints so their click targets stay stable.
+ */
+function renderLive(state: InspectorState, repaint: () => void): DocumentFragment {
   const frag = document.createDocumentFragment();
-
-  const h2 = document.createElement('h2');
-  h2.textContent = 'VM';
-  frag.appendChild(h2);
-
-  frag.appendChild(renderControls(state, repaint, bootFresh, togglePlay));
 
   if (!state.vm) {
     const empty = document.createElement('p');
@@ -293,6 +467,14 @@ function renderInner(
     frag.appendChild(empty);
     return frag;
   }
+
+  // Live tick counter — moved out of the controls bar so the
+  // bar can stay stable across rAF repaints without losing clicks.
+  const counter = document.createElement('p');
+  counter.className = 'vm-tick-counter-live';
+  counter.textContent = `tick ${state.tickCount}`;
+  counter.title = 'Engine ticks since this VM was booted';
+  frag.appendChild(counter);
 
   if (state.vm.haltInfo) {
     frag.appendChild(renderHaltPanel(state.vm.haltInfo));
@@ -305,7 +487,7 @@ function renderInner(
     frag.appendChild(idle);
   }
 
-  frag.appendChild(renderVmFrame(state, repaint));
+  frag.appendChild(renderInputPanel(state));
   frag.appendChild(renderActorTable(state.vm));
   frag.appendChild(renderSlotTable(state.vm, state.vm.haltInfo));
   frag.appendChild(renderTrace(state.vm));
@@ -313,6 +495,118 @@ function renderInner(
   frag.appendChild(renderBits(state, repaint));
 
   return frag;
+}
+
+function pushClick(state: InspectorState, e: ClickEvent, objId: number | null): void {
+  const entry: RecentClick = { ...e, tickCount: state.tickCount, objId };
+  state.recentClicks.unshift(entry);
+  if (state.recentClicks.length > RECENT_CLICKS_CAP) {
+    state.recentClicks.length = RECENT_CLICKS_CAP;
+  }
+}
+
+/**
+ * Last-resort palette used when no room has ever loaded — a 16-entry
+ * grayscale ramp expanded into the 256-CLUT-entry layout the renderer
+ * expects (3 bytes per entry). Verb-bar text rendering with this
+ * palette is monochrome but legible, which is enough to make the
+ * inspector usable in the brief pre-first-room window after Boot.
+ */
+function defaultGreyPalette(): Uint8Array {
+  const p = new Uint8Array(768);
+  for (let i = 0; i < 256; i++) {
+    const v = Math.min(255, i * 4);
+    p[i * 3] = v;
+    p[i * 3 + 1] = v;
+    p[i * 3 + 2] = v;
+  }
+  return p;
+}
+
+function modString(m: ClickEvent['modifiers']): string {
+  const parts: string[] = [];
+  if (m.shift) parts.push('Shift');
+  if (m.ctrl) parts.push('Ctrl');
+  if (m.alt) parts.push('Alt');
+  if (m.meta) parts.push('Meta');
+  return parts.join('+');
+}
+
+/**
+ * Live cursor coords + recent-click ring. Read-only diagnostic — verb
+ * routing / sentence building / hit-testing arrive with later Phase 7
+ * tasks. Stays visible at all times so we can confirm the input layer
+ * is working when scripts ignore clicks (cutscenes, userput off, …).
+ */
+function renderInputPanel(state: InspectorState): HTMLElement {
+  const vm = state.vm!;
+  const panel = document.createElement('section');
+  panel.className = 'vm-input-panel';
+
+  const heading = document.createElement('h3');
+  heading.textContent = 'Input';
+  panel.appendChild(heading);
+
+  const liveRow = document.createElement('p');
+  liveRow.className = 'vm-input-live';
+  // VAR_VIRT_MOUSE_X/Y (room) shown alongside vm.mouseRoomX/Y — they
+  // should always match; surfacing both lets us catch a divergence if
+  // a script writes them directly.
+  const virtX = vm.vars.readGlobal(20);
+  const virtY = vm.vars.readGlobal(21);
+  liveRow.textContent =
+    `cursor room=(${vm.mouseRoomX}, ${vm.mouseRoomY}) · ` +
+    `VAR_VIRT_MOUSE=(${virtX}, ${virtY}) · ` +
+    `VAR_MOUSE=(${vm.vars.readGlobal(44)}, ${vm.vars.readGlobal(45)})`;
+  panel.appendChild(liveRow);
+
+  // Engine-truth cursor / verb state. The crosshair always paints in
+  // the inspector for debug — these fields tell you what the game
+  // logic actually sees.
+  const engineRow = document.createElement('p');
+  engineRow.className = 'vm-input-live';
+  const verbBits = vm.currentVerb !== null
+    ? `${vm.currentVerb} (${vm.verbs.get(vm.currentVerb)?.name ?? '?'})`
+    : 'none';
+  engineRow.textContent =
+    `vm.cursor.visible=${vm.cursor.visible} · ` +
+    `vm.cursor.userput=${vm.cursor.userput} · ` +
+    `currentCharset=${vm.currentCharset} · ` +
+    `currentVerb=${verbBits} · ` +
+    `verbs=${vm.verbs.size}`;
+  panel.appendChild(engineRow);
+
+  const varsRow = document.createElement('p');
+  varsRow.className = 'vm-input-live';
+  varsRow.textContent =
+    `leftHold=${vm.input.leftHold} · rightHold=${vm.input.rightHold} · ` +
+    `VAR_LEFTBTN_DOWN(g52)=${vm.vars.readGlobal(52)} · ` +
+    `VAR_USERPUT(g53)=${vm.vars.readGlobal(53)}`;
+  panel.appendChild(varsRow);
+
+  if (state.recentClicks.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'vm-empty';
+    empty.textContent = '(no clicks yet — click on the VM frame canvas)';
+    panel.appendChild(empty);
+    return panel;
+  }
+
+  const list = document.createElement('ul');
+  list.className = 'vm-input-clicks';
+  for (const c of state.recentClicks) {
+    const li = document.createElement('li');
+    const mods = modString(c.modifiers);
+    const objBit = c.objId !== null ? ` · obj #${c.objId}` : '';
+    li.textContent =
+      `tick ${c.tickCount} · ${c.button} · (${c.roomX}, ${c.roomY})` +
+      objBit +
+      (mods ? ` · ${mods}` : '');
+    list.appendChild(li);
+  }
+  panel.appendChild(list);
+
+  return panel;
 }
 
 function renderControls(
@@ -380,7 +674,14 @@ function renderControls(
   run.title = 'Resume yielded slots and dispatch until every slot yields again (one engine tick)';
   run.addEventListener('click', () => {
     if (!state.vm) return;
-    for (const s of state.vm.slots) s.resume();
+    state.vm.beginTick();
+    for (const s of state.vm.slots) {
+      if (s.delayRemaining > 0) {
+        s.delayRemaining--;
+        continue;
+      }
+      s.resume();
+    }
     state.vm.runUntilAllYield();
     repaint();
   });
@@ -399,9 +700,14 @@ function renderControls(
     if (!state.vm) return;
     const MAX_TICKS = 100;
     for (let i = 0; i < MAX_TICKS; i++) {
+      state.vm.beginTick();
       let resumed = false;
       for (const s of state.vm.slots) {
         if (s.status === 'yielded' || s.status === 'frozen') {
+          if (s.delayRemaining > 0) {
+            s.delayRemaining--;
+            continue;
+          }
           s.resume();
           resumed = true;
         }
@@ -415,6 +721,35 @@ function renderControls(
     repaint();
   });
   bar.appendChild(idle);
+
+  // Synthesises a left-button-down pulse without needing the room
+  // canvas — critical for the title-menu state where no room is
+  // loaded and the play-area canvas doesn't exist, but scripts are
+  // still polling VAR_LEFTBTN_DOWN waiting for a click. Advances one
+  // tick so the next-tick clear happens after the script consumes
+  // the pulse.
+  const click = button('Click ←');
+  click.disabled = !state.vm || state.vm.isHalted;
+  click.title = 'Queue a synthetic left-button press and advance one engine tick';
+  click.addEventListener('click', () => {
+    if (!state.vm) return;
+    state.vm.input.leftPressQueued = true;
+    state.vm.input.leftHold = true;
+    state.vm.beginTick();
+    for (const s of state.vm.slots) {
+      if (s.delayRemaining > 0) {
+        s.delayRemaining--;
+        continue;
+      }
+      s.resume();
+    }
+    state.vm.runUntilAllYield();
+    // Release the hold after the tick so a real script that latches
+    // on hold doesn't think the user is dragging.
+    state.vm.input.leftHold = false;
+    repaint();
+  });
+  bar.appendChild(click);
 
   const reset = button('Reset');
   reset.disabled = !state.vm;
@@ -433,18 +768,13 @@ function renderControls(
     state.lastIdleFingerprint = null;
     state.idleStreak = 0;
     state.idleReason = null;
+    state.recentClicks = [];
+    state.lastPalette = null;
+    state.lastTransparentIndex = null;
     delete (globalThis as { __vm?: Vm }).__vm;
     repaint();
   });
   bar.appendChild(reset);
-
-  if (state.vm) {
-    const counter = document.createElement('span');
-    counter.className = 'vm-tick-counter';
-    counter.textContent = `tick ${state.tickCount}`;
-    counter.title = 'Engine ticks since this VM was booted';
-    bar.appendChild(counter);
-  }
 
   return bar;
 }
@@ -492,80 +822,92 @@ function renderHaltPanel(halt: HaltInfo): HTMLElement {
 }
 
 /**
- * Render the VM's current "frame" — the room background as the engine
- * currently sees it. Phase 6 sub-task: actors are not yet composited
- * (the actor opcodes are still stubs at the engine level), so this is
- * the room bitmap rendered through its CLUT, with TRNS pixels exposed
- * as transparent (the canvas's CSS checkerboard backdrop shows
- * through).
+ * Build the stable frame-area DOM (canvas, overlays, play-area) and
+ * wire its input listeners. Called once per room-dimensions change.
+ * Per-tick refreshes go through {@link updateFrame} which only mutates
+ * canvas pixels — keeps the verb-bar / room-canvas DOM elements
+ * stable so clicks don't drop across rAF boundaries.
  */
-function renderVmFrame(state: InspectorState, repaint: () => void): HTMLElement {
+function buildFrame(
+  state: InspectorState,
+  resourceFile: ResourceFile,
+  width: number,
+  height: number,
+  palette: Uint8Array,
+  repaint: () => void,
+): MountedFrame {
   const vm = state.vm!;
-  const wrap = document.createElement('div');
-  wrap.className = 'vm-frame';
+  const root = document.createElement('div');
+  root.className = 'vm-frame';
 
   const heading = document.createElement('h3');
-  const room = vm.loadedRoom;
-  heading.textContent = room
-    ? `VM frame — room ${room.id} (${room.width}×${room.height})`
-    : `VM frame — currentRoom=${vm.currentRoom}, (no room loaded)`;
-  wrap.appendChild(heading);
+  const headingText = document.createTextNode('');
+  heading.appendChild(headingText);
+  root.appendChild(heading);
 
-  if (vm.lastRoomLoadError) {
-    const err = document.createElement('p');
-    err.className = 'vm-frame-err';
-    err.textContent = `Last room-load attempt: ${vm.lastRoomLoadError}`;
-    wrap.appendChild(err);
-  }
-
-  if (!room) {
-    const empty = document.createElement('p');
-    empty.className = 'vm-empty';
-    empty.textContent = '(scripts haven’t loaded a renderable room yet)';
-    wrap.appendChild(empty);
-    return wrap;
-  }
-
-  // Stack the frame canvas + a transparent overlay canvas in a
-  // position:relative wrapper so they line up pixel-perfect under the
-  // same 2× CSS scale.
   const stack = document.createElement('div');
   stack.className = 'vm-frame-stack';
-  stack.style.width = `${room.width * 2}px`;
-  stack.style.height = `${room.height * 2}px`;
+  stack.style.width = `${width * 2}px`;
+  stack.style.height = `${height * 2}px`;
 
-  const canvas = document.createElement('canvas');
-  canvas.className = 'vm-frame-canvas';
-  canvas.style.width = `${room.width * 2}px`;
-  canvas.style.height = `${room.height * 2}px`;
-  const renderer = new Canvas2DRenderer(canvas, room.width, room.height);
-  renderer.setPalette(room.palette);
-  renderer.setTransparentIndex(room.transparentIndex);
-
-  const framebuffer = new Uint8Array(room.width * room.height);
-  const actors = vm.actors.inRoom(vm.currentRoom);
-  const result = composeFrame({
-    room,
-    framebuffer,
-    actors,
-    getCostume: (id) => vm.getCostume(id),
-    objectDrawQueue: vm.objectDrawQueue,
-    // Default to state 1 when the script hasn't explicitly set state
-    // — most room ENCDs drawObject things without touching state, so
-    // treating "default state" as "state 1" matches what real MI1
-    // does at room load. If a script wants the object hidden, it
-    // calls setState(0).
-    getObjectState: (id) => vm.objectStates.get(id) ?? 1,
-  });
-  renderer.present(framebuffer);
-  stack.appendChild(canvas);
-
-  if (state.showWalkOverlay) {
-    stack.appendChild(renderWalkOverlay(vm, room));
+  const frameCanvas = document.createElement('canvas');
+  frameCanvas.className = 'vm-frame-canvas';
+  frameCanvas.style.width = `${width * 2}px`;
+  frameCanvas.style.height = `${height * 2}px`;
+  let frameRenderer: Canvas2DRenderer | null = null;
+  if (vm.loadedRoom) {
+    frameRenderer = new Canvas2DRenderer(frameCanvas, width, height);
+    frameRenderer.setPalette(vm.loadedRoom.palette);
+    frameRenderer.setTransparentIndex(vm.loadedRoom.transparentIndex);
+  } else {
+    // No room loaded — paint solid black so the cursor + verb bar
+    // composite on a predictable backdrop.
+    frameCanvas.width = width;
+    frameCanvas.height = height;
+    const ctx = frameCanvas.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, width, height);
+    }
   }
-  wrap.appendChild(stack);
+  stack.appendChild(frameCanvas);
 
-  // Toggle row below the frame.
+  const play = mountPlayArea({
+    resourceFile,
+    vm,
+    roomWidth: width,
+    roomHeight: height,
+    palette,
+    transparentIndex: vm.loadedRoom?.transparentIndex ?? state.lastTransparentIndex,
+    onCommit: () => repaint(),
+  });
+  stack.appendChild(play.cursorOverlay);
+
+  root.appendChild(stack);
+
+  mountVmFrameInput({
+    canvas: frameCanvas,
+    vm,
+    roomWidth: width,
+    roomHeight: height,
+    onMove: () => play.onPointerMove(),
+    onLeftClick: (e) => {
+      const { objId } = play.onRoomClick('left');
+      pushClick(state, e, objId);
+      repaint();
+    },
+    onRightClick: (e) => {
+      const { objId } = play.onRoomClick('right');
+      pushClick(state, e, objId);
+      repaint();
+    },
+  });
+
+  root.appendChild(play.sentenceLine);
+  root.appendChild(play.verbBar);
+
+  // Walk-overlay toggle row (only meaningful with a room loaded, but
+  // we always build the row so the toggle survives across remounts).
   const toggleRow = document.createElement('div');
   toggleRow.className = 'vm-frame-toggles';
   const label = document.createElement('label');
@@ -580,18 +922,119 @@ function renderVmFrame(state: InspectorState, repaint: () => void): HTMLElement 
   label.appendChild(document.createTextNode(' walk overlay'));
   label.title = 'Draw walk-box outlines, the walkable mask tint, and any active actor walkPath';
   toggleRow.appendChild(label);
-  if (state.showWalkOverlay) {
-    const info = document.createElement('span');
-    info.className = 'vm-frame-toggles-info';
-    info.textContent = `${room.walkBoxes.length} walk box${room.walkBoxes.length === 1 ? '' : 'es'}`;
-    toggleRow.appendChild(info);
-  }
-  wrap.appendChild(toggleRow);
+  root.appendChild(toggleRow);
 
-  // Caption: actors + objects drawn, with skip counts so the user
-  // can see at a glance why something didn't appear.
   const meta = document.createElement('p');
   meta.className = 'vm-frame-meta';
+  const metaText = document.createTextNode('');
+  meta.appendChild(metaText);
+  root.appendChild(meta);
+
+  const skipDetails = document.createElement('details');
+  skipDetails.open = true;
+  skipDetails.hidden = true;
+  const skipSummary = document.createElement('summary');
+  const skipSummaryText = document.createTextNode('');
+  skipSummary.appendChild(skipSummaryText);
+  skipDetails.appendChild(skipSummary);
+  const skipList = document.createElement('ul');
+  skipList.className = 'vm-frame-skip-list';
+  skipDetails.appendChild(skipList);
+  root.appendChild(skipDetails);
+
+  return {
+    width,
+    height,
+    root,
+    headingText,
+    frameCanvas,
+    frameRenderer,
+    framebuffer: new Uint8Array(width * height),
+    play,
+    metaText,
+    skipDetails,
+    skipSummaryText,
+    skipList,
+    walkOverlay: null,
+  };
+}
+
+/**
+ * Per-tick refresh of the stable frame area. Recomposes the
+ * framebuffer, present()s to the canvas, redraws play-area overlays,
+ * and updates the caption. DOM elements (canvases, sentence-line,
+ * verb-bar) stay the same so clicks remain attachable across ticks.
+ */
+function updateFrame(
+  state: InspectorState,
+  mounted: MountedFrame,
+  palette: Uint8Array,
+): void {
+  const vm = state.vm!;
+  const room = vm.loadedRoom;
+
+  // Heading.
+  mounted.headingText.data = room
+    ? `VM frame — room ${room.id} (${room.width}×${room.height})`
+    : `VM frame — currentRoom=${vm.currentRoom}, (no room loaded)`;
+
+  // Cache palette for future no-room ticks.
+  if (room) {
+    state.lastPalette = room.palette;
+    state.lastTransparentIndex = room.transparentIndex;
+  }
+
+  // Recompose + present, OR repaint black if no room.
+  type ComposeResult = ReturnType<typeof composeFrame>;
+  let result: ComposeResult = {
+    actorsDrawn: 0,
+    objectsDrawn: 0,
+    skippedActors: [],
+    skippedObjects: [],
+    skippedLimbs: [],
+  };
+  const actors = room ? vm.actors.inRoom(vm.currentRoom) : [];
+
+  if (room && mounted.frameRenderer) {
+    mounted.frameRenderer.setPalette(room.palette);
+    mounted.frameRenderer.setTransparentIndex(room.transparentIndex);
+    mounted.framebuffer.fill(0);
+    result = composeFrame({
+      room,
+      framebuffer: mounted.framebuffer,
+      actors,
+      getCostume: (id) => vm.getCostume(id),
+      objectDrawQueue: vm.objectDrawQueue,
+      getObjectState: (id) => vm.objectStates.get(id) ?? 1,
+    });
+    mounted.frameRenderer.present(mounted.framebuffer);
+  } else if (!room) {
+    const ctx = mounted.frameCanvas.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, mounted.width, mounted.height);
+    }
+  }
+
+  // Walk overlay — recreated per tick when enabled (cheap; only
+  // active when the user has the toggle on).
+  if (mounted.walkOverlay) {
+    mounted.walkOverlay.remove();
+    mounted.walkOverlay = null;
+  }
+  if (room && state.showWalkOverlay) {
+    mounted.walkOverlay = renderWalkOverlay(vm, room);
+    // Stack: [frameCanvas, walkOverlay, cursorOverlay] — insert walk
+    // overlay between the frame and the cursor.
+    mounted.play.cursorOverlay.before(mounted.walkOverlay);
+  }
+
+  // Repaint the play-area overlays (cursor, verb bar) + sentence
+  // line. Uses the latest palette + verb state from the VM.
+  void palette;
+  mounted.play.redraw();
+
+  // Caption.
   const actorBits = actors.length === 0
     ? 'no actors in this room'
     : `${result.actorsDrawn}/${actors.length} actor${actors.length === 1 ? '' : 's'} drawn` +
@@ -607,37 +1050,28 @@ function renderVmFrame(state: InspectorState, repaint: () => void): HTMLElement 
     (actorSkips > 0 ? ` · ${actorSkips} actor skip${actorSkips === 1 ? '' : 's'}` : '') +
     (objectSkips > 0 ? ` · ${objectSkips} object skip${objectSkips === 1 ? '' : 's'}` : '') +
     (limbSkips > 0 ? ` · ${limbSkips} limb skip${limbSkips === 1 ? '' : 's'}` : '');
-  meta.textContent = `${actorBits}${objectBits}${skipBits}`;
-  wrap.appendChild(meta);
+  mounted.metaText.data = `${actorBits}${objectBits}${skipBits}`;
 
-  if (actorSkips > 0 || limbSkips > 0 || objectSkips > 0) {
-    const details = document.createElement('details');
-    details.open = true;
-    const summary = document.createElement('summary');
-    summary.textContent = `Skipped (${actorSkips} actor, ${objectSkips} object, ${limbSkips} limb)`;
-    details.appendChild(summary);
-    const list = document.createElement('ul');
-    list.className = 'vm-frame-skip-list';
-    for (const s of result.skippedActors) {
+  // Skip details — only show when something was skipped.
+  if (actorSkips > 0 || objectSkips > 0 || limbSkips > 0) {
+    mounted.skipDetails.hidden = false;
+    mounted.skipSummaryText.data = `Skipped (${actorSkips} actor, ${objectSkips} object, ${limbSkips} limb)`;
+    const items: { text: string }[] = [
+      ...result.skippedActors.map((s) => ({ text: `actor ${s.actorId}: ${s.reason}` })),
+      ...result.skippedObjects.map((s) => ({ text: `object ${s.objectId}: ${s.reason}` })),
+      ...result.skippedLimbs.map((s) => ({
+        text: `actor ${s.actorId} limb ${s.limbIdx}: ${s.reason}`,
+      })),
+    ];
+    mounted.skipList.replaceChildren();
+    for (const item of items) {
       const li = document.createElement('li');
-      li.textContent = `actor ${s.actorId}: ${s.reason}`;
-      list.appendChild(li);
+      li.textContent = item.text;
+      mounted.skipList.appendChild(li);
     }
-    for (const s of result.skippedObjects) {
-      const li = document.createElement('li');
-      li.textContent = `object ${s.objectId}: ${s.reason}`;
-      list.appendChild(li);
-    }
-    for (const s of result.skippedLimbs) {
-      const li = document.createElement('li');
-      li.textContent = `actor ${s.actorId} limb ${s.limbIdx}: ${s.reason}`;
-      list.appendChild(li);
-    }
-    details.appendChild(list);
-    wrap.appendChild(details);
+  } else {
+    mounted.skipDetails.hidden = true;
   }
-
-  return wrap;
 }
 
 /**

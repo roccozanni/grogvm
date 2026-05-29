@@ -33,6 +33,7 @@
 import { decodeSmap } from '../graphics/smap';
 import type { Block } from '../resources/block';
 import { findChild, payloadOf, type ResourceFile } from '../resources/tree';
+import { parseVerbScripts } from './verbs';
 
 export class ObjectParseError extends Error {
   constructor(public readonly objId: number, detail: string) {
@@ -99,6 +100,13 @@ export interface LoadedObject {
   readonly images: ReadonlyMap<number, ObjectImage>;
   /** Object name from OBNA (NUL-terminated), or empty if absent. */
   readonly name: string;
+  /**
+   * Verb scripts from the OBCD's VERB block, keyed by verb id. Each
+   * value is the bytecode for that verb (a view into the file bytes),
+   * runnable as a synthetic slot via `vm.startVerbScript`. Empty when
+   * the object has no VERB block. See {@link parseVerbScripts}.
+   */
+  readonly verbs: ReadonlyMap<number, Uint8Array>;
 }
 
 /**
@@ -149,7 +157,14 @@ export function parseRoomObjects(
       name = String.fromCharCode(...p.subarray(0, end));
     }
 
-    out.set(cdhd.objId, { objId: cdhd.objId, cdhd, imhd, images, name });
+    // VERB is optional — objects with no interactions (pure scenery)
+    // omit it, yielding an empty verb map.
+    const verbBlock = findChild(child, 'VERB');
+    const verbs = verbBlock
+      ? parseVerbScripts(payloadOf(file, verbBlock))
+      : new Map<number, Uint8Array>();
+
+    out.set(cdhd.objId, { objId: cdhd.objId, cdhd, imhd, images, name, verbs });
   }
   return out;
 }

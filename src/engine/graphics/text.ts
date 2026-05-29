@@ -64,7 +64,7 @@ export function measureText(
     const code = ch.charCodeAt(0);
     const off = glyphPayloadOffset(header, code);
     if (off === null) continue; // unknown character — silently skipped
-    const g = decodeGlyph(payload, off, header.bpp);
+    const g = decodeGlyph(payload, off, header.bpp, header.reversedBits);
     // The glyph extends from `curX + xOffset` to `curX + xOffset +
     // width` horizontally and similarly in Y from `curY + yOffset`.
     // Track the max so a glyph whose xOffset pushes right past its
@@ -123,7 +123,7 @@ export function renderText(
     const code = ch.charCodeAt(0);
     const off = glyphPayloadOffset(header, code);
     if (off === null) continue;
-    const g = decodeGlyph(payload, off, header.bpp);
+    const g = decodeGlyph(payload, off, header.bpp, header.reversedBits);
     if (g.width === 0 || g.height === 0) {
       curX += g.width;
       continue;

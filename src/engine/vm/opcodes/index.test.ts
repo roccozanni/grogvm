@@ -339,10 +339,235 @@ describe('seed opcodes — boot prefix from real MI1', () => {
       'setVar 0x3c = 0',
       'setVar 0x33 = 1',
       'setVar 0x6 = 2',
-      'cursorCommand cursorOff (stub)',
-      'cursorCommand userputOff (stub)',
+      'cursorCommand cursorOff',
+      'cursorCommand userputOff',
       'stringOps loadString id=22 len=13',
       'stopObjectCode',
     ]);
+  });
+});
+
+describe('seed opcodes — cursorCommand state wiring', () => {
+  it('cursorOn/cursorOff toggle vm.cursor.visible', () => {
+    const vm = makeVm();
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x2c, 0x01, 0x2c, 0x02, 0x00) });
+    vm.step(); // cursorOn
+    expect(vm.cursor.visible).toBe(true);
+    vm.step(); // cursorOff
+    expect(vm.cursor.visible).toBe(false);
+  });
+
+  it('userputOn/userputOff toggle vm.cursor.userput', () => {
+    const vm = makeVm();
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x2c, 0x03, 0x2c, 0x04, 0x00) });
+    vm.step();
+    expect(vm.cursor.userput).toBe(true);
+    vm.step();
+    expect(vm.cursor.userput).toBe(false);
+  });
+
+  it('soft variants (0x05–0x08) write the same flags', () => {
+    const vm = makeVm();
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(0x2c, 0x05, 0x2c, 0x07, 0x2c, 0x06, 0x2c, 0x08, 0x00),
+    });
+    vm.step(); // cursorSoftOn
+    expect(vm.cursor.visible).toBe(true);
+    vm.step(); // userputSoftOn
+    expect(vm.cursor.userput).toBe(true);
+    vm.step(); // cursorSoftOff
+    expect(vm.cursor.visible).toBe(false);
+    vm.step(); // userputSoftOff
+    expect(vm.cursor.userput).toBe(false);
+  });
+
+  it('initCharset (subop 0x0D) writes vm.currentCharset', () => {
+    const vm = makeVm();
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x2c, 0x0d, 0x03, 0x00) });
+    vm.step();
+    expect(vm.currentCharset).toBe(3);
+  });
+});
+
+describe('seed opcodes — verbOps state wiring', () => {
+  it('subop 0x09 "new" creates an on slot with defaults', () => {
+    const vm = makeVm();
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x7a, 0x05, 0x09, 0xff, 0x00) });
+    vm.step();
+    const v = vm.verbs.get(5);
+    expect(v).toBeDefined();
+    expect(v!.state).toBe('on');
+    expect(v!.name).toBe('');
+    expect(v!.x).toBe(0);
+  });
+
+  it('setName decodes plain ASCII; FF 01 → \\n; other FF NN stripped', () => {
+    const vm = makeVm();
+    // verbOps verb=2: setName "Open" + (FF 01 newline, 2-byte) + "Door"
+    // + (FF 0E NN NN colour, 4-byte) + "!", terminated by 0x00, then
+    // verbOps 0xFF terminator.
+    const name = [
+      0x4f, 0x70, 0x65, 0x6e,        // "Open"
+      0xff, 0x01,                    // FF 01 — newline (2-byte sequence)
+      0x44, 0x6f, 0x6f, 0x72,        // "Door"
+      0xff, 0x0e, 0x05, 0x05,        // FF 0E 05 05 — colour change (4-byte; avoid 0x00 args)
+      0x21,                          // "!"
+      0x00,                          // NUL terminator
+    ];
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(0x7a, 0x02, 0x02, ...name, 0xff, 0x00),
+    });
+    vm.step();
+    const v = vm.verbs.get(2);
+    expect(v!.name).toBe('Open\nDoor!');
+  });
+
+  it('setXY / setColor / setHiColor / setDimColor / setKey / on / off / dim / setCenter mutate the slot', () => {
+    const vm = makeVm();
+    // verbOps verb=1:
+    //   new, setXY(100, 144), setColor(7), setHiColor(15), setDimColor(8), setKey(76), setCenter
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(
+        0x7a, 0x01,
+        0x09,                                  // new
+        0x05, 0x64, 0x00, 0x90, 0x00,          // setXY 100, 144
+        0x03, 0x07,                            // setColor 7
+        0x04, 0x0f,                            // setHiColor 15
+        0x10, 0x08,                            // setDimColor 8
+        0x12, 0x4c,                            // setKey 76 (L)
+        0x13,                                  // setCenter
+        0xff,
+        0x00,
+      ),
+    });
+    vm.step();
+    const v = vm.verbs.get(1)!;
+    expect(v.x).toBe(100);
+    expect(v.y).toBe(144);
+    expect(v.color).toBe(7);
+    expect(v.hiColor).toBe(15);
+    expect(v.dimColor).toBe(8);
+    expect(v.key).toBe(76);
+    expect(v.centered).toBe(true);
+    expect(v.state).toBe('on');
+  });
+
+  it('setDim toggles state to dim; on / off flip back', () => {
+    const vm = makeVm();
+    // new, dim, off, on (across separate verbOps calls)
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(
+        0x7a, 0x03, 0x09, 0xff,
+        0x7a, 0x03, 0x11, 0xff,
+        0x7a, 0x03, 0x07, 0xff,
+        0x7a, 0x03, 0x06, 0xff,
+        0x00,
+      ),
+    });
+    vm.step();
+    expect(vm.verbs.get(3)!.state).toBe('on');
+    vm.step();
+    expect(vm.verbs.get(3)!.state).toBe('dim');
+    vm.step();
+    expect(vm.verbs.get(3)!.state).toBe('off');
+    vm.step();
+    expect(vm.verbs.get(3)!.state).toBe('on');
+  });
+
+  it('findObject (0xf5) returns 0 when no room loaded, writes dest, advances PC by 7', () => {
+    const vm = makeVm();
+    // 0xf5 (bits 7+6 set) — x is var-ref to g20 (=10), y is var-ref to g21 (=50)
+    vm.vars.writeGlobal(20, 10);
+    vm.vars.writeGlobal(21, 50);
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(
+        0xf5,
+        0x00, 0x40,          // dest = local 0
+        0x14, 0x00,          // x = var-ref g20
+        0x15, 0x00,          // y = var-ref g21
+        0x00,                // stopObjectCode
+      ),
+    });
+    const slot = vm.slots.find((s) => s.status === 'running')!;
+    vm.step();
+    expect(slot.locals[0]).toBe(0); // no room → 0
+    expect(slot.pc).toBe(7);
+  });
+
+  it('findObject reads loadedRoom.objects via pickObject + drawQueue order', () => {
+    const vm = makeVm();
+    // Stub a single-object room: object id 42, CDHD bbox at (0,0)..(80,80) px.
+    vm.loadedRoom = {
+      id: 1,
+      width: 320,
+      height: 200,
+      numObjects: 1,
+      palette: new Uint8Array(768),
+      transparentIndex: null,
+      indexed: new Uint8Array(64000),
+      stripMethods: [],
+      zPlanes: [],
+      entryScript: null,
+      exitScript: null,
+      localScripts: new Map(),
+      objects: new Map([
+        [
+          42,
+          {
+            objId: 42,
+            cdhd: {
+              objId: 42,
+              x: 0,
+              y: 0,
+              width: 10,
+              height: 10,
+              flags: 0,
+              parent: 0,
+              walkX: 0,
+              walkY: 0,
+              actorDir: 0,
+            },
+            imhd: { objId: 42, numImages: 0, flags: 0, x: 0, y: 0, width: 0, height: 0 },
+            images: new Map(),
+            name: 'thing',
+            verbs: new Map(),
+          },
+        ],
+      ]),
+      walkBoxes: [],
+      walkableMask: new Uint8Array(0),
+    };
+    // findObject(50, 50) — both immediate (opcode 0x35, no mode bits set)
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(
+        0x35,
+        0x00, 0x40,          // dest = local 0
+        0x32, 0x00,          // x = 50 imm
+        0x32, 0x00,          // y = 50 imm
+        0x00,                // stopObjectCode
+      ),
+    });
+    const slot = vm.slots.find((s) => s.status === 'running')!;
+    vm.step();
+    expect(slot.locals[0]).toBe(42);
+  });
+
+  it('delete removes the slot and clears currentVerb if it was armed', () => {
+    const vm = makeVm();
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(0x7a, 0x07, 0x09, 0xff, 0x7a, 0x07, 0x08, 0xff, 0x00),
+    });
+    vm.step();
+    vm.currentVerb = 7;
+    vm.step();
+    expect(vm.verbs.has(7)).toBe(false);
+    expect(vm.currentVerb).toBeNull();
   });
 });

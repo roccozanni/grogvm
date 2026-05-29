@@ -817,7 +817,7 @@ function renderGlyphGrid(payload: Uint8Array, h: CharsetHeader, roomPalette: Pal
     if (off === null) continue;
     let g;
     try {
-      g = decodeGlyph(payload, off, h.bpp);
+      g = decodeGlyph(payload, off, h.bpp, h.reversedBits);
     } catch {
       continue;
     }

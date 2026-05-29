@@ -353,6 +353,7 @@ function makeObject(id: number, x: number, y: number, w: number, h: number, fill
     imhd: { objId: id, numImages: 1, flags: 0, x, y, width: w, height: h },
     images: new Map([[state, { state, indexed }]]),
     name: `obj${id}`,
+    verbs: new Map(),
   };
 }
 

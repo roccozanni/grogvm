@@ -44,6 +44,7 @@
 import { isVarParam, readU16, readVarRef, readU8, writeRef } from './params';
 import type { ScriptSlot } from './slot';
 import type { Variables } from './variables';
+import type { Vm } from './vm';
 
 export class ExpressionError extends Error {
   constructor(detail: string) {
@@ -57,8 +58,12 @@ export class ExpressionError extends Error {
  * On entry the opcode byte itself has already been consumed; PC
  * sits at the dest var-ref. On exit PC sits after the 0xFF terminator
  * and the destination variable has been written.
+ *
+ * `vm` is required so subop 0x06 ("nested opcode") can dispatch
+ * arbitrary main opcodes by name lookup. Pass `null` only in tests
+ * that don't exercise that subop — calling it will throw.
  */
-export function evalExpression(slot: ScriptSlot, vars: Variables): void {
+export function evalExpression(slot: ScriptSlot, vars: Variables, vm: Vm | null = null): void {
   // The dest var-ref is always a raw reference word — no mode bit on
   // an expression destination (it's the equivalent of setVar's dest).
   const dest = readU16(slot);
@@ -116,10 +121,23 @@ export function evalExpression(slot: ScriptSlot, vars: Variables): void {
         stack.push((a / b) | 0);
         break;
       }
-      case 0x06:
-        throw new ExpressionError(
-          `nested opcode (subop 0x06) not implemented yet`,
-        );
+      case 0x06: {
+        // Nested opcode: read the next byte, dispatch as a regular
+        // main opcode, then push global #0 (VAR_RESULT) onto the
+        // stack. SCUMM v5 convention: any opcode that "returns" a
+        // value writes it into VAR_RESULT — getRandomNumber, the
+        // `getActor*` family, etc. The nested-dispatch path here is
+        // how scripts compose those into expressions.
+        if (!vm) {
+          throw new ExpressionError(
+            `nested opcode (subop 0x06) requires a Vm reference`,
+          );
+        }
+        const nestedOp = readU8(slot);
+        vm.dispatchInline(slot, nestedOp);
+        stack.push(vars.readGlobal(0));
+        break;
+      }
       default:
         throw new ExpressionError(
           `unknown subop 0x${sub.toString(16).padStart(2, '0')}`,

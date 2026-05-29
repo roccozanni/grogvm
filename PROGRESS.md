@@ -11,22 +11,78 @@ detail the next phase here.
 
 ## Status
 
-**Phase 6 complete (with one known limitation).** Boot runs
-end-to-end through 3500+ opcodes across 11 scripts; the engine has a
-room loader, costume cache, actor table, frame compositor (bg +
-objects + actors), walk-stepping, A* pathfinding over rasterized
-walk-box masks, ENCD/EXCD dispatch, LSCR local scripts, and an
-rAF-driven Play/Pause main loop. The VM inspector renders the
-current frame live and surfaces actor/walk/path overlays.
+**Phase 7 in progress.** The MI1 IT credits cutscene now plays
+through end-to-end (~5700 ticks at 60Hz, ~95 sec) with text rendering
+on the camera-viewport slice of the wide credits room. The boot
+correctly transitions into the title-menu state after the cutscene:
+verb bar populated (Dai / Apri / Chiudi / Prendi / Esamina / Parla /
+Usa / Premi / Tira), sentence-line preview reacts to verb hover,
+clicks deliver the `VAR_LEFTBTN_DOWN` pulse that script #23 polls.
 
-The costume-anim decoder is wired but doesn't fully match MI1
-Guybrush's record format — actors render in their init pose until
-the spike is revisited with visual reference data. Everything else
-(static actors, room transitions, scripted walks via the pathfinder)
-works.
+The inspector now has stable DOM during Play — controls bar +
+frame stack (room canvas + cursor overlay + verb bar + sentence line)
+are mounted once and only their canvas pixels update per tick.
+Buttons / hover / click no longer drop events across rAF boundaries.
 
-What's truly visible at the title-screen state still depends on
-verb-click input → Phase 7.
+What's MISSING for a "playable" title state: room art behind the
+title menu (`vm.loadedRoom = null` after the credits — MI1's
+intentional unload, but it leaves a black canvas), real verb-script
+dispatch (clicks on verbs just set `vm.currentVerb`; no sentence
+is executed), the inventory subsystem, and `print` keep-text /
+per-line centring for multi-line cards.
+
+### Resume notes (2026-05-29)
+
+What landed today:
+- Boot now plays the **full ~5700-tick credits cutscene** with
+  visible Italian text on the wide credits room (camera viewport
+  rectangle outlined on the canvas as a debug hint).
+- All buttons (Pause / Reset / Step / Run-tick / Click ← / etc.)
+  work during Play — controls + frame area are stable DOM, only
+  canvas pixels refresh per tick. Verb hover updates the
+  sentence-line in real time.
+- 5 opcode handlers fixed / wired: `findObject`, `findInventory`,
+  `delay` (multi-tick), `beginOverride` (consumes the embedded
+  jump triplet), expression subop 0x06 (nested opcode).
+- New engine state: `vm.camera.x`, `vm.screen.{top, bottom}`,
+  `vm.activeDialog`, `vm.input.{leftPressQueued, leftHold, …}`,
+  `slot.delayRemaining`, `slot.overridePc`.
+- New tick-driven mirroring in `Vm.beginTick()`:
+  `VAR_TIMER_1/2/3` (auto-increment), `VAR_LEFTBTN_DOWN`
+  (one-shot pulse), `VAR_USERPUT`.
+- `actorOrNull` resolves id 0 → ego (VAR_EGO=g1) — fixed missing
+  Guybrush placement.
+- `decodeScummString` converts `\xff\x01` → `\n` so multi-line
+  prints actually render multi-line.
+- Comparison opcodes now annotate as `isLess(g52=0, 0)` —
+  surfaces the polled variable name in the trace (catches
+  wait-loop progress in the idle fingerprint).
+- Charset decoder auto-detects bit-reversed glyph encoding (MI1
+  IT has one such charset out of five).
+
+Where to pick up tomorrow (in dependency order):
+1. ✅ **OBCD VERB-block parser + script dispatch** — DONE.
+   `parseVerbScripts` (`src/engine/object/verbs.ts`) decodes the
+   `VERB` table (offset is relative to the VERB block header —
+   confirmed empirically), `LoadedObject.verbs` carries
+   `Map<verbId, bytecode>`, and `vm.startVerbScript(objId, verbId,
+   args)` launches it as a labelled synthetic slot with the 0xFF
+   default-verb fallback. +18 tests (471 total). Not yet UI-wired —
+   the click→verb-script path goes through the sentence flow (#2).
+2. **Sentence stack + `doSentence` (0x19)** — enqueue
+   `(verb, obj1, obj2)`, the sentence-script driver dequeues
+   and starts global script `VAR_SENTENCE_SCRIPT (#33)`. Wires
+   the verb-bar click → sentence → walk-to → verb-script flow.
+3. **Wait opcodes (`0xAE`)** — multi-subop, gates scripts on
+   actor-not-moving, message-shown, camera-arrived, sentence-
+   queue-empty. Needed before sentence dispatch feels right.
+
+Lower priority polish (could land anytime):
+- Per-line centring for multi-line dialog text.
+- Smooth camera pan for `panCameraTo` (currently snaps).
+- Actor-follow-camera tracking per tick (currently snap-only).
+- Per-character text reveal + `VAR_HAVE_MSG`.
+- Inventory subsystem.
 
 ---
 
@@ -79,68 +135,107 @@ several can progress in parallel after the input foundation lands.
 
 **Input foundation — `src/shell/player/input.ts`**
 
-- [ ] Translate mouse events on the VM frame canvas into native
+- [x] Translate mouse events on the VM frame canvas into native
       room coordinates (account for the 2× CSS scale plus any
       x-scroll from the camera). Surface as
       `{ roomX, roomY, button, modifierKeys }`.
-- [ ] `pointermove` → updates `vm.mouseRoomX/Y` (new engine state)
+- [x] `pointermove` → updates `vm.mouseRoomX/Y` (new engine state)
       so `VAR_MOUSE_X` / `VAR_MOUSE_Y` (44/45 per the wiki) get
-      read correctly by scripts that poll them.
-- [ ] `pointerdown` left / right → routes to the verb UI / object
-      hit-tester. Left = "use the current verb"; right = the v5
-      convention "look at" shortcut.
+      read correctly by scripts that poll them. Also writes
+      `VAR_VIRT_MOUSE_X/Y` (20/21) — same value today; they
+      diverge once horizontal camera scroll lands.
+- [x] `pointerdown` left / right → routes to caller-provided
+      handlers with `{roomX, roomY, button, modifiers}`. Verb UI
+      / object hit-tester will wire onto these callbacks in later
+      Phase 7 tasks; the inspector currently mounts a "Recent
+      clicks" panel as a sanity check. `contextmenu` is
+      suppressed so right-click stays available.
 - [ ] Disable click-to-walk during cutscenes (consult
-      `VAR_CUTSCENEEXIT_KEY` + the freeze-scripts flag).
-- [ ] `input.test.ts` — coordinate translation under scaled
-      canvas, mouse-button mapping, modifier-key passthrough.
+      `VAR_CUTSCENEEXIT_KEY` + the freeze-scripts flag). Deferred
+      to the cutscene task — there's no click-to-walk to gate yet.
+- [x] `input.test.ts` — coordinate translation under scaled
+      canvas, mouse-button mapping, modifier-key passthrough, the
+      `cameraX` hook, and disposer cleanup (15 tests).
 
-**Cursor — `src/engine/cursor.ts` + `src/shell/player/cursor.ts`**
+**Cursor — `vm.cursor` state + `src/shell/player/play-area.ts`**
 
-- [ ] Cursor visibility state on `vm` (already mutated by the
-      stubbed `cursorCommand` subops `0x01`/`0x02` — wire them to
-      actually toggle the cursor canvas).
-- [ ] User-input enable flag (`cursorCommand userputOn/Off` —
-      subops `0x03`/`0x04`). When off, clicks are ignored.
-- [ ] Default cursor: a simple crosshair sprite. Phase-deferred:
-      custom cursor images from `setCursorImage` (subop `0x0A`)
-      which point at a charset glyph — those need a small bitmap
-      decoder.
-- [ ] Cursor highlight when over an interactive object — flash /
-      colour-shift / outline; pick something simple.
-- [ ] `cursor.test.ts` — visibility flips, userput gates the
-      click handler, hover tracking against a synthetic object map.
+- [x] Cursor visibility state on `vm.cursor.visible` — mutated by
+      `cursorCommand` subops `0x01` (cursorOn) / `0x02` (cursorOff)
+      plus the soft variants `0x05` / `0x06`. Surfaced live in the
+      Input panel.
+- [x] User-input enable flag `vm.cursor.userput` — mutated by
+      `cursorCommand` subops `0x03` / `0x04` plus soft `0x07` /
+      `0x08`. *Not yet consulted* by the click handler — that
+      gate lands with the cutscene task.
+- [x] Default cursor: a 7-pixel crosshair painted on a transparent
+      overlay above the frame canvas (z-stacked, `pointer-events:
+      none` so clicks pass through). For dev visibility the
+      crosshair always paints in the inspector regardless of
+      `vm.cursor.visible` — the engine-truth flag is displayed
+      separately. Custom cursor images from `setCursorImage`
+      (charset-glyph hand-off) remain deferred.
+- [x] Cursor highlight when over an interactive object — yellow
+      outline around the hovered object's CDHD bbox plus a colour
+      shift on the crosshair itself.
+- [ ] `cursor.test.ts` — covered indirectly by
+      `opcodes/index.test.ts > cursorCommand state wiring` (4
+      tests). A dedicated module-level test lands when we extract
+      cursor logic from `play-area.ts`.
 
 **Object hit-testing — `src/engine/object/hittest.ts`**
 
-- [ ] `pickObject(room, x, y) → objId | null`. Walks
-      `room.objects` topmost-first (drawObject queue order, then
-      OBCD source order as tiebreaker). Tests against each
-      object's CDHD bounding box in 8-pixel units (`x..x+w`,
-      `y..y+h`) — pixel-precise hit-testing against the object's
-      actual sprite is a polish item.
-- [ ] Honour the "untouchable" flag (CDHD `flags & 0x80`) — those
-      objects are invisible to hit-testing even if they have an
-      image.
-- [ ] `hittest.test.ts` — single object, overlapping objects
-      (topmost wins), no hit, untouchable skip.
+- [x] `pickObject({objects, drawQueue, x, y}) → objId | null`.
+      Walks the drawn objects topmost-first (reverse `Set`
+      insertion order of `vm.objectDrawQueue`), then un-drawn
+      objects in OBCD source order. CDHD bbox in 8-pixel units;
+      right/bottom edges exclusive.
+- [x] Honours the "untouchable" flag (CDHD `flags & 0x80`) —
+      those objects are invisible to hit-testing even if they have
+      an image.
+- [x] `hittest.test.ts` — null hit, single object, 8-px-unit
+      conversion + edge inclusivity, untouchable skip, drawn beats
+      un-drawn, most-recently-queued wins, source-order fallback,
+      missing-from-map drawn id (8 tests).
 
 **Verb scripts — `src/engine/object/verbs.ts`**
 
-- [ ] Parse the OBCD `VERB` block. Layout per the wiki:
+- [x] Parse the OBCD `VERB` block. Layout:
       `(verb_id u8, script_offset u16)*` terminated by a
-      `verb_id = 0x00` byte. `script_offset` is byte offset into
-      the OBCD's bytecode, relative to a base we need to validate
-      empirically (probably the OBCD payload start).
-- [ ] Capture per-object: `Map<verbId, scriptBytecode>` on
-      `LoadedObject` (rename `LoadedObject.verbs?` from the
-      currently-elided slot).
-- [ ] `verbs.test.ts` — synthetic OBCD with two verbs, real MI1
-      door-object smoke check (look at + open verbs both decode
-      to non-empty bytecode).
-- [ ] Dispatch via `vm.startVerbScript(objId, verbId, args)` →
-      starts a labelled synthetic slot (`VERB-{objId}-{verbId}`)
-      from the bytecode we captured. Same scheduling as global
-      scripts.
+      `verb_id = 0x00` byte. **`script_offset` is relative to the
+      start of the `VERB` block header** — validated empirically
+      against real MI1 (`scratch/inspect-verb-block.ts`): for every
+      object the smallest offset resolves to exactly the byte after
+      the entry table. Payload-relative index is `offset - 8`.
+      Implemented in `parseVerbScripts`.
+- [x] Capture per-object: `Map<verbId, scriptBytecode>` on
+      `LoadedObject.verbs` — each value a view into the VERB payload
+      running from the verb's offset to the end of the payload (the
+      VM stops at the script's own stop opcode). Populated by
+      `parseRoomObjects`.
+- [x] `verbs.test.ts` (12) — single verb, two verbs sharing one
+      offset (real MI1 #17), per-verb suffix slices, terminator
+      handling, empty payload, out-of-bounds offsets skipped,
+      first-wins on repeat, `findVerbScript` default-verb (0xFF)
+      fallback, and an end-to-end decode through the live block
+      parser. Synthetic byte layouts are lifted from the real-MI1
+      spike, so they pin the on-disk semantics without committing
+      the copyrighted binary to the test suite.
+- [x] Dispatch via `vm.startVerbScript(objId, verbId, args)` →
+      looks up the object in the current room, resolves bytecode
+      (with the 0xFF default-verb fallback), starts a labelled
+      synthetic slot (`VERB-{objId}-{verbId}`) with locals seeded
+      `[verb, obj, ...args]`. Returns `null` (never throws) when the
+      object/verb is absent or no slot is free. 6 `vm.test.ts` cases.
+- [ ] **Not yet UI-wired.** The room-click handler still only
+      identifies the object (`onRoomClick`); it does not call
+      `startVerbScript` directly — per the design note, verb scripts
+      run via the async sentence flow (next task), not straight off
+      the click. `startVerbScript` is the primitive that flow calls.
+- ⚠️ **Known gap:** `parseRoomObjects` still drops OBCDs that have
+      no OBIM image, so image-less hotspots (some have verbs) aren't
+      loaded and can't be clicked yet. Broadening the loader touches
+      the compositor's object map; deferred to when a needed hotspot
+      surfaces.
 
 **Sentence stack — `src/engine/vm/sentence.ts`**
 
@@ -160,82 +255,132 @@ several can progress in parallel after the input foundation lands.
 - [ ] `sentence.test.ts` — enqueue + dequeue, clear, script slot
       labelling (`SENTENCE-{verb}-{obj1}-{obj2}`).
 
-**Verb bar — `src/engine/verbs.ts` + `src/shell/player/verb-bar.ts`**
+**Verb bar — `vm.verbs` state + `src/shell/player/play-area.ts`**
 
-- [ ] `vm.verbs: Map<verbId, VerbSlot>` where `VerbSlot` carries
-      `{ name, color, hiColor, dimColor, key, x, y, state }`.
-      Populated by the existing `verbOps` opcode subops we
-      already decode but discard.
-- [ ] Render the verb bar below the VM frame canvas, using the
+- [x] `vm.verbs: Map<verbId, VerbSlot>` where `VerbSlot` carries
+      `{ id, name, color, hiColor, dimColor, backColor, key, x, y,
+      centered, state }`. Populated by the `verbOps` opcode subops
+      we previously discarded — `new`, `setName`, `setColor`,
+      `setHiColor`, `setDimColor`, `setBackColor`, `setXY`,
+      `setKey`, `setCenter`, `on`, `off`, `setDim`, `delete`.
+      `setName` strips `0xFF NN` SCUMM control sequences. Reset on
+      `Vm.reset()`. Tested by 5 new verbOps wiring tests in
+      `opcodes/index.test.ts`.
+- [x] Render the verb bar below the VM frame canvas, using the
       Phase 4 CHAR text renderer for verb names. Lay out by the
-      verb's `x` / `y` from `verbOps SO_VERB_AT`. Inks colour /
-      hi-colour / dim-colour from the verb's stored colours,
-      driven through the current room's CLUT.
-- [ ] Hover / click handlers: hovering a verb shows it in
-      hi-colour; clicking it sets `currentVerb` on the VM (new
-      state). Subsequent object clicks then form the sentence.
-- [ ] Verb state changes — `SO_VERB_ON` / `OFF` / `DELETE` /
-      `NEW` / `DIM` already mutate the slot but the bar isn't
-      drawn; wire the render path.
+      verb's `x` / `y` from `verbOps setXY` (script-space; verb
+      bar starts at screen y = 144 for MI1, subtracted to get
+      verb-canvas-local y). Inks `color` / `hiColor` / `dimColor`
+      from the verb's stored values, driven through the current
+      room's CLUT.
+- [x] Hover / click handlers: hovering a verb shows it in
+      hi-colour; clicking it sets `vm.currentVerb`. Subsequent
+      object clicks form the sentence (preview only — dispatch
+      lands with the verb-script / sentence-stack tasks).
+- [x] Verb state changes — `SO_VERB_ON` / `OFF` / `DELETE` /
+      `NEW` / `DIM` mutate the slot AND the bar's paint reflects
+      them on the next repaint. `dim` slots reject clicks.
 - [ ] Right-click on the room → default "Look at" (the v5
-      convention) — bypass the verb selection step.
-- [ ] `verb-bar.test.ts` — render synthetic verb set, click
-      dispatches sentence, dim verbs don't accept clicks.
+      convention) — deferred until verb-script dispatch lands; the
+      hit-tester already identifies the object on right-click.
+- [ ] `verb-bar.test.ts` — deferred to a future split that
+      extracts the verb-bar rendering / input from `play-area.ts`.
+      The current DOM-heavy module is covered by manual browser
+      verification + the unit tests for its dependencies
+      (`hittest`, verbOps state wiring).
 
-**Sentence line — `src/shell/player/sentence-line.ts`**
+**Sentence line — inside `src/shell/player/play-area.ts`**
 
-- [ ] Single-line preview above the verb bar showing the current
-      sentence being built. Driven by:
-        - `currentVerb` (the verb the user clicked)
-        - `hoveredObject` (the object the cursor is over)
-        - `selectedObject` (set after the user clicks the first
-          object in a two-object sentence)
-- [ ] Format: `"{verb} {obj1.name}"` or
-      `"{verb} {obj1.name} {preposition} {obj2.name}"`. The
-      preposition lives on the verb itself (`with` for Use,
-      `to` for Give, etc.) — looked up from a small table.
-- [ ] Updates in real time as the cursor moves over objects.
-      Reads object names from `LoadedObject.name` (OBNA).
-- [ ] `sentence-line.test.ts` — single-object verb, two-object
-      verb, hover updates, prepositions per verb.
+- [x] Single-line preview above the verb bar showing the current
+      sentence being built. Driven by `vm.currentVerb` (verb the
+      user clicked) and a closure-local `hoveredObject` updated on
+      each `pointermove` via `pickObject`. Updates live without a
+      full inspector repaint — the play-area module owns a direct
+      `textContent` setter on the sentence-line element.
+- [x] Single-object format `"{verb} {obj.name}"` (or just the
+      verb name when nothing is hovered). Defaults to `"Walk to"`
+      when no verb is armed.
+- [ ] Two-object form `"{verb} {obj1} {preposition} {obj2}"` —
+      depends on the inventory + selectedObject state which lands
+      with the inventory task.
+- [ ] `sentence-line.test.ts` — deferred (see verb-bar note).
 
-**Dialog / print — `src/engine/dialog/`**
+**Dialog / print — `vm.activeDialog` + `src/shell/player/play-area.ts`**
 
-- [ ] Real `print` / `printEgo` opcode behaviour (the current
-      `0x14` / `0xD8` handlers consume their args but don't
-      display anything). New state: `vm.activeDialog: {
-      actorId, text, x, y, color, atY, clipped, …} | null`.
-- [ ] Render speech-bubble overlay on the VM frame canvas. Text
-      positioned above the actor's head by default (use the
-      actor's pos + a small Y offset), or at the `SO_AT` subop's
-      coords when present. Width-bounded by `SO_CLIPPED`; centred
-      when `SO_CENTER`.
-- [ ] Glyph rendering via the Phase 4 CHAR text renderer through
-      the dialog colour (a CLUT index from the print opcode's
-      `SO_COLOR` subop, default 0x0F).
-- [ ] Per-character reveal at a configurable rate (real MI1 uses
-      ~24ms/char). Caller can skip by left-clicking. After the
-      string is fully drawn, set `VAR_HAVE_MSG` (global #3) so
-      `wait for message` can release.
-- [ ] `dialog.test.ts` — full string reveal, click-to-skip,
-      VAR_HAVE_MSG flip on completion, multi-line wrap, CLIPPED
-      bound enforcement.
+- [x] Real `print` / `printEgo` opcode behaviour. New state
+      `vm.activeDialog: { actorId, text, x, y, color, center,
+      overhead, clipped } | null`. Set by the `0x0F SO_TEXTSTRING`
+      subop with the decoded text; cleared by an empty-string
+      print. Per-print subops (`SO_AT`, `SO_COLOR`, `SO_CENTER`,
+      `SO_LEFT`, `SO_OVERHEAD`, `SO_CLIPPED`, `SO_SAY_VOICE`) all
+      mutate the captured state correctly.
+- [x] Render text overlay on the cursor canvas via the CHAR
+      renderer through `vm.currentCharset`. Position semantics:
+      explicit `SO_AT` is screen-space → converted to room-space
+      by adding `(camera.x - 160)`; `overhead` mode positions
+      above the speaking actor; fallback is centre-bottom of the
+      camera viewport.
+- [ ] Per-character reveal at a configurable rate. Currently text
+      appears instantly. Real MI1 uses ~24 ms/char. Caller would
+      skip by left-clicking. Lands with `VAR_HAVE_MSG`.
+- [ ] `VAR_HAVE_MSG` (global #3) flip on print start / completion.
+      Wait-for-message can't release until this is wired.
+- [ ] Per-line centring for multi-line text. The CHAR renderer
+      currently left-aligns each line within the measured bbox; a
+      centred 3-line credit card has all lines starting at the
+      same x. Cosmetic.
+- [ ] Keep-text (`0xFF 0x02`) — credits emit prints with
+      `\xff\x02` to accumulate text across separate prints. We
+      currently overwrite on each print. Affects multi-stage
+      reveal effects.
+- [ ] `dialog.test.ts` — covered indirectly by the verbOps tests
+      (which exercise `decodeScummString`). Dedicated test lands
+      when per-character reveal + VAR_HAVE_MSG are wired.
 
-**Dialog escape codes**
+**Dialog escape codes — `decodeScummString` in `opcodes/index.ts`**
 
-- [ ] Decode the `0xFF NN` control sequences inside dialog
-      strings the renderer currently passes through verbatim:
-      `0x01` newline, `0x02` keep-text, `0x03` wait,
-      `0x04 NN NN` insert int var value, `0x06 NN NN` insert
-      var-name, `0x07 NN NN` insert string-resource value,
-      `0x08 NN NN` insert object/verb name, `0x09 NN NN`
-      sound, `0x0A NN NN` actor name, `0x0E NN NN` color.
-- [ ] `dialog-escape.test.ts` — each escape code rendered into
-      output text, color changes mid-string, variable
-      substitution.
+- [x] `0xFF 0x01` newline → `\n`. Verified via the credits
+      "Scritto e Programmato da\xff\x01Ron Gilbert..." rendering
+      on multiple lines.
+- [x] `0xFF NN [args]` other codes are stripped (we don't crash
+      on them). Length tracking: codes 0x01–0x03 are 2-byte;
+      0x04–0x0E are 4-byte.
+- [ ] `0x02` keep-text — see dialog section above.
+- [ ] `0x03` wait — pauses text rendering until user click.
+- [ ] `0x04..0x0A` variable / object / verb / actor / string
+      substitution. None are wired; control sequences silently
+      drop.
+- [ ] `0x0E` colour change mid-string — switches ink for the
+      following glyphs.
+- [ ] `dialog-escape.test.ts` — deferred.
+
+**Camera + screen — `vm.camera.x` + `vm.screen.{top,bottom}`**
+
+- [x] `vm.camera.x` tracks the camera centre. Mutated by
+      `setCameraAt` (snap), `panCameraTo` (snap for now —
+      smooth-scroll lands later), and `actorFollowCamera`
+      (snap-only to the followed actor's x). Clamped to the
+      room's valid range. Reset on `Vm.reset()`.
+- [x] `vm.screen.{top, bottom}` capture the playable viewport
+      vertical bounds, mutated by `roomOps setScreen`. The
+      inspector's viewport-indicator rectangle reads these.
+- [x] Camera-viewport indicator on the cursor overlay — dashed
+      white outline showing `[cameraLeft, top]` extending
+      `[VIEWPORT_W=320, bottom - top]`. Debug-only; shows the
+      slice a real player would see on screen.
+- [ ] Smooth camera pan for `panCameraTo` — currently snaps.
+- [ ] Camera-following an actor whose position is changing.
+      Currently `actorFollowCamera` records the actor id but
+      doesn't track them per tick; the camera stays at the last
+      snap. Wire when actor walks are visible on screen.
 
 **Wait opcodes — `src/engine/vm/wait.ts`**
 
+- [x] `delay` opcode (`0x2E`) — multi-tick countdown via
+      `slot.delayRemaining`. Inspector's tick driver decrements
+      each tick and only resumes when it hits 0. Critical for
+      cutscene pacing — without this MI1's credits flash
+      because every `delay 120` releases on the next frame.
 - [ ] `wait` (`0xAE`) — multi-subop. The script slot yields with
       a *condition* attached; the main loop re-checks the
       condition each tick and resumes when satisfied.
@@ -244,9 +389,8 @@ several can progress in parallel after the input foundation lands.
       - `0x02` SO_WAIT_FOR_MESSAGE — wait until VAR_HAVE_MSG
         is zero.
       - `0x03` SO_WAIT_FOR_CAMERA — wait until the camera has
-        reached its destination x. (Camera follow-actor logic
-        is currently a stub; this opcode would unblock once
-        the camera actually moves.)
+        reached its destination x. (Camera snap-only; pan
+        smoothness lands first.)
       - `0x04` SO_WAIT_FOR_SENTENCE — wait until the sentence
         queue is empty.
 - [ ] Slot-level "wait condition" hook on `ScriptSlot` — a
@@ -276,19 +420,41 @@ several can progress in parallel after the input foundation lands.
 
 **Cutscene control — `src/engine/vm/cutscene.ts`**
 
-- [ ] `cutscene` opcode (`0x40`) — already stub. Real
-      implementation: push a *cutscene frame* onto a stack on
-      `vm`, freeze non-resistant scripts, hide cursor + verb UI,
-      record the override script id (from the vararg).
+- [x] `beginOverride` (0x58 flag=1) — consumes the flag byte
+      AND the following 3 bytes (the embedded `jump_opcode delta`
+      that encodes the override target). Without this, the
+      embedded jump dispatched as a regular opcode and
+      unconditionally skipped the cutscene body. The resolved
+      target is stored as `slot.overridePc` for future Escape
+      handling.
+- [ ] `cutscene` opcode (`0x40`) — still stub. Real
+      implementation: push a cutscene frame on `vm`, freeze
+      non-resistant scripts, hide cursor + verb UI, record
+      override script id (from the vararg).
 - [ ] `endCutscene` opcode (`0xC0`) — pop the frame, resume
       frozen scripts, restore cursor / verb UI visibility.
-- [ ] Escape key handler: if a cutscene with an override script
-      is active, run the override script and pop the frame.
-- [ ] Coordinate with `beginOverride` / `endOverride` (already
-      stubbed) — those mark *where* in the cutscene the
-      override-jump should land.
+- [ ] Escape key handler: if a cutscene with an override is
+      active, jump the active slot to `slot.overridePc` and pop
+      the frame.
 - [ ] `cutscene.test.ts` — push/pop stack, freeze/unfreeze
       transitions, override flow.
+
+**Object identification opcodes**
+
+- [x] `findObject` (0x35 / 0x75 / 0xb5 / 0xf5) — reads dest +
+      x + y (var-or-word), calls `pickObject` on the loaded
+      room, writes the result. Returns 0 when no room is loaded.
+- [x] `findInventory` (0x15 / 0x55 / 0x95 / 0xd5) — stub
+      returning 0 until the inventory subsystem lands.
+
+**Expression mini-VM additions**
+
+- [x] Subop 0x06 (nested opcode) — reads the next byte, calls
+      `vm.dispatchInline()` to dispatch the inner opcode (which
+      writes its result to global #0), then pushes
+      `vars.readGlobal(0)` onto the expression stack. Used by
+      MI1's credits for `expression g100 = getRandomNumber(N)`
+      patterns.
 
 **Engine variables to wire**
 
@@ -296,11 +462,28 @@ A handful of system vars (per the wiki list) are read by scripts
 and need real values. Most are read-only from the script's
 perspective.
 
-- [ ] `VAR_MOUSE_X` (44) / `VAR_MOUSE_Y` (45) — written each tick
-      from the input layer's current mouse position.
-- [ ] `VAR_VIRT_MOUSE_X` (20) / `VAR_VIRT_MOUSE_Y` (21) — same
-      values, but in room coords (corrected for camera scroll).
-- [ ] `VAR_USERPUT` (53) — current userput-enable flag.
+- [x] `VAR_MOUSE_X` (44) / `VAR_MOUSE_Y` (45) — written on every
+      `pointermove` by the input layer.
+- [x] `VAR_VIRT_MOUSE_X` (20) / `VAR_VIRT_MOUSE_Y` (21) — same
+      values today (camera fixed at 0); will diverge once the
+      camera scrolls.
+- [x] `VAR_USERPUT` (53) — mirrored each tick from
+      `vm.cursor.userput` by `Vm.beginTick()`.
+- [x] `VAR_LEFTBTN_DOWN` (g52, empirical) — one-shot pulse on
+      left pointerdown, cleared the following tick. Index
+      identified by tracing MI1 boot's script #23 wait loop with
+      the new var-ref annotations on the comparison opcodes.
+      `VAR_RIGHTBTN_DOWN` left out — index unknown until a script
+      surfaces the polling pattern.
+- [x] `VAR_EGO` (g1) — set by the boot script. Used by
+      `actorOrNull` to resolve `actor=0` to the player character
+      (SCUMM v5 ego shorthand). MI1 boot's title-menu setup uses
+      `putActor 0` to place Guybrush — without ego resolution
+      Guybrush was never placed.
+- [x] `VAR_TIMER_1 / 2 / 3` (g14 / g15 / g16) —
+      auto-incrementing per-tick timers, written by
+      `Vm.beginTick()`. Scripts reset to 0 and poll for a target
+      to implement delays (MI1 credits wait `g14 > 5700`).
 - [ ] `VAR_HAVE_MSG` (3) — written by dialog renderer (1 while
       dialog is showing, 0 when done).
 - [ ] `VAR_CUTSCENEEXIT_KEY` (24) — the key code for "skip

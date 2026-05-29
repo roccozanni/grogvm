@@ -52,6 +52,21 @@ export class ScriptSlot {
   room: number = 0;
   /** 25 local int vars, zeroed on `start`. */
   readonly locals: Int32Array = new Int32Array(25);
+  /**
+   * Cutscene "escape" target — PC the engine jumps to if the user
+   * presses Escape during this slot's cutscene. Set by `beginOverride`
+   * (opcode 0x58 flag=1), cleared by `endOverride` (flag=0) and on
+   * slot death. `null` outside a cutscene.
+   */
+  overridePc: number | null = null;
+  /**
+   * Ticks remaining before the slot may resume from a `delay`
+   * (opcode 0x2E). The tick driver decrements this each tick and
+   * only resumes the slot when it reaches 0. Lets the credits
+   * cutscene's `delay 120` actually hold for 2 sec at 60Hz instead
+   * of falling through on the next frame.
+   */
+  delayRemaining: number = 0;
 
   constructor(slotIndex: number) {
     this.slotIndex = slotIndex;
@@ -80,6 +95,8 @@ export class ScriptSlot {
     this.pc = 0;
     this.room = opts.room ?? 0;
     this.locals.fill(0);
+    this.overridePc = null;
+    this.delayRemaining = 0;
     if (opts.args) {
       for (let i = 0; i < opts.args.length && i < this.locals.length; i++) {
         this.locals[i] = opts.args[i]! | 0;
@@ -113,6 +130,8 @@ export class ScriptSlot {
     this.pc = 0;
     this.room = 0;
     this.locals.fill(0);
+    this.overridePc = null;
+    this.delayRemaining = 0;
   }
 }
 

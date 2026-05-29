@@ -103,6 +103,20 @@ export interface CharsetHeader {
    * char code" (table entry is a sentinel).
    */
   readonly glyphOffsets: Uint32Array;
+  /**
+   * Whether this charset's glyph bitmap data is stored with the
+   * entire bitstream **reversed** — equivalent to a 180° rotation of
+   * each glyph's pixel grid versus the standard top-to-bottom,
+   * left-to-right MSB-first reading. Detected empirically by
+   * {@link detectReversedBits} during {@link parseCharHeader}.
+   *
+   * Some MI1 releases (observed: Italian release, LFLF #9 charset
+   * index 2) ship one charset with this property. The block header
+   * carries no flag distinguishing it from the standard charsets, so
+   * we detect via pixel-distribution heuristic over a handful of
+   * known-asymmetric Latin letters.
+   */
+  readonly reversedBits: boolean;
 }
 
 export function parseCharHeader(payload: Uint8Array): CharsetHeader {
@@ -135,7 +149,75 @@ export function parseCharHeader(payload: Uint8Array): CharsetHeader {
     glyphOffsets[i] = readU32LE(payload, tableStart + i * 4);
   }
 
-  return { size, magic, colorMap, bpp, fontHeight, numChars, glyphOffsets };
+  const baseHeader: CharsetHeader = {
+    size,
+    magic,
+    colorMap,
+    bpp,
+    fontHeight,
+    numChars,
+    glyphOffsets,
+    reversedBits: false,
+  };
+  const reversedBits = detectReversedBits(payload, baseHeader);
+  return { ...baseHeader, reversedBits };
+}
+
+/**
+ * Empirically classify a charset as "bits-reversed" by looking at
+ * letters where the *densest row* is unambiguously near the baseline:
+ * `L` and `J`. In every Latin font, the horizontal stroke of `L` and
+ * the bottom curve of `J` live in the lower portion of the glyph
+ * box. If the standard decoder places that row near the top, the
+ * bitstream is stored 180°-rotated — and we'll flip in
+ * {@link decodeGlyph}.
+ *
+ * Why not look at a header flag? There isn't one. Two MI1 charsets
+ * with identical 25-byte metadata can have different bitstream
+ * orientations (observed in the Italian release). The original engine
+ * presumably hard-coded the difference per charset id; we detect it
+ * from data so we don't need a per-release table.
+ *
+ * Why not aggregate over many letters? Tried — letters like `T`, `E`,
+ * `F` are *normally* top-heavy (bars near the top), so they pollute a
+ * naive top-vs-bottom sum. `L` and `J` are the cleanest discriminators.
+ */
+function detectReversedBits(payload: Uint8Array, header: CharsetHeader): boolean {
+  // The densest row of `L` is its baseline bar; for `J`, the bottom
+  // curve. Both should live in the lower half when decoded correctly.
+  const samples = [0x4c, 0x4a]; // L, J
+  let bottomDenseVotes = 0;
+  let topDenseVotes = 0;
+  for (const code of samples) {
+    const off = glyphPayloadOffset(header, code);
+    if (off === null) continue;
+    let g: DecodedGlyph;
+    try {
+      // Force standard (non-reversed) decode so detection isn't
+      // self-referential.
+      g = decodeGlyphInternal(payload, off, header.bpp, false);
+    } catch {
+      continue;
+    }
+    if (g.height < 4 || g.width < 2) continue;
+    // Per-row pixel count.
+    let maxRow = -1;
+    let maxRowCount = 0;
+    for (let y = 0; y < g.height; y++) {
+      let count = 0;
+      for (let x = 0; x < g.width; x++) {
+        if (g.pixels[y * g.width + x]) count++;
+      }
+      if (count > maxRowCount) {
+        maxRowCount = count;
+        maxRow = y;
+      }
+    }
+    if (maxRow < 0) continue;
+    if (maxRow >= g.height / 2) bottomDenseVotes++;
+    else topDenseVotes++;
+  }
+  return topDenseVotes > bottomDenseVotes;
 }
 
 /** Resolve a glyph-offset table entry to an absolute payload byte position, or `null` if the entry is the "no glyph" sentinel. */
@@ -165,11 +247,25 @@ export interface DecodedGlyph {
 /**
  * Decode the glyph at `glyphAbsOffset` (the value `glyphPayloadOffset`
  * returns — already includes the +21 adjustment).
+ *
+ * Pass `reversedBits = true` for charsets where {@link parseCharHeader}
+ * detected a 180°-rotated bitstream — the pixel array is post-processed
+ * back to the standard top-down, left-right orientation.
  */
 export function decodeGlyph(
   payload: Uint8Array,
   glyphAbsOffset: number,
   bpp: 1 | 2,
+  reversedBits: boolean = false,
+): DecodedGlyph {
+  return decodeGlyphInternal(payload, glyphAbsOffset, bpp, reversedBits);
+}
+
+function decodeGlyphInternal(
+  payload: Uint8Array,
+  glyphAbsOffset: number,
+  bpp: 1 | 2,
+  reversedBits: boolean,
 ): DecodedGlyph {
   if (glyphAbsOffset < 0 || glyphAbsOffset + 4 > payload.length) {
     throw new Error(
@@ -208,6 +304,17 @@ export function decodeGlyph(
     }
     pixels[p] = v;
     bitPos += bpp;
+  }
+
+  if (reversedBits) {
+    // Charset shipped with a 180°-rotated bitstream. Equivalently:
+    // mirror the pixel grid through its centre. Cheaper than
+    // re-decoding from the reversed bitstream — same end result.
+    const flipped = new Uint8Array(totalPixels);
+    for (let p = 0; p < totalPixels; p++) {
+      flipped[totalPixels - 1 - p] = pixels[p]!;
+    }
+    return { width, height, xOffset, yOffset, pixels: flipped };
   }
   return { width, height, xOffset, yOffset, pixels };
 }

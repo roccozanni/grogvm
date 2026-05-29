@@ -1189,3 +1189,78 @@ code {
   font-variant-numeric: tabular-nums;
 }
 
+.vm-input-panel {
+  margin: 0.75rem 0 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.vm-input-panel h3 {
+  margin: 0 0 0.4rem;
+  font-size: 0.9em;
+}
+
+.vm-input-live {
+  margin: 0 0 0.4rem;
+  font-family: var(--mono, monospace);
+  font-size: 0.8em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.vm-input-clicks {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-family: var(--mono, monospace);
+  font-size: 0.8em;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.vm-input-clicks li {
+  list-style: square;
+}
+
+.vm-tick-counter-live {
+  margin: 0.25rem 0;
+  font-family: var(--mono, monospace);
+  font-size: 0.85em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.vm-frame-stack .vm-frame-cursor {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  border: 1px solid transparent;
+  /* Painted on top of frame + walk overlay. */
+  z-index: 2;
+}
+
+.vm-sentence-line {
+  margin: 0.5rem 0 0;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: #1a1a22;
+  font-family: var(--mono, monospace);
+  font-size: 0.9em;
+  color: #ffd54a;
+  min-height: 1.2em;
+}
+
+.vm-verb-bar {
+  display: block;
+  margin: 0.25rem 0 0;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  border: 1px solid var(--border);
+  background: #000;
+  cursor: pointer;
+}
+

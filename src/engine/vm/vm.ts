@@ -32,6 +32,7 @@
  */
 
 import { ActorTable, DEFAULT_ACTOR_COUNT } from '../actor/actor';
+import { findVerbScript } from '../object/verbs';
 import type { LoadedCostume } from '../graphics/costume-loader';
 import type { LoadedRoom } from '../room/loader';
 import { ScriptSlot } from './slot';
@@ -71,6 +72,63 @@ export interface HaltInfo {
 }
 
 export type OpcodeHandler = (vm: Vm, slot: ScriptSlot, opcode: number) => void;
+
+/**
+ * Snapshot of an in-progress print / printEgo opcode. The renderer
+ * reads this every frame; the engine writes it when a string subop
+ * runs.
+ */
+export interface ActiveDialog {
+  /** Speaking actor id. 0 = system text (no actor anchor). */
+  readonly actorId: number;
+  /** Display text — control sequences (`0xFF NN ...`) already stripped. */
+  readonly text: string;
+  /** Absolute room x or `null` to anchor above the actor. */
+  readonly x: number | null;
+  readonly y: number | null;
+  /** CLUT index for the ink. Defaults to white if no SO_COLOR subop. */
+  readonly color: number;
+  /** Centre text around `x` rather than left-anchor. */
+  readonly center: boolean;
+  /** Position above the speaking actor's head. */
+  readonly overhead: boolean;
+  /** Max x bound from SO_CLIPPED (informational; no wrap yet). */
+  readonly clipped: number | null;
+}
+
+/**
+ * One verb slot in the verb bar. Configured by the `verbOps` opcode
+ * (0x7A / 0xFA) subops at boot / room-entry time. The rendering layer
+ * paints each slot at `(x, y)` in screen coords with `name` through
+ * `color`/`hiColor`/`dimColor` depending on `state` and hover.
+ */
+export interface VerbSlot {
+  readonly id: number;
+  /** Display name from `setName` (subop 0x02), printable ASCII; control sequences stripped. */
+  name: string;
+  /** CLUT index for the normal-state ink. */
+  color: number;
+  /** CLUT index for the hovered ink. */
+  hiColor: number;
+  /** CLUT index for the dimmed (unavailable) ink. */
+  dimColor: number;
+  /** CLUT index for the background fill (rarely set). */
+  backColor: number;
+  /** Position in screen pixels — script provides this directly. */
+  x: number;
+  y: number;
+  /** Keyboard shortcut key code (0 = none). */
+  key: number;
+  /** Whether the rendered name is centred around `x` rather than left-aligned. */
+  centered: boolean;
+  /**
+   * Lifecycle state — `on` participates in hit-test + paint; `dim`
+   * paints with `dimColor` and rejects clicks; `off` is hidden but
+   * preserved (re-add with `on`); `deleted` is fully removed by the
+   * `delete` subop.
+   */
+  state: 'on' | 'off' | 'dim' | 'deleted';
+}
 
 export const NUM_SLOTS = 25;
 const TRACE_CAPACITY = 64;
@@ -181,6 +239,111 @@ export class Vm {
    * by {@link Vm.getCostume}; surfaces in the inspector / compositor.
    */
   readonly costumes = new Map<number, LoadedCostume>();
+  /**
+   * Current mouse position in **native room coordinates** (not CSS
+   * pixels, not screen pixels — pre-2× scale and adjusted for any
+   * camera x-scroll). Written by the shell's input layer on every
+   * `pointermove`. Mirrored into VAR_MOUSE_X / VAR_MOUSE_Y so scripts
+   * that poll the cursor see the same value. Starts at `(0, 0)` so
+   * pre-boot reads are deterministic.
+   */
+  mouseRoomX = 0;
+  mouseRoomY = 0;
+  /**
+   * Cursor / userput state, mutated by the `cursorCommand` opcode
+   * (0x2C) subops. `visible` gates whether the cursor sprite paints;
+   * `userput` gates whether the input layer accepts clicks (cutscenes
+   * temporarily turn this off so the user can't click through). The
+   * "soft" subops just toggle the same flags for the duration of a
+   * cutscene — distinct call paths but same end state, until we have
+   * a reason to model the soft / hard distinction separately.
+   */
+  readonly cursor = { visible: false, userput: false };
+  /**
+   * Charset id the engine currently uses for text rendering (verb bar,
+   * dialog). Updated by cursorCommand initCharset (subop 0x0D). Zero =
+   * "no charset selected yet" — the verb-bar renderer falls back to
+   * charset 0 when unset.
+   */
+  currentCharset = 0;
+  /**
+   * Verb-slot table, keyed by verb id. Populated by the `verbOps`
+   * opcode (0x7A / 0xFA) as scripts configure verbs at boot / room
+   * entry. The verb-bar renderer iterates this map.
+   */
+  readonly verbs = new Map<number, VerbSlot>();
+  /**
+   * The verb the user most recently clicked on the verb bar, awaiting
+   * an object. `null` means no verb is currently armed — a click on
+   * an object becomes a walk command (or a "Look at" via right-click,
+   * the v5 default). Set by the verb-bar input layer; read by the
+   * sentence builder.
+   */
+  currentVerb: number | null = null;
+  /**
+   * Currently-showing dialog / on-screen text. `null` outside a
+   * `print` / `printEgo` opcode. The shell's overlay renderer reads
+   * this each frame and paints the text via the Phase 4 CHAR
+   * renderer through `vm.currentCharset`.
+   *
+   * Position semantics:
+   *   - `x, y` absolute room coords from the `SO_AT` subop. `null`
+   *     means "above the speaking actor's head" (the v5 default).
+   *   - `center` mirrors the `SO_CENTER` subop — the renderer
+   *     left-shifts text by half its measured width.
+   *   - `clipped` is the max X bound for line wrapping (we don't yet
+   *     wrap, but the field captures the value for diagnostics).
+   *
+   * Cleared by `endCutscene` (best-effort — the original engine
+   * clears dialog at various points; we'll grow this as scripts
+   * surface the patterns).
+   */
+  activeDialog: ActiveDialog | null = null;
+  /**
+   * Camera position. `x` is the X coordinate of the camera's CENTRE
+   * in the room (SCUMM convention) — for a 320-wide viewport, the
+   * visible slice of the room is `[x - 160, x + 160)`. Updated by
+   * `setCameraAt` (snap), `panCameraTo` (smooth pan), and
+   * `actorFollowCamera` once we wire that. Zero before the first
+   * camera op runs.
+   *
+   * The shell uses this to convert SCREEN-space `print at(x, y)`
+   * coords into ROOM-space when painting dialog text on the room
+   * canvas — without this conversion text lands at the wrong place
+   * for any wider-than-viewport room (e.g. MI1 credits at 640×200).
+   */
+  readonly camera = { x: 0 };
+  /**
+   * Active playable-screen vertical bounds, set by `roomOps setScreen`
+   * (0x33 subop 0x03). The engine treats rows `[top, bottom)` of the
+   * room as the camera viewport; rows below `bottom` are typically the
+   * verb-bar area. MI1's boot sets `top=0, bottom=144` so the playable
+   * viewport is the top 144 rows. Cutscenes may temporarily extend
+   * `bottom` to 200 to fill the screen.
+   *
+   * Defaults of (0, 200) mean "full screen" until a script provides
+   * a real value.
+   */
+  readonly screen = { top: 0, bottom: 200 };
+  /**
+   * Pending input state the runtime mirrors into engine VARs at the
+   * start of each tick. The shell input layer mutates these on
+   * pointerdown / pointerup; {@link Vm.beginTick} converts the queued
+   * "press" pulses into a one-tick `VAR_LEFTBTN_DOWN` pulse and the
+   * sticky hold flags into `VAR_LEFTBTN_HOLD` / `VAR_RIGHTBTN_HOLD`.
+   *
+   * Why a queue + sticky split: SCUMM scripts typically poll for
+   * "button just went down this frame" (the one-shot) AND "button is
+   * still held" (sticky). A single boolean conflates the two and
+   * causes wait-loops to either miss the press (if cleared too early)
+   * or fire forever (if never cleared).
+   */
+  readonly input = {
+    leftPressQueued: false,
+    rightPressQueued: false,
+    leftHold: false,
+    rightHold: false,
+  };
   readonly resolveGlobalScript: GlobalScriptResolver | undefined;
   readonly resolveRoom: RoomResolver | undefined;
   readonly resolveCostume: CostumeResolver | undefined;
@@ -195,6 +358,26 @@ export class Vm {
 
   /** Slot whose opcode we labelled most recently — set by handlers via `annotate()`. */
   private lastAnnotation: string | undefined;
+
+  /**
+   * Engine-side var indices written by {@link beginTick}. Identified
+   * empirically + SCUMM v5 convention:
+   *   - `VAR_TIMER_1/2/3 = 14/15/16` — auto-incrementing per-tick
+   *     timers. Scripts reset to 0 and poll for a target value to
+   *     implement delays (MI1's credits cutscene waits on g14 > 250).
+   *   - `VAR_LEFTBTN_DOWN = 52` — MI1 boot script #23 polls this
+   *     waiting for a button press to enter the main menu.
+   *   - `VAR_USERPUT = 53` — per the SCUMM v5 wiki; scripts read this
+   *     to know whether userput is currently enabled.
+   * Other vars from the wiki list (`VAR_HAVE_MSG`, `VAR_LEFTBTN_HOLD`,
+   * `VAR_CUTSCENEEXIT_KEY`, `VAR_TALK_ACTOR`) land as their consumers
+   * appear.
+   */
+  static readonly VAR_TIMER_1 = 14;
+  static readonly VAR_TIMER_2 = 15;
+  static readonly VAR_TIMER_3 = 16;
+  static readonly VAR_LEFTBTN_DOWN = 52;
+  static readonly VAR_USERPUT = 53;
 
   constructor(init: VmInit) {
     this.vars = new Variables({
@@ -334,6 +517,42 @@ export class Vm {
   }
 
   /**
+   * Run an object's verb script as a synthetic slot.
+   *
+   * Looks up `objId` in the current room, resolves the bytecode for
+   * `verbId` (with the SCUMM 0xFF default-verb fallback), and starts a
+   * slot labelled `VERB-{objId}-{verbId}`. The verb id, object id, and
+   * any extra args land in the slot's locals (locals[0]=verb,
+   * locals[1]=obj, locals[2..]=args) — the same convention the
+   * sentence script uses, so verb scripts can read which verb invoked
+   * them.
+   *
+   * Returns the started slot, or `null` when the object isn't loaded,
+   * has no matching verb (and no default), or no slot is free. Never
+   * throws — a missing verb is a normal "nothing happens" click.
+   */
+  startVerbScript(
+    objId: number,
+    verbId: number,
+    args: ReadonlyArray<number> = [],
+  ): ScriptSlot | null {
+    const obj = this.loadedRoom?.objects.get(objId);
+    if (!obj) return null;
+    const bytecode = findVerbScript(obj.verbs, verbId);
+    if (!bytecode) return null;
+    const slot = this.slots.find((s) => s.status === 'dead');
+    if (!slot) return null;
+    slot.start({
+      scriptId: objId,
+      bytecode,
+      args: [verbId, objId, ...args],
+      room: this.loadedRoom?.id,
+      label: `VERB-${objId}-${verbId}`,
+    });
+    return slot;
+  }
+
+  /**
    * Dispatch a single opcode in the next runnable slot. Returns the
    * slot that ran (or undefined if no slot was runnable / VM halted).
    */
@@ -396,6 +615,40 @@ export class Vm {
   }
 
   /**
+   * Mirror pending input + cursor state into the engine VARs scripts
+   * poll. Called by the main-loop driver (the inspector) once at the
+   * start of each tick — *before* `runUntilAllYield` — so any script
+   * that runs this tick sees the freshest input state.
+   *
+   * Pulse semantics:
+   *   - `VAR_LEFTBTN_DOWN` is set to 1 only on the single tick where
+   *     a press has been queued since the last call, then cleared back
+   *     to 0 the following tick. Matches the SCUMM convention where
+   *     scripts poll "did the user press *this* frame?" and don't have
+   *     to manually clear after consuming.
+   *   - `VAR_USERPUT` is sticky — reflects {@link cursor.userput} as
+   *     the script understands it.
+   */
+  beginTick(): void {
+    this.vars.writeGlobal(
+      Vm.VAR_LEFTBTN_DOWN,
+      this.input.leftPressQueued ? 1 : 0,
+    );
+    this.input.leftPressQueued = false;
+    // Right-button-down index isn't known yet — wire when a script
+    // surfaces the polling pattern.
+    this.input.rightPressQueued = false;
+    this.vars.writeGlobal(Vm.VAR_USERPUT, this.cursor.userput ? 1 : 0);
+    // Tick the SCUMM auto-timers. Scripts reset these to 0 then poll
+    // for a target value to implement delays — without the increment,
+    // every cutscene that uses them hangs forever (e.g. MI1's credits
+    // wait on VAR_TIMER_1 > 250).
+    this.vars.writeGlobal(Vm.VAR_TIMER_1, this.vars.readGlobal(Vm.VAR_TIMER_1) + 1);
+    this.vars.writeGlobal(Vm.VAR_TIMER_2, this.vars.readGlobal(Vm.VAR_TIMER_2) + 1);
+    this.vars.writeGlobal(Vm.VAR_TIMER_3, this.vars.readGlobal(Vm.VAR_TIMER_3) + 1);
+  }
+
+  /**
    * Step until every slot is dead/yielded/frozen — i.e. until the
    * next `step()` would return undefined. Caps at `maxSteps` to
    * prevent runaway tight loops.
@@ -439,11 +692,43 @@ export class Vm {
     this.lastRoomLoadError = null;
     this.actors.reset();
     this.costumes.clear();
+    this.mouseRoomX = 0;
+    this.mouseRoomY = 0;
+    this.cursor.visible = false;
+    this.cursor.userput = false;
+    this.currentCharset = 0;
+    this.verbs.clear();
+    this.currentVerb = null;
+    this.input.leftPressQueued = false;
+    this.input.rightPressQueued = false;
+    this.input.leftHold = false;
+    this.input.rightHold = false;
+    this.activeDialog = null;
+    this.camera.x = 0;
+    this.screen.top = 0;
+    this.screen.bottom = 200;
   }
 
   /** Set the human label for the *next* trace entry (called from a handler). */
   annotate(mnemonic: string): void {
     this.lastAnnotation = mnemonic;
+  }
+
+  /**
+   * Dispatch a single opcode on an existing slot WITHOUT advancing the
+   * trace ring or running the normal halt-recovery — used by the
+   * expression evaluator's "nested opcode" subop (0xAC subop 0x06),
+   * which composes opcode results into stack-based expressions. The
+   * called opcode is expected to write its result to global #0
+   * (VAR_RESULT); the expression evaluator then pushes that onto its
+   * stack.
+   */
+  dispatchInline(slot: ScriptSlot, opcode: number): void {
+    const handler = this.handlers.get(opcode);
+    if (!handler) {
+      throw new UnknownOpcodeError(opcode);
+    }
+    handler(this, slot, opcode);
   }
 
   /** Manually halt the VM with a reason — exposed for handlers. */
