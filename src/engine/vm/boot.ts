@@ -18,6 +18,7 @@
  */
 
 import { loadCostume } from '../graphics/costume-loader';
+import { resolveCharsetById } from '../graphics/charset';
 import type { IndexFile } from '../resources/index-file';
 import type { RoomOffsetTable } from '../resources/loff';
 import { loadRoom } from '../room/loader';
@@ -71,6 +72,7 @@ export function bootGame(
     },
     resolveRoom: (id) => loadRoom(resourceFile, loff, id),
     resolveCostume: (id) => loadCostume(resourceFile, index, loff, id),
+    resolveCharset: (id) => resolveCharsetById(resourceFile, index, loff, id),
   });
 
   seedEngineVariables(vm, gameId);

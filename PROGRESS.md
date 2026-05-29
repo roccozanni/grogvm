@@ -100,6 +100,48 @@ needed for Talk-to an actor).
 The inspector has stable DOM during Play; controls + frame stack mount
 once and only canvas pixels update per tick.
 
+### Session log (charset-id resolution fix + talk position)
+
+The lookout-scene talk used the wrong (thin) font and drew over the
+actor. Two bugs, both fixed:
+
+- **Charset id → resource was resolved by file-walk order, not the
+  `DCHR` directory.** Scripts pass a SCUMM charset id to `initCharset`
+  (room 38 talk = id 2); we were doing `walkCharsets()[id]`, but the id
+  space comes from the index's `DCHR` directory and is *different* — MI1
+  has built-in null entries (ids 0, 5) so the mapping is offset from walk
+  order. `initCharset 2` should select the bold 2-bpp talk font (walk[1],
+  h9) but `walk[2]` gave the thin 1-bpp font (h8). New
+  `resolveCharsetById(file, index, loff, id)` maps id → `DCHR[id]
+  {room,offset}` → `loff(room)+offset` → CHAR block; wired onto the VM as
+  `vm.resolveCharset` (boot) and used by the shell's `activeCharset`
+  (falls back to walk order for the null charsets). The credits' charset
+  4 was subtly wrong too (gave walk[4] h14, not the real h15 serif) —
+  now correct. +3 tests. Verified vs real data: id 2 → h9 2-bpp bold.
+- **Talk text now sits above the actor's head, not over them.** The
+  overhead bubble anchored its bottom at `actor.y − 24` (mid-body); it
+  now anchors just above `actor.drawBounds.top` (the real drawn sprite
+  top recorded by the compositor), falling back to a feet-estimate before
+  the first composite.
+- **2-bpp text outline is now black, not teal.** MI1's talk/credit fonts
+  are 2-bpp: glyph value 1 = inner fill, value 2 = outer outline (decoded
+  a real 'M' to confirm). We were colouring the outline from the
+  charset's *embedded* `colorMap[2]` — but those ramp entries (teal/red)
+  are editor placeholders, not render colours. SCUMM draws the fill in
+  the text colour and the outline as a **black shadow**, so `drawText`
+  now forces the 2-bpp outline levels (values 2–3) to CLUT 0. Fill stays
+  `inkColor` (talk colour / SO_COLOR). Matches the reference (white fill,
+  black outline).
+
+Tests: **589 across 46 files**; typecheck clean. ⚠️ Visual: the bolder
+font + above-head placement + black outline want an in-browser confirm.
+⚠️ **Still open — credits *fill* colour (teal vs magenta).** Bytecode
+says the credit names print with `color=3` → CLUT3 = teal (the copyright
+line uses `color=5` → CLUT5 = magenta and renders correctly). So teal IS
+faithful to this data; the reference's magenta needs a same-version
+palette/charset-colourmap comparison before changing anything — do NOT
+hard-code (see the long-standing note in Polish/known gaps).
+
 ### Session log (dialog word-wrap + \xff\x03 sentence paging)
 
 Dialog text now lays out properly instead of overflowing / mashing:

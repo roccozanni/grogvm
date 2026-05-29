@@ -60,6 +60,8 @@ const CSS_SCALE = 2;
  * NOT to the room width.
  */
 const VIEWPORT_W = 320;
+/** The minimal charset shape the text renderer needs (header + payload). */
+type ActiveCharset = { header: CharsetHeader; payload: Uint8Array };
 // Max pixel width for a talk/dialog line before word-wrap kicks in.
 // Leaves a ~16px margin each side of the 320-wide screen so centred
 // bubbles don't kiss the edges.
@@ -139,12 +141,15 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
   // was current then — wrong glyphs for everything after. Resolve it
   // live from `vm.currentCharset`, cached per id so we don't re-walk the
   // LECF tree every repaint.
-  const charsetCache = new Map<number, ReturnType<typeof loadCharset>>();
-  const activeCharset = (): ReturnType<typeof loadCharset> => {
+  const charsetCache = new Map<number, ActiveCharset | null>();
+  const activeCharset = (): ActiveCharset | null => {
     const id = vm.currentCharset;
     let c = charsetCache.get(id);
     if (c === undefined) {
-      c = loadCharset(args.resourceFile, id);
+      // Resolve by SCUMM charset id via the engine's index-backed
+      // resolver (correct font); fall back to file-walk order only when
+      // it can't resolve (e.g. the built-in null charsets 0/5).
+      c = vm.resolveCharset?.(id) ?? loadCharset(args.resourceFile, id);
       charsetCache.set(id, c);
     }
     return c;
@@ -280,7 +285,7 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
 
   const paintDialog = (
     ctx: CanvasRenderingContext2D,
-    charset: NonNullable<ReturnType<typeof activeCharset>>,
+    charset: ActiveCharset,
     d: NonNullable<typeof vm.activeDialog>,
   ): void => {
     // SCUMM print `at(x, y)` is in SCREEN coords — relative to the
@@ -310,11 +315,15 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
           ? vm.actors.get(d.actorId)
           : null;
       dx = speaker?.x ?? Math.floor(roomWidth / 2);
-      // Anchor the BLOCK's bottom where a single line previously sat
-      // (actor.y − 24 + one line), so a multi-line bubble grows UPWARD
-      // and stays above the speaker instead of creeping over them.
-      const anchorBottom = (speaker?.y ?? Math.floor(roomHeight / 2)) - 24 + fontH;
-      dy = anchorBottom - blockH;
+      // Anchor the BLOCK's bottom just above the actor's drawn head so the
+      // bubble sits *above* the speaker (not over them) and grows upward.
+      // `drawBounds.top` is the real sprite top recorded by the compositor;
+      // fall back to an estimate from the feet when the actor hasn't been
+      // drawn yet (e.g. before the first composite).
+      const head = speaker?.drawBounds
+        ? speaker.drawBounds.top
+        : (speaker?.y ?? Math.floor(roomHeight / 2)) - 40;
+      dy = head - 2 - blockH;
     } else {
       // Default fallback — bottom-centre of the camera viewport, block
       // bottom a few px above the frame edge (grows upward).
@@ -672,7 +681,7 @@ interface MeasuredName {
 }
 
 function measureName(
-  charset: NonNullable<ReturnType<typeof loadCharset>>,
+  charset: ActiveCharset,
   text: string,
 ): MeasuredName {
   // Reuse the CHAR-aware renderer's measurement implicitly by running
@@ -690,13 +699,18 @@ function measureName(
 /**
  * Render `text` at (`x`, `y`) on a 2D context, using the CHAR
  * renderer to produce indexed pixels and converting to RGBA through
- * the room CLUT. `inkColor` overrides `colorMap[1]` (the ink slot for
- * 1-bpp charsets); 2-bpp text falls back to the charset's natural
- * `colorMap[2..3]` outline / fill.
+ * the room CLUT.
+ *
+ * Colour model: glyph value 1 is the **fill** → painted in `inkColor`
+ * (the text / actor-talk colour). In MI1's 2-bpp fonts the higher glyph
+ * values form the **outline**, which SCUMM draws as a black shadow — the
+ * charset's *embedded* `colorMap[2..3]` holds editor-time placeholder
+ * colours (teal / red), NOT render colours, so we must not use them or
+ * the outline comes out teal. Force the outline levels to CLUT 0.
  */
 function drawText(
   ctx: CanvasRenderingContext2D,
-  charset: NonNullable<ReturnType<typeof loadCharset>>,
+  charset: ActiveCharset,
   text: string,
   x: number,
   y: number,
@@ -705,7 +719,11 @@ function drawText(
   centered: boolean,
 ): void {
   const colorMap = new Uint8Array(charset.header.colorMap);
-  colorMap[1] = inkColor;
+  colorMap[1] = inkColor; // fill = text colour
+  if (charset.header.bpp === 2) {
+    colorMap[2] = 0; // outline / shadow = black
+    colorMap[3] = 0;
+  }
   // Render each line separately so a centred multi-line block centres
   // every line on `x` independently (a single whole-block render would
   // left-align the lines within the widest line's bbox). Lines advance

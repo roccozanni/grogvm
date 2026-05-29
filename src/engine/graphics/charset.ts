@@ -42,6 +42,8 @@
 
 import { payloadOf, type ResourceFile } from '../resources/tree';
 import type { Block } from '../resources/block';
+import type { IndexFile } from '../resources/index-file';
+import type { RoomOffsetTable } from '../resources/loff';
 
 export interface CharsetEntry {
   readonly lflfIndex: number;
@@ -73,6 +75,48 @@ export function walkCharsets(file: ResourceFile): CharsetEntry[] {
 
 export function charsetPayload(file: ResourceFile, entry: CharsetEntry): Uint8Array {
   return payloadOf(file, entry.charBlock);
+}
+
+/**
+ * Resolve a charset by its **SCUMM charset id** — the number scripts
+ * pass to `initCharset` — via the index's `DCHR` directory, NOT walk
+ * order. This matters: `walkCharsets` returns CHAR blocks in file order,
+ * but the script's id space (from `DCHR`) is different — in MI1 it
+ * includes built-in null entries (ids 0 and 5) and is otherwise offset
+ * from walk order, so `walkCharsets()[id]` gives the WRONG font (e.g.
+ * the thin 1-bpp charset where talk wants the bold 2-bpp one).
+ *
+ * `DCHR[id]` gives `{room, offset}`; the absolute file offset is
+ * `loff(room) + offset`, which equals the CHAR block's offset — we match
+ * it against the walked blocks to recover the block size, then slice the
+ * payload (skipping the 8-byte block header) and parse the header.
+ *
+ * Returns `null` for the built-in null charsets (room 0 / offset 0, e.g.
+ * ids 0 and 5) and when the id / room / block can't be resolved — the
+ * caller falls back to a default font.
+ */
+export function resolveCharsetById(
+  file: ResourceFile,
+  index: IndexFile,
+  loff: RoomOffsetTable,
+  id: number,
+): { header: CharsetHeader; payload: Uint8Array } | null {
+  const dir = index.charsets[id];
+  if (!dir || (dir.room === 0 && dir.offset === 0)) return null;
+  const base = loff.get(dir.room);
+  if (base === undefined) return null;
+  const abs = base + dir.offset;
+  const entry = walkCharsets(file).find((e) => e.charBlock.offset === abs);
+  if (!entry) return null;
+  const payload = file.bytes.subarray(
+    entry.charBlock.offset + 8,
+    entry.charBlock.offset + entry.charBlock.size,
+  );
+  try {
+    return { header: parseCharHeader(payload), payload };
+  } catch {
+    return null;
+  }
 }
 
 /** Sentinel value for "this character is transparent / not drawn". */

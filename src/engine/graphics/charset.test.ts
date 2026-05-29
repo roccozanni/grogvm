@@ -5,8 +5,10 @@ import {
   parseCharHeader,
   glyphPayloadOffset,
   decodeGlyph,
+  resolveCharsetById,
 } from './charset';
 import type { ResourceFile } from '../resources/tree';
+import type { IndexFile } from '../resources/index-file';
 
 function block(tag: string, payload: Uint8Array | number[] = []): Uint8Array {
   const payloadBytes = payload instanceof Uint8Array ? payload : new Uint8Array(payload);
@@ -281,5 +283,48 @@ describe('decodeGlyph', () => {
 
   it('throws on header position out of payload', () => {
     expect(() => decodeGlyph(new Uint8Array(10), 8, 1)).toThrow(/out of payload/);
+  });
+});
+
+describe('resolveCharsetById', () => {
+  // Two CHAR blocks with distinct fontHeights inside one LFLF.
+  const charA = (h: number) =>
+    makeCharPayload({ bpp: 1, fontHeight: h, glyphs: [{ width: 1, height: 1, xOffset: 0, yOffset: 0, bitmap: [0x80] }] });
+
+  const build = () => {
+    const file = makeFile(
+      block('LECF', block('LFLF', concat(block('CHAR', charA(8)), block('CHAR', charA(14))))),
+    );
+    const [a, b] = walkCharsets(file);
+    // loff: room 5 → base 0, so abs offset == directory offset.
+    const loff = new Map<number, number>([[5, 0]]);
+    // DCHR ids are NOT walk order: id 0 is the built-in null entry,
+    // id 1 maps to the FIRST block (walk[0]), id 2 to the SECOND (walk[1]).
+    const index = {
+      charsets: [
+        { room: 0, offset: 0 },
+        { room: 5, offset: a!.charBlock.offset },
+        { room: 5, offset: b!.charBlock.offset },
+      ],
+    } as unknown as IndexFile;
+    return { file, loff, index };
+  };
+
+  it('resolves a charset by its DCHR id (not file-walk order)', () => {
+    const { file, loff, index } = build();
+    expect(resolveCharsetById(file, index, loff, 1)!.header.fontHeight).toBe(8);
+    expect(resolveCharsetById(file, index, loff, 2)!.header.fontHeight).toBe(14);
+  });
+
+  it('returns null for the built-in null charset (room 0 / offset 0)', () => {
+    const { file, loff, index } = build();
+    expect(resolveCharsetById(file, index, loff, 0)).toBeNull();
+  });
+
+  it('returns null for an out-of-range id or unknown room', () => {
+    const { file, loff, index } = build();
+    expect(resolveCharsetById(file, index, loff, 99)).toBeNull();
+    const badRoom = { charsets: [{ room: 0, offset: 0 }, { room: 77, offset: 16 }] } as unknown as IndexFile;
+    expect(resolveCharsetById(file, badRoom, loff, 1)).toBeNull();
   });
 });

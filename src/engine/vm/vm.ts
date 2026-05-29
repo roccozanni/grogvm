@@ -35,6 +35,7 @@ import { ActorTable, DEFAULT_ACTOR_COUNT } from '../actor/actor';
 import { startWalk } from '../actor/walk';
 import { findVerbScript } from '../object/verbs';
 import type { LoadedCostume } from '../graphics/costume-loader';
+import type { CharsetHeader } from '../graphics/charset';
 import type { LoadedRoom } from '../room/loader';
 import type { Sentence } from './sentence';
 import { ScriptSlot } from './slot';
@@ -173,6 +174,16 @@ export type RoomResolver = (roomId: number) => LoadedRoom;
  */
 export type CostumeResolver = (costumeId: number) => LoadedCostume;
 
+/**
+ * Resolve a SCUMM charset id (the value scripts pass to `initCharset`)
+ * to its parsed header + payload, or `null` when unresolvable / built-in.
+ * The shell's text renderer uses this so dialog renders with the charset
+ * the game actually selected. See `resolveCharsetById`.
+ */
+export type CharsetResolver = (
+  charsetId: number,
+) => { header: CharsetHeader; payload: Uint8Array } | null;
+
 export interface VmInit {
   readonly numVariables: number;
   readonly numBitVariables: number;
@@ -197,6 +208,12 @@ export interface VmInit {
    * each id is only decoded once.
    */
   readonly resolveCostume?: CostumeResolver;
+  /**
+   * Resolver for charsets by SCUMM id. The VM doesn't render, but holds
+   * this so the shell's text renderer can map `vm.currentCharset` to the
+   * right font via the index (not file-walk order). See {@link CharsetResolver}.
+   */
+  readonly resolveCharset?: CharsetResolver;
 }
 
 export class Vm {
@@ -454,6 +471,7 @@ export class Vm {
   readonly resolveGlobalScript: GlobalScriptResolver | undefined;
   readonly resolveRoom: RoomResolver | undefined;
   readonly resolveCostume: CostumeResolver | undefined;
+  readonly resolveCharset: CharsetResolver | undefined;
   private readonly handlers: ReadonlyMap<number, OpcodeHandler>;
   private readonly traceBuffer: (TraceEntry | undefined)[] = new Array(
     TRACE_CAPACITY,
@@ -530,6 +548,7 @@ export class Vm {
     this.resolveGlobalScript = init.resolveGlobalScript;
     this.resolveRoom = init.resolveRoom;
     this.resolveCostume = init.resolveCostume;
+    this.resolveCharset = init.resolveCharset;
   }
 
   /**
