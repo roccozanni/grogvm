@@ -735,6 +735,32 @@ describe('inventory subsystem', () => {
     expect(vm.inventoryCount(4)).toBe(1);
   });
 
+  it('pickupObject snapshots the object name so it survives leaving the room', () => {
+    const vm = makeVm();
+    vm.vars.writeGlobal(1, 4); // VAR_EGO
+    vm.loadedRoom = {
+      id: 33, width: 320, height: 200, numObjects: 1,
+      palette: new Uint8Array(768), transparentIndex: null,
+      indexed: new Uint8Array(0), stripMethods: [], zPlanes: [],
+      entryScript: null, exitScript: null, localScripts: new Map(),
+      objects: new Map([
+        [99, {
+          objId: 99,
+          cdhd: { objId: 99, x: 0, y: 0, width: 0, height: 0, flags: 0, parent: 0, walkX: 0, walkY: 0, actorDir: 0 },
+          imhd: { objId: 99, numImages: 0, flags: 0, x: 0, y: 0, width: 0, height: 0 },
+          images: new Map(), name: 'the rubber chicken',
+          verbs: new Map(),
+        }],
+      ]),
+      walkBoxes: [], walkableMask: new Uint8Array(0),
+    };
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x25, 0x63, 0x00, 0x00) });
+    vm.step();
+    // Leave the room: the live object table no longer knows the item.
+    vm.loadedRoom = null;
+    expect(vm.objectName(99)).toBe('the rubber chicken');
+  });
+
   it('actorFromPos (0xd5) reads both coords as vars, writes 0, advances PC by 7', () => {
     const vm = makeVm();
     vm.vars.writeGlobal(20, 100);

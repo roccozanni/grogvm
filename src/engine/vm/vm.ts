@@ -221,6 +221,17 @@ export class Vm {
    */
   readonly objectOwners = new Map<number, number>();
   /**
+   * Object names captured at pickup time, keyed by object id. SCUMM
+   * resolves an object's name from its OBNA, which only lives in the
+   * room that object belongs to — so once an item is carried out of
+   * its pickup room, the current room's object table no longer knows
+   * its name. We snapshot the name when ownership is taken so the
+   * sentence line / inventory can label a carried item that originated
+   * elsewhere. Consulted by {@link objectName} as a fallback behind the
+   * current room.
+   */
+  readonly inventoryNames = new Map<number, string>();
+  /**
    * Per-object class bitmask, mutated by `actorSetClass` (0x5D) and
    * tested by `ifClassOfIs` (0x1D). Class N occupies bit `N-1` (classes
    * are 1-based in v5). Default 0 (no classes). v5 named classes
@@ -343,6 +354,17 @@ export class Vm {
    * surface the patterns).
    */
   activeDialog: ActiveDialog | null = null;
+  /**
+   * Persistent on-screen *system* text — the string from a `print` with
+   * no real speaker (reserved actor ids like 252–255: signs, narrator,
+   * the credit roll). Held SEPARATELY from {@link activeDialog} (actor
+   * speech) because the two channels coexist on screen and must not mask
+   * each other: room 33's "Le Tre Prove" sign and Guybrush's spoken
+   * reply are both visible at once. Unlike actor speech this is never
+   * auto-cleared by the talk timer — it persists until overwritten by
+   * another system print, an empty system print, or {@link reset}.
+   */
+  systemText: ActiveDialog | null = null;
   /**
    * Persistent SCUMM `_string[0]` state for *system* `print`s (actor
    * 255 / no speaker — credits, signs, narrator). In the original, a
@@ -936,13 +958,17 @@ export class Vm {
    *   - `VAR_MUSIC_TIMER` auto-increments — scripts reset it to 0 then
    *     poll for a target to pace cutscenes (MI1's credits wait on it).
    *
-   * We deliberately do NOT touch `VAR_CURSORSTATE` (52): it's an
-   * engine-managed cursor-state var, not a "button pressed this frame"
-   * flag. An earlier hack pulsed it on left-press believing MI1 boot
-   * #23 polled it to enter the title menu — but #23 idle-spins
-   * regardless (the menu appears purely from the music-timer gate), so
-   * the pulse drove nothing and only clobbered the var. Clicks now
-   * route through {@link handleSceneClick} / {@link handleVerbClick}.
+   * We deliberately do NOT auto-pulse `VAR_CURSORSTATE` (52) here: it's
+   * an engine-managed cursor-state var, not a per-tick flag. An earlier
+   * hack pulsed it on left-press believing the *title menu* needed it —
+   * but the title room doesn't even run #23, and the menu appears purely
+   * from the music-timer gate (g14 > 5700), so that pulse drove nothing.
+   * (In *gameplay* rooms #23 IS a per-frame hover poller gated on g52>0;
+   * driving g52 on real clicks enables its in-engine highlighting — a
+   * pending step. It must be a real-click signal, never a beginTick
+   * auto-pulse.) The sentence commit itself is engine-side:
+   * {@link handleSceneClick} / {@link handleVerbClick} → the faithful
+   * `runInputScript` + `pushSentence` path.
    */
   beginTick(): void {
     this.vars.writeGlobal(Vm.VAR_USERPUT, this.cursor.userput ? 1 : 0);
@@ -1042,6 +1068,40 @@ export class Vm {
   }
 
   /**
+   * Resolve an object's display name. Checks the current room's object
+   * table first (correct for room objects and just-picked-up items),
+   * then the carried-item snapshot in {@link inventoryNames} (for items
+   * carried out of their pickup room). Returns `undefined` when the name
+   * is unknown so callers can fall back to an `obj #N` placeholder.
+   */
+  objectName(objId: number): string | undefined {
+    const inRoom = this.loadedRoom?.objects.get(objId)?.name;
+    if (inRoom) return inRoom;
+    const carried = this.inventoryNames.get(objId);
+    if (carried) return carried;
+    return undefined;
+  }
+
+  /**
+   * Snapshot an object's name into {@link inventoryNames} as it enters
+   * an inventory. Looks in the current room first, then the hinted room
+   * (the `room` operand of `pickupObject`) via {@link resolveRoom}. A
+   * no-op when the name can't be resolved — better a stale `obj #N` than
+   * a crash. Called from the ownership-taking opcodes.
+   */
+  captureInventoryName(objId: number, roomHint: number): void {
+    let name = this.loadedRoom?.objects.get(objId)?.name;
+    if (!name && roomHint && roomHint !== this.currentRoom && this.resolveRoom) {
+      try {
+        name = this.resolveRoom(roomHint).objects.get(objId)?.name;
+      } catch {
+        // Unresolvable room — leave the name unknown.
+      }
+    }
+    if (name) this.inventoryNames.set(objId, name);
+  }
+
+  /**
    * Run MI1's inventory script (the id in `VAR_INVENTORY_SCRIPT`, #9 for
    * MI1) with `arg` as `local0`. SCUMM calls this whenever the inventory
    * changes (e.g. after `pickupObject`) — the script walks the owner's
@@ -1116,6 +1176,7 @@ export class Vm {
     this.strings.clear();
     this.objectStates.clear();
     this.objectOwners.clear();
+    this.inventoryNames.clear();
     this.objectClasses.clear();
     this.objectDrawQueue.clear();
     this.currentRoom = 0;
@@ -1135,6 +1196,7 @@ export class Vm {
     this.input.leftHold = false;
     this.input.rightHold = false;
     this.activeDialog = null;
+    this.systemText = null;
     this.printState = {
       x: null,
       y: null,

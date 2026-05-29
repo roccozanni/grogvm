@@ -260,9 +260,21 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
   };
 
   const drawDialog = (ctx: CanvasRenderingContext2D): void => {
-    const d = vm.activeDialog;
     const charset = activeCharset();
-    if (!d || !charset) return;
+    if (!charset) return;
+    // Two text channels coexist on screen: the persistent system text
+    // (signs / narrator / credits) underneath, and the transient actor
+    // speech on top. Painting both — instead of sharing one slot — is
+    // what keeps a sign visible while Guybrush talks.
+    if (vm.systemText) paintDialog(ctx, charset, vm.systemText);
+    if (vm.activeDialog) paintDialog(ctx, charset, vm.activeDialog);
+  };
+
+  const paintDialog = (
+    ctx: CanvasRenderingContext2D,
+    charset: NonNullable<ReturnType<typeof activeCharset>>,
+    d: NonNullable<typeof vm.activeDialog>,
+  ): void => {
     // SCUMM print `at(x, y)` is in SCREEN coords — relative to the
     // camera's viewport. To paint into the room canvas (which spans
     // the full room width), add the camera's left edge:
@@ -277,7 +289,10 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
       dx = d.x + cameraLeft;
       dy = d.y;
     } else if (d.overhead) {
-      const speaker = d.actorId > 0 ? vm.actors.get(d.actorId) : null;
+      const speaker =
+        d.actorId > 0 && d.actorId <= vm.actors.capacity
+          ? vm.actors.get(d.actorId)
+          : null;
       dx = speaker?.x ?? Math.floor(roomWidth / 2);
       dy = (speaker?.y ?? Math.floor(roomHeight / 2)) - 24;
     } else {
@@ -746,7 +761,7 @@ function sentenceText(
   const verbName = previewVerb?.name || 'Walk to';
   const objName =
     hoveredObject !== null
-      ? vm.loadedRoom?.objects.get(hoveredObject)?.name ?? `obj #${hoveredObject}`
+      ? vm.objectName(hoveredObject) ?? `obj #${hoveredObject}`
       : '';
   return objName ? `${verbName} ${objName}` : verbName;
 }

@@ -116,12 +116,13 @@ describe('talk color + positioning defaults', () => {
     expect(d.overhead).toBe(false); // SO_AT given → not talk-overhead
   });
 
-  it('a system message (no valid speaker) stays bottom-centre, default ink', () => {
+  it('a system message (no valid speaker) goes to systemText, bottom-centre, default ink', () => {
     const vm = makeVm();
     // print actor=255 (out of range → no speaker), TEXTSTRING "Hi".
     vm.startScript({ scriptId: 1, bytecode: bytes(0x14, 0xff, 0x0f, 0x48, 0x69, 0x00, 0xa0) });
     vm.step();
-    const d = vm.activeDialog!;
+    expect(vm.activeDialog).toBeNull(); // system text never lands in the actor-speech slot
+    const d = vm.systemText!;
     expect(d.overhead).toBe(false);
     expect(d.color).toBe(0x0f);
   });
@@ -153,7 +154,7 @@ describe('sticky system-print state (SCUMM _string[0])', () => {
     // Bare print actor=255 "Hi" — no subops, should inherit 160,150/3/centre.
     vm.startScript({ scriptId: 2, bytecode: bytes(0x14, 0xff, 0x0f, 0x48, 0x69, 0x00, 0xa0) });
     vm.step();
-    const d = vm.activeDialog!;
+    const d = vm.systemText!;
     expect(d.x).toBe(160);
     expect(d.y).toBe(150);
     expect(d.color).toBe(3);

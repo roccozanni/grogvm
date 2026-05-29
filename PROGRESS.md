@@ -63,21 +63,72 @@ issue (the compositor doesn't honor `VAR_CURRENT_LIGHTS`).
 `bootGame` defaults to param 0 (`BOOT_PARAM_ATTRACT`); param 1
 (`BOOT_PARAM_NEW_GAME`) is a debug shortcut that skips the credits.
 
-**MI1's input is script-driven, in script #23** (the engine's
-checkExecVerbs equivalent): each frame it polls `g52` (VAR_CURSORSTATE)
-> 0 as "a click happened this frame", reads `VAR_MOUSE_X/Y`,
-`findObject`s under the cursor, builds the sentence, and dispatches the
-verb via script #12 (which branches on `g107` = active verb). So the
-faithful click path is **feed g52 + mouse → let #23 do it**, NOT the
-engine-side `handleSceneClick` shortcut (which now needs revisiting).
+**MI1's input model — CORRECTED (bytecode-verified, two investigation
+passes).** An earlier note here claimed input was "script #23 polling
+g52, so feed g52+mouse → let #23 do it, NOT the handleSceneClick
+shortcut." **That premise was wrong.** The real SCUMM v5 model:
+
+- On a click the **engine** (C++ in the original; `vm.runInputScript`
+  here) starts **`VAR_VERB_SCRIPT` (g32)** with locals
+  `[clickArea, code, button]`, clickArea ∈ {1 verb, 2 scene, 3 inv,
+  4 key}. g32 = global #4 at boot, overridden to room-local **#201** by
+  room setup (in room 33 it's back to #4, the default handler).
+- That script only **arms the active verb** (`g107`), **redraws the
+  sentence line** (verb #100, via #12), and resets after action (#11).
+  **None of #4/#11/#12/#23 issue `doSentence` for a look-at.**
+- The **sentence commit (enqueue) is done engine-side**, not by a
+  script — so `vm.handleSceneClick`'s `pushSentence(...)` **IS the
+  faithful behavior**, not a shortcut to delete. (Verified: arming
+  verb 8 + `handleSceneClick(429)` → #2 runs → `printEgo` "troppo
+  buio".)
+- **Sentence script #2** (`VAR_SENTENCE_SCRIPT`=2) holds the per-verb
+  logic + the print; it runs only when a sentence is queued (our
+  per-tick `processSentence` matches). Byte-traced: #2 prints "troppo
+  buio" iff verb==8 AND `VAR_CURRENT_LIGHTS`(g9)==0.
+- **#23** is the per-frame *hover/highlight* poller (gated on g52>0),
+  used in gameplay rooms — complementary to the click hook, NOT the
+  click dispatcher. Driving g52 enables in-engine hover highlighting.
+- Confirmed runtime: g32=4, g33(sentence)=2, g34(inv)=9, set by boot
+  script #1; g32→#201 overridden per room.
+
+So "Step 3 = replace the handleSceneClick shortcut" largely dissolved:
+the enqueue IS faithful. Genuine remaining gaps: drive g52 for #23
+in-engine hover; faithful click-to-walk via a Walk-to sentence (the one
+real shortcut left, `walkActorTo`); `actorFromPos` (still a 0-stub,
+needed for Talk-to an actor).
 
 The inspector has stable DOM during Play; controls + frame stack mount
 once and only canvas pixels update per tick.
 
-What's still MISSING toward "playable": clicks wired through #23 (feed
-VAR_CURSORSTATE + mouse instead of `handleSceneClick`), real verb-script
-dispatch end-to-end, the inventory subsystem, and `print` keep-text /
-per-line centring.
+### Session log (input-model correction + dialog/inventory fixes)
+
+This session: investigated the real input model (above) and, in the
+process of driving input through MI1's own scripts, fixed real bugs.
+
+- **Carried-item name table** (inventory polish 1a): `vm.inventoryNames`
+  snapshots an object's OBNA name at pickup (`captureInventoryName`,
+  called from `pickupObject` + `setOwnerOf`), and `vm.objectName(id)`
+  resolves current-room-first then the snapshot. So a carried item keeps
+  its label after leaving its pickup room instead of showing `obj #N`.
+  The sentence line uses `vm.objectName`. +8 tests.
+- **Two opcode/string bugs** (surfaced by running the verb scripts #4/
+  #11/#12/#23 for real): (a) `verbOps setVerbName` scanned for the
+  `0x00` terminator WITHOUT skipping `0xff NN [arg]` escape sequences,
+  so it stopped on an escape argument's `0x00` and misaligned the PC →
+  halt on a stray `0xff` (MI1's sentence-line verb #100 builds its name
+  entirely from substitution codes). Now uses the escape-aware
+  `readScummString`. (b) `readScummString` only treated codes 4–9 as
+  4-byte; aligned to all codes ≥4, matching `decodeScummString`.
+- **Ego-print masking fixed (two text channels).** Persistent system
+  text (signs / narrator / credits — reserved actor ids) now lives in
+  `vm.systemText`, separate from transient actor speech in
+  `vm.activeDialog`. Before, both shared one slot, so Guybrush's reply
+  destroyed room 33's "Le Tre Prove" sign (and it never came back). The
+  renderer paints both (system under, speech on top); timing
+  (VAR_HAVE_MSG / talkDelay) is unchanged. Verified end-to-end: the sign
+  persists through and after the spoken reply. +2 tests.
+
+Tests: **570 across 46 files**; typecheck clean.
 
 ### Session log (through credits → playable intro)
 
@@ -274,23 +325,26 @@ Tests: **561 across 46 files**; typecheck clean.
 
 In rough dependency order:
 
-1. **Inventory polish** — slot rendering + hover (item name on the
-   sentence line) + click (item routed as an object) are done. Remaining:
-   (a) a **carried-item name table** so names survive leaving the pickup
-   room (today a carried item shows `obj #N`); (b) **scroll arrows**
-   (verbs 208/209) for paging when >8 items; (c) **two-object
-   sentences** (`Use X with Y`) — needs `selectedObject` state so the
-   first click holds an object while the verb + second object complete.
+1. **Inventory polish** — slot rendering + hover + click + **(a) the
+   carried-item name table (DONE this session)**. Remaining:
+   (b) **scroll arrows** (verbs 208/209) for paging when >8 items;
+   (c) **two-object sentences** (`Use X with Y`) — note this is best
+   done *after* #3 below, since the second-object logic lives in MI1's
+   scripts, not engine-side (a hardcoded two-object verb list would be
+   throwaway).
 2. **Dialog text reveal** — `VAR_HAVE_MSG` start/done flip + pacing is
-   now wired (the talk-timing commits: `beginTalk` sets it and a
-   length-proportional `talkDelay` drains it), so `wait`-for-message
-   gates correctly. What remains is the *visible* per-char reveal —
-   text still paints instantly. (Pairs with `VAR_TALK_ACTOR`.)
-3. **Real click input via #23** — clicks should feed `VAR_CURSORSTATE`
-   + mouse and let MI1's input loop (#23) build the sentence, rather
-   than the engine-side `handleSceneClick` shortcut wired earlier
-   (and the click-to-walk shortcut). Revisit `handleSceneClick` /
-   `handleVerbClick` / `walkActorTo` once #23 drives input.
+   wired, and **system vs actor text are now separate channels** (the
+   ego-print masking fix — `vm.systemText` / `vm.activeDialog`). What
+   remains is the *visible* per-char reveal — text still paints
+   instantly. (Pairs with `VAR_TALK_ACTOR`; limited until word-wrap.)
+3. **Faithful input refinements** — the big "rebuild input through #23"
+   premise was a misread (see the corrected input-model note up top:
+   `handleSceneClick`'s enqueue IS faithful). The real remaining items:
+   (a) drive `VAR_CURSORSTATE` (g52) on real clicks so MI1's #23 does
+   in-engine hover highlighting; (b) **faithful click-to-walk** — route
+   a Walk-to sentence through #2 instead of the direct `walkActorTo`
+   pathfinder shortcut (the one genuine shortcut left); (c) implement
+   `actorFromPos` (still a 0-stub) for **Talk-to** an actor.
 
 Polish / known gaps (any time):
 - **Sentence line should render in-canvas (top of the verb panel), not a
@@ -322,6 +376,27 @@ Polish / known gaps (any time):
   comparison before any change — do NOT hard-code magenta.
 - Smooth camera pan for `panCameraTo`; per-tick actor-follow tracking.
 - Costume-anim decoder vs MI1 Guybrush (see SCUMM-V5-COSTUME-ANIM.md).
+- **"Le tre prove" cutscene runs too fast.** The short cutscene between
+  the lookout scene and room 33 (the one showing "Le tre prove" / the
+  Three Trials) ends in under a second; in the real game it holds for
+  several seconds. A pacing bug — likely a `delay` / `wait` / talk-timer
+  that isn't holding the cutscene as long as the original (our tick rate
+  vs. the original's, or a `delay` countdown released too early, or the
+  system-text talk-timer draining instead of waiting on a user/timed
+  gate). Investigate the cutscene's bytecode (which scripts pace it) and
+  compare our per-tick driver's timing against MI1's ~60Hz/jiffy clock.
+- **Z-plane occlusion is wrong (actors/objects render in front of
+  things that should occlude them).** In the lookout scene the fire
+  draws *in front of* the stone wall (should be behind), and actors
+  generally composite on top of scenery that should be in front of them.
+  The z-plane masks decode (Phase 3) and the "any plane index > actorZ
+  hides" rule is implemented, but something in the compositing path is
+  off — candidates: object draw order vs. z-planes, the actor's `z`/
+  elevation not being set from walk-box or script, the per-object OBIM
+  z-plane not being applied to drawn objects (only to actors), or a
+  plane-index polarity/threshold bug. Needs a compositor pass:
+  re-verify decoded plane masks against room 38/33 geometry and how each
+  drawn object + actor picks its occlusion plane. See SCUMM-V5-ZPLANE.md.
 
 ---
 

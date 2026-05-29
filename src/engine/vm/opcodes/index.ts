@@ -558,8 +558,11 @@ function readScummString(slot: ScriptSlot): Uint8Array {
     if (b === 0xff) {
       slot.pc++; // escape
       const code = slot.bytecode[slot.pc++]!;
-      // Control codes 4..9 carry a 2-byte argument (var/string/object/verb id).
-      if (code >= 4 && code <= 9) slot.pc += 2;
+      // Control codes 0x01–0x03 are 2-byte (0xFF + code); 0x04 and up
+      // carry a 2-byte argument (var/string/object/verb id) → 4-byte
+      // total. Mirrors decodeScummString's length rule exactly so the
+      // PC-advancing reader and the display decoder never disagree.
+      if (code >= 4) slot.pc += 2;
       continue;
     }
     slot.pc++;
@@ -661,8 +664,16 @@ function printHandler(actor: number, vm: Vm, slot: ScriptSlot): void {
           st.overhead = overhead;
           st.clipped = clipped;
         }
+        // Route by channel: system prints (no speaker — signs, narrator,
+        // credits) go to the persistent `systemText` slot; real-actor
+        // talk goes to the transient `activeDialog` slot. Keeping them
+        // separate stops actor speech from clobbering an on-screen sign
+        // (and vice-versa) — both can be visible at once. The talk timer
+        // (VAR_HAVE_MSG / talkDelay) is driven identically for both so
+        // wait-for-message pacing is unchanged.
         if (text.length === 0) {
-          vm.activeDialog = null;
+          if (isSystem) vm.systemText = null;
+          else vm.activeDialog = null;
           vm.endTalk();
         } else {
           // Actor talk (valid speaker, no explicit SO_AT) defaults to
@@ -671,7 +682,7 @@ function printHandler(actor: number, vm: Vm, slot: ScriptSlot): void {
           // system messages (actor 255 → no speaker) keep their values
           // and the bottom-centre fallback.
           const isTalk = speaker !== null && atX === null;
-          vm.activeDialog = {
+          const dlg = {
             actorId: speakerId,
             text,
             x: atX,
@@ -681,6 +692,8 @@ function printHandler(actor: number, vm: Vm, slot: ScriptSlot): void {
             overhead: overhead || isTalk,
             clipped,
           };
+          if (isSystem) vm.systemText = dlg;
+          else vm.activeDialog = dlg;
           // Pace the conversation: mark the message as "being said" so
           // a following wait-for-message holds until it's read.
           vm.beginTalk(text);
@@ -1002,6 +1015,9 @@ function pickupObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const obj = readVarOrWord(opcode, 1, slot, vm.vars);
   const room = readVarOrByte(opcode, 2, slot, vm.vars);
   const ego = vm.vars.readGlobal(VAR_EGO);
+  // Snapshot the name BEFORE dropping the object from the room, so a
+  // carried item keeps its label after leaving its pickup room.
+  vm.captureInventoryName(obj, room);
   vm.objectOwners.set(obj, ego);
   vm.objectStates.set(obj, 1);
   vm.objectDrawQueue.delete(obj);
@@ -1278,6 +1294,9 @@ for (const op of [0x09, 0x49, 0x89, 0xc9]) register(op, faceActorHandler);
 function setOwnerOfHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const obj = readVarOrWord(opcode, 1, slot, vm.vars);
   const owner = readVarOrByte(opcode, 2, slot, vm.vars);
+  // Taking ownership (owner != 0) puts the object in an inventory; grab
+  // its name now while the room that owns its OBNA is still resolvable.
+  if (owner !== 0) vm.captureInventoryName(obj, 0);
   vm.objectOwners.set(obj, owner);
   vm.annotate(`setOwnerOf obj=${obj} owner=${owner}`);
 }
@@ -1585,13 +1604,13 @@ function verbOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
       }
       case 0x02: {
         // setVerbName: NUL-terminated string. May contain `0xFF NN`
-        // SCUMM control sequences (color shifts, var substitutions);
-        // we decode those out so the verb bar shows plain text.
-        const start = slot.pc;
-        while (slot.pc < slot.bytecode.length && slot.bytecode[slot.pc] !== 0) slot.pc++;
-        if (slot.pc >= slot.bytecode.length) throw new Error('verbOps setVerbName: missing 0x00 terminator');
-        const nameBytes = slot.bytecode.subarray(start, slot.pc);
-        slot.pc++;
+        // SCUMM control sequences (color shifts, var/object/verb-name
+        // substitutions) whose 2-byte arguments can themselves contain a
+        // 0x00 — so we must use the escape-aware reader, not a naive scan
+        // for the next 0x00 (which would stop on an argument byte and
+        // misalign the PC). MI1's sentence-line verb (#100) builds its
+        // name entirely from these substitution codes.
+        const nameBytes = readScummString(slot);
         const v = getOrCreateVerb(vm, verbId);
         v.name = decodeScummString(nameBytes);
         v.image = null; // text verb — drop any prior image binding

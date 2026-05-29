@@ -154,12 +154,23 @@ describe('Vm — talk timer + dialog clearing', () => {
     expect(vm.vars.readGlobal(Vm.VAR_HAVE_MSG)).toBe(0);
   });
 
-  it('keeps system text (actor 255) after the timer drains', () => {
+  it('keeps systemText after the talk timer drains', () => {
     const vm = makeVm();
-    vm.activeDialog = dialog(255);
+    vm.systemText = dialog(255);
     vm.beginTalk('hi');
     for (let i = 0; i < 200; i++) vm.beginTick();
-    expect(vm.activeDialog).not.toBeNull();
+    expect(vm.systemText).not.toBeNull(); // persistent — never auto-cleared
+  });
+
+  it('actor speech and systemText coexist; draining speech leaves systemText', () => {
+    const vm = makeVm();
+    // Persistent sign (system) + transient actor speech share the screen.
+    vm.systemText = dialog(254);
+    vm.activeDialog = dialog(1);
+    vm.beginTalk('hi');
+    for (let i = 0; i < 200 && vm.activeDialog; i++) vm.beginTick();
+    expect(vm.activeDialog).toBeNull(); // speech finished + cleared
+    expect(vm.systemText).not.toBeNull(); // the sign is still up
   });
 });
 
@@ -286,6 +297,72 @@ describe('Vm — runInventoryScript', () => {
     const live = vm.slots.filter((s) => s.scriptId === 9 && s.status !== 'dead');
     expect(live.length).toBe(1); // exactly one instance, not stacked
     expect(live[0]!.locals[0]).toBe(2);
+  });
+});
+
+describe('Vm — objectName + captureInventoryName', () => {
+  /** A named object with no verbs (overrides objWithVerbs' default name). */
+  function named(objId: number, name: string): LoadedObject {
+    return { ...objWithVerbs(objId, new Map()), name };
+  }
+
+  it('resolves a name from the current room', () => {
+    const vm = makeVm();
+    vm.loadedRoom = roomWithObjects(5, [named(42, 'the rock')]);
+    expect(vm.objectName(42)).toBe('the rock');
+  });
+
+  it('returns undefined for an unknown object', () => {
+    const vm = makeVm();
+    vm.loadedRoom = roomWithObjects(5, []);
+    expect(vm.objectName(99)).toBeUndefined();
+  });
+
+  it('falls back to the carried-item snapshot when not in the room', () => {
+    const vm = makeVm();
+    vm.loadedRoom = roomWithObjects(5, [named(42, 'the rock')]);
+    vm.captureInventoryName(42, 0); // snapshot from the current room
+    // Now leave the room — the object is gone from the live table.
+    vm.loadedRoom = roomWithObjects(6, []);
+    expect(vm.objectName(42)).toBe('the rock');
+  });
+
+  it('prefers the current room over a stale snapshot', () => {
+    const vm = makeVm();
+    vm.inventoryNames.set(42, 'old name');
+    vm.loadedRoom = roomWithObjects(5, [named(42, 'fresh name')]);
+    expect(vm.objectName(42)).toBe('fresh name');
+  });
+
+  it('captureInventoryName resolves a hinted room via resolveRoom', () => {
+    const otherRoom = roomWithObjects(9, [named(70, 'a map')]);
+    const vm = new Vm({
+      numVariables: 32,
+      numBitVariables: 64,
+      handlers: new Map(),
+      resolveRoom: (id) => {
+        if (id === 9) return otherRoom;
+        throw new Error(`no room ${id}`);
+      },
+    });
+    vm.loadedRoom = roomWithObjects(5, []); // 70 not present here
+    vm.captureInventoryName(70, 9);
+    expect(vm.objectName(70)).toBe('a map');
+  });
+
+  it('captureInventoryName is a no-op when the name is unresolvable', () => {
+    const vm = makeVm();
+    vm.loadedRoom = roomWithObjects(5, []);
+    vm.captureInventoryName(123, 0);
+    expect(vm.inventoryNames.has(123)).toBe(false);
+    expect(vm.objectName(123)).toBeUndefined();
+  });
+
+  it('reset() clears the carried-item table', () => {
+    const vm = makeVm();
+    vm.inventoryNames.set(42, 'the rock');
+    vm.reset();
+    expect(vm.inventoryNames.size).toBe(0);
   });
 });
 
