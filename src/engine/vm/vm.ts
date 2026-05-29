@@ -394,6 +394,18 @@ export class Vm {
   /** SCUMM v5 reserves script ids >= 200 for room-local LSCR scripts. */
   static readonly LSCR_THRESHOLD = 200;
 
+  /**
+   * Click-area codes passed to the input script (`runInputScript`'s
+   * `local0`). **Guessed** from the common v5 convention — only the
+   * input-script *hook* depends on these, not the core sentence flow
+   * (the engine builds the sentence directly), so a wrong guess just
+   * misfires #201's flag. MI1's #201 acts on area 4 (likely key). To
+   * be pinned down precisely later if the hook matters.
+   */
+  static readonly CLICK_AREA_VERB = 1;
+  static readonly CLICK_AREA_SCENE = 2;
+  static readonly CLICK_AREA_INVENTORY = 3;
+
   constructor(init: VmInit) {
     this.vars = new Variables({
       numVariables: init.numVariables,
@@ -628,6 +640,32 @@ export class Vm {
       // Script not resolvable (e.g. a local id with no current room) —
       // a click with no usable input script is a no-op, not a crash.
       return null;
+    }
+  }
+
+  /**
+   * Handle a verb-bar click (the engine's checkExecVerbs behavior for
+   * a verb). Arms the verb as the current one and fires the input-
+   * script hook. The next object click forms the sentence.
+   */
+  handleVerbClick(verbId: number, button = 1): void {
+    this.currentVerb = verbId;
+    this.runInputScript(Vm.CLICK_AREA_VERB, verbId, button);
+  }
+
+  /**
+   * Handle a click in the room scene on object `objId` (0 = clicked
+   * empty floor). Fires the input-script hook, then — if a verb is
+   * armed and a real object was hit — builds the sentence and queues
+   * it for {@link processSentence} to run via the sentence script.
+   *
+   * Single-object sentences only for now; the two-object "use X with
+   * Y" preposition flow (and right-click default "look at") land next.
+   */
+  handleSceneClick(objId: number, button = 1): void {
+    this.runInputScript(Vm.CLICK_AREA_SCENE, objId, button);
+    if (objId !== 0 && this.currentVerb !== null) {
+      this.pushSentence({ verb: this.currentVerb, objectA: objId, objectB: 0 });
     }
   }
 

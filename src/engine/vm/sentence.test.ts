@@ -167,6 +167,55 @@ describe('runInputScript', () => {
   });
 });
 
+// ─── engine click handling ──────────────────────────────────────────────
+
+describe('handleVerbClick / handleSceneClick', () => {
+  const INPUT_SCRIPT = 77;
+
+  function vmWithInputScript(): Vm {
+    const vm = makeVm((id) =>
+      id === INPUT_SCRIPT
+        ? { bytecode: bytes(0xa0), room: 4 }
+        : (() => {
+            throw new Error(`unexpected script id ${id}`);
+          })(),
+    );
+    vm.vars.writeGlobal(Vm.VAR_VERB_SCRIPT, INPUT_SCRIPT);
+    return vm;
+  }
+
+  it('handleVerbClick arms the verb and fires the input hook', () => {
+    const vm = vmWithInputScript();
+    vm.handleVerbClick(6);
+    expect(vm.currentVerb).toBe(6);
+    // Input hook started with clickArea=CLICK_AREA_VERB, code=verb.
+    const hook = vm.slots.find((s) => s.scriptId === INPUT_SCRIPT && s.status !== 'dead');
+    expect(hook).toBeDefined();
+    expect(hook!.locals[0]).toBe(Vm.CLICK_AREA_VERB);
+    expect(hook!.locals[1]).toBe(6);
+  });
+
+  it('handleSceneClick builds a sentence when a verb is armed', () => {
+    const vm = vmWithInputScript();
+    vm.handleVerbClick(6);
+    vm.handleSceneClick(42, 1);
+    expect(vm.sentenceStack).toEqual([{ verb: 6, objectA: 42, objectB: 0 }]);
+  });
+
+  it('handleSceneClick builds no sentence with no verb armed', () => {
+    const vm = vmWithInputScript();
+    vm.handleSceneClick(42, 1);
+    expect(vm.sentenceStack).toEqual([]);
+  });
+
+  it('handleSceneClick on empty floor (objId 0) builds no sentence', () => {
+    const vm = vmWithInputScript();
+    vm.handleVerbClick(6);
+    vm.handleSceneClick(0, 1);
+    expect(vm.sentenceStack).toEqual([]);
+  });
+});
+
 // ─── reset + clear ──────────────────────────────────────────────────────
 
 describe('sentence state lifecycle', () => {

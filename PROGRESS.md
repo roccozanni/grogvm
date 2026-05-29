@@ -87,11 +87,24 @@ Where to pick up tomorrow (in dependency order):
    (`scratch/scan-wait.ts`). +10 tests (491 total).
 
 **Next up (in dependency order):**
-1. **UI click → sentence**: wire the room-click + verb-bar commit to
-   the sentence flow. Faithful path runs the verb input script
-   (`VAR_VERB_SCRIPT`=32, MI1 local #201) which calls `doSentence`;
-   needs the click-area VARs + a real interactive room. This is the
-   integration that makes verb dispatch *visible*.
+1. ⏳ **UI click → sentence** — engine + shell wired; needs live-app
+   verification. Findings: MI1's input script #201 is a 13-byte *hook*
+   (`if (local0 == 4) g105 = 1`), NOT the sentence builder — so
+   `local0 = clickArea` is bytecode-confirmed, but the sentence is
+   built by the engine's built-in verb handler, and sentence script #2
+   is started *with* a sentence (reads args as locals). Built:
+   `vm.runInputScript(clickArea, code, button)` (fires #201),
+   `vm.handleVerbClick(verb)` (arms verb + hook), `vm.handleSceneClick(
+   obj, button)` (hook + builds single-object sentence when a verb is
+   armed). Shell verb-bar + room clicks now call these. Click-area
+   constants (CLICK_AREA_VERB/SCENE/INVENTORY) are **guessed** — only
+   the auxiliary #201 hook depends on them; the core flow (engine
+   builds sentence → `processSentence` runs #2) is independent. +7
+   tests (498 total). **Not yet verified end-to-end** — headless can't
+   reach an interactive room (gated behind the title-menu / start-game
+   milestone, def-of-done #1). Verify by clicking a verb then an object
+   in the live app. TODO: two-object "use X with Y", right-click
+   "look at", verb reset after a sentence.
 2. **`VAR_HAVE_MSG`** (global 3) — dialog renderer sets 1 on print /
    0 when done; unblocks `wait`-for-message. Pairs with per-char
    reveal.

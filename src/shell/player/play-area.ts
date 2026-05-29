@@ -365,23 +365,23 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
     const { x, y } = localToCanvas(ev);
     const v = verbAt(x, y);
     if (!v || v.state !== 'on') return;
-    vm.currentVerb = v.id;
+    // Engine click handling: arm the verb + fire the input-script hook.
+    vm.handleVerbClick(v.id);
     paintVerbBar();
     updateSentence();
     args.onCommit();
   });
 
-  // ─── room-click handler (used by the inspector's existing
-  //     pointerdown wire-up). We don't dispatch the sentence yet —
-  //     that requires the verb-script + sentence-stack tasks. For now
-  //     we just return the hit-tested object id so the inspector can
-  //     log a "would dispatch" entry.
+  // ─── room-click handler (wired from the inspector's pointerdown).
+  //     Routes the click into the engine's scene-click handler, which
+  //     fires the input-script hook and — when a verb is armed — builds
+  //     a sentence for the per-tick sentence driver to run. Returns the
+  //     hit-tested object id so the inspector can still log the click.
   const onRoomClick = (button: 'left' | 'right'): { objId: number | null } => {
     recomputeHover();
-    // Right-click is the v5 "look-at" shortcut — for the visible-only
-    // milestone we behave the same: just identify the object. Verb
-    // gating + script dispatch lands in the next batch.
-    void button;
+    // Right-click as the v5 "look-at" shortcut isn't wired yet (needs
+    // the look-at verb id); for now both buttons use the armed verb.
+    vm.handleSceneClick(hoveredObject ?? 0, button === 'left' ? 1 : 2);
     return { objId: hoveredObject };
   };
 
