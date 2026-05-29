@@ -74,3 +74,55 @@ describe('talk timing (VAR_HAVE_MSG)', () => {
     expect(slot.pc).toBe(2); // consumed the wait, didn't rewind
   });
 });
+
+describe('talk color + positioning defaults', () => {
+  it('actor talk defaults to the actor talk color + overhead/centred', () => {
+    const vm = makeVm();
+    vm.vars.writeGlobal(1, 1); // VAR_EGO = actor 1
+    const a = vm.actors.get(1);
+    a.room = 1;
+    a.talkColor = 15;
+    // printEgo "Hi" with no SO_AT / SO_COLOR.
+    vm.startScript({ scriptId: 1, bytecode: bytes(0xd8, 0x0f, 0x48, 0x69, 0x00, 0xa0) });
+    vm.step();
+    const d = vm.activeDialog!;
+    expect(d.actorId).toBe(1); // printEgo resolved to ego
+    expect(d.color).toBe(15); // actor talk color, not the 0x0F default
+    expect(d.overhead).toBe(true);
+    expect(d.center).toBe(true);
+  });
+
+  it('explicit SO_AT / SO_COLOR override the talk defaults', () => {
+    const vm = makeVm();
+    const a = vm.actors.get(2);
+    a.room = 1;
+    a.talkColor = 7;
+    // print actor=2, SO_AT(10,20), SO_COLOR(5), TEXTSTRING "Hi".
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(
+        0x14, 0x02,
+        0x00, 0x0a, 0x00, 0x14, 0x00, // SO_AT 10,20
+        0x01, 0x05, // SO_COLOR 5
+        0x0f, 0x48, 0x69, 0x00, // TEXTSTRING "Hi"
+        0xa0,
+      ),
+    });
+    vm.step();
+    const d = vm.activeDialog!;
+    expect(d.color).toBe(5); // explicit, not talkColor
+    expect(d.x).toBe(10);
+    expect(d.y).toBe(20);
+    expect(d.overhead).toBe(false); // SO_AT given → not talk-overhead
+  });
+
+  it('a system message (no valid speaker) stays bottom-centre, default ink', () => {
+    const vm = makeVm();
+    // print actor=255 (out of range → no speaker), TEXTSTRING "Hi".
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x14, 0xff, 0x0f, 0x48, 0x69, 0x00, 0xa0) });
+    vm.step();
+    const d = vm.activeDialog!;
+    expect(d.overhead).toBe(false);
+    expect(d.color).toBe(0x0f);
+  });
+});

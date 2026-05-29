@@ -573,9 +573,17 @@ function printHandler(actor: number, vm: Vm, slot: ScriptSlot): void {
   let atX: number | null = null;
   let atY: number | null = null;
   let color = 0x0f; // SCUMM default ink (white-ish in MI1 palettes)
+  let colorSet = false;
   let center = false;
   let overhead = false;
   let clipped: number | null = null;
+  // The speaking actor (printEgo / print actor=0 → ego). When this is a
+  // real actor and the script gives no explicit SO_AT / SO_COLOR, it's
+  // an actor talking: default to the actor's talk color and position the
+  // text above the actor (the SCUMM talk default), not the system
+  // bottom-centre fallback.
+  const speaker = actorOrNull(vm, actor);
+  const speakerId = actor === 0 ? vm.vars.readGlobal(VAR_EGO) : actor;
   while (true) {
     const sub = readU8(slot);
     if (sub === 0xff) break;
@@ -591,6 +599,7 @@ function printHandler(actor: number, vm: Vm, slot: ScriptSlot): void {
       case 0x01: {
         // SO_COLOR — ink (CLUT index) for the text glyph.
         color = readVarOrByte(sub, 1, slot, vm.vars);
+        colorSet = true;
         ops.push(`color(${color})`);
         break;
       }
@@ -634,14 +643,20 @@ function printHandler(actor: number, vm: Vm, slot: ScriptSlot): void {
           vm.activeDialog = null;
           vm.endTalk();
         } else {
+          // Actor talk (valid speaker, no explicit SO_AT) defaults to
+          // the actor's talk color and positions above the actor,
+          // centred — like the original. Explicit SO_AT / SO_COLOR /
+          // system messages (actor 255 → no speaker) keep their values
+          // and the bottom-centre fallback.
+          const isTalk = speaker !== null && atX === null;
           vm.activeDialog = {
-            actorId: actor,
+            actorId: speakerId,
             text,
             x: atX,
             y: atY,
-            color,
-            center,
-            overhead,
+            color: colorSet ? color : (speaker?.talkColor ?? color),
+            center: center || isTalk,
+            overhead: overhead || isTalk,
             clipped,
           };
           // Pace the conversation: mark the message as "being said" so
