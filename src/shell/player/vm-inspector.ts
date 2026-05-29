@@ -71,6 +71,8 @@ interface InspectorState {
   idleReason: string | null;
   /** Show walk-box / walkable-mask / actor-walkPath overlay on the VM frame. */
   showWalkOverlay: boolean;
+  /** Room id for the debug "Warp to room" control. */
+  warpRoomId: number;
   /**
    * Target ticks per second when Play is running. 60 = full rAF
    * speed; slower values let the user inspect frame-by-frame
@@ -152,6 +154,7 @@ export function renderVmInspector(
     idleStreak: 0,
     idleReason: null,
     showWalkOverlay: false,
+    warpRoomId: 1,
     tickRateHz: 60,
     lastTickAt: 0,
     recentClicks: [],
@@ -466,10 +469,33 @@ export function renderVmInspector(
     repaint();
   };
 
+  // Debug: jump straight into a room via the faithful enterRoom path
+  // (runs EXCD -> load -> ENCD), then drain ticks so the entry script
+  // sets up actors/objects. Lets us exercise a real room (art, walking,
+  // object hit-testing, the verb/sentence flow) without first cracking
+  // the title -> first-room transition. Not a game mechanic — a probe.
+  const warpToRoom = (roomId: number): void => {
+    if (!state.vm) return;
+    stopLoop();
+    state.playing = false;
+    state.vm.enterRoom(roomId);
+    // Settle the entry script (capped — some rooms open with a long
+    // scripted cutscene we don't want to run to completion here).
+    state.idleStreak = 0;
+    for (let i = 0; i < 400; i++) {
+      if (!oneTick() || state.vm.haltInfo) break;
+      if (checkIdleAndUpdateStreak()) break;
+    }
+    state.idleReason = state.vm.haltInfo
+      ? null
+      : `warped to room ${roomId} (loaded=${state.vm.loadedRoom?.id ?? 'none — ' + (state.vm.lastRoomLoadError ?? 'unknown')})`;
+    repaint();
+  };
+
   const repaintControls = (): void => {
     const h2 = document.createElement('h2');
     h2.textContent = 'VM';
-    const controls = renderControls(state, repaint, bootFresh, togglePlay, skipCutscene);
+    const controls = renderControls(state, repaint, bootFresh, togglePlay, skipCutscene, warpToRoom);
     controlsContainer.replaceChildren(h2, controls);
   };
 
@@ -676,6 +702,7 @@ function renderControls(
   bootFresh: () => void,
   togglePlay: () => void,
   skipCutscene: () => void,
+  warpToRoom: (roomId: number) => void,
 ): HTMLElement {
   const bar = document.createElement('div');
   bar.className = 'vm-controls';
@@ -793,6 +820,36 @@ function renderControls(
   skip.title = 'Fast-forward ticks until the engine reaches the title idle state (or halts)';
   skip.addEventListener('click', skipCutscene);
   bar.appendChild(skip);
+
+  // Debug warp: enter a room id directly to exercise it without the
+  // title -> first-room transition. Not a game control — a probe.
+  const warpWrap = document.createElement('label');
+  warpWrap.className = 'vm-tick-rate';
+  warpWrap.title = 'Debug: jump straight into a room id (runs its entry script)';
+  warpWrap.appendChild(document.createTextNode('warp '));
+  const warpInput = document.createElement('input');
+  warpInput.type = 'number';
+  warpInput.min = '1';
+  warpInput.value = String(state.warpRoomId);
+  warpInput.style.width = '4em';
+  warpInput.addEventListener('change', () => {
+    const n = parseInt(warpInput.value, 10);
+    if (Number.isFinite(n) && n > 0) state.warpRoomId = n;
+  });
+  warpWrap.appendChild(warpInput);
+  bar.appendChild(warpWrap);
+
+  const warp = button('Warp');
+  warp.disabled = !state.vm || state.vm.isHalted;
+  warp.title = 'Enter the room id in the box (debug)';
+  warp.addEventListener('click', () => {
+    const n = parseInt(warpInput.value, 10);
+    if (Number.isFinite(n) && n > 0) {
+      state.warpRoomId = n;
+      warpToRoom(n);
+    }
+  });
+  bar.appendChild(warp);
 
   const reset = button('Reset');
   reset.disabled = !state.vm;
