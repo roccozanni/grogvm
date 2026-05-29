@@ -632,6 +632,7 @@ function printHandler(actor: number, vm: Vm, slot: ScriptSlot): void {
         // print to dismiss the previous bubble.
         if (text.length === 0) {
           vm.activeDialog = null;
+          vm.endTalk();
         } else {
           vm.activeDialog = {
             actorId: actor,
@@ -643,6 +644,9 @@ function printHandler(actor: number, vm: Vm, slot: ScriptSlot): void {
             overhead,
             clipped,
           };
+          // Pace the conversation: mark the message as "being said" so
+          // a following wait-for-message holds until it's read.
+          vm.beginTalk(text);
         }
         vm.annotate(`print actor=${actor} [${ops.join(',')}] "${preview}"`);
         return;

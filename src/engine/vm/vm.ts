@@ -134,6 +134,12 @@ export interface VerbSlot {
 
 export const NUM_SLOTS = 25;
 const TRACE_CAPACITY = 64;
+
+/**
+ * Floor for the talk timer (ticks) so even a 1-char line lingers long
+ * enough to read. ~0.5s at 60 Hz. See {@link Vm.beginTalk}.
+ */
+const MIN_TALK_TICKS = 30;
 /** Global #4 = current-room id per the SCUMM v5 wiki. */
 const VAR_ROOM_INDEX = 4;
 
@@ -327,6 +333,15 @@ export class Vm {
    */
   activeDialog: ActiveDialog | null = null;
   /**
+   * Ticks remaining that the current message is "being said". Set by a
+   * text `print` (length × VAR_CHARINC, floored), counted down each
+   * {@link beginTick}; when it hits 0, `VAR_HAVE_MSG` is cleared. This
+   * is what paces dialog: `wait`-for-message (0xAE/0x02) blocks while
+   * `VAR_HAVE_MSG != 0`, so without a talk timer the engine races
+   * through a conversation in a few frames.
+   */
+  talkDelay = 0;
+  /**
    * Camera position. `x` is the X coordinate of the camera's CENTRE
    * in the room (SCUMM convention) — for a 320-wide viewport, the
    * visible slice of the room is `[x - 160, x + 160)`. Updated by
@@ -393,6 +408,10 @@ export class Vm {
   static readonly VAR_MUSIC_TIMER = VARS.VAR_MUSIC_TIMER;
   static readonly VAR_USERPUT = VARS.VAR_USERPUT;
   static readonly VAR_SENTENCE_SCRIPT = VARS.VAR_SENTENCE_SCRIPT;
+  /** Non-zero while a message is being "said"; gates `wait`-for-message. */
+  static readonly VAR_HAVE_MSG = VARS.VAR_HAVE_MSG;
+  /** Per-character talk-delay increment (MI1 = 3). */
+  static readonly VAR_CHARINC = VARS.VAR_CHARINC;
   /**
    * Global holding the id of the *input script* (the verb/click hook).
    * MI1 writes 201 (a room-local LSCR). Started by {@link runInputScript}.
@@ -882,6 +901,31 @@ export class Vm {
       Vm.VAR_MUSIC_TIMER,
       this.vars.readGlobal(Vm.VAR_MUSIC_TIMER) + 1,
     );
+    // Tick the talk timer. When it drains, the message is "done" and
+    // VAR_HAVE_MSG clears so a wait-for-message can release.
+    if (this.talkDelay > 0) {
+      this.talkDelay--;
+      if (this.talkDelay === 0) this.vars.writeGlobal(Vm.VAR_HAVE_MSG, 0);
+    }
+  }
+
+  /**
+   * Mark a message as being said for `text` — sets `VAR_HAVE_MSG` and a
+   * talk timer proportional to the text length (× `VAR_CHARINC`, the
+   * SCUMM text-speed var), floored so even short lines linger. Called
+   * by the `print` / `printEgo` opcodes. Paces dialog so a
+   * wait-for-message actually waits.
+   */
+  beginTalk(text: string): void {
+    const charinc = Math.max(1, this.vars.readGlobal(Vm.VAR_CHARINC));
+    this.talkDelay = Math.max(MIN_TALK_TICKS, text.length * charinc);
+    this.vars.writeGlobal(Vm.VAR_HAVE_MSG, 1);
+  }
+
+  /** Clear the current message immediately (empty `print`, room change). */
+  endTalk(): void {
+    this.talkDelay = 0;
+    this.vars.writeGlobal(Vm.VAR_HAVE_MSG, 0);
   }
 
   /**
@@ -941,6 +985,7 @@ export class Vm {
     this.input.leftHold = false;
     this.input.rightHold = false;
     this.activeDialog = null;
+    this.talkDelay = 0;
     this.camera.x = 0;
     this.screen.top = 0;
     this.screen.bottom = 200;
