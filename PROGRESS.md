@@ -651,22 +651,30 @@ charset-id resolution, `actorFromPos`/Talk-to, faithful click-to-walk,
 **Blocks the Definition of Done:**
 
 - [ ] **Two-object sentences — "Use X with Y"** (DoD #5). The biggest
-      gap. **Investigated (bytecode, not yet implemented):**
+      gap. Approach chosen: **port ScummVM's builder faithfully.**
+      **Mechanism cracked (bytecode):**
       - MI1 verb ids (room 33): 2 Apri, 3 Chiudi, **4 Dai/Give**, 5 Premi,
         6 Tira, **7 Usa/Use**, 8 Esamina, 9 Prendi, 10 Parla, 11 Vai
-        (default/Walk-to). Give(4) + Use(7) are the two-object verbs.
-      - The second-object gathering is SCUMM's **engine-side sentence-
-        construction state machine** (the `_sentenceNum` / active-object
-        / preposition logic), driven together with sentence script #2 —
-        NOT a per-verb table. Relevant globals seen live: g107 = active
-        verb, g182 = hover default verb, g100..g104 = the sentence
-        dedup/word-count state, g108/g110 = input flags. #2 re-issues
-        sentences via `doSentence verb=N` and decides object count itself
-        (e.g. `ifClassOfIs objB classes=[133]`, `isLess objB < 12`).
-      - **Do NOT hardcode a two-object verb list** (throwaway). Needs the
-        faithful builder: arm verb → click A (sentence line "Usa X con"
-        / "Dai X a") → click B → enqueue {verb,A,B}. Design the engine
-        sentence-builder state with Rocco before implementing.
+        (default/Walk-to). Give(4) + Use(7) take two objects.
+      - The gathering is **entirely in the verb-input script #4** (= g32
+        in room 33), using game globals: **g107 = active verb, g108 =
+        objectA, g109 = objectB, g110 = preposition / "awaiting 2nd
+        object" flag** (set when verb∈{Use,Give} and g108 is in). #4
+        itself commits with `doSentence verb=g107 objA=g108 objB=g109`
+        (offset 1031) once both are gathered. Sentence script #2 is the
+        *executor* (walk/face/act), not the gatherer.
+      - **Implication:** the faithful fix is to route clicks through #4
+        and let it gather + commit — our engine-side `handleSceneClick`
+        enqueue is the single-object SHORTCUT to retire here.
+      - **OPEN — the contract gap (need ScummVM `checkExecVerbs` /
+        `runInputScript`):** feeding the clicked object as `code`
+        (`runInputScript(2, objId, 1)`) does NOT make #4 gather it
+        (proven in `scratch/probe-2obj.ts` — #4 reset to Walk-to and
+        treated it as a bare floor click). So #4 resolves the scene
+        object from engine-provided state (mouse coords → a hit-test, or
+        an active-object var), not from `code`. Need the v5 engine source
+        to pin down exactly what the engine sets/passes per click area.
+      - **Do NOT hardcode a two-object verb list** — #4 already knows.
 - [x] **Cutscene UX (DoD #6) — DONE.** Keyboard **Escape → `vm.abort
       Cutscene()`** (jumps the cutscene script to its armed `overridePc`,
       thaws it, sets `VAR_OVERRIDE=1`; no-op when no skippable cutscene
@@ -692,8 +700,11 @@ charset-id resolution, `actorFromPos`/Talk-to, faithful click-to-walk,
       (false during cutscenes via #18), so floor clicks don't walk ego /
       arm verbs mid-cutscene. Verified: userput is true in room-33
       gameplay, false during the credits / lookout cutscenes.
-- [ ] **"Start a new game" from the title menu** (DoD #1). Verify the
-      interactive menu path vs. the current auto-attract→intro→room 33.
+- [x] **"Start a new game" (DoD #1) — N/A, satisfied.** Rocco confirms
+      MI1 has **no title menu** — it boots straight into the game. The
+      auto boot→intro→room 33 path IS the start flow, and the smoke test
+      (`start → first interactive room`) covers it. No clickable menu to
+      build.
 - [x] **Room lighting / `VAR_CURRENT_LIGHTS` (g9) stuck at 0 — DONE.**
       The lit state is a **boot/reset default**, not a per-room `lights`
       opcode: the original engine's `resetScummVars` seeds g9 to
