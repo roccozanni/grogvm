@@ -110,3 +110,45 @@ describe('cutscene / endCutscene', () => {
     expect(vm.cutsceneStack.length).toBe(0);
   });
 });
+
+describe('abortCutscene (Escape / override skip)', () => {
+  it('is a no-op (false) when no cutscene is active', () => {
+    const vm = makeVm();
+    expect(vm.abortCutscene()).toBe(false);
+  });
+
+  it('is a no-op when the active cutscene armed no override (not skippable)', () => {
+    const vm = makeVm();
+    const caller = vm.startScript({ scriptId: 1, bytecode: bytes(0x80) });
+    vm.beginCutscene([], caller.slotIndex);
+    expect(vm.abortCutscene()).toBe(false);
+  });
+
+  it('jumps the cutscene script to its override target, thaws it, sets VAR_OVERRIDE=1', () => {
+    const vm = makeVm();
+    const caller = vm.startScript({ scriptId: 1, bytecode: bytes(0x80, 0x80, 0x80, 0x00) });
+    vm.beginCutscene([], caller.slotIndex);
+    caller.overridePc = 3; // armed skip target (the trailing stop)
+    caller.freeze();
+    caller.yield_();
+    expect(vm.abortCutscene()).toBe(true);
+    expect(caller.pc).toBe(3);
+    expect(caller.overridePc).toBe(null);
+    expect(caller.freezeCount).toBe(0);
+    expect(caller.status).toBe('running');
+    expect(vm.vars.readGlobal(Vm.VAR_OVERRIDE)).toBe(1);
+  });
+
+  it('beginOverride opcode (0x58) records the skip target and clears VAR_OVERRIDE', () => {
+    const vm = makeVm();
+    vm.vars.writeGlobal(Vm.VAR_OVERRIDE, 9);
+    // 0x58 0x01 0x18 [delta=+2] — target is 2 bytes past the delta word.
+    const slot = vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(0x58, 0x01, 0x18, 0x02, 0x00, 0x80, 0x80, 0x00),
+    });
+    vm.step();
+    expect(vm.vars.readGlobal(Vm.VAR_OVERRIDE)).toBe(0);
+    expect(slot.overridePc).toBe(7); // pc after the operands (5) + delta (2)
+  });
+});

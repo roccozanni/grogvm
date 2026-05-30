@@ -1044,6 +1044,11 @@ function buildFrame(
       pushClick(state, e, objId);
       repaint();
     },
+    onEscape: () => {
+      // Cutscene-exit key: skip a skippable cutscene via the override
+      // path. No-op when no cutscene is active / none is skippable.
+      if (vm.abortCutscene()) repaint();
+    },
   });
 
   root.appendChild(play.sentenceLine);

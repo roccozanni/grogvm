@@ -112,6 +112,12 @@ export interface MountInputArgs {
   readonly onRightClick?: (e: ClickEvent) => void;
   /** Notified every pointermove with the resolved room coords. Inspector hook. */
   readonly onMove?: (p: RoomPoint) => void;
+  /**
+   * The cutscene-exit key (Escape) was pressed. The v5 convention maps
+   * Escape to `abortCutscene` — skip a skippable cutscene. Bound on the
+   * window (the canvas isn't focusable), so it fires regardless of focus.
+   */
+  readonly onEscape?: () => void;
 }
 
 export interface MountedInput {
@@ -207,11 +213,22 @@ export function mountVmFrameInput(args: MountInputArgs): MountedInput {
     ev.preventDefault();
   };
 
+  const onKeyDown = (ev: KeyboardEvent): void => {
+    if (ev.key === 'Escape' && args.onEscape) {
+      args.onEscape();
+    }
+  };
+
   canvas.addEventListener('pointermove', onMove);
   canvas.addEventListener('pointerdown', onDown);
   canvas.addEventListener('pointerup', onUp);
   canvas.addEventListener('pointerleave', onLeave);
   canvas.addEventListener('contextmenu', onContextMenu);
+  // Keyboard (Escape) is global — bind on the canvas's document view if
+  // there is one. Guarded so the module works in non-DOM test envs.
+  const keyTarget: Pick<Window, 'addEventListener' | 'removeEventListener'> | null =
+    typeof window !== 'undefined' ? window : null;
+  keyTarget?.addEventListener('keydown', onKeyDown as EventListener);
 
   return {
     dispose(): void {
@@ -220,6 +237,7 @@ export function mountVmFrameInput(args: MountInputArgs): MountedInput {
       canvas.removeEventListener('pointerup', onUp);
       canvas.removeEventListener('pointerleave', onLeave);
       canvas.removeEventListener('contextmenu', onContextMenu);
+      keyTarget?.removeEventListener('keydown', onKeyDown as EventListener);
     },
   };
 }

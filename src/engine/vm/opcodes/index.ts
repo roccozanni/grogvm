@@ -31,7 +31,7 @@ import { startAnim } from '../../graphics/costume-anim';
 import { pickObject } from '../../object/hittest';
 import { evalExpression } from '../expression';
 import { SENTENCE_CLEAR_VERB } from '../sentence';
-import { VAR_CURRENT_LIGHTS, VAR_HAVE_MSG } from '../vars';
+import { VAR_CURRENT_LIGHTS, VAR_HAVE_MSG, VAR_OVERRIDE } from '../vars';
 import {
   derefRead,
   formatRefLabel,
@@ -795,6 +795,10 @@ register(0x58, (vm, slot) => {
     // to read it from. The opcode byte goes into the annotation for
     // diagnostics in case the format ever differs.
     slot.overridePc = overrideTarget;
+    // The original clears VAR_OVERRIDE here; abortCutscene() sets it
+    // back to 1 if the player actually skips, so the override code can
+    // tell "ran to completion" (0) from "was aborted" (1).
+    vm.vars.writeGlobal(VAR_OVERRIDE, 0);
     vm.annotate(`beginOverride target=0x${overrideTarget.toString(16)} (op=0x${jumpOp.toString(16)})`);
   } else {
     slot.overridePc = null;
@@ -925,16 +929,45 @@ function getVerbEntryPointHandler(vm: Vm, slot: ScriptSlot, opcode: number): voi
 for (const op of [0x0b, 0x4b, 0x8b, 0xcb]) register(op, getVerbEntryPointHandler);
 
 // ─── 0xAB  saveRestoreVerbs ──────────────────────────────────────────
-// `opcode sub-opcode start[p8] end[p8] mode[p8]` — save / restore /
-// delete verb slots in a range. Used for menu/UI verb juggling. We
-// don't persist verb save-slots yet, so consume the operands and
-// no-op (the verbs themselves stay as verbOps left them).
+// `opcode sub-opcode start[p8] end[p8] mode[p8]` — bulk verb-slot
+// juggling over the id range [start, end]. The cutscene start script
+// (#18) SAVEs the command + inventory verb ranges so the bar vanishes
+// for the cutscene; the end script (#19) RESTOREs them.
+//   sub 0x01 save:    hide each verb in range, remembering its prior
+//                     `state` in `vm.savedVerbStates` (skip ones with
+//                     no slot, or already saved).
+//   sub 0x02 restore: bring saved verbs in range back to their prior
+//                     state and forget the saved entry.
+//   sub 0x03 delete:  remove verbs in range outright (`state=deleted`).
+// `mode` is the original engine's per-save id; MI1's save/restore are
+// range-symmetric, so we match purely on the id range (the saved-state
+// map is itself keyed by verb id), which keeps the bar hide/restore
+// exact without modelling save-slot ids.
 function saveRestoreVerbsHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
   const sub = readU8(slot);
   const start = readVarOrByte(sub, 1, slot, vm.vars);
   const end = readVarOrByte(sub, 2, slot, vm.vars);
   const mode = readVarOrByte(sub, 3, slot, vm.vars);
-  vm.annotate(`saveRestoreVerbs sub=0x${sub.toString(16)} [${start}..${end}] mode=${mode} (stub)`);
+  const action = sub & 0x1f;
+  for (const verb of vm.verbs.values()) {
+    if (verb.id < start || verb.id > end) continue;
+    if (action === 0x01) {
+      // save + hide — don't overwrite an existing save or re-hide.
+      if (verb.state === 'off' || vm.savedVerbStates.has(verb.id)) continue;
+      vm.savedVerbStates.set(verb.id, verb.state);
+      verb.state = 'off';
+    } else if (action === 0x02) {
+      const prev = vm.savedVerbStates.get(verb.id);
+      if (prev !== undefined) {
+        verb.state = prev;
+        vm.savedVerbStates.delete(verb.id);
+      }
+    } else if (action === 0x03) {
+      verb.state = 'deleted';
+      vm.savedVerbStates.delete(verb.id);
+    }
+  }
+  vm.annotate(`saveRestoreVerbs sub=0x${sub.toString(16)} [${start}..${end}] mode=${mode}`);
 }
 register(0xab, saveRestoreVerbsHandler);
 

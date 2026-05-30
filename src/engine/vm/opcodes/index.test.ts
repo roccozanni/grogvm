@@ -1039,3 +1039,47 @@ describe('intro-cutscene opcodes', () => {
     expect(vm.actors.get(1).room).toBe(7);
   });
 });
+
+describe('saveRestoreVerbs (0xAB) — cutscene verb hide/restore', () => {
+  function makeVerb(vm: Vm, id: number, state: 'on' | 'dim' | 'off' | 'deleted'): void {
+    vm.verbs.set(id, {
+      id, name: '', color: 1, hiColor: 1, dimColor: 1, backColor: 0,
+      x: 0, y: 0, key: 0, centered: false, image: null, state,
+    });
+  }
+
+  it('save (sub 1) hides verbs in range and remembers their prior state', () => {
+    const vm = makeVm();
+    makeVerb(vm, 5, 'on');
+    makeVerb(vm, 6, 'dim');
+    makeVerb(vm, 99, 'on'); // out of range — untouched
+    // saveRestoreVerbs sub=1 [5..6] mode=1
+    vm.startScript({ scriptId: 1, bytecode: bytes(0xab, 0x01, 5, 6, 1) });
+    vm.step();
+    expect(vm.verbs.get(5)!.state).toBe('off');
+    expect(vm.verbs.get(6)!.state).toBe('off');
+    expect(vm.verbs.get(99)!.state).toBe('on');
+    expect(vm.savedVerbStates.get(5)).toBe('on');
+    expect(vm.savedVerbStates.get(6)).toBe('dim');
+  });
+
+  it('restore (sub 2) brings saved verbs back to their prior state', () => {
+    const vm = makeVm();
+    makeVerb(vm, 5, 'on');
+    makeVerb(vm, 6, 'dim');
+    vm.startScript({ scriptId: 1, bytecode: bytes(0xab, 0x01, 5, 6, 1, 0xab, 0x02, 5, 6, 1) });
+    vm.step(); // save
+    vm.step(); // restore
+    expect(vm.verbs.get(5)!.state).toBe('on');
+    expect(vm.verbs.get(6)!.state).toBe('dim');
+    expect(vm.savedVerbStates.size).toBe(0);
+  });
+
+  it('delete (sub 3) removes verbs in range', () => {
+    const vm = makeVm();
+    makeVerb(vm, 5, 'on');
+    vm.startScript({ scriptId: 1, bytecode: bytes(0xab, 0x03, 5, 5, 1) });
+    vm.step();
+    expect(vm.verbs.get(5)!.state).toBe('deleted');
+  });
+});

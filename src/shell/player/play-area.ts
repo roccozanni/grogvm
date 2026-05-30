@@ -583,6 +583,9 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
     }
   });
   verbBar.addEventListener('pointerdown', (ev) => {
+    // Same user-input gate as the scene: a cutscene (userput off) must
+    // not let verb-bar clicks arm verbs / fire the input script.
+    if (!vm.cursor.userput) return;
     const { x, y } = localToCanvas(ev);
     const v = verbAt(x, y);
     if (!v || v.state !== 'on') return;
@@ -612,6 +615,12 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
   //     hit-tested object id so the inspector can still log the click.
   const onRoomClick = (button: 'left' | 'right'): { objId: number | null } => {
     recomputeHover();
+    // The engine only accepts scene input while user-input is enabled
+    // (VAR_USERPUT / vm.cursor.userput). Cutscenes turn it off via #18's
+    // `userputSoftOff`, so this gate stops a floor click from walking
+    // ego — or an object click from firing a verb — mid-cutscene. We
+    // still return the hover so the inspector can log the click.
+    if (!vm.cursor.userput) return { objId: hoveredObject };
     const btn = button === 'left' ? 1 : 2;
     vm.handleSceneClick(hoveredObject ?? 0, btn);
     return { objId: hoveredObject };

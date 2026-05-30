@@ -100,6 +100,19 @@ needed for Talk-to an actor).
 The inspector has stable DOM during Play; controls + frame stack mount
 once and only canvas pixels update per tick.
 
+### Session log (cutscene UX — DONE)
+
+Closed DoD #6 + the click-gating blocker. Open / worth remembering:
+- **Inspector crosshair still paints during cutscenes** — intentional
+  dev-visibility (engine `cursor.visible` is correct, shown separately).
+  Revisit if/when we want a faithful "no cursor in cutscene" look.
+- **`saveRestoreVerbs` matches by id range, not save-slot id** — fine
+  for MI1's symmetric save/restore (#18/#19); a game that nests saves
+  under different ids on the same verbs would need real save-slot keys.
+- **`abortCutscene` only skips cutscenes that ran `beginOverride`** (per
+  the original). Many gameplay cutscenes arm one; the intro mostly
+  doesn't, so Escape is often a no-op there — expected, not a bug.
+
 ### Session log (room lighting — DONE)
 
 Room-lighting blocker fixed (details in the locked list). Still open /
@@ -631,14 +644,24 @@ charset-id resolution, `actorFromPos`/Talk-to, faithful click-to-walk,
 - [ ] **Two-object sentences — "Use X with Y"** (DoD #5). Only
       single-object sentences exist; need `selectedObject` + preposition
       + `objectB` through the sentence flow. The biggest gap.
-- [ ] **Cutscene UX** (DoD #6): wire a **keyboard Escape** to the
-      override path (`slot.overridePc` exists; only an inspector button
-      uses it today), and **hide the cursor + verb bar** during a
-      cutscene, restoring after.
+- [x] **Cutscene UX (DoD #6) — DONE.** Keyboard **Escape → `vm.abort
+      Cutscene()`** (jumps the cutscene script to its armed `overridePc`,
+      thaws it, sets `VAR_OVERRIDE=1`; no-op when no skippable cutscene
+      is active) wired via `input.ts` `onEscape`. **Verb bar now hides +
+      restores**: implemented `saveRestoreVerbs` (was a stub) so #18's
+      save / #19's restore actually empty + refill the bar (verified:
+      verbsOn 0 during the room-38 cutscene, 18 in room 33). Cursor
+      *visibility* + userput already flip via #18's cursorSoftOff /
+      userputSoftOff. ⚠️ The inspector still paints its crosshair during
+      cutscenes (intentional dev-visibility — engine `cursor.visible` is
+      correct and shown separately).
 - [ ] **Right-click → default "Look at"** (DoD #3 / design note). The
       hit-tester finds the object on right-click but nothing arms Look-at.
-- [ ] **Gate click-to-walk during cutscenes** (consult freeze /
-      `VAR_USERPUT`) so floor clicks don't walk ego mid-cutscene.
+- [x] **Gate click-to-walk during cutscenes — DONE.** Both scene clicks
+      (`onRoomClick`) and verb-bar clicks now gate on `vm.cursor.userput`
+      (false during cutscenes via #18), so floor clicks don't walk ego /
+      arm verbs mid-cutscene. Verified: userput is true in room-33
+      gameplay, false during the credits / lookout cutscenes.
 - [ ] **"Start a new game" from the title menu** (DoD #1). Verify the
       interactive menu path vs. the current auto-attract→intro→room 33.
 - [x] **Room lighting / `VAR_CURRENT_LIGHTS` (g9) stuck at 0 — DONE.**
@@ -664,6 +687,15 @@ charset-id resolution, `actorFromPos`/Talk-to, faithful click-to-walk,
 - [ ] **End-to-end smoke tests** (3): start→first-room, walk-around,
       verb-dispatch (the suite is green but these scripted integration
       tests aren't written).
+- [ ] **FINAL STEP — opcode-stub audit (start → gameplay/dock scene).**
+      Trace every opcode actually dispatched from game start through to
+      gameplay start (the dock scene) and flag any that are **stubbed /
+      no-op** (e.g. things consumed-but-not-modelled). Track the list,
+      then implement the missing ones so the whole start→play path is
+      faithful, not just non-halting. Do this LAST — once the other
+      blockers are in, the reachable-opcode set is stable. (Tooling:
+      annotate-trace via the VM trace ring + cross-check against the
+      `(stub)`-style annotations and `src/engine/vm/disasm.ts`.)
 
 **Polish — may land in Phase 7 or slip to 7.5:**
 

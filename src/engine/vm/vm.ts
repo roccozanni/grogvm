@@ -328,6 +328,14 @@ export class Vm {
    */
   readonly verbs = new Map<number, VerbSlot>();
   /**
+   * Verb states stashed by `saveRestoreVerbs` save (mode 1), keyed by
+   * verb id → the `state` it had before being hidden. The cutscene
+   * start script (#18) saves the verb ranges so the bar disappears for
+   * the cutscene; the end script (#19) restores them. Cleared on
+   * {@link reset}.
+   */
+  readonly savedVerbStates = new Map<number, VerbSlot['state']>();
+  /**
    * The verb the user most recently clicked on the verb bar, awaiting
    * an object. `null` means no verb is currently armed — a click on
    * an object becomes a walk command (or a "Look at" via right-click,
@@ -823,6 +831,33 @@ export class Vm {
   }
 
   /**
+   * Abort the active cutscene (the player pressed the cutscene-exit key,
+   * Escape). SCUMM's `abortCutscene`: if the current cutscene armed a
+   * skip target via `beginOverride` (opcode 0x58, recorded on the
+   * cutscene script's slot as `overridePc`), jump that slot to the
+   * target, thaw + run it, and set `VAR_OVERRIDE = 1` so the override
+   * code can tell it was aborted. The override block then fast-forwards
+   * to the cutscene's end state and calls `endCutscene` itself.
+   *
+   * No-op (returns false) when no cutscene is active or the current one
+   * isn't skippable (no override armed) — matching the original, where
+   * Escape does nothing until a `beginOverride` runs.
+   */
+  abortCutscene(): boolean {
+    const frame = this.cutsceneStack[this.cutsceneStack.length - 1];
+    if (!frame) return false;
+    const slot = this.slots[frame.callerSlot];
+    if (!slot || slot.status === 'dead' || slot.overridePc === null) return false;
+    slot.pc = slot.overridePc;
+    slot.overridePc = null;
+    slot.delayRemaining = 0;
+    slot.freezeCount = 0;
+    slot.resume();
+    this.vars.writeGlobal(Vm.VAR_OVERRIDE, 1);
+    return true;
+  }
+
+  /**
    * Run the input script — the engine's per-click hook into game
    * bytecode. Starts `VAR_VERB_SCRIPT` (MI1 = room-local #201) with
    * locals `[clickArea, code, button]`.
@@ -1277,6 +1312,7 @@ export class Vm {
     this.cursor.userput = false;
     this.currentCharset = 0;
     this.verbs.clear();
+    this.savedVerbStates.clear();
     this.currentVerb = null;
     this.sentenceStack.length = 0;
     this.cutsceneStack.length = 0;
