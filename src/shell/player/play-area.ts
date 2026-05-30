@@ -288,11 +288,13 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
   const drawDialog = (ctx: CanvasRenderingContext2D): void => {
     const charset = activeCharset();
     if (!charset) return;
-    // Two text channels coexist on screen: the persistent system text
-    // (signs / narrator / credits) underneath, and the transient actor
-    // speech on top. Painting both — instead of sharing one slot — is
-    // what keeps a sign visible while Guybrush talks.
-    if (vm.systemText) paintDialog(ctx, charset, vm.systemText);
+    // Two text channels coexist on screen: the blasted system text
+    // (signs / narrator / credits / part-titles) underneath, and the
+    // transient actor speech on top. Painting both — instead of sharing
+    // one slot — is what keeps a sign visible while Guybrush talks. The
+    // system channel can hold several stacked lines at once (e.g. the
+    // "Le tre prove" part-title: "Parte Uno" + "Le Tre Prove").
+    for (const line of vm.systemTexts) paintDialog(ctx, charset, line);
     if (vm.activeDialog) paintDialog(ctx, charset, vm.activeDialog);
   };
 

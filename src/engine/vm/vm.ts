@@ -416,16 +416,49 @@ export class Vm {
    */
   activeDialog: ActiveDialog | null = null;
   /**
-   * Persistent on-screen *system* text — the string from a `print` with
-   * no real speaker (reserved actor ids like 252–255: signs, narrator,
-   * the credit roll). Held SEPARATELY from {@link activeDialog} (actor
-   * speech) because the two channels coexist on screen and must not mask
-   * each other: room 33's "Le Tre Prove" sign and Guybrush's spoken
-   * reply are both visible at once. Unlike actor speech this is never
-   * auto-cleared by the talk timer — it persists until overwritten by
-   * another system print, an empty system print, or {@link reset}.
+   * On-screen *system* text — strings from `print`s with no real speaker
+   * (reserved actor ids like 252–255: signs, narrator, the credit roll).
+   * Held SEPARATELY from {@link activeDialog} (actor speech) because the
+   * two channels coexist and must not mask each other (a sign stays up
+   * while Guybrush talks).
+   *
+   * SCUMM "blasts" system text onto the screen, where it *accumulates*:
+   * successive prints at DIFFERENT positions stack (the "Le tre prove"
+   * part-title is two prints — "Parte Uno" @y165 + "Le Tre Prove" @y180
+   * — both visible at once), while a print at an already-occupied
+   * position replaces it (the credit roll re-prints at the same spot).
+   * Blast text is erased when the screen is redrawn — i.e. on a room
+   * change ({@link enterRoom}) — and never by the talk timer; it also
+   * clears on an empty system print or {@link reset}. Mutate via
+   * {@link addSystemText} / {@link clearSystemText}, not directly.
    */
-  systemText: ActiveDialog | null = null;
+  systemTexts: ActiveDialog[] = [];
+
+  /** Back-compat single-slot view: the most-recently-blasted line. */
+  get systemText(): ActiveDialog | null {
+    return this.systemTexts[this.systemTexts.length - 1] ?? null;
+  }
+  /** Setting replaces every blasted line (null clears all). */
+  set systemText(d: ActiveDialog | null) {
+    this.systemTexts = d ? [d] : [];
+  }
+
+  /**
+   * Blast one system line. Replaces any existing line at the same screen
+   * anchor (so the credit roll, which re-prints at one spot, doesn't
+   * stack), otherwise appends (so distinct positions coexist).
+   */
+  addSystemText(dlg: ActiveDialog): void {
+    const key = `${dlg.x},${dlg.y}`;
+    const at = this.systemTexts.findIndex((d) => `${d.x},${d.y}` === key);
+    if (at >= 0) this.systemTexts[at] = dlg;
+    else this.systemTexts.push(dlg);
+  }
+
+  /** Erase all blasted system text (room change / empty print / reset). */
+  clearSystemText(): void {
+    this.systemTexts = [];
+  }
   /**
    * Remaining sentence pages of the current message (the text after each
    * `\xff\x03` "wait" code), advanced by the talk timer in
@@ -632,6 +665,13 @@ export class Vm {
     // their state, but the queue itself starts empty — the new room's
     // ENCD repopulates it for objects that should be visible.
     this.objectDrawQueue.clear();
+    // Redrawing the screen for a new room erases any blasted system text
+    // (signs / part-titles / credits) from the old one — they live on the
+    // framebuffer, not in a persistent layer. Cleared here, before the
+    // new room's ENCD runs, so a part-title the ENCD prints (room 96's
+    // "Le tre prove") survives while the previous room's text doesn't
+    // linger over the new background.
+    this.clearSystemText();
     // A new room starts with default scroll bounds; its ENCD may set
     // tighter ones via roomOps roomScroll.
     this.roomScroll = null;
@@ -1107,7 +1147,7 @@ export class Vm {
           // blocking until the final page finishes.
           const next = this.talkPages.shift()!;
           const dlg: ActiveDialog = { ...this.talkPageDlg!, text: next };
-          if (this.talkPageSystem) this.systemText = dlg;
+          if (this.talkPageSystem) this.addSystemText(dlg);
           else this.activeDialog = dlg;
           this.beginTalk(next);
         } else {

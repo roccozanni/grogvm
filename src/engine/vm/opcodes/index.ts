@@ -715,7 +715,7 @@ function printHandler(actor: number, vm: Vm, slot: ScriptSlot): void {
         // (VAR_HAVE_MSG / talkDelay) is driven identically for both so
         // wait-for-message pacing is unchanged.
         if (text.length === 0) {
-          if (isSystem) vm.systemText = null;
+          if (isSystem) vm.clearSystemText();
           else vm.activeDialog = null;
           vm.endTalk();
         } else {
@@ -735,7 +735,7 @@ function printHandler(actor: number, vm: Vm, slot: ScriptSlot): void {
             overhead: overhead || isTalk,
             clipped,
           };
-          if (isSystem) vm.systemText = dlg;
+          if (isSystem) vm.addSystemText(dlg);
           else vm.activeDialog = dlg;
           // Pace the conversation: mark the message as "being said" so
           // a following wait-for-message holds until it's read.

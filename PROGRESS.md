@@ -28,18 +28,20 @@ states → audio → MI2) resumes: implement the **non-resource,
 non-sound** opcodes still stubbed, and close the open known-bugs and
 cosmetic gaps.
 
-**Latest (2026-05-30, session 3):** **z-plane occlusion is now
-complete** — the **box-derived default clip** landed (`findBoxAt` +
-`resolveActorZ` in the compositor: a plain actor's `actorZ` comes from
-the `mask` of the walk box it stands in, explicit `forceClip` still
-winning). `pointInBox` handles SCUMM's `(-32000)` invalid box 0 and
-zero-area line boxes. Validated headlessly. **Wants a visual check** on
-a real scene where Guybrush walks behind scenery with no script-set
-clip (note the thin-box per-frame-lookup limitation in the known-bugs
-entry). Remaining: the **"Le tre prove" card** and the rest of the
-known-bugs list — see
-[Next step](#next-step-fresh-session--remaining-known-bugs)
-and the known-bugs list below.
+**Latest (2026-05-30, session 3):** two items closed. (1) **Z-plane
+occlusion is complete** — the **box-derived default clip** landed
+(`findBoxAt` + `resolveActorZ`: a plain actor's `actorZ` comes from the
+`mask` of the walk box it stands in, explicit `forceClip` still
+winning); `pointInBox` handles SCUMM's `(-32000)` invalid box 0 and
+zero-area line boxes. (2) **"Le tre prove" card text fixed** — the
+single `systemText` slot is now a `systemTexts[]` blast list, so the
+card's two `print(254)` lines ("Parte Uno" + "Le Tre Prove") both render
+stacked and clear on the room-33 redraw; its ~5 s hold is sound-gated
+(sound 104) and **deferred to the audio phase** (user decision). Both
+**want a visual check** on the running app (box-clip: a scene where
+Guybrush walks behind scenery; card: the two white lines over room 96).
+Remaining: the standing known-bugs list — see
+[Next step](#next-step-fresh-session--remaining-known-bugs).
 
 **Session 2 (2026-05-30):** the Mêlée-island title/intro now renders and
 paces correctly. Fixed: the clouds/sparkles render (`animateActor` chore
@@ -147,22 +149,38 @@ Implement these faithfully:
       canonical per-jiffy driver: `beginTick` timers + `delay` countdown
       run every jiffy; scripts/walk/anim are gated to frame boundaries.
       See [docs/SCUMM-V5-TIMING.md](docs/SCUMM-V5-TIMING.md).
-- [ ] **"Le tre prove" part-title card — still too brief (jiffy/frame
-      split did NOT fix it; user confirmed unchanged).** Investigated:
-      the card is **room 96**, shown by local script **#200** =
-      `userputOff → cursorOff → beginOverride → breakHere → print(254,
-      center, "Parte Uno" @165 + "Le Tre Prove" @180) → stopSound 104 →
-      endOverride → cursorOn → loadRoomWithEgo room 33`. There is **no
-      `delay`/wait** — room 96 flashes (~2 jiffies) and the printed
-      system text persists over room 33. In our VM `systemText` "Le Tre
-      Prove" then persists *indefinitely* (talkDelay 30→0 but systemText
-      isn't auto-cleared), which contradicts "too brief" — so the gap is
-      in presentation, not the VM clearing it early. Two sub-bugs found:
-      (a) our `print` handler reads the two text segments as one print
-      and keeps only the 2nd ("Le Tre Prove"), dropping the "Parte Uno"
-      line (it should be two stacked lines); (b) the intended hold
-      (does room 96 hold? is the card meant to overlay room 33?) needs a
-      ScummVM visual reference to settle. Deferred pending that.
+- [~] **"Le tre prove" part-title card** (2026-05-30, session 3 — text
+      fixed; hold deferred to audio). **SOLVED the diagnosis** with the
+      real room-96 bytecode (the disassembler's read-until-`0xFF` print
+      parse had hidden it — see TOOLING note). Room 96 local script #200,
+      decoded by hand from the hex, is:
+      `userputOff → cursorOff → beginOverride → breakHere → charsetSet 2
+      → print(254, color 15, center, @155,165 "Parte Uno") →
+      print(254, color 15, center, @155,180 "Le Tre Prove") →
+      startSound 104 → {breakHere; isSoundRunning 104} loop →
+      stopSound 104 → endOverride → cursor/userput On →
+      loadRoomWithEgo room 33`. So there are **two separate print(254)**
+      opcodes (not one), and the **~5 s hold is the duration of sound 104**
+      (the part-title jingle) — the script spins on `isSoundRunning(104)`.
+      ScummVM reference (user screenshot): big blue "Part One / The Three
+      Trials" is room 96's *background bitmap*; white "Parte Uno" /
+      "Le Tre Prove" are the two prints, stacked; everything on screen at
+      once, ~5 s.
+      - **(a) FIXED — both lines render.** `systemText` was a single slot
+        so the 2nd print clobbered the 1st. Replaced with `systemTexts[]`
+        (SCUMM blast model: prints at distinct positions accumulate, same
+        position replaces — credits), cleared on room change (screen
+        redraw), empty print, or reset. `addSystemText` / `clearSystemText`
+        on the VM; the renderer paints every line. Verified headlessly
+        (`scratch/verify-treprove.ts`): room 96 holds both lines, room 33
+        shows none (no more lingering). Intro max concurrent system lines
+        = 2 (no credit pile-up regression).
+      - **(b) hold DEFERRED to the audio phase (user decision).** The hold
+        is sound-gated; our audio is stubbed (`isSoundRunning → 0`) so the
+        wait loop falls through in ~12 jiffies and the card flashes. This
+        resolves for free when Phase 10 gives sounds a real duration — no
+        sound-duration stopgap (a blanket guess would mis-pace other
+        sound-waits). Until then the card is correct but brief.
 - [ ] **Credits fill colour (teal vs magenta)** — every credit line
       prints `SO_COLOR 3` → CLUT3 = teal in our data, but ScummVM shows
       magenta from the *same* files. Our colour→CLUT mapping is proven
@@ -218,17 +236,23 @@ pacing are done and user-confirmed. Pick up:
    assigned `_walkbox`. See
    [docs/SCUMM-V5-ZPLANE.md](docs/SCUMM-V5-ZPLANE.md) §"Box-mask".
 
-2. **"Le tre prove" part-title card** (still too brief — see the
-   known-bugs entry). Needs a ScummVM visual reference to settle the
-   intended presentation. Concrete sub-bug to fix regardless: our `print`
-   handler merges the card's two text segments and keeps only "Le Tre
-   Prove", dropping the "Parte Uno" line — it should render both stacked
-   (two `print` opcodes / a `\xff`-separated two-line system message).
+2. **Visual check of the "Le tre prove" card** (text fixed session 3).
+   Both lines now render (`systemTexts[]` blast model) and clear on the
+   room-33 redraw. The card is still *brief* because its ~5 s hold is the
+   duration of sound 104 (audio, Phase 10) — confirm the two stacked
+   white lines look right over room 96's blue background in the meantime.
 
 3. Then the rest of the **standing known-bugs list** (below), roughly by
    value: compositor honouring `VAR_CURRENT_LIGHTS`, credits fill colour
    (teal vs magenta), sentence-line in-canvas, smooth `panCameraTo`,
    inventory scroll arrows, two-object use end-to-end.
+
+   **Tooling TODO surfaced this session:** `disasm.ts`'s `print`/`printEgo`
+   sub-op parse reads the string until a trailing `0xFF` instead of
+   stopping at the `0x00` that ends `SO_TEXTSTRING` — so it swallows
+   everything after a print's text (it hid script 200's `startSound 104`
+   + `isSoundRunning` wait loop inside the "Parte Uno" string). Fix the
+   disassembler's print decoder to make `SO_TEXTSTRING` terminal.
 
 The costume-anim decoder, pacing model (`docs/SCUMM-V5-TIMING.md`), and
 z-plane model (`docs/SCUMM-V5-ZPLANE.md`) are solid ground to build on.

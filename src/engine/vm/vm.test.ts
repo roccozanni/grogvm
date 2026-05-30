@@ -173,6 +173,29 @@ describe('Vm — talk timer + dialog clearing', () => {
     expect(vm.systemText).not.toBeNull(); // the sign is still up
   });
 
+  it('blasts distinct-position system lines side by side (the "Le tre prove" card)', () => {
+    const vm = makeVm();
+    vm.addSystemText({ ...dialog(254), text: 'Parte Uno', x: 155, y: 165 });
+    vm.addSystemText({ ...dialog(254), text: 'Le Tre Prove', x: 155, y: 180 });
+    expect(vm.systemTexts.map((d) => d.text)).toEqual(['Parte Uno', 'Le Tre Prove']);
+    expect(vm.systemText?.text).toBe('Le Tre Prove'); // back-compat: last line
+  });
+
+  it('replaces a system line printed again at the same position (credit roll)', () => {
+    const vm = makeVm();
+    vm.addSystemText({ ...dialog(255), text: 'LINE A', x: 160, y: 90 });
+    vm.addSystemText({ ...dialog(255), text: 'LINE B', x: 160, y: 90 });
+    expect(vm.systemTexts.map((d) => d.text)).toEqual(['LINE B']); // not stacked
+  });
+
+  it('clears blasted system text on a room change (screen redraw)', () => {
+    const vm = makeVm();
+    vm.addSystemText({ ...dialog(254), text: 'Parte Uno', x: 155, y: 165 });
+    vm.addSystemText({ ...dialog(254), text: 'Le Tre Prove', x: 155, y: 180 });
+    vm.enterRoom(2);
+    expect(vm.systemTexts).toEqual([]);
+  });
+
   it('advances queued sentence pages on the talk timer before clearing', () => {
     const vm = makeVm();
     // Page 0 showing; pages "two"/"three" queued (\xff\x03-separated source).

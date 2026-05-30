@@ -269,6 +269,29 @@ Newlines reset the cursor to column 0 and advance Y by the declared
 Word wrap, alignment (centered / right-justified), and dialog text-
 box geometry are downstream concerns.
 
+### Two message channels + the blast model
+
+A `print` opcode targets one of two channels by its actor id, and they
+coexist on screen:
+
+- **Actor speech** (`activeDialog`, a real actor id) — transient,
+  positioned above the speaker, auto-cleared when the talk timer drains.
+- **System text** (`systemTexts[]`, reserved ids 252–255: signs,
+  narrator, credits, part-titles) — SCUMM *blasts* it onto the
+  framebuffer, where it **accumulates**: successive prints at distinct
+  screen positions stack, while a print at an already-occupied position
+  replaces it. It is **not** auto-cleared by the talk timer; it's erased
+  when the screen is redrawn — i.e. on a **room change** — or by an empty
+  print / reset.
+
+The accumulate-don't-replace rule is load-bearing for two real scenes:
+the MI1 **credit roll** re-prints at one fixed spot (replace → one line
+at a time), and the **"Le tre prove" part-title** issues *two* separate
+`print(254)` opcodes at different y (`"Parte Uno"` @165, `"Le Tre Prove"`
+@180) that must show stacked. A single-slot model shows only the last.
+(That card's ~5 s hold is a separate matter — it's the duration of its
+sound, gated by an `isSoundRunning` wait loop, so it lands with audio.)
+
 ### What's not in the renderer (deliberately)
 
 The SCUMM dialog system reserves a small family of byte values
