@@ -11,26 +11,26 @@
  *
  * # Anim definition layout
  *
- *   u16 LE limbMask
- *   for each set bit in limbMask:
- *     u16 LE start       // offset into the anim cmds array
- *     if start != 0xFFFF:
- *       u8 lengthAndFlags  // bit 7 = no-loop, bits 0..6 = end-offset
- *                          // (i.e. length = (end_offset + 1) bytes)
+ *   [00 00 00]           // optional 3-byte prefix (extended form only)
+ *   u8 limbMask
+ *   for each set bit in limbMask (MSB → LSB):
+ *     u16 LE frameIndex  // offset into the anim cmds array
+ *     if frameIndex != 0xFFFF:
+ *       u8 lengthAndFlags  // bit 7 = no-loop, bits 0..6 = (length - 1)
  *     else:
  *       (no length byte — the disabled-limb marker is 2 bytes total)
  *
+ * The mask is ONE byte in MI1 costumes (a u16 mask mis-aligns the
+ * modifiers — verified against #2, #111, and Guybrush #1). The
+ * walk/stand/turn anims prepend a 3-byte all-zero header before the
+ * mask byte; see `startAnim` for the discriminator and
+ * docs/SCUMM-V5-COSTUME-ANIM.md for the evidence.
+ *
  * # Limb numbering
  *
- * The wiki: "When one numbers the limbs from their corresponding bit
- * in the limb masks, they are then indexed in reverse order. This
- * means the first entry in the limb table is limb 15, then comes
- * limb 14, etc."
- *
- * We honour that: bit 0 of the mask → limb index 15, bit 15 → limb 0.
- * Iteration order through the per-bit data follows the same
- * convention so we read the bytes in the order the costume encodes
- * them.
+ * bit 7 of the mask → limb 0, bit 6 → limb 1, … bit 0 → limb 7. We
+ * iterate the bits MSB → LSB so the per-bit modifier bytes are read in
+ * the order the costume encodes them.
  *
  * # Anim cmds
  *
@@ -159,22 +159,46 @@ export function startAnim(
     return { ...state, animId, limbs: makeInactiveLimbs() };
   }
 
-  // The record is `u8 mask` + per set bit `{u16 LE frameIndex, u8
-  // lenFlags}`. The mask is ONE byte (verified against MI1 costumes #2,
-  // #111, and Guybrush #1 — a u16 mask mis-aligns the modifiers); bit 7
-  // = limb 0, bit 6 = limb 1, … bit 0 = limb 7 (MSB = limb 0). See
-  // docs/SCUMM-V5-COSTUME-ANIM.md.
-  const mask = payload[animOffset]!;
+  // Two record layouts appear in MI1 costumes:
+  //
+  //   compact:   u8 mask          @+0,  mods @+1
+  //   extended:  00 00 00 prefix  @+0,  u8 mask @+3, mods @+4
+  //
+  // Both carry the same per-limb modifier shape — `u8 mask` (bit 7 =
+  // limb 0 … bit 0 = limb 7, MSB = limb 0) + per set bit `{u16 LE
+  // frameIndex, u8 lenFlags}`. The *extended* form prepends a 3-byte
+  // all-zero header; it carries Guybrush's walk / stand / turn anims
+  // (anims 4-11, 40-51). Empirically verified: under this reading those
+  // records resolve to the tall ~20×47 body frames + 11×11 head that a
+  // walking Guybrush is made of (see docs/SCUMM-V5-COSTUME-ANIM.md).
+  //
+  // The discriminator is "first THREE bytes are zero" — that uniquely
+  // marks the walk/stand records and excludes the still-undecoded
+  // oddballs (`00 00 ff …` talk-pose, `00 00 08 …`), which fall through
+  // to the compact path, read mask 0x00, and stay safely static.
+  let maskPos = animOffset;
+  if (
+    payload[animOffset] === 0x00 &&
+    payload[animOffset + 1] === 0x00 &&
+    payload[animOffset + 2] === 0x00
+  ) {
+    maskPos = animOffset + 3;
+  }
+  if (maskPos + 1 > payload.length) {
+    return { ...state, animId, limbs: makeInactiveLimbs() };
+  }
+
+  const mask = payload[maskPos]!;
   // mask 0x00 (no limbs) and 0xFF leave the actor in its current/init
-  // pose. 0xFF is a sentinel for the multi-limb / walk / talk record
-  // form we don't decode yet (the record is far too short to host 8
-  // modifiers) — activating it would draw garbage, so fall back to the
-  // static pose instead. See the doc's "STILL OPEN" notes.
+  // pose. 0xFF is a sentinel for the talk / multi-limb record form we
+  // don't decode yet (the record is far too short to host 8 modifiers)
+  // — activating it would draw garbage, so fall back to the static pose
+  // instead. See the doc's "STILL OPEN" notes.
   if (mask === 0x00 || mask === 0xff) {
     return { ...state, animId, limbs: makeInactiveLimbs() };
   }
 
-  let cursor = animOffset + 1;
+  let cursor = maskPos + 1;
   const limbs: LimbPlayback[] = makeInactiveLimbs() as LimbPlayback[];
 
   // Iterate bits MSB → LSB so we consume modifier bytes in encoded order.

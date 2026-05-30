@@ -122,35 +122,46 @@ Implement these faithfully:
       **single-limb** record format — `u8 mask` (bit7=limb0…bit0=limb7)
       + per-set-bit `{u16 frameIndex, u8 lenFlags}`, `start =
       animCmdOffset + frameIndex` — with safe fallbacks for `mask`
-      `0x00`/`0xFF`, a `0xFFFF` frameIndex, and out-of-range starts.
-      Verified headlessly: costume 59 animates; sparkle #111 and
-      Guybrush stay static (no spam). STILL OPEN → see **Next step**.
+      `0x00`/`0xFF`, a `0xFFFF` frameIndex, and out-of-range starts;
+      AND the **extended multi-limb / walk** record (the
+      `00 00 00 <mask> <mods>` 3-byte-zero-prefix form) — Guybrush's
+      walk now decodes to a cycling ~20×47 body + a steady 11×11 head,
+      verified headlessly. STILL OPEN: the `mask=0xFF` talk records, and
+      wiring the walk-anim *trigger* so it shows in gameplay → see
+      **Next step**.
 
-### Next step — crack the MULTI-LIMB costume-anim record (start here)
+### Next step — wire the walk/stand chore trigger (the record is CRACKED)
 
-The single-limb decoder ships; the remaining gap is the **multi-limb /
-walk / talk record form**, which blocks Guybrush's walk, the talk
-anims, and the `mask=0xFF` sparkle (costume 111). Full evidence is in
-[docs/SCUMM-V5-COSTUME-ANIM.md](docs/SCUMM-V5-COSTUME-ANIM.md) — read the
-"Guybrush records" + "CORRECTION" + "SHIPPED" sections first.
+The **multi-limb / walk record format is decoded** (full evidence +
+verified frame trajectories in
+[docs/SCUMM-V5-COSTUME-ANIM.md](docs/SCUMM-V5-COSTUME-ANIM.md), section
+"CRACKED — the extended (multi-limb / walk) record"). There are two
+layouts — `compact` (`<u8 mask> <mods>`) and `extended`
+(`00 00 00 <u8 mask> <mods>`, the 3-byte-zero-prefix form that carries
+Guybrush's walk/stand/turn anims). `startAnim` now decodes both;
+Guybrush's walk resolves to a cycling ~20×47 body + a steady 11×11 head
+(headlessly verified). No regression — records that animated before
+still do, the `mask=0xFF` talk sentinel + oddballs stay static.
 
-**What's known.** Single-limb records decode cleanly. The hard cases:
-Guybrush's walk anims are 8-byte records starting `00 00 00 c0 …` (a
-redirect / wider-mask wrapper we haven't decoded), and `mask=0x00` /
-`mask=0xFF` are sentinels, not literal limb sets. Our `startAnim`
-deliberately leaves these inactive (static pose) rather than guess.
+**What's left to SEE it walk (now unblocked).** `stepWalk` updates only
+`facing` — it never *starts* the walk anim, so the cracked decoder is
+only exercised by scripts that call `animateActor` directly. To make
+Guybrush visibly walk:
+1. Add `walkFrame` / `standFrame` / `initFrame` / `talkStartFrame` /
+   `talkStopFrame` fields to `Actor`, captured from `actorOps` sub-ops
+   `0x04` / `0x06` / `0x0e` / `0x05` (currently consumed-and-ignored at
+   `opcodes/index.ts` ~L1517).
+2. On walk start / each step set `anim = startAnim(walkFrame*4 + dir)`;
+   on arrival set `standFrame*4 + dir`. `oldDir`: `W=0, E=1, S=2, N=3`.
+3. **Validate the `frame*4 + dir` mapping against ScummVM, don't guess**
+   — our static decode shows walk records 4/5/6 as single frames and
+   only 7 cycling, so the side views may be mirrored single-frame walks
+   (or the per-costume `walkFrame` differs from the default 1). Getting
+   it wrong moonwalks the actor.
 
-**What unblocks it (needs a reference — best done with the user):**
-1. *Preferred:* a prose / pseudocode description of ScummVM's
-   `ClassicCostumeLoader::costumeDecodeData` (`engines/scumm/costume.cpp`)
-   — mask width (1 vs 2 bytes), how multi-limb modifiers are laid out,
-   and what `0x00` / `0xFF` / the `00 00 00 c0` wrapper mean. **Don't
-   paste the `.cpp`** (licensing — see AGENTS.md); describe the logic.
-2. *Or:* a runtime trace of a Guybrush walk — the mask, plus each active
-   limb's `(start, length)` and per-tick cmd-byte sequence.
-
-With either, finish the `startAnim` rewrite + re-validate sparkle +
-Guybrush + (separately) the clouds.
+**Still open — `mask=0xFF` talk records** (anims 16–23, costume-111
+sparkle): too short to host 8 modifiers, sentinel meaning unknown; stay
+static. Best cracked from a ScummVM cmd-trajectory trace of a talk anim.
 
 **Separate item — the clouds.** The Mêlée-island clouds (room 38) slide
 right-to-left = a **positional** animation (`xinc`/`yinc` frame

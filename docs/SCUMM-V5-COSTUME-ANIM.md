@@ -384,6 +384,81 @@ regression, no skip spam.
 the #111 sparkle (its `mask=0xFF` records). Needs the multi-limb /
 `00 00 00 c0` wrapper format — best cracked from a ScummVM walk trace.
 
+### CRACKED — the extended (multi-limb / walk) record (2026-05-30)
+
+The multi-limb wrapper that blocked Guybrush's walk is decoded. The
+key was dumping **every** Guybrush (#1) anim record and decoding the
+frame dimensions each candidate reading would produce
+(`scratch/decode-all-anims.ts`, `scratch/verify-guybrush-walk.ts`):
+sensible frame sizes (a tall ~20×47 body + an 11×11 head) vs. 2×2 /
+decode-fail garbage is an unambiguous oracle, so this is *empirically
+validated*, not guessed.
+
+**There are two record layouts**, both carrying the same per-limb
+modifier shape (`u8 mask` + per set bit `{u16 LE frameIndex, u8
+lenFlags}`):
+
+```
+compact:   <u8 mask> <mods…>                    ← byte 0 is the mask
+extended:  00 00 00 <u8 mask> <mods…>           ← 3-byte zero prefix
+```
+
+The **discriminator is "the first three bytes are all zero"**. That
+uniquely marks the extended walk/stand/turn records and excludes the
+still-undecoded oddballs.
+
+The earlier "`00 00 00 c0` is an undecoded redirect" note was the
+missing piece: it's just a 3-byte `00 00 00` header in front of an
+ordinary `c0`-mask record (`c0` = limbs 0+1 = Guybrush's body + head).
+The same tail proves it — anim 38 = `c0 4e 00 82 0b` (compact) and
+anim 40 = `00 00 00 c0 4e 00 82 0b` (extended) encode the *identical*
+modifier; 40 is just 38 with the zero prefix.
+
+**Verified Guybrush walk (anim 7 / 8):**
+
+```
+limb 0 (body): frameIndex 5, len 6 → cmd bytes 79 02 03 04 05 06
+               → frames  (cmd 0x79 = loop marker, no-draw)
+                          22×47 → 21×47 → 20×47 → 19×36 → 17×47 → loop
+limb 1 (head): frameIndex 11, len 1 → cmd byte 07 → 11×11 (static)
+```
+
+A cycling body stride + a steady head = a walking Guybrush. The stand /
+turn anims 40–51 decode the same way (limb 0 a body pose 18×33 … 24×54,
+limb 1 the 11×11 head).
+
+**What the prefix bytes *mean* is still not named** (it's plausibly a
+redirect/parent-limb word that's zero for these anims), but the
+decode is reading the right bytes and producing the right frames. The
+implementation (`startAnim`) detects the 3-zero-byte prefix, shifts the
+mask position, and is otherwise the existing single-limb path. Records
+that don't fit (mask `0x00`/`0xFF`, the `00 00 ff …` talk-pose and
+`00 00 08 …` oddballs, out-of-range frames) keep the actor in its
+static init pose exactly as before — **no regression**: every record
+that animated before still animates, and records that were inactive
+either now animate correctly (walk/stand) or stay inactive (oddballs).
+
+**STILL OPEN — the `mask=0xFF` talk records** (anims 16–23, also the
+costume-111 sparkle). The record is too short to host 8 modifiers, so
+`0xFF` is a sentinel whose meaning we haven't pinned; those stay
+static. Best cracked from a ScummVM cmd-trajectory trace of Guybrush
+talking.
+
+**NEXT — wire the walk/stand chore trigger (now unblocked).** The
+decoder is correct but `stepWalk` doesn't yet *start* the walk anim, so
+the fix is only visible to scripts that call `animateActor` directly.
+To make Guybrush visibly walk, the actor needs `walkFrame` /
+`standFrame` / `initFrame` / `talkFrames` fields (captured from
+`actorOps` sub-ops 0x04/0x05/0x06/0x0e, currently consumed-and-ignored)
+and the walk loop must call `startAnim(frame*4 + dir)`. **The exact
+`frame*4 + dir` mapping needs validation, not a guess** — `oldDir` is
+`W=0, E=1, S=2, N=3` per ScummVM's `oldDirToNewDir`, and `walkFrame`
+default 1 → records 4–7, but our static decode shows records 4/5/6
+resolving to single frames while only 7 cycles, which means either the
+side views are mirrored single-frame walks or the per-costume
+`walkFrame` differs from the default. Settle against a ScummVM walk
+before wiring, or it'll moonwalk.
+
 ### Clouds are a DIFFERENT mechanism (not the record decoder)
 
 User confirmed (screenshot, room 38 Mêlée-island lookout): the clouds

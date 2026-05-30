@@ -146,6 +146,39 @@ describe('startAnim', () => {
     for (const limb of s.limbs) expect(limb.active).toBe(false);
   });
 
+  it('decodes the extended form (3-byte 00 00 00 prefix, then mask + mods)', () => {
+    // Guybrush's walk anims look like `00 00 00 c0 <mods…>`: a 3-byte
+    // zero prefix, then mask 0xc0 (limbs 0+1), then two modifiers.
+    const payload = new Uint8Array(64);
+    payload.set([
+      0x00, 0x00, 0x00,  // extended-form prefix
+      0xc0,              // mask = bits 7+6 → limbs 0 + 1
+      0x05, 0x00, 0x05,  // limb 0: frameIndex 5, length 6
+      0x0b, 0x00, 0x00,  // limb 1: frameIndex 11, length 1
+    ], 10);
+    const header = makeHeader([10]);
+    const s = startAnim(createAnimState(header), 0, header, payload);
+    expect(s.limbs[0]!.active).toBe(true);
+    expect(s.limbs[0]!.start).toBe(5);
+    expect(s.limbs[0]!.length).toBe(6);
+    expect(s.limbs[1]!.active).toBe(true);
+    expect(s.limbs[1]!.start).toBe(11);
+    expect(s.limbs[1]!.length).toBe(1);
+    // Limbs the mask didn't name stay inactive.
+    expect(s.limbs[2]!.active).toBe(false);
+  });
+
+  it('does NOT mistake a 00 00 <non-zero> record for the extended form', () => {
+    // Only the first TWO bytes are zero — the third is non-zero, so this
+    // is the compact path: mask = byte 0 = 0x00 → sentinel → all static.
+    // (Mirrors MI1's `00 00 ff …` talk-pose oddballs.)
+    const payload = new Uint8Array(32);
+    payload.set([0x00, 0x00, 0xff, 0xff, 0x00, 0x48], 10);
+    const header = makeHeader([10]);
+    const s = startAnim(createAnimState(header), 0, header, payload);
+    for (const limb of s.limbs) expect(limb.active).toBe(false);
+  });
+
   it('treats mask == 0xFF as a sentinel (multi-limb form we do not decode) — inactive', () => {
     const payload = new Uint8Array(32);
     // mask 0xFF then plausible-looking bytes that must NOT be activated.
