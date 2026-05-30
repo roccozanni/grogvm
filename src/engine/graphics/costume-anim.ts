@@ -54,6 +54,13 @@ const DISABLED_LIMB_MARKER = 0xffff;
 const LENGTH_NOLOOP_FLAG = 0x80;
 const LENGTH_VALUE_MASK = 0x7f;
 
+// Bytes in the anim-cmd stream in this range are *commands* (sound
+// triggers, loop/start markers, hide/skip), NOT picture indices. They
+// must never be drawn as a frame — the player advances past them.
+const CMD_LO = 0x71;
+const CMD_HI = 0x7c;
+const isAnimCmd = (b: number): boolean => b >= CMD_LO && b <= CMD_HI;
+
 /** One limb's playback slot. */
 export interface LimbPlayback {
   /** True when this limb has any anim data right now. */
@@ -129,6 +136,54 @@ export function currentAnimCmd(
   const pos = limb.start + limb.cursor;
   if (pos < 0 || pos >= payload.length) return 0;
   return payload[pos]!;
+}
+
+/**
+ * Resolve the *picture index* a limb should draw this tick. The cmd
+ * stream interleaves picture indices (< 0x71) with command bytes
+ * (0x71-0x7C: sound triggers, loop/start markers). A command byte is
+ * not a drawable picture, so we advance past it — wrapping within the
+ * limb's loop window — to the next real picture. `startAnim` already
+ * trims *leading* command bytes, so this only matters for commands in
+ * the middle of a window; it guarantees an active limb never blanks for
+ * a tick (the flicker the naive "command → draw nothing" rule caused).
+ *
+ * Returns -1 when the limb is inactive or its whole window is commands
+ * (a genuine "draw nothing" — rare).
+ */
+export function currentLimbPicture(
+  state: AnimState,
+  limbIdx: number,
+  payload: Uint8Array,
+): number {
+  const limb = state.limbs[limbIdx];
+  if (!limb || !limb.active) return -1;
+  const len = Math.max(1, limb.length);
+  for (let i = 0; i < len; i++) {
+    const pos = limb.start + ((limb.cursor + i) % len);
+    if (pos < 0 || pos >= payload.length) continue;
+    const b = payload[pos]!;
+    if (!isAnimCmd(b)) return b;
+  }
+  return -1;
+}
+
+/**
+ * Freeze the current frame: stop every active limb advancing and hold
+ * whatever picture it shows now. Used when an actor stops walking — it
+ * holds the last walk frame (body + head intact, facing preserved)
+ * rather than cycling forever. SCUMM does the same when the stand chore
+ * has no anim data.
+ */
+export function freezeAnim(state: AnimState): AnimState {
+  let anyActive = false;
+  const limbs = state.limbs.map((l) => {
+    if (!l.active) return l;
+    anyActive = true;
+    // Bake cursor into start so the held frame survives a length=1 loop.
+    return { ...l, start: l.start + l.cursor, cursor: 0, length: 1, noLoop: true, finished: true };
+  });
+  return anyActive ? { ...state, limbs } : state;
 }
 
 /**
@@ -220,19 +275,28 @@ export function startAnim(
     // `frameIndex` indexes the frameOffs cmd array at animCmdOffset; the
     // limb's playback `start` is the absolute payload position of that
     // first cmd byte (currentAnimCmd reads payload[start + cursor]).
-    const start = header.animCmdOffset + frameIndex;
+    let start = header.animCmdOffset + frameIndex;
+    let len = length;
+    // Trim leading command bytes (loop/start markers, sound triggers) so
+    // the loop begins on a real picture. MI1's walk loops start on a
+    // 0x79 marker; without this the body limb would blank on the first
+    // tick of every cycle (flicker / disappearing actor).
+    while (len > 1 && start < payload.length && isAnimCmd(payload[start]!)) {
+      start += 1;
+      len -= 1;
+    }
     // Defensive: a start that runs past the payload means this record
     // doesn't fit the single-limb form (some costumes use a richer
     // encoding we don't decode yet). Leave the limb inactive rather
     // than read garbage.
-    if (start < 0 || start + length > payload.length) {
+    if (start < 0 || start + len > payload.length) {
       limbs[limbIdx] = INACTIVE_LIMB;
       continue;
     }
     limbs[limbIdx] = {
       active: true,
       start,
-      length,
+      length: len,
       noLoop,
       cursor: 0,
       finished: false,
