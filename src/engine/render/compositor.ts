@@ -232,10 +232,12 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
     for (const l of actor.anim.limbs) {
       if (l.active) { anyActive = true; break; }
     }
-    // Mirror: MI1 stores side-view frames facing one way and draws the
-    // other flipped. Apply the costume's mirror flag when the actor
-    // faces West (left). If left/right come out swapped, flip to 'E'.
-    const mirror = costume.header.mirrorFlag && actor.facing === 'W';
+    // Mirror: MI1 stores side-view frames facing RIGHT (East renders
+    // correctly unmirrored) and draws them flipped for West. The costume
+    // format's mirror bit (0x80) is clear on every MI1 costume, so it
+    // isn't the gate — mirroring is keyed purely on facing West. (S/N
+    // are front/back views with their own art and are never mirrored.)
+    const mirror = actor.facing === 'W';
     for (let limbIdx = 0; limbIdx < costume.header.limbOffsets.length; limbIdx++) {
       const tableOffset = costume.header.limbOffsets[limbIdx]!;
       if (tableOffset === 0) continue; // unused limb

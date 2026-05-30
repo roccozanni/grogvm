@@ -547,10 +547,12 @@ does not draw. Limbs not named by the mask are left untouched.
 - **STAND** (chore 3, 12–15): body pose, head **un-stopped**.
 - **TALK** (chore 4/5, 16–23): head cycles (lip-sync), body untouched
   (holds its pose because the talk mask doesn't name limb 0).
-- **Mirror**: West records ≡ East records (anim 8 ≡ anim 9) — the
-  costume mirror flag (format bit 7) draws one side flipped. Implemented
-  in `compositeActor` (`mirror` reflects about the anchor X); applied
-  when `mirrorFlag && facing === 'W'` (flip to 'E' if it reads swapped).
+- **Mirror**: the side-view frames face **right** (East renders
+  correctly unmirrored, confirmed in-game); West is the same art
+  flipped. The costume format's mirror bit (0x80) is **clear on every
+  MI1 costume**, so it is NOT the gate — `compositeActor` mirrors
+  (reflect about the anchor X) keyed purely on `facing === 'W'`. S/N are
+  front/back views with their own art, never mirrored.
 
 **Walk trigger.** `Actor` carries `walk/stand/init/talk*` chore frames
 (from `actorOps`, SCUMM `initActor` defaults). `stepAllActorWalks` plays
