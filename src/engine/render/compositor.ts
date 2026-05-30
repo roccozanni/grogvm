@@ -219,25 +219,43 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
     // actor's hit-test box (mirrors SCUMM's per-actor gfx-usage bits).
     let bLeft = Infinity, bTop = Infinity, bRight = -Infinity, bBottom = -Infinity;
     const limbSkipsBefore = skippedLimbs.length;
+    // SCUMM composites the limbs the current anim activated. When the
+    // anim decoder produced at least one active limb, only those draw.
+    // Otherwise (no anim yet, or an anim record we can't decode) we fall
+    // back to a best-effort init pose — frame 0 of every limb — so a
+    // freshly-placed actor still shows its base sprite. In that fallback
+    // a limb whose frame-ptr doesn't decode is expected noise (costumes
+    // park their unused limbs on a shared dummy table), so we bypass it
+    // silently; a decode failure on an *active* limb is a real bug and
+    // is still recorded for the inspector.
+    let anyActive = false;
+    for (const l of actor.anim.limbs) {
+      if (l.active) { anyActive = true; break; }
+    }
     for (let limbIdx = 0; limbIdx < costume.header.limbOffsets.length; limbIdx++) {
       const tableOffset = costume.header.limbOffsets[limbIdx]!;
       if (tableOffset === 0) continue; // unused limb
+      const limbActive = actor.anim.limbs[limbIdx]?.active ?? false;
+      // When an anim is driving, limbs it doesn't touch don't draw.
+      if (anyActive && !limbActive) continue;
       // Per the SCUMM v5 anim-cmd convention: byte at
       // `anim.limbs[i].start + cursor` in the costume payload is the
-      // picture index (frame number) when < 0x70. Commands (0x71-0x7C
-      // — sounds, hide, skip, stop) are surfaced too; for static
-      // rendering we just dereference whatever byte we read as a
-      // picture index. If it's a command code, the limb-table lookup
-      // typically points past the payload and we fall through the
-      // sentinel check.
-      const frameIdx = currentAnimCmd(actor.anim, limbIdx, costume.payload);
+      // picture index (frame number) when < 0x71. Inactive limbs in the
+      // init-pose fallback read frame 0.
+      const frameIdx = limbActive ? currentAnimCmd(actor.anim, limbIdx, costume.payload) : 0;
+      // Bytes 0x71-0x7C are animation commands (pause/resume/no-draw/
+      // counters), not picture indices — skip drawing this limb this
+      // tick (no skip record; it's a legitimate "draw nothing" frame).
+      if (limbActive && frameIdx >= 0x71 && frameIdx <= 0x7c) continue;
       const ptrOffset = tableOffset + frameIdx * 2;
       if (ptrOffset + 2 > costume.payload.length) {
-        skippedLimbs.push({
-          actorId: actor.id,
-          limbIdx,
-          reason: `frame-ptr offset 0x${ptrOffset.toString(16)} past end of costume payload`,
-        });
+        if (limbActive) {
+          skippedLimbs.push({
+            actorId: actor.id,
+            limbIdx,
+            reason: `frame-ptr offset 0x${ptrOffset.toString(16)} past end of costume payload`,
+          });
+        }
         continue;
       }
       const framePtr =
@@ -283,11 +301,13 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
         if (left + frame.width > bRight) bRight = left + frame.width;
         if (top + frame.height > bBottom) bBottom = top + frame.height;
       } catch (err) {
-        skippedLimbs.push({
-          actorId: actor.id,
-          limbIdx,
-          reason: err instanceof Error ? err.message : String(err),
-        });
+        if (limbActive) {
+          skippedLimbs.push({
+            actorId: actor.id,
+            limbIdx,
+            reason: err instanceof Error ? err.message : String(err),
+          });
+        }
       }
     }
     if (drewLimb) {

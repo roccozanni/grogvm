@@ -169,6 +169,20 @@ function makeOneFrameCostume(opts: {
   return { id: 1, header, payload };
 }
 
+/** An AnimState with only limb 0 active, reading frame index 0 (start=0). */
+function activeLimb0Anim(): Actor['anim'] {
+  const limbs = Array.from({ length: 16 }, () => ({
+    active: false,
+    start: 0,
+    length: 0,
+    noLoop: false,
+    cursor: 0,
+    finished: false,
+  }));
+  limbs[0] = { active: true, start: 0, length: 1, noLoop: false, cursor: 0, finished: false };
+  return { animId: 1, limbs };
+}
+
 function makeActorAt(id: number, x: number, y: number, costume: number, room: number = 1): Actor {
   const a = createActor(id);
   a.x = x;
@@ -317,7 +331,7 @@ describe('composeFrame — actor compositing', () => {
     expect(result.skippedActors[0]!.reason).toMatch(/all limbs had no frame data/);
   });
 
-  it('records skippedLimbs when decodeCostumeFrame throws (frame ptr → garbage)', () => {
+  it('records skippedLimbs when an ACTIVE limb fails to decode (frame ptr → garbage)', () => {
     const room = makeRoom(8, 4, 0x10);
     const fb = new Uint8Array(8 * 4);
     const cost = makeOneFrameCostume({ frameW: 2, frameH: 2, pixelIdx: 1, clutIdx: 0x99 });
@@ -328,6 +342,10 @@ describe('composeFrame — actor compositing', () => {
     cost.payload[54] = 0x06;
     cost.payload[55] = 0x00;
     const actor = makeActorAt(1, 3, 1, 1);
+    // Activate limb 0 so this is an anim-driven draw — only then is a
+    // decode failure a real bug worth recording. start=0 reads
+    // payload[0] (= 0) as the frame index, resolving to the garbage ptr.
+    actor.anim = activeLimb0Anim();
     const result = composeFrame({
       room,
       framebuffer: fb,
@@ -337,6 +355,28 @@ describe('composeFrame — actor compositing', () => {
     expect(result.actorsDrawn).toBe(0);
     expect(result.skippedLimbs.length).toBeGreaterThan(0);
     expect(result.skippedLimbs[0]!.actorId).toBe(1);
+  });
+
+  it('silently bypasses an INACTIVE limb that fails to decode (init-pose fallback)', () => {
+    const room = makeRoom(8, 4, 0x10);
+    const fb = new Uint8Array(8 * 4);
+    const cost = makeOneFrameCostume({ frameW: 2, frameH: 2, pixelIdx: 1, clutIdx: 0x99 });
+    cost.payload[54] = 0x06;
+    cost.payload[55] = 0x00;
+    // No anim → no active limbs → the all-limbs-frame-0 init-pose
+    // fallback. A limb whose dummy table entry doesn't decode is
+    // expected noise (costumes park unused limbs on shared tables), so
+    // it must NOT pollute the skip list.
+    const actor = makeActorAt(1, 3, 1, 1);
+    const result = composeFrame({
+      room,
+      framebuffer: fb,
+      actors: [actor],
+      getCostume: () => cost,
+    });
+    expect(result.actorsDrawn).toBe(0);
+    expect(result.skippedLimbs).toHaveLength(0);
+    expect(result.skippedActors[0]!.reason).toMatch(/all limbs had no frame data/);
   });
 
   it('draws actors in id order so overlapping sprites layer predictably', () => {

@@ -155,42 +155,53 @@ export function startAnim(
     // running is the SCUMM-faithful behaviour.
     return { ...state, animId };
   }
-  if (animOffset + 2 > payload.length) {
+  if (animOffset + 1 > payload.length) {
     return { ...state, animId, limbs: makeInactiveLimbs() };
   }
 
-  const mask = payload[animOffset]! | (payload[animOffset + 1]! << 8);
-  let cursor = animOffset + 2;
+  // The record is `u8 mask` + per set bit `{u16 LE frameIndex, u8
+  // lenFlags}`. The mask is ONE byte (verified against MI1 costumes #2,
+  // #111, and Guybrush #1 — a u16 mask mis-aligns the modifiers); bit 7
+  // = limb 0, bit 6 = limb 1, … bit 0 = limb 7 (MSB = limb 0). See
+  // docs/SCUMM-V5-COSTUME-ANIM.md.
+  const mask = payload[animOffset]!;
+  // mask 0x00 (no limbs) and 0xFF leave the actor in its current/init
+  // pose. 0xFF is a sentinel for the multi-limb / walk / talk record
+  // form we don't decode yet (the record is far too short to host 8
+  // modifiers) — activating it would draw garbage, so fall back to the
+  // static pose instead. See the doc's "STILL OPEN" notes.
+  if (mask === 0x00 || mask === 0xff) {
+    return { ...state, animId, limbs: makeInactiveLimbs() };
+  }
 
-  // Build a fresh limb array so we don't accidentally retain prior
-  // anim data for limbs the new anim doesn't touch.
+  let cursor = animOffset + 1;
   const limbs: LimbPlayback[] = makeInactiveLimbs() as LimbPlayback[];
 
-  // Per the wiki: bit `i` of the mask corresponds to limb `(15 - i)`.
-  // We iterate the bits MSB → LSB to read bytes in the costume's
-  // encoded order.
-  for (let bit = 15; bit >= 0; bit--) {
+  // Iterate bits MSB → LSB so we consume modifier bytes in encoded order.
+  for (let bit = 7; bit >= 0; bit--) {
     if (!(mask & (1 << bit))) continue;
     if (cursor + 2 > payload.length) break;
-    const start = payload[cursor]! | (payload[cursor + 1]! << 8);
+    const frameIndex = payload[cursor]! | (payload[cursor + 1]! << 8);
     cursor += 2;
-    const limbIdx = 15 - bit;
-    if (start === DISABLED_LIMB_MARKER) {
-      limbs[limbIdx] = INACTIVE_LIMB;
+    const limbIdx = 7 - bit;
+    if (frameIndex === DISABLED_LIMB_MARKER) {
+      limbs[limbIdx] = INACTIVE_LIMB; // disabled — no length byte follows
       continue;
     }
     if (cursor + 1 > payload.length) break;
-    const lengthByte = payload[cursor]!;
+    const lenFlags = payload[cursor]!;
     cursor += 1;
-    const noLoop = (lengthByte & LENGTH_NOLOOP_FLAG) !== 0;
-    const length = (lengthByte & LENGTH_VALUE_MASK) + 1;
-    // Defensive: a `start` that points outside the payload means our
-    // record-format guess is wrong for this costume. Rather than
-    // crash, mark the limb inactive and leave a static frame.
-    // Real-MI1 Guybrush costume #1 hits this path — the wiki layout
-    // we follow matches simpler costumes but not all v5 costumes,
-    // and we don't have a visual reference to disambiguate yet.
-    if (start >= payload.length || start + length > payload.length) {
+    const noLoop = (lenFlags & LENGTH_NOLOOP_FLAG) !== 0;
+    const length = (lenFlags & LENGTH_VALUE_MASK) + 1;
+    // `frameIndex` indexes the frameOffs cmd array at animCmdOffset; the
+    // limb's playback `start` is the absolute payload position of that
+    // first cmd byte (currentAnimCmd reads payload[start + cursor]).
+    const start = header.animCmdOffset + frameIndex;
+    // Defensive: a start that runs past the payload means this record
+    // doesn't fit the single-limb form (some costumes use a richer
+    // encoding we don't decode yet). Leave the limb inactive rather
+    // than read garbage.
+    if (start < 0 || start + length > payload.length) {
       limbs[limbIdx] = INACTIVE_LIMB;
       continue;
     }

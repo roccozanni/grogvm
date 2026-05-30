@@ -685,6 +685,17 @@ function renderInputPanel(state: InspectorState): HTMLElement {
     `verbs=${vm.verbs.size}`;
   panel.appendChild(engineRow);
 
+  // systemOps (0x98) request — a script asked to restart/pause/quit.
+  // We ignore it (the inspector keeps running); surface it only when
+  // set so the row is silent during normal play, when it stays null.
+  if (vm.systemRequest) {
+    const sysRow = document.createElement('p');
+    sysRow.className = 'vm-input-live';
+    sysRow.textContent =
+      `systemOps requested "${vm.systemRequest}" — ignored; inspector keeps running.`;
+    panel.appendChild(sysRow);
+  }
+
   const varsRow = document.createElement('p');
   varsRow.className = 'vm-input-live';
   varsRow.textContent =

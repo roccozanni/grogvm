@@ -381,14 +381,17 @@ register(0x2c, (vm, slot) => {
 });
 
 // ─── 0x98  systemOps ─────────────────────────────────────────────────
-// Restart / pause / quit. Layout: u8 subop selecting the action.
-// Phase 6: stub all three — we don't want a script-triggered restart
-// or quit to kill the inspector mid-debug. Sub-op 0x03 (quit) is what
-// the copy-protection script invokes after the "wrong code" message.
+// Restart / pause / quit. Layout: u8 subop (1 restart, 2 pause, 3
+// quit). We record the request as VM state rather than acting on it —
+// a script-triggered restart or quit must NOT kill the inspector
+// mid-debug. The shell reads `vm.systemRequest` and decides what to do
+// (the inspector simply surfaces it). Sub-op 3 (quit) is what the
+// copy-protection script invokes after the "wrong code" message.
 register(0x98, (vm, slot) => {
   const sub = readU8(slot);
-  const label = sub === 1 ? 'restart' : sub === 2 ? 'pause' : sub === 3 ? 'quit' : `subop=0x${sub.toString(16)}`;
-  vm.annotate(`systemOps ${label} (stub)`);
+  const request = sub === 1 ? 'restart' : sub === 2 ? 'pause' : sub === 3 ? 'quit' : null;
+  if (request) vm.systemRequest = request;
+  vm.annotate(`systemOps ${request ?? `subop=0x${sub.toString(16)}`}`);
 });
 
 // ─── 0x12 / 0x92  panCameraTo ────────────────────────────────────────
@@ -408,8 +411,10 @@ function setCameraTo(vm: Vm, x: number): void {
     return;
   }
   const halfScreen = 160;
-  const min = Math.min(halfScreen, room.width);
-  const max = Math.max(min, room.width - halfScreen);
+  // A script-set roomScroll (roomOps 0x01) overrides the default
+  // full-width bounds.
+  const min = vm.roomScroll ? vm.roomScroll.min : Math.min(halfScreen, room.width);
+  const max = vm.roomScroll ? vm.roomScroll.max : Math.max(min, room.width - halfScreen);
   vm.camera.x = Math.max(min, Math.min(max, x));
 }
 
@@ -677,7 +682,7 @@ function printHandler(actor: number, vm: Vm, slot: ScriptSlot): void {
         const buf = readScummString(slot);
         // Split into sentence pages at \xff\x03; the first shows now, the
         // rest are queued and advanced by the talk timer (see queueTalkPages).
-        const pages = decodeScummStringPages(buf);
+        const pages = decodeScummStringPages(buf, vm, slot);
         const text = pages[0] ?? '';
         const preview = Array.from(buf)
           .map((b) => (b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : `\\x${b.toString(16).padStart(2, '0')}`))
@@ -1846,7 +1851,7 @@ function getOrCreateVerb(vm: Vm, id: number): VerbSlot {
  *   0xFF 0x0A NN NN — actor name
  *   0xFF 0x0E NN NN — colour change
  */
-function decodeScummString(payload: Uint8Array): string {
+function decodeScummString(payload: Uint8Array, vm?: Vm, slot?: ScriptSlot): string {
   const out: number[] = [];
   let i = 0;
   while (i < payload.length) {
@@ -1854,6 +1859,7 @@ function decodeScummString(payload: Uint8Array): string {
     if (b === 0xff) {
       const code = payload[i + 1] ?? 0;
       if (code === 0x01) out.push(0x0a); // newline
+      else if (code >= 0x04) expandSubstitution(code, payload, i, vm, slot, out);
       // 0x01–0x03 are 2-byte sequences (FF + code); the rest are 4-byte.
       i += code >= 0x04 ? 4 : 2;
       continue;
@@ -1862,6 +1868,53 @@ function decodeScummString(payload: Uint8Array): string {
     i++;
   }
   return String.fromCharCode(...out);
+}
+
+function pushAscii(out: number[], s: string): void {
+  for (let k = 0; k < s.length; k++) out.push(s.charCodeAt(k));
+}
+
+/**
+ * Append the expansion of a `0xFF NN` string substitution control code
+ * (NN >= 0x04) to `out`. The 2-byte little-endian argument at
+ * `payload[i+2..i+3]` is a var reference (SCUMM `readVar`), so resolving
+ * it needs the executing slot + vm; when either is absent (e.g. decoding
+ * a static verb name) the code is dropped, matching the prior behaviour.
+ *
+ * Implemented substitutions, per the SCUMM v5 string-code layout:
+ *   0x04 int-var  → the variable's value, in decimal
+ *   0x07 string   → the contents of string resource `id`
+ *   0x08 obj/verb → the object's or verb's display name
+ * Deferred (argument consumed, nothing emitted): 0x06 var-name, 0x09
+ * sound, 0x0A actor name (actor names aren't modelled yet), 0x0E
+ * mid-string colour (needs rich text — the dialog renderer paints one
+ * colour per message today).
+ */
+function expandSubstitution(
+  code: number,
+  payload: Uint8Array,
+  i: number,
+  vm: Vm | undefined,
+  slot: ScriptSlot | undefined,
+  out: number[],
+): void {
+  if (!vm || !slot) return;
+  const word = (payload[i + 2] ?? 0) | ((payload[i + 3] ?? 0) << 8);
+  let value: number;
+  try {
+    value = derefRead(word, slot, vm.vars);
+  } catch {
+    return; // unresolvable ref (e.g. OOB local index) — emit nothing
+  }
+  if (code === 0x04) {
+    pushAscii(out, String(value));
+  } else if (code === 0x07) {
+    const buf = vm.strings.get(value);
+    if (buf) pushAscii(out, decodeScummString(buf));
+  } else if (code === 0x08) {
+    const name = vm.objectName(value) ?? vm.verbs.get(value)?.name;
+    if (name) pushAscii(out, name);
+  }
 }
 
 /**
@@ -1873,7 +1926,7 @@ function decodeScummString(payload: Uint8Array): string {
  * newline; other control codes stripped). Empty pages are dropped.
  * A string with no `\xff\x03` yields a single page == decodeScummString.
  */
-function decodeScummStringPages(payload: Uint8Array): string[] {
+function decodeScummStringPages(payload: Uint8Array, vm?: Vm, slot?: ScriptSlot): string[] {
   const pages: number[][] = [[]];
   let i = 0;
   while (i < payload.length) {
@@ -1882,7 +1935,8 @@ function decodeScummStringPages(payload: Uint8Array): string[] {
       const code = payload[i + 1] ?? 0;
       if (code === 0x01) pages[pages.length - 1]!.push(0x0a); // newline
       else if (code === 0x03) pages.push([]); // wait → start a new page
-      // 0x02 (keep-text) and 0x04+ (substitutions) are consumed + dropped.
+      else if (code >= 0x04) expandSubstitution(code, payload, i, vm, slot, pages[pages.length - 1]!);
+      // 0x02 (keep-text) is consumed + dropped.
       i += code >= 0x04 ? 4 : 2;
       continue;
     }
@@ -1893,20 +1947,26 @@ function decodeScummStringPages(payload: Uint8Array): string[] {
 }
 
 // ─── 0xCC  pseudoRoom ────────────────────────────────────────────────
-// Register "pseudo-room" mappings — additional resource entries that
-// alias an existing room id (used in MI1 for music-track selection
-// against the iMUSE engine). Layout: byte `id`, then a sequence of
-// bytes terminated by 0x00. We have no resource manager that consumes
-// these mappings yet, so we honour the byte shape and stub.
+// Register "pseudo-room" mappings — alias room numbers that share a
+// real room's resources (used in MI1 for music-track selection).
+// Layout: byte `id` (the real room), then a 0x00-terminated sequence
+// of alias bytes. Each alias `j` with the high bit set maps pseudo
+// room `j & 0x7F → id`; aliases without the high bit are ignored
+// (matches the original's `_resourceMapper` fill). `enterRoom` reads
+// the map to translate a requested id to its physical room.
 register(0xcc, (vm, slot) => {
   const id = readU8(slot);
-  const aliases: number[] = [];
+  const mapped: number[] = [];
   while (true) {
     const j = readU8(slot);
     if (j === 0) break;
-    aliases.push(j);
+    if (j >= 0x80) {
+      const alias = j & 0x7f;
+      vm.pseudoRooms.set(alias, id);
+      mapped.push(alias);
+    }
   }
-  vm.annotate(`pseudoRoom id=${id} aliases=[${aliases.map((a) => '0x' + a.toString(16)).join(',')}] (stub)`);
+  vm.annotate(`pseudoRoom realRoom=${id} aliases=[${mapped.join(',')}]`);
 });
 
 // ─── 0x33 / 0x73 / 0xB3 / 0xF3  roomOps ──────────────────────────────
@@ -1922,10 +1982,15 @@ function roomOpsHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
   const action = subop & 0x1f;
   switch (action) {
     case 0x01: {
-      // roomScroll: minX, maxX (both var-or-word)
+      // roomScroll: minX, maxX (both var-or-word) — the camera-centre
+      // scroll bounds for this room. Each is floored at half-screen
+      // (160) so the viewport never shows past a room edge.
       const a = readVarOrWord(subop, 1, slot, vm.vars);
       const b = readVarOrWord(subop, 2, slot, vm.vars);
-      vm.annotate(`roomOps roomScroll min=${a} max=${b} (stub)`);
+      const min = Math.max(160, a);
+      const max = Math.max(min, b);
+      vm.roomScroll = { min, max };
+      vm.annotate(`roomOps roomScroll min=${min} max=${max}`);
       return;
     }
     case 0x03: {
@@ -1943,13 +2008,22 @@ function roomOpsHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
     }
     case 0x04: {
       // setPalColor: red, green, blue, slot. v5 reads a second subop
-      // byte for the slot arg (param mode for `d`).
+      // byte for the slot arg (param mode for `d`). Writes directly
+      // into the live room CLUT so the compositor picks it up next
+      // frame; a no-op when no room is loaded. The CLUT is re-decoded
+      // on the next room load, so this mutation is correctly transient.
       const r = readVarOrWord(subop, 1, slot, vm.vars);
       const g = readVarOrWord(subop, 2, slot, vm.vars);
       const b = readVarOrWord(subop, 3, slot, vm.vars);
       const sub2 = readU8(slot);
       const idx = readVarOrByte(sub2, 1, slot, vm.vars);
-      vm.annotate(`roomOps setPalColor (${r},${g},${b}) → slot ${idx} (stub)`);
+      const pal = vm.loadedRoom?.palette;
+      if (pal && idx >= 0 && idx < 256) {
+        pal[idx * 3] = r & 0xff;
+        pal[idx * 3 + 1] = g & 0xff;
+        pal[idx * 3 + 2] = b & 0xff;
+      }
+      vm.annotate(`roomOps setPalColor (${r},${g},${b}) → slot ${idx}`);
       return;
     }
     case 0x05:

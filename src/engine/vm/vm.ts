@@ -284,6 +284,22 @@ export class Vm {
    */
   lastRoomLoadError: string | null = null;
   /**
+   * Pseudo-room alias table, built by `pseudoRoom` (0xCC): maps an
+   * aliased room number → the real room id whose resources back it.
+   * SCUMM's `_resourceMapper` — used so several logical "rooms" (in
+   * MI1, music-track selectors) share one physical room's resources.
+   * {@link enterRoom} translates the requested id through this map
+   * before resolving room data; an unmapped id resolves to itself.
+   */
+  readonly pseudoRooms = new Map<number, number>();
+  /**
+   * Pending host-level request from `systemOps` (0x98): a script asked
+   * to restart, pause, or quit. We record it instead of acting so a
+   * script-triggered shutdown can't kill the inspector mid-debug; the
+   * shell decides what (if anything) to do. `null` until a script asks.
+   */
+  systemRequest: 'restart' | 'pause' | 'quit' | null = null;
+  /**
    * Actor table — fixed-size, indexed by id with slot 0 as sentinel.
    * Mutated by putActor / actorOps / animateActor / walk opcodes; read
    * by the frame compositor and the inspector.
@@ -440,6 +456,15 @@ export class Vm {
    */
   readonly camera = { x: 0 };
   /**
+   * Camera-centre scroll bounds set by `roomOps roomScroll` (subop
+   * 0x01): the min/max X the camera centre may reach in this room.
+   * `null` means "use the default bounds" — `[160, width-160]`, the
+   * widest the viewport can pan without showing past a room edge.
+   * Each value is floored at 160 (half the 320-wide screen) when set,
+   * matching the original. Cleared on room change ({@link enterRoom}).
+   */
+  roomScroll: { min: number; max: number } | null = null;
+  /**
    * Actor the camera tracks (0 = none), set by `actorFollowCamera`.
    * Each tick {@link moveCameraFollow} scrolls the camera to keep this
    * actor inside a central dead-zone band — without it the camera snaps
@@ -580,6 +605,9 @@ export class Vm {
     // their state, but the queue itself starts empty — the new room's
     // ENCD repopulates it for objects that should be visible.
     this.objectDrawQueue.clear();
+    // A new room starts with default scroll bounds; its ENCD may set
+    // tighter ones via roomOps roomScroll.
+    this.roomScroll = null;
     const prev = this.loadedRoom;
     if (prev?.exitScript && prev.exitScript.length > 0) {
       try {
@@ -596,9 +624,12 @@ export class Vm {
 
     this.currentRoom = roomId;
     this.vars.writeGlobal(VAR_ROOM_INDEX, roomId);
+    // Pseudo-rooms (0xCC) alias one logical id onto another's physical
+    // resources — resolve through the mapper, identity for normal ids.
+    const physicalRoom = this.pseudoRooms.get(roomId) ?? roomId;
     if (this.resolveRoom) {
       try {
-        this.loadedRoom = this.resolveRoom(roomId);
+        this.loadedRoom = this.resolveRoom(physicalRoom);
         this.lastRoomLoadError = null;
       } catch (err) {
         this.loadedRoom = null;
@@ -1294,6 +1325,8 @@ export class Vm {
     this.currentRoom = 0;
     this.loadedRoom = null;
     this.lastRoomLoadError = null;
+    this.pseudoRooms.clear();
+    this.systemRequest = null;
     this.actors.reset();
     this.costumes.clear();
     this.mouseRoomX = 0;
@@ -1323,6 +1356,7 @@ export class Vm {
     this.talkPageDlg = null;
     this.talkPageSystem = false;
     this.camera.x = 0;
+    this.roomScroll = null;
     this.cameraFollowActor = 0;
     this.screen.top = 0;
     this.screen.bottom = 200;

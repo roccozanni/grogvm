@@ -58,11 +58,11 @@ The boot→room-33 audit (`scratch/audit-opcodes.ts`) found **no
 gameplay-logic stubs**; the remaining stubs are cosmetic / peripheral.
 Implement these faithfully:
 
-- [ ] **`roomOps` (0x33)** — `setPalColor` (needs a mutable room
-      palette the compositor reads), `roomScroll` (camera min/max
-      bounds), `shakeOn`/`shakeOff`, `roomIntensity` /
-      `setRGBRoomIntensity`, `screenEffect` (fade in/out),
-      `saveString` / `loadString`.
+- [~] **`roomOps` (0x33)** — DONE: `setPalColor` (mutates the live room
+      CLUT the compositor reads) and `roomScroll` (camera min/max bounds,
+      honoured by `setCameraTo`, cleared on room change). STILL STUBBED:
+      `shakeOn`/`shakeOff`, `roomIntensity` / `setRGBRoomIntensity`,
+      `screenEffect` (fade in/out), `saveString` / `loadString`.
 - [ ] **`cursorCommand` image sub-ops (0x2C)** — `setCursorImage`
       (`0x0A`, charset-glyph cursor), `setCursorHotspot` (`0x0B`),
       `setCursor` (`0x0C`). Plus **`charsetColor` (`0x0E`)** — implement
@@ -70,9 +70,12 @@ Implement these faithfully:
       regresses the talk-text fill/outline model — see SCUMM-V5-CHAR §5).
 - [ ] **`matrixOp` (0x30)** — box-flags / box-scale / create-box-matrix
       (walk-box connectivity).
-- [ ] **`systemOps` (0x98)** — restart / pause / quit, handled
-      gracefully (must not kill the inspector mid-debug).
-- [ ] **`pseudoRoom` (0xCC)** — the resource-id alias mapper.
+- [x] **`systemOps` (0x98)** — restart / pause / quit recorded as
+      `vm.systemRequest` (the shell decides; never kills the inspector);
+      surfaced in the inspector Input panel when non-null.
+- [x] **`pseudoRoom` (0xCC)** — alias map (`vm.pseudoRooms`, the
+      `j>=0x80 → mapper[j&0x7F]=id` rule); `enterRoom` resolves a
+      requested id through it to the physical room.
 
 ### Known bugs / tabled observations to close
 
@@ -97,9 +100,12 @@ Implement these faithfully:
 - [ ] **Sentence line in-canvas** — currently an HTML `<div>`; MI1 draws
       it on the strip at the top of the verb area (verb #100). Render it
       into the verb-bar canvas via the CHAR renderer and drop the div.
-- [ ] **Dialog escape codes** — keep-text `0x02`, substitutions
-      `0x04–0x0A` (var / object / verb / actor / string), mid-string
-      colour `0x0E`.
+- [~] **Dialog escape codes** — DONE: substitutions `0x04` (int-var →
+      decimal), `0x07` (string resource), `0x08` (object/verb name),
+      threaded through `decodeScummString` / `decodeScummStringPages`.
+      STILL DEFERRED: keep-text `0x02`, `0x06` var-name, `0x09` sound,
+      `0x0A` actor name (actor names aren't modelled), mid-string colour
+      `0x0E` (needs rich text).
 - [ ] **Smooth `panCameraTo`** — currently snaps; should pan smoothly.
 - [ ] **Inventory scroll arrows** (verbs 208/209) for >8 items.
 - [ ] **Two-object "Use X with Y" end-to-end** — the faithful gather
@@ -107,9 +113,50 @@ Implement these faithfully:
       single-object; confirm a full A+B commit in a room with a
       use-with-able object / inventory item (room 33's intro has none).
       See [docs/SCUMM-V5-INPUT.md](docs/SCUMM-V5-INPUT.md) §5.
-- [ ] **Costume-anim decoder vs MI1 Guybrush** — actors don't animate
-      through their walk frames correctly. See
-      [docs/SCUMM-V5-COSTUME-ANIM.md](docs/SCUMM-V5-COSTUME-ANIM.md).
+- [~] **Costume animation decoder** — big progress this session
+      (full trail in
+      [docs/SCUMM-V5-COSTUME-ANIM.md](docs/SCUMM-V5-COSTUME-ANIM.md)).
+      DONE: the compositor now gates on `anim.active` with an init-pose
+      fallback (killed the `decodeCostumeFrame: ran out of RLE bytes …
+      0x3a` skip spam, no regression); and `startAnim` decodes the
+      **single-limb** record format — `u8 mask` (bit7=limb0…bit0=limb7)
+      + per-set-bit `{u16 frameIndex, u8 lenFlags}`, `start =
+      animCmdOffset + frameIndex` — with safe fallbacks for `mask`
+      `0x00`/`0xFF`, a `0xFFFF` frameIndex, and out-of-range starts.
+      Verified headlessly: costume 59 animates; sparkle #111 and
+      Guybrush stay static (no spam). STILL OPEN → see **Next step**.
+
+### Next step — crack the MULTI-LIMB costume-anim record (start here)
+
+The single-limb decoder ships; the remaining gap is the **multi-limb /
+walk / talk record form**, which blocks Guybrush's walk, the talk
+anims, and the `mask=0xFF` sparkle (costume 111). Full evidence is in
+[docs/SCUMM-V5-COSTUME-ANIM.md](docs/SCUMM-V5-COSTUME-ANIM.md) — read the
+"Guybrush records" + "CORRECTION" + "SHIPPED" sections first.
+
+**What's known.** Single-limb records decode cleanly. The hard cases:
+Guybrush's walk anims are 8-byte records starting `00 00 00 c0 …` (a
+redirect / wider-mask wrapper we haven't decoded), and `mask=0x00` /
+`mask=0xFF` are sentinels, not literal limb sets. Our `startAnim`
+deliberately leaves these inactive (static pose) rather than guess.
+
+**What unblocks it (needs a reference — best done with the user):**
+1. *Preferred:* a prose / pseudocode description of ScummVM's
+   `ClassicCostumeLoader::costumeDecodeData` (`engines/scumm/costume.cpp`)
+   — mask width (1 vs 2 bytes), how multi-limb modifiers are laid out,
+   and what `0x00` / `0xFF` / the `00 00 00 c0` wrapper mean. **Don't
+   paste the `.cpp`** (licensing — see AGENTS.md); describe the logic.
+2. *Or:* a runtime trace of a Guybrush walk — the mask, plus each active
+   limb's `(start, length)` and per-tick cmd-byte sequence.
+
+With either, finish the `startAnim` rewrite + re-validate sparkle +
+Guybrush + (separately) the clouds.
+
+**Separate item — the clouds.** The Mêlée-island clouds (room 38) slide
+right-to-left = a **positional** animation (`xinc`/`yinc` frame
+displacement, or a moving actor/object), **not** the record decoder.
+Investigate independently (engine can do this headlessly). Tracked as
+task #7.
 
 ### Out of scope (other phases)
 
