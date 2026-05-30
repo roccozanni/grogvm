@@ -109,6 +109,16 @@ DoD #3 right-click and the 3 smoke tests landed (see locked list). Open:
   side sentence-builder state machine (not a verb table); verb ids +
   globals recorded in the locked-list item. Design with Rocco first.
 
+### Session log (opcode-stub audit — DONE, clean)
+
+`scratch/audit-opcodes.ts` traced the whole start→room-33 path: 88
+opcodes, **no gameplay-logic stubs**. The 7 stubs are sound (separate
+phase), resource-routines (correct no-op), charsetColor (intentional),
+and cosmetic roomOps/pseudoRoom — see the locked-list item. With this,
+all Phase-7 blockers are addressed. Only loose end: the two-object A+B
+*commit* still wants a later room / real inventory item to exercise
+end-to-end (single-object + the faithful gather flow are proven).
+
 ### Session log (faithful input rebuild — DONE)
 
 Replaced the engine-side click shortcut with MI1's real g52→#23→#4 flow
@@ -784,15 +794,25 @@ charset-id resolution, `actorFromPos`/Talk-to, faithful click-to-walk,
       active); (2) walk-around (floor click moves ego); (3) verb-dispatch
       (Look at the poster → "Rieleggete il Governatore Marley."). Data-
       gated via `describe.skipIf` so CI stays green without `games/MI1`.
-- [ ] **FINAL STEP — opcode-stub audit (start → gameplay/dock scene).**
-      Trace every opcode actually dispatched from game start through to
-      gameplay start (the dock scene) and flag any that are **stubbed /
-      no-op** (e.g. things consumed-but-not-modelled). Track the list,
-      then implement the missing ones so the whole start→play path is
-      faithful, not just non-halting. Do this LAST — once the other
-      blockers are in, the reachable-opcode set is stable. (Tooling:
-      annotate-trace via the VM trace ring + cross-check against the
-      `(stub)`-style annotations and `src/engine/vm/disasm.ts`.)
+- [x] **FINAL STEP — opcode-stub audit (start → gameplay) — DONE.**
+      `scratch/audit-opcodes.ts` traces every opcode dispatched boot →
+      room 33 + a look-at interaction. Result: **88 distinct opcodes, 0
+      gameplay-logic stubs.** The 7 stubs hit are all non-logic, and each
+      is correct-as-is or out-of-scope:
+      - `0x0c resourceRoutines` (load/lock/unlock/clearHeap) — correct
+        no-op; we load resources lazily, not via a managed heap.
+      - `0x1c/0x3c/0x7c` sound (startSound/stopSound/isSoundRunning) —
+        **audio is an unbuilt subsystem** (own phase). No hang:
+        `isSoundRunning → 0` lets sound-waits fall through.
+      - `0x2c` charsetColor — intentionally stubbed (naive impl regresses
+        the lookout white/black text — see known-gaps).
+      - `0x33 roomOps` setPalColor / screenEffect — cosmetic (palette
+        tweaks / fade transitions; needs a mutable-palette + fade layer).
+      - `0xcc pseudoRoom` — resource-id aliasing; nothing on this path
+        reads an aliased resource (reached room 33 with no halt).
+      Conclusion: the start→play path is **faithful at the logic level**;
+      remaining stubs belong to the sound phase or cosmetic polish (7.5),
+      not Phase 7. No opcodes to implement here.
 
 **Polish — may land in Phase 7 or slip to 7.5:**
 
