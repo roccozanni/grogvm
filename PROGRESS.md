@@ -110,10 +110,12 @@ worth remembering:
   original `resetScummVars` — our talk text is positioned from the
   actor's `drawBounds` (above-head), so seeding a hard-coded talk-Y
   would fight it. Revisit only if talk placement regresses.
-- **`scratch/dis.ts`** (new full-table v5 disassembler with a `SCAN`
-  mode) **misaligns on some scripts** — its lights-SCAN flagged ASCII
-  strings as opcodes. Trust clean runs; treat SCAN hits as leads, not
-  proof. Empirical probing (`scratch/probe-lights.ts`) is reliable.
+- **Disassembler is now first-class: `src/engine/vm/disasm.ts`** (tested;
+  CLI front-end `scratch/dis.ts` with a `SCAN` mode). It still
+  **misaligns on ~13% of scripts** (rare opcodes / embedded data) — treat
+  `SCAN` hits in a "misaligned" script as leads, not proof; empirical
+  probing (`scratch/probe-lights.ts`) is reliable. Must be kept in sync
+  with `opcodes/index.ts` (see AGENTS.md).
 
 ### Session log (charset-id resolution fix + talk position)
 

@@ -104,7 +104,36 @@ src/
     graphics/             rmhd, clut, smap, trns, room composition
     render/               renderer interface + Canvas2D + Memory +
                           indexed-to-rgba pure helper
+    vm/                   the script VM — variables, slots, params,
+                          boot, vars.ts (name→index map), lighting.ts;
+                          opcodes/index.ts is the EXECUTING opcode table,
+                          disasm.ts is the read-only DISASSEMBLER (below)
 ```
+
+### The disassembler (`src/engine/vm/disasm.ts`)
+
+A first-class, tested, read-only SCUMM v5 disassembler — the static
+companion to the executing opcode table in `opcodes/index.ts`. Use it
+whenever you need to read what a script actually does (reverse-
+engineering flow, confirming an opcode encoding, hunting who sets a
+var).
+
+- API: `disassemble(bytecode: Uint8Array): DisasmInstruction[]`
+  (`{offset, opcode, text, aligned}`). It executes nothing and is
+  reentrant (safe to call on arbitrary/garbage bytes — loops are
+  bounded). A run that ends with `aligned: false` means it hit a byte
+  it couldn't decode and stopped; treat everything after as unknown.
+- CLI front-end: `npx tsx scratch/dis.ts <id>` (`L<id> <room>`,
+  `ENCD/EXCD <room>`, or `SCAN grep=<term>` to sweep every script).
+  The CLI is just file-loading; the decode logic + tests live in the
+  module.
+- **Keep it in sync with `opcodes/index.ts`.** The two decode the same
+  byte stream and MUST agree on operand lengths / param-mode bits — a
+  divergence makes the disassembler silently misalign. When you add or
+  fix an opcode in the executing table, mirror the operand layout here
+  (and vice-versa). Known limitation: a linear sweep still misaligns on
+  ~13% of MI1 scripts (rare opcodes / embedded data) — `SCAN` hits in a
+  script that reports "misaligned" are leads, not proof.
 
 ## Known gotchas (will bite if forgotten)
 
