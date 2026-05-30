@@ -28,16 +28,25 @@ states → audio → MI2) resumes: implement the **non-resource,
 non-sound** opcodes still stubbed, and close the open known-bugs and
 cosmetic gaps.
 
-**Latest (2026-05-30, session 2):** the Mêlée-island title/intro now
-renders and paces correctly. Fixed: the clouds/sparkles render
-(`animateActor` chore mapping), **engine pacing** (the SCUMM jiffy/frame
-split — motion was ~6× too fast), and **z-plane occlusion** (clouds
-behind the mountain + title logo; lookout fire behind the wall) via
-actor `forceClip` flags + per-object z-planes. Remaining for the next
-session: the **box-derived default clip**, the **"Le tre prove" card**,
-and the rest of the known-bugs list — all detailed under
-[Next step](#next-step-fresh-session--occlusion-default-clip--remaining-known-bugs)
+**Latest (2026-05-30, session 3):** **z-plane occlusion is now
+complete** — the **box-derived default clip** landed (`findBoxAt` +
+`resolveActorZ` in the compositor: a plain actor's `actorZ` comes from
+the `mask` of the walk box it stands in, explicit `forceClip` still
+winning). `pointInBox` handles SCUMM's `(-32000)` invalid box 0 and
+zero-area line boxes. Validated headlessly. **Wants a visual check** on
+a real scene where Guybrush walks behind scenery with no script-set
+clip (note the thin-box per-frame-lookup limitation in the known-bugs
+entry). Remaining: the **"Le tre prove" card** and the rest of the
+known-bugs list — see
+[Next step](#next-step-fresh-session--remaining-known-bugs)
 and the known-bugs list below.
+
+**Session 2 (2026-05-30):** the Mêlée-island title/intro now renders and
+paces correctly. Fixed: the clouds/sparkles render (`animateActor` chore
+mapping), **engine pacing** (the SCUMM jiffy/frame split — motion was
+~6× too fast), and **z-plane occlusion** for explicit `forceClip` flags
+(clouds behind the mountain + title logo; lookout fire behind the wall)
++ per-object z-planes.
 
 The durable engine/format knowledge that used to live here as session
 notes now lives in `docs/` — in particular:
@@ -96,7 +105,7 @@ Implement these faithfully:
 
 ### Known bugs / tabled observations to close
 
-- [~] **Z-plane occlusion** — DONE for the explicit `forceClip` flags:
+- [x] **Z-plane occlusion** — DONE for the explicit `forceClip` flags:
       `actorOps` `neverZclip` (0x12) / `alwaysZclip k` (0x13) are now
       captured on `actor.forceClip` and the compositor maps them to
       `actorZ` (`alwaysZclip k` → `actorZ = k-1`, behind plane k). The
@@ -108,17 +117,24 @@ Implement these faithfully:
       fire / sentry** (room 38, actors with `alwaysZclip 1`) now sit
       behind the wall too — verified by ASCII render: the only actor
       pixels over the wall mask are Guybrush's (he's `neverZclip`,
-      correctly the foreground). STILL OPEN: the **box-derived default
-      clip** for actors with NO explicit `forceClip` — SCUMM uses the
-      walk box's `mask` field as the clip level (verified 0/1/2 across
-      rooms 10/38/33: `mask 0` = front, `mask N` = behind plane N, same
-      mapping as `alwaysZclip`). Not yet wired because every actor in the
-      intro-reachable rooms already sets `forceClip` explicitly, so there
-      is no scene to validate it against headlessly; do it **with a
-      ScummVM/visual check** when a default-clip scene surfaces (needs a
-      point-in-walk-box lookup + `actorZ = boxMask>0 ? boxMask-1 :
-      effectivePlanes`). See [docs/SCUMM-V5-ZPLANE.md](docs/SCUMM-V5-ZPLANE.md)
-      §"Actor z-depth" / §"Per-object z-planes".
+      correctly the foreground). **NOW DONE: the box-derived default
+      clip** for actors with NO explicit `forceClip` (2026-05-30,
+      session 3). `findBoxAt(room.walkBoxes, actor.x, actor.y)` +
+      `resolveActorZ` in the compositor: a `forceClip<0` actor's
+      `actorZ = boxMask>0 ? boxMask−1 : planeCount` (same mapping as
+      `alwaysZclip`; explicit flags still win). `pointInBox` handles two
+      MI1 traps — SCUMM's `(-32000)` invalid box 0 (collapsed point →
+      matches nothing) and zero-area line boxes (room 38 box 1, room 33
+      staircase → bounding-box fallback). Validated headlessly
+      (`scratch/box-clip-check.ts`): a cleared-`forceClip` actor parked
+      in any mask-1 box of room 38 draws 0 pixels over the wall mask
+      (occluded). **Known limitation** — we re-test point-in-box per
+      frame; the lenient rasterized walkable mask can place an actor on a
+      walkable pixel that no box *strictly* contains (thin/line boxes),
+      where `findBoxAt → null` falls back to the front band. A
+      nearest-box fallback / tracked `_walkbox` would close it; deferred
+      until a real scene shows the gap. See
+      [docs/SCUMM-V5-ZPLANE.md](docs/SCUMM-V5-ZPLANE.md) §"Box-mask".
 - [ ] **Compositor honours `VAR_CURRENT_LIGHTS`** — a dark room (room 38
       night scene) should darken via the lights flag, not only via a
       dark palette. See [docs/SCUMM-V5-LIGHTING.md](docs/SCUMM-V5-LIGHTING.md) §4.
@@ -186,23 +202,21 @@ Implement these faithfully:
       walk East and West both correct (body faces the right way, single
       sprite, no flicker / no double head). 646 tests pass.
 
-### Next step (fresh session) — occlusion default-clip + remaining known bugs
+### Next step (fresh session) — remaining known bugs
 
-The clouds, engine pacing, and the explicit-flag z-plane occlusion are
-done and (pacing) user-confirmed. Pick up — **the first two want your
-eyes on the running app, so start there**:
+Z-plane occlusion is **complete** (explicit `forceClip` + per-object
+z-planes + the box-derived default clip, session 3). Clouds and engine
+pacing are done and user-confirmed. Pick up:
 
-1. **Box-derived default actor clip** (the last z-plane piece). SCUMM
-   clips an actor with NO explicit `forceClip` by the **walk box `mask`**
-   of the box it stands in (verified 0/1/2 across rooms 10/38/33: `mask
-   0` = front, `mask N` = behind plane N — same mapping as `alwaysZclip`).
-   Wire it: add a point-in-walk-box lookup, and in the compositor make a
-   `forceClip < 0` actor's depth `boxMask > 0 ? boxMask - 1 :
-   effectivePlanes.length`. **Validate visually** — every actor in the
-   intro-reachable rooms already sets `forceClip`, so there's no headless
-   scene that exercises it; find a room where Guybrush walks behind
-   scenery (no script-set clip) and confirm against ScummVM. See
-   [docs/SCUMM-V5-ZPLANE.md](docs/SCUMM-V5-ZPLANE.md) §"box-mask".
+1. **Visual check of the box-default clip** (code landed session 3; not
+   yet seen running). Find a room where Guybrush walks behind scenery
+   with NO script-set `forceClip` and confirm against ScummVM. Watch for
+   the **thin-box limitation**: where boxes are zero-area lines (room 38)
+   the per-frame point-in-box can miss (actor on a walkable pixel no box
+   strictly contains → falls back to front). If it bites, add a
+   nearest-box fallback (SCUMM's `adjustXYToBeInBox`) or track the
+   assigned `_walkbox`. See
+   [docs/SCUMM-V5-ZPLANE.md](docs/SCUMM-V5-ZPLANE.md) §"Box-mask".
 
 2. **"Le tre prove" part-title card** (still too brief — see the
    known-bugs entry). Needs a ScummVM visual reference to settle the

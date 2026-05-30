@@ -369,13 +369,58 @@ clouds pass *behind* the mountain. The LucasArts sparkles set
 (`scratch/occlusion-check.ts`): a cloud parked over the mountain peak
 draws 0 pixels where ZP01's mask is set.
 
-**Still open — the position/box-derived default clip.** Plain actors
-(no `forceClip`) still composite in front of every plane (`actorZ =
-zPlanes.length`). SCUMM derives a default clip band from the actor's
-walk-box / Y position, so e.g. the lookout fire (room 38) that should sit
-behind the wall still draws over it. That general default lands with the
-walk-box-Z sub-phase; only the explicit `forceClip` flags are honored so
-far.
+### Box-mask — the position-derived default clip
+
+An actor with **no explicit `forceClip`** (the `-1` "unset" default)
+derives its clip band from the **`mask` byte of the walk box its feet
+stand in**:
+
+| box `mask` | `actorZ`         | effect                              |
+|------------|------------------|-------------------------------------|
+| `0`        | `planeCount`     | in front of every plane             |
+| `N` (>0)   | `N − 1`          | behind plane `N` and above          |
+
+i.e. the *same* mapping as `alwaysZclip k`. Explicit `forceClip`
+(neverZclip / alwaysZclip) always wins; the box default only applies
+when `forceClip < 0`. Verified empirically: room 38's behind-wall
+sentries set `alwaysZclip 1` *explicitly* even though they stand in a
+mask-0 box — so the engine's precedence (script flag over box default)
+is real, and box defaults only drive actors the script leaves alone.
+Box masks seen in MI1: `0`/`1`/`2` (rooms 10/38/33).
+
+The compositor calls `findBoxAt(room.walkBoxes, actor.x, actor.y)` and
+`resolveActorZ` maps the resulting `mask` → `actorZ`. Validated
+headlessly (`scratch/box-clip-check.ts`): a `forceClip`-cleared actor
+parked in any mask-1 box of room 38 draws **0 pixels over the wall mask
+(ZP01)** — occluded behind the wall — while a mask-0 box leaves it in
+front.
+
+**`pointInBox` and the two degenerate-box traps.** Walk boxes are
+convex quads (corners UL→UR→LR→LL), so a point is inside when every
+edge cross-product shares a sign. Two MI1 realities break a naive test:
+
+- **SCUMM's invalid box 0.** MI1 ships box 0 with all four corners at
+  `(-32000, -32000)` — a reserved "no box" sentinel. Every cross-product
+  reads 0, so a naive sign test claims *every* point and `findBoxAt`
+  would always resolve box 0. We detect the all-collinear case and fall
+  back to a corners' bounding-box test, which the `(-32000)` point fails
+  for any real room coordinate.
+- **Zero-area line boxes.** Room 38's box 1 is a *horizontal segment*
+  (`UL==LL`, `UR==LR`, y=106); room 33's staircase boxes are diagonal
+  lines. The same bounding-box fallback keeps on-segment points inside
+  while rejecting off-line points (mixed cross-product signs).
+
+**Known limitation — thin boxes + per-frame lookup.** SCUMM assigns an
+actor a specific `_walkbox` while walking and reuses that box's mask;
+we instead re-test point-in-box every frame. The rasterized *walkable*
+mask (`buildWalkableMask`) is deliberately lenient — it keeps a centre
+pixel for thin/line boxes so pathfinding stays connected — so an actor
+can stand on a walkable pixel that no box *strictly* contains. There
+`findBoxAt` returns `null` and the actor falls back to the front band.
+In rooms with proper area-quad boxes this never bites; room 38's
+line boxes are the stress case. A nearest-box fallback (mirroring
+SCUMM's `adjustXYToBeInBox`) or tracking the assigned `_walkbox` would
+close it — deferred until a real scene shows the gap.
 
 ## Per-object z-planes — drawn objects occlude actors
 

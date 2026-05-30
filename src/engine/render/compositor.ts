@@ -50,6 +50,7 @@ import { decodeCostumeFrame } from '../graphics/costume-frame';
 import type { LoadedObject } from '../object/loader';
 import type { LoadedRoom } from '../room/loader';
 import type { DecodedZPlane } from '../graphics/zplane';
+import { findBoxAt, type WalkBox } from '../pathfinding/boxes';
 
 export class ComposeError extends Error {
   constructor(detail: string) {
@@ -321,15 +322,14 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
           //     so actorZ = k-1 (the "plane index > actorZ hides" rule
           //     then masks the actor where plane k is set). E.g. the
           //     Mêlée clouds (alwaysZclip 1) draw behind the mountain.
-          //   - neverZclip (forceClip 0) and the unset default (-1) →
-          //     in front of every plane (the topmost layer above the bg),
-          //     which is what nearly every script wants on first place.
-          // Walk-box-derived default Z (for plain actors) lands with the
-          // pathfinding sub-phase.
-          // Default / neverZclip depth = the effective plane count, so a
-          // merged drawn-object foreground (which lands at plane index 1)
-          // never occludes an "in front" actor — only z-clipped ones.
-          actorZ: actor.forceClip > 0 ? actor.forceClip - 1 : actorZPlanes.length,
+          //   - neverZclip (forceClip 0) → in front of every plane (the
+          //     topmost layer above the bg).
+          //   - the unset default (forceClip < 0) derives its clip from
+          //     the walk box the actor stands in — see resolveActorZ.
+          // "In front" = the effective plane count, so a merged drawn-
+          // object foreground (which lands at plane index 1) never
+          // occludes an "in front" actor — only z-clipped ones.
+          actorZ: resolveActorZ(actor, room.walkBoxes, actorZPlanes.length),
           zPlanes: actorZPlanes,
         });
         drewLimb = true;
@@ -377,6 +377,36 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
  * room foreground does. Planes index 2+ are passed through untouched.
  * If the room has no planes, a fresh foreground plane is created.
  */
+/**
+ * Resolve an actor's z-clip depth (the `actorZ` the "any plane > actorZ
+ * hides" rule consumes). SCUMM's `_forceClip` precedence:
+ *
+ *   - `alwaysZclip k` (forceClip > 0) → behind plane k and above, so
+ *     actorZ = k − 1.
+ *   - `neverZclip` (forceClip == 0) → in front of every plane.
+ *   - unset (forceClip < 0) → the *default* clip, taken from the `mask`
+ *     of the walk box the actor's feet stand in: mask 0 = in front,
+ *     mask N (>0) = behind plane N (same mapping as alwaysZclip). An
+ *     actor not standing in any box (or a room with no boxes) defaults
+ *     to in front, matching the prior behaviour.
+ *
+ * "In front of every plane" = the effective plane count, so a merged
+ * drawn-object foreground (which lands at plane index 1) never occludes
+ * an in-front actor — only z-clipped ones. See docs/SCUMM-V5-ZPLANE.md
+ * §"box-mask".
+ */
+function resolveActorZ(
+  actor: Actor,
+  walkBoxes: ReadonlyArray<WalkBox>,
+  planeCount: number,
+): number {
+  if (actor.forceClip > 0) return actor.forceClip - 1;
+  if (actor.forceClip === 0) return planeCount;
+  const box = findBoxAt(walkBoxes, actor.x, actor.y);
+  const mask = box ? box.mask : 0;
+  return mask > 0 ? mask - 1 : planeCount;
+}
+
 function mergeForeground(
   room: LoadedRoom,
   fgPlanes: ReadonlyArray<{ x: number; y: number; plane: DecodedZPlane }>,
