@@ -82,11 +82,17 @@ Implement these faithfully:
 
 ### Known bugs / tabled observations to close
 
-- [ ] **Z-plane occlusion** — actors/objects composite in front of
-      scenery that should occlude them (the lookout fire draws over the
-      wall). Masks decode and the "any plane index > actorZ hides" rule
-      is implemented; the compositing path picks the wrong plane. See
-      [docs/SCUMM-V5-ZPLANE.md](docs/SCUMM-V5-ZPLANE.md).
+- [~] **Z-plane occlusion** — DONE for the explicit `forceClip` flags:
+      `actorOps` `neverZclip` (0x12) / `alwaysZclip k` (0x13) are now
+      captured on `actor.forceClip` and the compositor maps them to
+      `actorZ` (`alwaysZclip k` → `actorZ = k-1`, behind plane k). The
+      Mêlée clouds (`alwaysZclip 1`) now pass behind the mountain; the
+      sparkles (`neverZclip`) stay in front. STILL OPEN: the
+      **position/box-derived default clip** for plain actors — they
+      still draw in front of every plane (`actorZ = zPlanes.length`), so
+      the lookout fire (room 38) still draws over the wall. Lands with
+      the walk-box-Z sub-phase. See
+      [docs/SCUMM-V5-ZPLANE.md](docs/SCUMM-V5-ZPLANE.md) §"Actor z-depth".
 - [ ] **Compositor honours `VAR_CURRENT_LIGHTS`** — a dark room (room 38
       night scene) should darken via the lights flag, not only via a
       dark palette. See [docs/SCUMM-V5-LIGHTING.md](docs/SCUMM-V5-LIGHTING.md) §4.

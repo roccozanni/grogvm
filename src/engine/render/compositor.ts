@@ -301,11 +301,18 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
           actorX: actor.x,
           actorY: actor.y,
           mirror,
-          // Default actor z = in front of every plane. Walk-box-derived
-          // Z lands with the pathfinding sub-phase; until then this
-          // matches "actor is the topmost layer above the room bg"
-          // which is what nearly every script wants on first place.
-          actorZ: room.zPlanes.length,
+          // Z-clip depth. SCUMM's `_forceClip` (actorOps neverZclip /
+          // alwaysZclip) decides which z-planes occlude the actor:
+          //   - alwaysZclip k (forceClip>0) → behind plane k and above,
+          //     so actorZ = k-1 (the "plane index > actorZ hides" rule
+          //     then masks the actor where plane k is set). E.g. the
+          //     Mêlée clouds (alwaysZclip 1) draw behind the mountain.
+          //   - neverZclip (forceClip 0) and the unset default (-1) →
+          //     in front of every plane (the topmost layer above the bg),
+          //     which is what nearly every script wants on first place.
+          // Walk-box-derived default Z (for plain actors) lands with the
+          // pathfinding sub-phase.
+          actorZ: actor.forceClip > 0 ? actor.forceClip - 1 : room.zPlanes.length,
           zPlanes: room.zPlanes,
         });
         drewLimb = true;

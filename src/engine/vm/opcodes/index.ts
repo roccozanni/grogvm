@@ -1653,11 +1653,15 @@ function actorOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
         break;
       }
       case 0x12:
+        // neverZclip — actor always draws in front of every z-plane.
+        if (actor) actor.forceClip = 0;
         ops.push('setNeverZClip');
         break;
       case 0x13: {
-        readVarOrByte(sub, 1, slot, vm.vars); // z-plane
-        ops.push('setAlwaysZClip');
+        // alwaysZclip k — actor is clipped behind z-plane k (and above).
+        const plane = readVarOrByte(sub, 1, slot, vm.vars);
+        if (actor) actor.forceClip = plane;
+        ops.push(`setAlwaysZClip(${plane})`);
         break;
       }
       case 0x14:

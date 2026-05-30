@@ -532,3 +532,49 @@ describe('composeFrame — object compositing', () => {
   });
 });
 
+
+describe('composeFrame — actor z-clip (forceClip)', () => {
+  // Room with one z-plane whose mask covers the whole canvas, so an
+  // actor "behind" it (actorZ < 1) is fully occluded.
+  function roomWithFullPlane(w: number, h: number, fill: number): LoadedRoom {
+    const room = makeRoom(w, h, fill);
+    const mask = new Uint8Array(w * h);
+    mask.fill(1);
+    return { ...room, zPlanes: [{ width: w, height: h, mask }] };
+  }
+
+  const cost = () => makeOneFrameCostume({ frameW: 2, frameH: 2, pixelIdx: 1, clutIdx: 0x99 });
+
+  it('alwaysZclip 1 (forceClip>0) is occluded by z-plane 1', () => {
+    const room = roomWithFullPlane(8, 4, 0x10);
+    const fb = new Uint8Array(8 * 4);
+    const a = makeActorAt(1, 1, 1, 1);
+    a.anim = activeLimb0Anim();
+    a.forceClip = 1; // actorZ = 0 → plane 1 (>0) hides every pixel
+    composeFrame({ room, framebuffer: fb, actors: [a], getCostume: cost });
+    // Nothing drawn — the whole frame stays background.
+    for (let i = 0; i < fb.length; i++) expect(fb[i]).toBe(0x10);
+  });
+
+  it('neverZclip (forceClip 0) draws in front of the same z-plane', () => {
+    const room = roomWithFullPlane(8, 4, 0x10);
+    const fb = new Uint8Array(8 * 4);
+    const a = makeActorAt(1, 1, 1, 1);
+    a.anim = activeLimb0Anim();
+    a.forceClip = 0; // actorZ = zPlanes.length → never occluded
+    composeFrame({ room, framebuffer: fb, actors: [a], getCostume: cost });
+    // The 2×2 frame at (1,1) painted CLUT 0x99 over the plane.
+    expect(fb[1 * 8 + 1]).toBe(0x99);
+    expect(fb[2 * 8 + 2]).toBe(0x99);
+  });
+
+  it('default (unset, forceClip -1) draws in front (current behaviour)', () => {
+    const room = roomWithFullPlane(8, 4, 0x10);
+    const fb = new Uint8Array(8 * 4);
+    const a = makeActorAt(1, 1, 1, 1);
+    a.anim = activeLimb0Anim();
+    expect(a.forceClip).toBe(-1); // createActor default
+    composeFrame({ room, framebuffer: fb, actors: [a], getCostume: cost });
+    expect(fb[1 * 8 + 1]).toBe(0x99);
+  });
+});

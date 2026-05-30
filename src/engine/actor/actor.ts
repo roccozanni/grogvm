@@ -53,6 +53,15 @@ export interface Actor {
   scale: number;
   /** When true, the actor walks in straight lines ignoring walk boxes. */
   ignoreBoxes: boolean;
+  /**
+   * Z-plane clip control, from `actorOps` `neverZclip` (0x12) /
+   * `alwaysZclip` (0x13):
+   *   - `-1` = unset (compositor's default depth — in front of every plane)
+   *   - `0`  = `neverZclip` — always in front, never occluded
+   *   - `k>0`= `alwaysZclip k` — clipped behind z-plane `k` (and above)
+   * Mirrors SCUMM's `_forceClip`. The compositor maps this to `actorZ`.
+   */
+  forceClip: number;
   /** Pixels per engine tick during a walk. */
   walkSpeedX: number;
   walkSpeedY: number;
@@ -126,6 +135,7 @@ export function createActor(id: number): Actor {
     talkColor: 0,
     scale: DEFAULT_SCALE,
     ignoreBoxes: false,
+    forceClip: -1,
     walkSpeedX: DEFAULT_WALK_SPEED_X,
     walkSpeedY: DEFAULT_WALK_SPEED_Y,
     walkTarget: null,

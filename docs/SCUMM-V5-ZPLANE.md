@@ -347,3 +347,32 @@ side-by-side placement, the offset-0 sentinel, the RMIH parser, the
 bit accessor (including out-of-bounds), and the relevant error paths.
 Real-game correctness is verified through the player UI's per-plane
 overlay toggle.
+
+## Actor z-depth — `forceClip` (actorOps neverZclip / alwaysZclip)
+
+`compositeActor`'s rule is "any plane whose 1-based index > `actorZ` hides
+the pixel." The per-actor `actorZ` comes from the actor's **`forceClip`**,
+which SCUMM scripts set via `actorOps`:
+
+| actorOps sub-op        | `actor.forceClip` | `actorZ`            | effect                              |
+|------------------------|-------------------|---------------------|-------------------------------------|
+| `neverZclip` (0x12)    | `0`               | `zPlanes.length`    | always in front (no plane occludes) |
+| `alwaysZclip k` (0x13) | `k` (>0)          | `k − 1`             | behind plane `k` and above          |
+| *(unset)*              | `-1`              | `zPlanes.length`    | in front (compositor default)       |
+
+`alwaysZclip k` → `actorZ = k − 1` so that "plane index > actorZ" makes
+plane `k` (and higher) occlude the actor while planes below `k` don't.
+The **Mêlée-island clouds** (room 10, costume 59) set `alwaysZclip 1`, so
+`actorZ = 0` and the single mountain z-plane (ZP01) draws over them — the
+clouds pass *behind* the mountain. The LucasArts sparkles set
+`neverZclip` and stay in front. Verified headlessly
+(`scratch/occlusion-check.ts`): a cloud parked over the mountain peak
+draws 0 pixels where ZP01's mask is set.
+
+**Still open — the position/box-derived default clip.** Plain actors
+(no `forceClip`) still composite in front of every plane (`actorZ =
+zPlanes.length`). SCUMM derives a default clip band from the actor's
+walk-box / Y position, so e.g. the lookout fire (room 38) that should sit
+behind the wall still draws over it. That general default lands with the
+walk-box-Z sub-phase; only the explicit `forceClip` flags are honored so
+far.
