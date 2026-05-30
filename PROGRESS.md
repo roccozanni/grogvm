@@ -108,11 +108,22 @@ Implement these faithfully:
       canonical per-jiffy driver: `beginTick` timers + `delay` countdown
       run every jiffy; scripts/walk/anim are gated to frame boundaries.
       See [docs/SCUMM-V5-TIMING.md](docs/SCUMM-V5-TIMING.md).
-- [~] **"Le tre prove" cutscene pacing** — the Three-Trials interstitial
-      played in under a second; the original holds for several. Same root
-      cause as the pacing fix above (a breakHere-loop cutscene running 6×
-      too fast) — **likely fixed by the jiffy/frame split; verify
-      visually.**
+- [ ] **"Le tre prove" part-title card — still too brief (jiffy/frame
+      split did NOT fix it; user confirmed unchanged).** Investigated:
+      the card is **room 96**, shown by local script **#200** =
+      `userputOff → cursorOff → beginOverride → breakHere → print(254,
+      center, "Parte Uno" @165 + "Le Tre Prove" @180) → stopSound 104 →
+      endOverride → cursorOn → loadRoomWithEgo room 33`. There is **no
+      `delay`/wait** — room 96 flashes (~2 jiffies) and the printed
+      system text persists over room 33. In our VM `systemText` "Le Tre
+      Prove" then persists *indefinitely* (talkDelay 30→0 but systemText
+      isn't auto-cleared), which contradicts "too brief" — so the gap is
+      in presentation, not the VM clearing it early. Two sub-bugs found:
+      (a) our `print` handler reads the two text segments as one print
+      and keeps only the 2nd ("Le Tre Prove"), dropping the "Parte Uno"
+      line (it should be two stacked lines); (b) the intended hold
+      (does room 96 hold? is the card meant to overlay room 33?) needs a
+      ScummVM visual reference to settle. Deferred pending that.
 - [ ] **Credits fill colour (teal vs magenta)** — every credit line
       prints `SO_COLOR 3` → CLUT3 = teal in our data, but ScummVM shows
       magenta from the *same* files. Our colour→CLUT mapping is proven
