@@ -655,8 +655,15 @@ charset-id resolution, `actorFromPos`/Talk-to, faithful click-to-walk,
       userputSoftOff. ⚠️ The inspector still paints its crosshair during
       cutscenes (intentional dev-visibility — engine `cursor.visible` is
       correct and shown separately).
-- [ ] **Right-click → default "Look at"** (DoD #3 / design note). The
-      hit-tester finds the object on right-click but nothing arms Look-at.
+- [x] **Right-click → default "Look at" — DONE.** `handleSceneClick`
+      with `button===2` enqueues a Look-at sentence (verb 8) on the hit
+      object regardless of the armed verb — the v5 default-verb shortcut.
+      Verified headlessly: right-click the room-33 poster with no verb
+      armed → "Rieleggete il Governatore Marley.". +3 tests. ⚠️ Pragmatic
+      vs. fully faithful: MI1's #4 arms `g107 = g182` (the hover-tracked
+      per-object default verb); until we track g182 per object, Look-at
+      is the universal default (`Vm.VERB_LOOK_AT`). Refine when hover
+      default-verb tracking lands.
 - [x] **Gate click-to-walk during cutscenes — DONE.** Both scene clicks
       (`onRoomClick`) and verb-bar clicks now gate on `vm.cursor.userput`
       (false during cutscenes via #18), so floor clicks don't walk ego /

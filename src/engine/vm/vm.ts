@@ -545,6 +545,17 @@ export class Vm {
   static readonly CLICK_AREA_SCENE = 2;
   static readonly CLICK_AREA_INVENTORY = 3;
 
+  /**
+   * MI1's "Look at" (Esamina) command-verb id. Used as the right-click
+   * default action on a scene object — the v5 convention maps the right
+   * button to an object's *default verb*, which for ordinary scenery is
+   * Look at. (The fully faithful path arms `g107 = g182`, the
+   * hover-tracked per-object default verb that script #4 sets; until we
+   * track g182 per object, Look at is the sensible universal default and
+   * matches the standard MI1 verb layout — verbs 2..11, 8 = Look at.)
+   */
+  static readonly VERB_LOOK_AT = 8;
+
   constructor(init: VmInit) {
     this.vars = new Variables({
       numVariables: init.numVariables,
@@ -902,18 +913,23 @@ export class Vm {
    * armed and a real object was hit — builds the sentence and queues
    * it for {@link processSentence} to run via the sentence script.
    *
-   * Single-object sentences only for now; the two-object "use X with
-   * Y" preposition flow (and right-click default "look at") land next.
+   * Right-click (`button === 2`) on an object is the v5 default-verb
+   * shortcut → enqueue a **Look at** sentence regardless of the armed
+   * verb. A left-click uses the armed verb (if any). Single-object
+   * sentences only for now; the two-object "use X with Y" preposition
+   * flow lands next.
    */
   handleSceneClick(objId: number, button = 1): void {
     this.runInputScript(Vm.CLICK_AREA_SCENE, objId, button);
-    if (objId !== 0 && this.currentVerb !== null) {
-      this.pushSentence({ verb: this.currentVerb, objectA: objId, objectB: 0 });
-      // The verb is consumed by the click — deselect it so the UI falls
-      // back to the default ("Walk to"), matching MI1's reset-after-
-      // action. The queued sentence already captured the verb id.
-      this.currentVerb = null;
-    }
+    if (objId === 0) return;
+    // Right-click = default verb (Look at); left-click = the armed verb.
+    const verb = button === 2 ? Vm.VERB_LOOK_AT : this.currentVerb;
+    if (verb === null) return;
+    this.pushSentence({ verb, objectA: objId, objectB: 0 });
+    // The verb is consumed by the click — deselect it so the UI falls
+    // back to the default ("Walk to"), matching MI1's reset-after-
+    // action. The queued sentence already captured the verb id.
+    this.currentVerb = null;
   }
 
   /** Push a sentence onto the queue for the sentence driver to run. */

@@ -222,6 +222,27 @@ describe('Vm — handleSceneClick verb reset', () => {
     vm.handleSceneClick(42, 1);
     expect(vm.sentenceStack.length).toBe(0);
   });
+
+  it('right-click (button 2) queues a Look-at even with no verb armed', () => {
+    const vm = makeVm();
+    expect(vm.currentVerb).toBeNull();
+    vm.handleSceneClick(42, 2);
+    expect(vm.sentenceStack).toEqual([{ verb: Vm.VERB_LOOK_AT, objectA: 42, objectB: 0 }]);
+  });
+
+  it('right-click overrides the armed verb with Look-at and clears it', () => {
+    const vm = makeVm();
+    vm.currentVerb = 4; // some other verb armed
+    vm.handleSceneClick(42, 2);
+    expect(vm.sentenceStack).toEqual([{ verb: Vm.VERB_LOOK_AT, objectA: 42, objectB: 0 }]);
+    expect(vm.currentVerb).toBeNull();
+  });
+
+  it('right-click on empty floor (obj 0) does nothing', () => {
+    const vm = makeVm();
+    vm.handleSceneClick(0, 2);
+    expect(vm.sentenceStack.length).toBe(0);
+  });
 });
 
 describe('Vm — walkActorTo', () => {
