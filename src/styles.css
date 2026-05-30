@@ -1242,23 +1242,10 @@ code {
   z-index: 2;
 }
 
-.vm-sentence-line {
-  box-sizing: border-box;
-  display: block;
-  /* Flush against the verb bar below — together they form the verb panel
-     (MI1 draws the sentence at the top of the verb area, no gap). */
-  margin: 0.25rem 0 0;
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
-  border: 1px solid var(--border);
-  border-bottom: none;
-  background: #000;
-}
-
 .vm-verb-bar {
   box-sizing: border-box;
   display: block;
-  margin: 0; /* flush under the sentence line — one verb panel */
+  margin: 0.25rem 0 0;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
   border: 1px solid var(--border);

@@ -1039,7 +1039,8 @@ function buildFrame(
     },
   });
 
-  root.appendChild(play.sentenceLine);
+  // The verb panel; its top band is MI1's sentence line (verb #100),
+  // drawn inside this canvas — no separate sentence-line element.
   root.appendChild(play.verbBar);
 
   // Walk-overlay toggle row (only meaningful with a room loaded, but

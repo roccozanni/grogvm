@@ -1735,6 +1735,12 @@ function verbOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
         const v = getOrCreateVerb(vm, verbId);
         v.name = decodeScummString(nameBytes);
         v.image = null; // text verb — drop any prior image binding
+        // Capture the charset the name is set under. The action verbs are
+        // named once in the panel setup (charset 6, serif); the sentence
+        // verb #100 is re-named every frame by the sentence script under
+        // the dialogue charset (2, smaller) — which is exactly why MI1's
+        // sentence line is in a smaller font than the verbs.
+        v.charset = vm.currentCharset;
         subops.push(`setName("${v.name}")`);
         break;
       }

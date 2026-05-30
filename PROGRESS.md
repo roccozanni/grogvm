@@ -206,10 +206,14 @@ Implement these faithfully:
       `scratch/when-178.ts` (the no-room-at-t5 proof).
 - [~] **Sentence line + verb-panel fidelity** (2026-05-30, session 3 —
       pending visual confirm; user feedback from ScummVM screenshots).
-      Was an HTML `<div>` (browser font, bordered box); now a canvas
-      rendered with the CHAR font via the shared `drawText`, centred, on
-      the black ground, **flush above the verb bar** (one verb panel, no
-      gap — matching MI1). Fixed alongside (same screenshots):
+      Was an HTML `<div>` (browser font, bordered box). Now drawn **inside
+      the verb-bar canvas as verb #100** — MI1's sentence line is a real
+      verb at (160,145) in the top black band of the verb panel, charset 2
+      (the smaller dialogue font, so "Vai" reads smaller than the verbs),
+      color 6, centred. We render the synthesised sentence text in #100's
+      slot (its own name is just spaces). The separate sentence element is
+      gone (per user: it's one canvas with a band at the top, not two).
+      Fixed alongside (same screenshots):
       - **Verb font.** Verbs were drawn in the live *dialogue* charset
         (2, blocky h9); MI1 defines the verb panel under **charset 6**
         (tall serif, h14) then switches to 2 for dialogue. Added

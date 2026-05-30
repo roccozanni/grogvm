@@ -79,8 +79,8 @@ const INVENTORY_VERB_LAST = 207;
 /** Default CLUT colours when a verb's slot doesn't specify one. */
 const DEFAULT_VERB_COLOR = 7; // light-grey ink
 const DEFAULT_VERB_HI_COLOR = 14; // light yellow
-/** Sentence-line strip height (px) — fits MI1's tall verb font (h=14) + slack. */
-const SENTENCE_LINE_H = 16;
+/** MI1's sentence-line verb — drawn in the top band of the verb panel. */
+const VERB_SENTENCE = 100;
 const DEFAULT_VERB_DIM_COLOR = 8; // dark grey
 
 /** Cursor crosshair colours (CLUT indices). */
@@ -120,9 +120,11 @@ export interface PlayAreaArgs {
 export interface PlayAreaHandles {
   /** Append this above the frame canvas inside `.vm-frame-stack`. */
   readonly cursorOverlay: HTMLCanvasElement;
-  /** Append this below the frame stack. */
-  readonly sentenceLine: HTMLElement;
-  /** Append this below the sentence line. */
+  /**
+   * The verb panel. Append below the frame stack. Its top black band is
+   * MI1's sentence line (verb #100) — drawn inside this canvas, not a
+   * separate element.
+   */
   readonly verbBar: HTMLCanvasElement;
   /**
    * Call from {@link mountVmFrameInput}'s `onMove` — drives live
@@ -179,21 +181,10 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
   cursorOverlay.style.height = `${roomHeight * CSS_SCALE}px`;
   const cctx = cursorOverlay.getContext('2d');
 
-  // ─── sentence line ───
-  // Screen-width, not room-width: this strip is screen UI, sized to the
-  // 320-wide viewport (× CSS scale) to line up with the verb bar below.
-  // Rendered in-canvas with the active CHAR font (not an HTML font) so it
-  // matches MI1 — the original draws the sentence on the strip at the top
-  // of the verb area (verb #100), centred, on the black verb-bar ground.
-  const sentenceLine = document.createElement('canvas');
-  sentenceLine.className = 'vm-sentence-line';
-  sentenceLine.width = VIEWPORT_W;
-  sentenceLine.height = SENTENCE_LINE_H;
-  sentenceLine.style.width = `${VIEWPORT_W * CSS_SCALE}px`;
-  sentenceLine.style.height = `${SENTENCE_LINE_H * CSS_SCALE}px`;
-  const slctx = sentenceLine.getContext('2d');
-
   // ─── verb bar ───
+  // The sentence line is NOT a separate element — MI1 draws it as verb
+  // #100 in the top black band of the verb panel, so it's rendered inside
+  // the verb-bar canvas below (see paintVerbBar).
   // The verb bar is a fixed 320-wide screen element (verbs are placed in
   // screen-space coords), so its backing canvas is VIEWPORT_W — not the
   // room width, which would over-size it on wide/scrolling rooms.
@@ -366,31 +357,6 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
     drawText(ctx, charset, text, dx, dy, palette, d.color, d.center);
   };
 
-  const updateSentence = (): void => {
-    if (!slctx) return;
-    // An inventory item under the cursor (verb-bar hover) takes priority
-    // over a room object; otherwise show the room hover.
-    const obj = hoveredInvItem ?? hoveredObject;
-    const text = sentenceText(vm, obj, hoveredVerb);
-    // Font + colour come from the verb the sentence is showing (hovered,
-    // else armed, else the walk-to default #11) — so the sentence matches
-    // the verb panel's font (MI1's serif charset 6), not the dialogue
-    // font. The original draws the sentence into verb #100 at the top of
-    // the verb area; we mirror that look on this flush-above strip.
-    const verb =
-      (hoveredVerb !== null ? vm.verbs.get(hoveredVerb) : null) ??
-      (armedVerb(vm) !== null ? vm.verbs.get(armedVerb(vm)!) : null) ??
-      vm.verbs.get(VERB_WALK_TO);
-    slctx.clearRect(0, 0, VIEWPORT_W, SENTENCE_LINE_H);
-    slctx.fillStyle = clutCss(palette, 0);
-    slctx.fillRect(0, 0, VIEWPORT_W, SENTENCE_LINE_H);
-    const charset = charsetById(verb?.charset ?? vm.currentCharset) ?? activeCharset();
-    const ink = verb?.color || DEFAULT_VERB_COLOR;
-    if (charset && text) {
-      drawText(slctx, charset, text, Math.floor(VIEWPORT_W / 2), 1, palette, ink, true);
-    }
-  };
-
   // ─── image verbs (inventory slots) ───
   // Verbs can show an object sprite instead of text (verbOps setImage /
   // setImageInRoom) — MI1's inventory slots draw the frame objects from
@@ -506,18 +472,29 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
         drawVerbImage(v.image, x, y);
         continue;
       }
-      if (!v.name) continue;
+      // Verb #100 is MI1's sentence line — a real verb in the top black
+      // band of the panel (at 160,145, charset 2 = the smaller dialogue
+      // font, hence "Vai" reads smaller than the verbs). The engine builds
+      // its text from the active verb+object; we synthesise the same here
+      // and draw it in #100's own slot, so it sits where the original does.
+      const text =
+        v.id === VERB_SENTENCE
+          ? sentenceText(vm, hoveredInvItem ?? hoveredObject, hoveredVerb)
+          : v.name;
+      if (!text) continue;
       // Each verb renders in the charset it was defined under (MI1's verb
       // panel uses charset 6, a tall serif font — not the dialogue font).
       const vCharset = charsetById(v.charset) ?? charset;
       const ink = pickInk(v, v.id === hoveredVerb, v.id === armedVerb(vm));
-      drawText(vbctx, vCharset, v.name, x, y, palette, ink, v.centered);
+      drawText(vbctx, vCharset, text, x, y, palette, ink, v.centered);
     }
   };
 
   const drawAll = (): void => {
     drawCursor();
-    updateSentence();
+    // The sentence line lives in the verb-bar canvas (verb #100), so a
+    // hover change that alters the sentence repaints the bar too.
+    paintVerbBar();
   };
 
   const recomputeHover = (): void => {
@@ -612,7 +589,6 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
       hoveredVerb = newHover;
       hoveredInvItem = newInv;
       paintVerbBar();
-      updateSentence();
     }
   });
   verbBar.addEventListener('pointerleave', () => {
@@ -620,7 +596,6 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
       hoveredVerb = null;
       hoveredInvItem = null;
       paintVerbBar();
-      updateSentence();
     }
   });
   verbBar.addEventListener('pointerdown', (ev) => {
@@ -636,7 +611,6 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
     // inventory mapping itself.
     vm.handleVerbClick(v.id, ev.button === 2 ? 2 : 1);
     paintVerbBar();
-    updateSentence();
     args.onCommit();
   });
 
@@ -673,12 +647,10 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
   const redraw = (): void => {
     recomputeHover();
     drawAll();
-    paintVerbBar();
   };
 
   return {
     cursorOverlay,
-    sentenceLine,
     verbBar,
     onPointerMove,
     onRoomClick,
