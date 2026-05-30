@@ -19,9 +19,33 @@
  * E/W when the X step is larger, N/S otherwise.
  */
 
-import type { Actor } from './actor';
+import type { Actor, Facing } from './actor';
 import type { Vm } from '../vm/vm';
 import { findPath } from '../pathfinding/grid';
+import { startAnim } from '../graphics/costume-anim';
+
+/**
+ * SCUMM "old direction" index for a facing. The costume anim record for
+ * a chore + facing is `frame * 4 + oldDir`, matching ScummVM's
+ * `oldDirToNewDir` table (0=W, 1=E, 2=S, 3=N).
+ */
+const OLD_DIR: Record<Facing, number> = { W: 0, E: 1, S: 2, N: 3 };
+
+/**
+ * Drive an actor's costume animation from a chore frame: start the anim
+ * record `chore * 4 + dir` for the actor's current facing. Only
+ * (re)starts when the target record actually changes, so a running walk
+ * cycle keeps advancing through `stepAnim` instead of resetting to
+ * frame 0 every tick. No-op for actors without a loaded costume.
+ */
+function applyChore(vm: Vm, actor: Actor, chore: number): void {
+  if (actor.costume <= 0) return;
+  const record = chore * 4 + OLD_DIR[actor.facing];
+  if (actor.anim.animId === record) return;
+  const costume = vm.getCostume(actor.costume);
+  if (!costume) return;
+  actor.anim = startAnim(actor.anim, record, costume.header, costume.payload);
+}
 
 /**
  * Set up an actor's walk: store the target, compute a waypoint path
@@ -146,7 +170,20 @@ function finishWalk(actor: Actor): void {
  */
 export function stepAllActorWalks(vm: Vm): void {
   for (const actor of vm.actors.all()) {
+    const wasMoving = actor.isMoving;
     stepWalk(actor);
+    // Drive the costume animation from movement state. While moving →
+    // the walk chore (re-aimed when facing flips). On the moving→stopped
+    // transition → the directional standing pose (the costume's init
+    // chore; Guybrush's literal stand chore is data-empty). We touch the
+    // anim ONLY while walking or at the moment of arrival, never while
+    // idle — otherwise we'd clobber script-driven anims on FX actors
+    // (e.g. the intro sparkles, which `animateActor` controls directly).
+    if (actor.isMoving) {
+      applyChore(vm, actor, actor.walkFrame);
+    } else if (wasMoving) {
+      applyChore(vm, actor, actor.initFrame);
+    }
   }
 }
 

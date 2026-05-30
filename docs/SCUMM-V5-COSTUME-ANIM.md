@@ -444,20 +444,48 @@ costume-111 sparkle). The record is too short to host 8 modifiers, so
 static. Best cracked from a ScummVM cmd-trajectory trace of Guybrush
 talking.
 
-**NEXT — wire the walk/stand chore trigger (now unblocked).** The
-decoder is correct but `stepWalk` doesn't yet *start* the walk anim, so
-the fix is only visible to scripts that call `animateActor` directly.
-To make Guybrush visibly walk, the actor needs `walkFrame` /
-`standFrame` / `initFrame` / `talkFrames` fields (captured from
-`actorOps` sub-ops 0x04/0x05/0x06/0x0e, currently consumed-and-ignored)
-and the walk loop must call `startAnim(frame*4 + dir)`. **The exact
-`frame*4 + dir` mapping needs validation, not a guess** — `oldDir` is
-`W=0, E=1, S=2, N=3` per ScummVM's `oldDirToNewDir`, and `walkFrame`
-default 1 → records 4–7, but our static decode shows records 4/5/6
-resolving to single frames while only 7 cycles, which means either the
-side views are mirrored single-frame walks or the per-costume
-`walkFrame` differs from the default. Settle against a ScummVM walk
-before wiring, or it'll moonwalk.
+### SHIPPED — the walk/stand chore trigger (2026-05-30)
+
+The decoder is now driven by the walk loop, so Guybrush visibly walks.
+The chore→record mapping was **validated against MI1's own data**, not
+guessed:
+
+- **Record = `chore * 4 + dir`**, `dir` = `W=0, E=1, S=2, N=3` (ScummVM
+  `oldDirToNewDir`).
+- Decoding all four directional records per chore for Guybrush #1
+  (`scratch/validate-chore-mapping.ts`) shows **chore 2 = walk** (records
+  8–11: W/E/S all *cycle*, N a pose) and chore 1 = the single-frame
+  directional *poses* (records 4–7). Chores 3/4/5 (stand/talk) are
+  data-empty sentinels.
+- Tracing the boot+intro (`scratch/trace-chore-frames.ts`) confirms MI1
+  sets **no** chore frames on any actor — every actor keeps SCUMM's
+  `initActor` defaults `walk=2, stand=3, init=1, talk=4/5`. So walk
+  chore 2 → records 8–11, exactly the cycling walk. This triangulates
+  cleanly: SCUMM defaults ⋂ the doc's id table ⋂ the decoded frames all
+  agree.
+
+Implementation: `Actor` gains `walkFrame/standFrame/initFrame/
+talkStartFrame/talkStopFrame` (captured from `actorOps` sub-ops
+0x04/0x06/0x0e/0x05, reset on initActor). `stepAllActorWalks` calls
+`startAnim(walkFrame*4 + dir)` while moving (re-aimed on a facing flip,
+not restarted every tick) and `startAnim(initFrame*4 + dir)` — the
+directional standing pose — on the moving→stopped transition. It touches
+the anim **only while walking or at arrival**, never while idle, so it
+never clobbers script-driven FX actors (the intro sparkles, which
+`animateActor` controls directly). Verified end-to-end
+(`scratch/verify-walk-trigger.ts`): walk-E drives record 9 with the body
+limb cycling 0→5 + a static head; arrival settles to the init pose.
+
+**Known minor quirk:** the resting pose uses the *init* chore (chore 1)
+because Guybrush's literal stand chore (3) is data-empty. Init records
+4/5/6 are clean single-frame poses, but record 7 (facing-N) shares bytes
+with walk-W and so *cycles* — a Guybrush standing while facing N will
+animate his body slightly. Cosmetic; revisit if it reads wrong.
+
+**Still open — `mask=0xFF` talk records** (anims 16–23, costume-111
+sparkle): the record is too short to host 8 modifiers, so `0xFF` is a
+sentinel whose meaning we haven't pinned; those stay static. Best
+cracked from a ScummVM cmd-trajectory trace of Guybrush talking.
 
 ### Clouds are a DIFFERENT mechanism (not the record decoder)
 
