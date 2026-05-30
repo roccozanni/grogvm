@@ -476,36 +476,11 @@ never clobbers script-driven FX actors (the intro sparkles, which
 (`scratch/verify-walk-trigger.ts`): walk-E drives record 9 with the body
 limb cycling 0→5 + a static head; arrival settles to the init pose.
 
-The resting pose uses the *init* chore (chore 1) — Guybrush's literal
-stand chore (3) is data-empty — and is then **frozen** (`freezeAnim`) so
-it holds a single static frame. Without the freeze, record 7 (facing-N)
-would *cycle* (it shares bytes with walk-W), animating a standing actor
-in place.
-
-### FIX — command bytes were blanking the walk (flicker) (2026-05-30)
-
-First playtest showed Guybrush's body **flickering / vanishing** for one
-tick every walk cycle, and odd standing poses. Cause: the walk cmd
-stream interleaves picture indices with **command bytes** (`0x71-0x7C`:
-sound triggers, loop/start markers), and MI1's walk loops *begin on a
-`0x79` marker* (`frameOffs[5] = 0x79`, walk-W's `frameIndex`). The
-compositor's naive rule "cmd byte → draw nothing" blanked the body limb
-on the first tick of every loop.
-
-Fix — command bytes are never drawable pictures, so playback advances
-*past* them, it never blanks:
-
-- `startAnim` **trims leading command bytes** from each limb's loop
-  window, so the loop starts on a real picture (walk-W becomes a clean
-  even 5-frame cycle `02 03 04 05 06` instead of `79 02 03 04 05 06`
-  with a blank).
-- `currentLimbPicture` (used by the compositor instead of the raw
-  `currentAnimCmd`) **skips command bytes mid-window**, wrapping within
-  the loop, and only returns -1 ("draw nothing") if the *entire* window
-  is commands. An active limb never blanks for a tick.
-
-Verified headlessly: the walk now cycles `02 03 04 05 06` with the body
-present every tick.
+**Known minor quirk:** the resting pose uses the *init* chore (chore 1)
+because Guybrush's literal stand chore (3) is data-empty. Init records
+4/5/6 are clean single-frame poses, but record 7 (facing-N) shares bytes
+with walk-W and so *cycles* — a Guybrush standing while facing N will
+animate his body slightly. Cosmetic; revisit if it reads wrong.
 
 **Still open — `mask=0xFF` talk records** (anims 16–23, costume-111
 sparkle): the record is too short to host 8 modifiers, so `0xFF` is a

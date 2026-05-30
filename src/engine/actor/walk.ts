@@ -22,7 +22,7 @@
 import type { Actor, Facing } from './actor';
 import type { Vm } from '../vm/vm';
 import { findPath } from '../pathfinding/grid';
-import { startAnim, freezeAnim } from '../graphics/costume-anim';
+import { startAnim } from '../graphics/costume-anim';
 
 /**
  * SCUMM "old direction" index for a facing. The costume anim record for
@@ -182,11 +182,7 @@ export function stepAllActorWalks(vm: Vm): void {
     if (actor.isMoving) {
       applyChore(vm, actor, actor.walkFrame);
     } else if (wasMoving) {
-      // Arrived: show the directional standing pose, then freeze it so a
-      // cycling init record (Guybrush's facing-N pose shares the walk
-      // loop) holds a single static frame instead of animating in place.
       applyChore(vm, actor, actor.initFrame);
-      actor.anim = freezeAnim(actor.anim);
     }
   }
 }

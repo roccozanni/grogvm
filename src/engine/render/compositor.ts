@@ -43,7 +43,7 @@
  */
 
 import type { Actor } from '../actor/actor';
-import { currentLimbPicture } from '../graphics/costume-anim';
+import { currentAnimCmd } from '../graphics/costume-anim';
 import { compositeActor } from '../graphics/composite';
 import type { LoadedCostume } from '../graphics/costume-loader';
 import { decodeCostumeFrame } from '../graphics/costume-frame';
@@ -239,18 +239,14 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
       // When an anim is driving, limbs it doesn't touch don't draw.
       if (anyActive && !limbActive) continue;
       // Per the SCUMM v5 anim-cmd convention: byte at
-      // `anim.limbs[i].start + cursor` is the picture index (< 0x71).
-      // `currentLimbPicture` skips command bytes (0x71-0x7C: sound /
-      // loop markers) so an active limb never blanks for a tick. -1 =
-      // the whole window is commands → genuine "draw nothing". Inactive
-      // limbs in the init-pose fallback read frame 0.
-      let frameIdx: number;
-      if (limbActive) {
-        frameIdx = currentLimbPicture(actor.anim, limbIdx, costume.payload);
-        if (frameIdx < 0) continue;
-      } else {
-        frameIdx = 0;
-      }
+      // `anim.limbs[i].start + cursor` in the costume payload is the
+      // picture index (frame number) when < 0x71. Inactive limbs in the
+      // init-pose fallback read frame 0.
+      const frameIdx = limbActive ? currentAnimCmd(actor.anim, limbIdx, costume.payload) : 0;
+      // Bytes 0x71-0x7C are animation commands (pause/resume/no-draw/
+      // counters), not picture indices — skip drawing this limb this
+      // tick (no skip record; it's a legitimate "draw nothing" frame).
+      if (limbActive && frameIdx >= 0x71 && frameIdx <= 0x7c) continue;
       const ptrOffset = tableOffset + frameIdx * 2;
       if (ptrOffset + 2 > costume.payload.length) {
         if (limbActive) {
