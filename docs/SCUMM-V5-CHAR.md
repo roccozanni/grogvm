@@ -39,11 +39,26 @@ LECF                  top-level container
 ```
 
 In MI1, every `CHAR` we've inspected lives in `LFLF9`. The index file
-(`MONKEY.000`) carries a `DCHR` directory mapping charset id → (disk
-file, byte offset), but the player doesn't need DCHR to browse — we
-walk `LECF > LFLF > CHAR` in source order. MI1 ships **5 charsets**
-across LFLF9; their roles correspond to dialog font / verb font /
-intro credits font / etc.
+(`MONKEY.000`) carries a `DCHR` directory mapping charset id → (owning
+room, byte offset). To merely *browse* the fonts you can walk
+`LECF > LFLF > CHAR` in source order. MI1 ships **5 charsets** across
+LFLF9; their roles correspond to dialog font / verb font / intro
+credits font / etc.
+
+### Resolving a charset *by id*
+
+When a script selects a font with `initCharset N` (the `cursorCommand`
+charset sub-op), **`N` must be resolved through the `DCHR` directory,
+not by walk order.** The two disagree: the charset id space includes
+built-in **null entries** (ids 0 and 5 in MI1) that occupy id slots but
+have no `CHAR` block, so the id of a real font is offset from its
+position in source order. Resolving `initCharset 2` by walk order
+returns the *wrong* font (a thin 1-bpp body font instead of the bold
+2-bpp talk font).
+
+The correct path is `id → DCHR[id] {room, offset} → loff(room) + offset
+→ CHAR block`. Walk order is only a safe fallback for the null ids,
+which have no directory entry to resolve.
 
 ---
 
@@ -204,6 +219,24 @@ rendering correctly in any chosen color.
 
 Slot 0 is always transparent regardless of its value, mirroring the
 COST convention.
+
+### Render-time colours vs. the embedded map
+
+The embedded `colorMap` entries above index 1 are **editor placeholders,
+not render colours.** A real 2-bpp talk/credit font decodes to glyph
+levels where value 1 is the inner **fill** and value 2 the outer
+**outline**, but the map's slot-2/slot-3 values are arbitrary ramp
+colours (teal/red in MI1) the engine does not use. At draw time SCUMM
+paints:
+
+- the **fill** in the active text colour (the `SO_COLOR` the script
+  set — actor talk colour, credit colour, etc.), and
+- the **outline** as a **black shadow** (CLUT 0).
+
+So the only meaningful runtime input is the single text colour; the
+outline is always black regardless of what the charset's colour map
+carries. Treating the embedded slot-2/3 values as the outline colour
+produces the wrong (teal-edged) text.
 
 ---
 

@@ -52,6 +52,38 @@ than as a param-mode flag (`0x46` = `inc`, `0xC6` = `dec`). Each
 handler reads the mode bits it cares about; the param decoder
 exposes `isVarParam(opcode, paramIndex)` to make the read explicit.
 
+**A leading "result" or read-var operand does not consume a
+mode-bit slot.** For opcodes shaped `result value…` (the `getActor*`
+family, `getInventoryCount`, `getDist`, the comparisons, `setVar`,
+…), the result/var is a raw word and the *first value* parameter is
+mode-index 1 (bit `0x80`), the second is index 2 (bit `0x40`). Off-
+by-one here silently misreads a byte parameter as a word (or vice
+versa) and desynchronises the whole stream.
+
+### Non-orthogonal families — a high bit can pick a *different* opcode
+
+Several families overload one of the "param-mode" bits as an **opcode
+selector**, so two genuinely different instructions share the same low
+five bits. The mode bits then live in the *remaining* high bits. The
+ones that bite:
+
+| Low 5 | Selector | Opcodes |
+|-------|----------|---------|
+| `0x0D` | bit `0x20` | `walkActorToActor` (`0x0D`) vs `putActorInRoom` (`0x2D`) |
+| `0x16` | bits `0x60` | `getRandomNumber` (`0x16`) / `walkActorToObject` (`0x36`) / `getActorMoving` (`0x56`) |
+| `0x03` | bits `0x60` | `getActorRoom`/`Y`/`X`/`Facing` (`0x03`/`0x23`/`0x43`/`0x63`) |
+| `0x05` | bit `0x20` | `drawObject` (`0x05`) vs `pickupObject` (`0x25`) |
+| `0x15` | bit `0x20` | `actorFromPos` (`0x15`) vs `findObject` (`0x35`) |
+| `0x17` | bit `0x20` | `and`/`or` (`0x17`/`0x57`) vs `startObject` (`0x37`/`0x77`/…) |
+| `0x12` | bit `0x20` | `panCameraTo` (`0x12`) vs `setCameraAt` (`0x32`) |
+| `0x0E` | bit `0x20` | `putActorAtObject` (`0x0E`) vs `delay` (`0x2E`) |
+
+The practical rule: **never register all eight high-bit variants of a
+family at one handler.** Decode each byte against the per-opcode
+reference and real bytecode. A blanket registration that swallows a
+selector bit is a classic source of "the boot script runs fine until it
+suddenly halts on a stray byte."
+
 ## 2. Variable-reference word
 
 When a parameter is a var-ref (rather than an immediate), the next
