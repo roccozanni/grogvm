@@ -28,6 +28,17 @@ states → audio → MI2) resumes: implement the **non-resource,
 non-sound** opcodes still stubbed, and close the open known-bugs and
 cosmetic gaps.
 
+**Latest (2026-05-30, session 2):** the Mêlée-island title/intro now
+renders and paces correctly. Fixed: the clouds/sparkles render
+(`animateActor` chore mapping), **engine pacing** (the SCUMM jiffy/frame
+split — motion was ~6× too fast), and **z-plane occlusion** (clouds
+behind the mountain + title logo; lookout fire behind the wall) via
+actor `forceClip` flags + per-object z-planes. Remaining for the next
+session: the **box-derived default clip**, the **"Le tre prove" card**,
+and the rest of the known-bugs list — all detailed under
+[Next step](#next-step-fresh-session--occlusion-default-clip--remaining-known-bugs)
+and the known-bugs list below.
+
 The durable engine/format knowledge that used to live here as session
 notes now lives in `docs/` — in particular:
 
@@ -37,6 +48,9 @@ notes now lives in `docs/` — in particular:
 - [SCUMM-V5-BOOT.md](docs/SCUMM-V5-BOOT.md) — system-variable seeding, the credits→first-room transition.
 - [SCUMM-V5-CHAR.md](docs/SCUMM-V5-CHAR.md) — charset-by-id resolution + the text fill/outline colour model.
 - [SCUMM-V5-OPCODES.md](docs/SCUMM-V5-OPCODES.md) — non-orthogonal opcode families.
+- [SCUMM-V5-TIMING.md](docs/SCUMM-V5-TIMING.md) — the jiffy/frame split; `VAR_TIMER_NEXT`; why motion ran too fast.
+- [SCUMM-V5-ZPLANE.md](docs/SCUMM-V5-ZPLANE.md) — actor `forceClip` (neverZclip/alwaysZclip), per-object z-planes, the box-mask default clip.
+- [SCUMM-V5-COSTUME-ANIM.md](docs/SCUMM-V5-COSTUME-ANIM.md) — the v5 record decoder + the `animateActor` chore mapping (clouds).
 
 **Tooling:** `src/engine/vm/disasm.ts` is a tested SCUMM v5
 disassembler (CLI front-end `scratch/dis.ts`, with a `SCAN` mode). Keep
@@ -172,24 +186,38 @@ Implement these faithfully:
       walk East and West both correct (body faces the right way, single
       sprite, no flicker / no double head). 646 tests pass.
 
-### Next step (fresh session) — eyeball talk, then close the Phase 8 list
+### Next step (fresh session) — occlusion default-clip + remaining known bugs
 
-Guybrush's walk is done and confirmed. Pick up with:
+The clouds, engine pacing, and the explicit-flag z-plane occlusion are
+done and (pacing) user-confirmed. Pick up — **the first two want your
+eyes on the running app, so start there**:
 
-1. **Visual-check the rest of the costume motion** now that the decoder
-   is correct: walking **N/S** (front/back), stopping (directional stand
-   pose), and **talk** — the talk anims (16–23) now decode as head
-   lip-sync on limb 1 while the body holds; confirm it reads right
-   in-game. `mask=0xFF` records on oddball costumes (e.g. #111) may still
-   need scrutiny if a specific FX looks wrong.
-2. Resume the **standing Phase 8 known-bugs list** (below): Z-plane
-   occlusion, compositor honouring `VAR_CURRENT_LIGHTS`, "Le tre prove"
-   cutscene pacing, credits fill colour, sentence-line in-canvas, smooth
-   `panCameraTo`, inventory scroll arrows, two-object use end-to-end.
+1. **Box-derived default actor clip** (the last z-plane piece). SCUMM
+   clips an actor with NO explicit `forceClip` by the **walk box `mask`**
+   of the box it stands in (verified 0/1/2 across rooms 10/38/33: `mask
+   0` = front, `mask N` = behind plane N — same mapping as `alwaysZclip`).
+   Wire it: add a point-in-walk-box lookup, and in the compositor make a
+   `forceClip < 0` actor's depth `boxMask > 0 ? boxMask - 1 :
+   effectivePlanes.length`. **Validate visually** — every actor in the
+   intro-reachable rooms already sets `forceClip`, so there's no headless
+   scene that exercises it; find a room where Guybrush walks behind
+   scenery (no script-set clip) and confirm against ScummVM. See
+   [docs/SCUMM-V5-ZPLANE.md](docs/SCUMM-V5-ZPLANE.md) §"box-mask".
 
-The costume-anim decoder + walk trigger are solid ground to build on;
-`docs/SCUMM-V5-COSTUME-ANIM.md` §"SOLVED" is the reference if anything
-costume-related needs revisiting.
+2. **"Le tre prove" part-title card** (still too brief — see the
+   known-bugs entry). Needs a ScummVM visual reference to settle the
+   intended presentation. Concrete sub-bug to fix regardless: our `print`
+   handler merges the card's two text segments and keeps only "Le Tre
+   Prove", dropping the "Parte Uno" line — it should render both stacked
+   (two `print` opcodes / a `\xff`-separated two-line system message).
+
+3. Then the rest of the **standing known-bugs list** (below), roughly by
+   value: compositor honouring `VAR_CURRENT_LIGHTS`, credits fill colour
+   (teal vs magenta), sentence-line in-canvas, smooth `panCameraTo`,
+   inventory scroll arrows, two-object use end-to-end.
+
+The costume-anim decoder, pacing model (`docs/SCUMM-V5-TIMING.md`), and
+z-plane model (`docs/SCUMM-V5-ZPLANE.md`) are solid ground to build on.
 
 **Separate item — the clouds. DONE (2026-05-30).** The Mêlée-island
 clouds are **actors** in the room-10 establishing pan (not room 38):
