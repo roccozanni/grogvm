@@ -18,7 +18,10 @@ sentence script), cutscenes that hide the UI and can be skipped
 (Escape), correct room lighting, right-click default verb, and an
 inventory rendered through the verb bar. A boot→gameplay opcode audit
 found the start→play path faithful at the logic level (see the Phase 7
-entry under Done).
+entry under Done). **Actors now animate**: the costume-anim decoder was
+rebuilt against the real v5 algorithm and Guybrush's walk cycle plays
+correctly (confirmed in-game) — see the Costume animation decoder item
+below.
 
 Phase 8 is a focused polish pass before the original roadmap (save
 states → audio → MI2) resumes: implement the **non-resource,
@@ -124,23 +127,30 @@ Implement these faithfully:
       drive a **persistent per-limb `stopped` bitmask**. This explains
       every playtest bug: limb 0 is the whole Guybrush, limb 1 a separate
       head — the walk *stops* the head (body carries it), stand un-stops
-      it, talk animates it. The **mirror flag** is implemented
-      (`compositeActor`). Verified headlessly: walk = one cycling body,
-      head stopped; intro composites with zero limb-skip errors. 646
-      tests pass.
+      it, talk animates it. The **mirror** is implemented
+      (`compositeActor`, `mirror = horizontal && (facingWest XOR
+      mirrorFlag)`). **Visually confirmed in-game (user, 2026-05-30):**
+      walk East and West both correct (body faces the right way, single
+      sprite, no flicker / no double head). 646 tests pass.
 
-### Next step — visual-confirm the walk, then `mask=0xFF` talk anims
+### Next step (fresh session) — eyeball talk, then close the Phase 8 list
 
-The live walk is wired and correct headlessly; it needs **visual
-confirmation** (HMR) — especially the **mirror direction** (we flip when
-facing West; if left/right read swapped, change `compositeActor`'s
-condition to `facing === 'E'`). Watch: walk left/right (smooth single
-body, no double head), stop (clean directional stand), walk up/down.
+Guybrush's walk is done and confirmed. Pick up with:
 
-**Still open — `mask=0xFF` talk records.** With the corrected u16-mask +
-−6 base, the talk anims (16–23) now decode (head lip-sync on limb 1) —
-but `mask=0xFF` records elsewhere (e.g. costume-111 oddballs) may still
-need scrutiny. Re-check talk in-game once the walk is confirmed.
+1. **Visual-check the rest of the costume motion** now that the decoder
+   is correct: walking **N/S** (front/back), stopping (directional stand
+   pose), and **talk** — the talk anims (16–23) now decode as head
+   lip-sync on limb 1 while the body holds; confirm it reads right
+   in-game. `mask=0xFF` records on oddball costumes (e.g. #111) may still
+   need scrutiny if a specific FX looks wrong.
+2. Resume the **standing Phase 8 known-bugs list** (below): Z-plane
+   occlusion, compositor honouring `VAR_CURRENT_LIGHTS`, "Le tre prove"
+   cutscene pacing, credits fill colour, sentence-line in-canvas, smooth
+   `panCameraTo`, inventory scroll arrows, two-object use end-to-end.
+
+The costume-anim decoder + walk trigger are solid ground to build on;
+`docs/SCUMM-V5-COSTUME-ANIM.md` §"SOLVED" is the reference if anything
+costume-related needs revisiting.
 
 **Separate item — the clouds.** The Mêlée-island clouds (room 38) slide
 right-to-left = a **positional** animation (`xinc`/`yinc` frame
