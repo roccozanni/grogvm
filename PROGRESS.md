@@ -123,41 +123,45 @@ Implement these faithfully:
       + per-set-bit `{u16 frameIndex, u8 lenFlags}`, `start =
       animCmdOffset + frameIndex` — with safe fallbacks for `mask`
       `0x00`/`0xFF`, a `0xFFFF` frameIndex, and out-of-range starts;
-      AND the **extended multi-limb / walk** record (the
-      `00 00 00 <mask> <mods>` 3-byte-zero-prefix form) — Guybrush's
-      walk now decodes to a cycling ~20×47 body + a steady 11×11 head,
-      verified headlessly. STILL OPEN: the `mask=0xFF` talk records, and
-      wiring the walk-anim *trigger* so it shows in gameplay → see
-      **Next step**.
+      AND the **extended** record (the `00 00 00 <mask> <mods>`
+      3-byte-zero-prefix form) decodes to plausible frame *sizes*. BUT a
+      live walk built on it rendered wrong (two heads / wrong facing) and
+      was **reverted** — the limb *count* is wrong (limb 0 is the whole
+      character, not a body that pairs with the separate head limb), and
+      the mirror flag + direction mapping are unimplemented. STILL OPEN:
+      a correct live walk (needs a v5 reference) and the `mask=0xFF` talk
+      records → see **Next step**.
 
-### Next step — wire the walk/stand chore trigger (the record is CRACKED)
+### Next step — the live walk needs a v5 reference (auto-trigger REVERTED)
 
-The **multi-limb / walk record format is decoded** (full evidence +
-verified frame trajectories in
-[docs/SCUMM-V5-COSTUME-ANIM.md](docs/SCUMM-V5-COSTUME-ANIM.md), section
-"CRACKED — the extended (multi-limb / walk) record"). There are two
-layouts — `compact` (`<u8 mask> <mods>`) and `extended`
-(`00 00 00 <u8 mask> <mods>`, the 3-byte-zero-prefix form that carries
-Guybrush's walk/stand/turn anims). `startAnim` now decodes both;
-Guybrush's walk resolves to a cycling ~20×47 body + a steady 11×11 head
-(headlessly verified). No regression — records that animated before
-still do, the `mask=0xFF` talk sentinel + oddballs stay static.
+The walk record's *frame sizes* decode (the `00 00 00 <mask> <mods>`
+extended form is in `startAnim`), but **wiring a live walk was reverted
+after playtest** — it rendered badly (two heads, vanishing body, wrong
+facing). Full corrected analysis in
+[docs/SCUMM-V5-COSTUME-ANIM.md](docs/SCUMM-V5-COSTUME-ANIM.md) §"REVERTED
+— the live walk was wrong". Key correction: **limb 0 is the COMPLETE
+Guybrush sprite** (head+body+legs), and **limb 1 is a separate head**
+(talk articulation) — so the record decoding to *two* limbs (mask
+`0xc0` → limbs 0+1) draws two heads. The walk is effectively
+single-limb; static frame-size validation was not enough to catch the
+wrong limb count.
 
-**What's left to SEE it walk (now unblocked).** `stepWalk` updates only
-`facing` — it never *starts* the walk anim, so the cracked decoder is
-only exercised by scripts that call `animateActor` directly. To make
-Guybrush visibly walk:
-1. Add `walkFrame` / `standFrame` / `initFrame` / `talkStartFrame` /
-   `talkStopFrame` fields to `Actor`, captured from `actorOps` sub-ops
-   `0x04` / `0x06` / `0x0e` / `0x05` (currently consumed-and-ignored at
-   `opcodes/index.ts` ~L1517).
-2. On walk start / each step set `anim = startAnim(walkFrame*4 + dir)`;
-   on arrival set `standFrame*4 + dir`. `oldDir`: `W=0, E=1, S=2, N=3`.
-3. **Validate the `frame*4 + dir` mapping against ScummVM, don't guess**
-   — our static decode shows walk records 4/5/6 as single frames and
-   only 7 cycling, so the side views may be mirrored single-frame walks
-   (or the per-costume `walkFrame` differs from the default 1). Getting
-   it wrong moonwalks the actor.
+A correct live walk is blocked on a v5 (ScummVM) reference for three
+things, none safely guessable:
+1. **Mask→limb semantics** — pin why `0xc0` should resolve to limb 0
+   only for the walk (head limb belongs to talk).
+2. **The costume mirror flag** (format bit 7) — unimplemented in
+   `compositor.ts` (Phase 3 limitation); without it half the directions
+   face backwards.
+3. **Direction→frame mapping** — standing faced *away*, so
+   `chore*4 + (W0,E1,S2,N3)` doesn't match the costume's frame order.
+
+Kept from this work: the extended-record decode in `startAnim` + its
+tests (dormant — only `animateActor` triggers it, and the intro FX use
+other record forms). Backed out: the chore-frame fields, the walk-loop
+auto-trigger, and the command-byte flicker fix (re-add when the walk is
+done properly). The engine is back to the prior known-good state — a
+walking actor shows its static sprite, not a broken multi-limb walk.
 
 **Still open — `mask=0xFF` talk records** (anims 16–23, costume-111
 sparkle): too short to host 8 modifiers, sentinel meaning unknown; stay

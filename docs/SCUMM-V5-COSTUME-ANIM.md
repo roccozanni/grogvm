@@ -459,6 +459,53 @@ side views are mirrored single-frame walks or the per-costume
 `walkFrame` differs from the default. Settle against a ScummVM walk
 before wiring, or it'll moonwalk.
 
+### REVERTED — the live walk was wrong (playtest, 2026-05-30)
+
+The walk/stand chore trigger (auto-`startAnim` from the walk loop) +
+chore-frame capture + a command-byte flicker fix were implemented and
+then **reverted** after playtesting showed the actor rendering is wrong
+in several independent ways. Screenshots showed: **two heads**, the
+**body vanishing** (only a floating head), the body **facing the wrong
+way while walking**, and **facing away** (back to camera) when standing.
+
+Rendering the actual limb sprites as ASCII (`scratch/render-walk-limbs.ts`)
+explains it and corrects the "CRACKED" section above:
+
+- **Limb 0 is the COMPLETE Guybrush** — head + body + legs in one
+  ~22×47 sprite (hair, face, white shirt, black pants, boots all
+  present). It is NOT a "body" that pairs with a separate head.
+- **Limb 1 is a separate ~11×11 head** positioned at the top
+  (`redirY ≈ -46`), for talk / head articulation.
+- So the walk record decoding to **two active limbs** (mask `0xc0` →
+  limbs 0+1) and drawing both yields **two heads** (limb 0's built-in
+  head + limb 1's overlay). The walk is effectively **single-limb**
+  (limb 0 = the whole character); the head limb belongs to the talk
+  anims, where limb 0 holds a body pose and limb 1 articulates.
+
+So the decoder's *frame sizes* are right but its **limb count /
+mask semantics are not** — the `0xc0` → "limbs 0+1" reading is the prime
+suspect (the walk should resolve to limb 0 alone). This is exactly the
+"needs a reference renderer" caveat: static frame-size plausibility was
+NOT enough to validate the limb composition.
+
+**What a correct live walk needs (all blocked on a v5 reference):**
+
+1. **Correct limb composition** — pin the real mask→limb semantics so
+   the walk activates limb 0 only (and talk activates body-pose + head).
+   `0xc0` decoding to two limbs is almost certainly wrong.
+2. **The costume mirror flag** (format bit 7) — NOT implemented
+   (`compositor.ts`; Phase 3 known limitation). MI1 stores frames for
+   one side and draws the other mirrored; without it half the walk
+   directions face backwards ("facing the wrong way while walking").
+3. **A validated direction→frame mapping** — standing faced *away*, so
+   `record = chore*4 + (W=0,E=1,S=2,N=3)` is not matching the costume's
+   actual per-direction frame order. Confirm against ScummVM.
+
+Until those are settled, the engine leaves a walking actor in its
+static sprite (the prior known-good state) rather than rendering a
+broken multi-limb walk. The decoder (`startAnim`) and its tests remain;
+only the auto-trigger was backed out.
+
 ### Clouds are a DIFFERENT mechanism (not the record decoder)
 
 User confirmed (screenshot, room 38 Mêlée-island lookout): the clouds
