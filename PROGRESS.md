@@ -183,27 +183,26 @@ Implement these faithfully:
         resolves for free when Phase 10 gives sounds a real duration — no
         sound-duration stopgap (a blanket guess would mis-pace other
         sound-waits). Until then the card is correct but brief.
-- [~] **Credits fill colour (teal vs magenta) — ROOT CAUSE FOUND
-      (2026-05-30, session 3); fix is non-trivial.** Every credit line
-      prints `SO_COLOR 3` → CLUT3 = teal in our render; **ScummVM shows
-      magenta (user-confirmed)**. Our colour→CLUT mapping is right
-      (copyright `color 5` → CLUT5 = magenta renders correctly; palette
-      decodes per-room — MI1 just reserves indices 0–15 as a fixed
-      EGA-ish set, so CLUT3 = (0,171,171) teal is genuinely room 10's
-      data). The remap is **global script #178**, the credits palette
-      **fade**: it sets CLUT slot 3 to **(223,83,223) = magenta** via
-      `roomOps setPalColor`. We DO implement `setPalColor` — but **#178
-      runs once at boot (t5) while `loadedRoom` is null**, so every
-      `setPalColor` is a no-op (the handler bails with no room), and
-      room 10 then loads its default teal CLUT3. In the original #178
-      must persist/loop and paint the LIVE room's palette each frame
-      during the credits. Fixing it needs #178's lifecycle/pacing sorted
-      (why it runs-and-dies at boot here) and likely a current-palette
-      model that survives a room load — **entangled with the boot/credits
-      orchestration**, so deferred. NB: #178's disasm *tail* (offset
-      631+) is still drifted (a non-print opcode mis-size), so its exact
-      loop/transition is unconfirmed — untangle that first. See
-      `scratch/when-178.ts` (the no-room-at-t5 proof).
+- [x] **UI palette — credits + verb + sentence colours (teal/orange vs
+      magenta) — FIXED (2026-05-31, session 3).** ALL the UI/text colours
+      were wrong (credits `color 3` → teal; verbs `color 6` → orange;
+      hovered/Esamina `color 3` → teal) where ScummVM shows the magenta
+      interface theme. **One root cause:** MI1's boot runs palette scripts
+      (global **#178**, sibling #6) that set the low "UI" CLUT indices
+      (1,2,3,6) to the magenta theme via `roomOps setPalColor` — **but
+      they run while no room is loaded** (#178 at t5, `loadedRoom` null),
+      so our handler bailed and dropped every write. Each room then loaded
+      its placeholder VGA-16 low palette (orange #6 / teal #3) over the
+      top. **Fix:** a no-room `setPalColor` is now recorded as a
+      persistent `vm.uiPaletteOverrides` entry and **re-applied on top of
+      every room's CLUT on load** (`enterRoom`). Verified headlessly: the
+      overrides are #1=(23,0,23), #2=(83,0,83), **#3=(223,83,223)
+      magenta**, **#6=(127,47,127) magenta** — so credits + verbs +
+      sentence all render magenta. Safe: room backgrounds use **0%** of
+      indices 1/2/3/6 (UI-only), so overriding can't corrupt bg art.
+      The original colour→CLUT mapping was always right (copyright
+      `color 5` → CLUT5 = magenta); the gap was purely the dropped boot
+      palette. Cleared on `reset`. **Wants a visual confirm in-app.**
 - [~] **Sentence line + verb-panel fidelity** (2026-05-30, session 3 —
       pending visual confirm; user feedback from ScummVM screenshots).
       Was an HTML `<div>` (browser font, bordered box). Now drawn **inside
@@ -226,16 +225,13 @@ Implement these faithfully:
       - **"Walk to" → "Vai".** The idle sentence hardcoded English
         "Walk to"; now reads the walk-to verb's name (verb #11 = "Vai" in
         the Italian build).
-      - **STILL OFF — verb/sentence COLOURS.** They render `color 6` →
-        CLUT6 = orange (and `color 3` → teal); ScummVM shows them
-        **magenta**. Same root cause as the credits teal-vs-magenta: a
-        runtime UI-palette remap (likely `charsetColor` 0x0E and/or a
-        `setPalColor` we miss) recolours the low indices to the magenta
-        UI theme. Both `color 6` and `color 3` land on magenta in ScummVM,
-        so distinct indices are remapped to the same UI colour. Grouped
-        with the credits palette work — see that entry.
-      **Wants a visual check**: font/placement/"Vai" should now match;
-      colours will still be orange until the UI-palette remap lands.
+      - **Verb/sentence COLOURS — NOW FIXED** (the boot UI-palette
+        override, see the "UI palette" entry above): `color 6` → CLUT6 =
+        magenta (127,47,127), `color 3` → CLUT3 = magenta (223,83,223),
+        so verbs, the sentence, and the credits all render in the magenta
+        UI theme matching ScummVM.
+      **Wants a visual check**: font/placement/"Vai"/colours should now
+      all match ScummVM.
 - [~] **Dialog escape codes** — DONE: substitutions `0x04` (int-var →
       decimal), `0x07` (string resource), `0x08` (object/verb name),
       threaded through `decodeScummString` / `decodeScummStringPages`.

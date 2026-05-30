@@ -2074,6 +2074,12 @@ function roomOpsHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
         pal[idx * 3] = r & 0xff;
         pal[idx * 3 + 1] = g & 0xff;
         pal[idx * 3 + 2] = b & 0xff;
+      } else if (!pal && idx >= 0 && idx < 256) {
+        // No room loaded — MI1's boot UI/credit palette scripts run before
+        // the first room. Record as a persistent override so each room
+        // load re-applies it (see Vm.uiPaletteOverrides); otherwise these
+        // colours (verb ink #6, credit/sentence #1–3) are lost.
+        vm.uiPaletteOverrides.set(idx, [r & 0xff, g & 0xff, b & 0xff]);
       }
       vm.annotate(`roomOps setPalColor (${r},${g},${b}) → slot ${idx}`);
       return;

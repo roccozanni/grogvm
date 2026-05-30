@@ -525,6 +525,19 @@ export class Vm {
    */
   readonly camera = { x: 0 };
   /**
+   * Persistent palette overrides (CLUT index → RGB) from `setPalColor`
+   * calls made while **no room is loaded** — MI1's boot runs UI/credit
+   * palette scripts (e.g. global #178) before the first room, setting the
+   * low "UI" indices (the verb ink #6, the credit/sentence colours #1–3)
+   * to the game's magenta interface theme. Those writes have no live room
+   * CLUT to land in, so we stash them here and **re-apply them on top of
+   * every room's CLUT on load** ({@link enterRoom}) — the room ships a
+   * placeholder VGA-16 low palette (orange #6 / teal #3) that would
+   * otherwise clobber the UI colours each room change. Cleared by
+   * {@link reset}. See docs/SCUMM-V5-LIGHTING.md / the credits-colour note.
+   */
+  readonly uiPaletteOverrides = new Map<number, readonly [number, number, number]>();
+  /**
    * Camera-centre scroll bounds set by `roomOps roomScroll` (subop
    * 0x01): the min/max X the camera centre may reach in this room.
    * `null` means "use the default bounds" — `[160, width-160]`, the
@@ -713,6 +726,21 @@ export class Vm {
       }
     } else {
       this.loadedRoom = null;
+    }
+
+    // Re-apply the persistent UI-palette overrides (set by boot palette
+    // scripts before any room existed) on top of this room's freshly
+    // decoded CLUT — otherwise the room's placeholder VGA-16 low palette
+    // clobbers the verb/credit/sentence colours every room change.
+    if (this.loadedRoom && this.uiPaletteOverrides.size > 0) {
+      const pal = this.loadedRoom.palette;
+      for (const [idx, [r, g, b]] of this.uiPaletteOverrides) {
+        if (idx >= 0 && idx < 256) {
+          pal[idx * 3] = r;
+          pal[idx * 3 + 1] = g;
+          pal[idx * 3 + 2] = b;
+        }
+      }
     }
 
     const next = this.loadedRoom;
@@ -1468,6 +1496,7 @@ export class Vm {
     this.frameAccumulator = 0;
     this.loadedRoom = null;
     this.lastRoomLoadError = null;
+    this.uiPaletteOverrides.clear();
     this.pseudoRooms.clear();
     this.systemRequest = null;
     this.actors.reset();

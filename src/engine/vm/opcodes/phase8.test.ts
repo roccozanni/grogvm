@@ -148,10 +148,23 @@ describe('phase 8 — roomOps setPalColor (0x04)', () => {
     expect(vm.haltInfo).toBeNull();
   });
 
-  it('is a no-op (no halt) when no room is loaded', () => {
+  it('records a persistent UI override when no room is loaded', () => {
     const vm = makeVm();
+    // setPalColor (10,20,30) → slot 5, with no room loaded (MI1 boot
+    // palette scripts run before the first room).
     run(vm, bytes(0x33, 0x04, 0x0a, 0x00, 0x14, 0x00, 0x1e, 0x00, 0x00, 0x05));
     expect(vm.haltInfo).toBeNull();
+    expect(vm.uiPaletteOverrides.get(5)).toEqual([10, 20, 30]);
+  });
+
+  it('re-applies UI overrides on top of each room CLUT on load', () => {
+    const room = fakeRoom(7);
+    room.palette[15] = 99; // slot 5 starts as the room's own value
+    const vm = makeVm(() => room);
+    // No room yet → records the override for slot 5.
+    run(vm, bytes(0x33, 0x04, 0x0a, 0x00, 0x14, 0x00, 0x1e, 0x00, 0x00, 0x05));
+    vm.enterRoom(7); // room loads, then the override is re-applied
+    expect([room.palette[15], room.palette[16], room.palette[17]]).toEqual([10, 20, 30]);
   });
 });
 
