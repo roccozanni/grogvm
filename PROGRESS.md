@@ -181,12 +181,27 @@ Implement these faithfully:
         resolves for free when Phase 10 gives sounds a real duration — no
         sound-duration stopgap (a blanket guess would mis-pace other
         sound-waits). Until then the card is correct but brief.
-- [ ] **Credits fill colour (teal vs magenta)** — every credit line
-      prints `SO_COLOR 3` → CLUT3 = teal in our data, but ScummVM shows
-      magenta from the *same* files. Our colour→CLUT mapping is proven
-      right (the copyright line's `color 5` → magenta renders correctly),
-      so something remaps CLUT3 for the credits that we don't do. Resolve
-      conclusively (find the remap) or confirm a release difference.
+- [~] **Credits fill colour (teal vs magenta) — ROOT CAUSE FOUND
+      (2026-05-30, session 3); fix is non-trivial.** Every credit line
+      prints `SO_COLOR 3` → CLUT3 = teal in our render; **ScummVM shows
+      magenta (user-confirmed)**. Our colour→CLUT mapping is right
+      (copyright `color 5` → CLUT5 = magenta renders correctly; palette
+      decodes per-room — MI1 just reserves indices 0–15 as a fixed
+      EGA-ish set, so CLUT3 = (0,171,171) teal is genuinely room 10's
+      data). The remap is **global script #178**, the credits palette
+      **fade**: it sets CLUT slot 3 to **(223,83,223) = magenta** via
+      `roomOps setPalColor`. We DO implement `setPalColor` — but **#178
+      runs once at boot (t5) while `loadedRoom` is null**, so every
+      `setPalColor` is a no-op (the handler bails with no room), and
+      room 10 then loads its default teal CLUT3. In the original #178
+      must persist/loop and paint the LIVE room's palette each frame
+      during the credits. Fixing it needs #178's lifecycle/pacing sorted
+      (why it runs-and-dies at boot here) and likely a current-palette
+      model that survives a room load — **entangled with the boot/credits
+      orchestration**, so deferred. NB: #178's disasm *tail* (offset
+      631+) is still drifted (a non-print opcode mis-size), so its exact
+      loop/transition is unconfirmed — untangle that first. See
+      `scratch/when-178.ts` (the no-room-at-t5 proof).
 - [ ] **Sentence line in-canvas** — currently an HTML `<div>`; MI1 draws
       it on the strip at the top of the verb area (verb #100). Render it
       into the verb-bar canvas via the CHAR renderer and drop the div.
@@ -247,12 +262,15 @@ pacing are done and user-confirmed. Pick up:
    (teal vs magenta), sentence-line in-canvas, smooth `panCameraTo`,
    inventory scroll arrows, two-object use end-to-end.
 
-   **Tooling TODO surfaced this session:** `disasm.ts`'s `print`/`printEgo`
-   sub-op parse reads the string until a trailing `0xFF` instead of
-   stopping at the `0x00` that ends `SO_TEXTSTRING` — so it swallows
-   everything after a print's text (it hid script 200's `startSound 104`
-   + `isSoundRunning` wait loop inside the "Parte Uno" string). Fix the
-   disassembler's print decoder to make `SO_TEXTSTRING` terminal.
+   **Tooling (session 3):** FIXED `disasm.ts`'s `print` sub-op parse —
+   `SO_TEXTSTRING` was read until a trailing `0xFF` instead of the `0x00`
+   NUL that ends a SCUMM print string (`0xFF`/`0xFE` are in-string escape
+   prefixes, not the terminator). It had swallowed everything after a
+   print's text — e.g. script 200's `startSound 104` + `isSoundRunning`
+   wait loop hid inside the "Parte Uno" string. Now terminal at NUL.
+   **STILL DRIFTS** on some scripts (e.g. global #178 past offset ~631):
+   a different non-print opcode is mis-sized there — chase it when the
+   credits-palette (#178) work resumes.
 
 The costume-anim decoder, pacing model (`docs/SCUMM-V5-TIMING.md`), and
 z-plane model (`docs/SCUMM-V5-ZPLANE.md`) are solid ground to build on.

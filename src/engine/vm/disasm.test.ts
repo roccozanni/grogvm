@@ -55,9 +55,22 @@ describe('disasm — single instructions', () => {
   });
 
   it('decodes print text, rendering escape codes', () => {
-    // print actor 252, subop 0x0F text "Hi" then 0xFF terminator
-    const out = disassemble(bytes(0x14, 0xfc, 0x0f, 0x48, 0x69, 0xff));
+    // print actor 252, subop 0x0F (SO_TEXTSTRING) text "Hi" then the
+    // 0x00 NUL that ends a SCUMM print string. (0xFF/0xFE are escape-code
+    // prefixes WITHIN a string, not the terminator — a print's text ends
+    // at NUL and the opcode ends with it.)
+    const out = disassemble(bytes(0x14, 0xfc, 0x0f, 0x48, 0x69, 0x00));
     expect(out[0]!.text).toBe('print a=252 text="Hi"');
+  });
+
+  it('stops print text at the NUL, not at an in-string escape, so the next opcode decodes', () => {
+    // Two prints back-to-back (no NUL-vs-0xFF confusion): the second must
+    // decode as its own opcode, not be swallowed into the first's text.
+    const out = disassemble(
+      bytes(0x14, 0xfe, 0x0f, 0x41, 0x00, 0x14, 0xfe, 0x0f, 0x42, 0x00),
+    );
+    expect(out[0]!.text).toBe('print a=254 text="A"');
+    expect(out[1]!.text).toBe('print a=254 text="B"');
   });
 });
 

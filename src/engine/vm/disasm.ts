@@ -447,7 +447,12 @@ class Decoder {
         case 0x06: out.push('left'); break;
         case 0x07: out.push('overhead'); break;
         case 0x08: out.push('PlayCDtrack'); break;
-        case 0x0f: out.push(`text="${this.cstr(0xff)}"`); return out.join(' ');
+        // SO_TEXTSTRING ends the print and is NUL-terminated; 0xFF/0xFE
+        // are escape-code prefixes WITHIN the string (cstr handles them),
+        // not the terminator. Stopping at 0xFF over-reads past the string
+        // into the following opcodes (it hid script 200's startSound +
+        // isSoundRunning wait loop behind the "Parte Uno" text).
+        case 0x0f: out.push(`text="${this.cstr(0)}"`); return out.join(' ');
         default: out.push(`<<printSub 0x${s.toString(16)}>>`); return out.join(' ');
       }
     }
