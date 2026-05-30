@@ -100,6 +100,15 @@ needed for Talk-to an actor).
 The inspector has stable DOM during Play; controls + frame stack mount
 once and only canvas pixels update per tick.
 
+### Session log (right-click look-at + smoke tests + two-object recon)
+
+DoD #3 right-click and the 3 smoke tests landed (see locked list). Open:
+- **Right-click look-at is pragmatic** (always verb 8), not the faithful
+  g182 per-object default verb — needs hover default-verb tracking.
+- **Two-object NOT implemented — investigated only.** It's an engine-
+  side sentence-builder state machine (not a verb table); verb ids +
+  globals recorded in the locked-list item. Design with Rocco first.
+
 ### Session log (cutscene UX — DONE)
 
 Closed DoD #6 + the click-gating blocker. Open / worth remembering:
@@ -641,9 +650,23 @@ charset-id resolution, `actorFromPos`/Talk-to, faithful click-to-walk,
 
 **Blocks the Definition of Done:**
 
-- [ ] **Two-object sentences — "Use X with Y"** (DoD #5). Only
-      single-object sentences exist; need `selectedObject` + preposition
-      + `objectB` through the sentence flow. The biggest gap.
+- [ ] **Two-object sentences — "Use X with Y"** (DoD #5). The biggest
+      gap. **Investigated (bytecode, not yet implemented):**
+      - MI1 verb ids (room 33): 2 Apri, 3 Chiudi, **4 Dai/Give**, 5 Premi,
+        6 Tira, **7 Usa/Use**, 8 Esamina, 9 Prendi, 10 Parla, 11 Vai
+        (default/Walk-to). Give(4) + Use(7) are the two-object verbs.
+      - The second-object gathering is SCUMM's **engine-side sentence-
+        construction state machine** (the `_sentenceNum` / active-object
+        / preposition logic), driven together with sentence script #2 —
+        NOT a per-verb table. Relevant globals seen live: g107 = active
+        verb, g182 = hover default verb, g100..g104 = the sentence
+        dedup/word-count state, g108/g110 = input flags. #2 re-issues
+        sentences via `doSentence verb=N` and decides object count itself
+        (e.g. `ifClassOfIs objB classes=[133]`, `isLess objB < 12`).
+      - **Do NOT hardcode a two-object verb list** (throwaway). Needs the
+        faithful builder: arm verb → click A (sentence line "Usa X con"
+        / "Dai X a") → click B → enqueue {verb,A,B}. Design the engine
+        sentence-builder state with Rocco before implementing.
 - [x] **Cutscene UX (DoD #6) — DONE.** Keyboard **Escape → `vm.abort
       Cutscene()`** (jumps the cutscene script to its armed `overridePc`,
       thaws it, sets `VAR_OVERRIDE=1`; no-op when no skippable cutscene
