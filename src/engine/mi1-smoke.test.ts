@@ -18,8 +18,6 @@ import { parseIndexFile } from './resources/index-file';
 import { parseLoff } from './resources/loff';
 import { SCUMM_V5_XOR_KEY } from './resources/xor';
 import { bootGame } from './vm/boot';
-import { stepAllActorWalks } from './actor/walk';
-import { stepAnim } from './graphics/costume-anim';
 import { VAR_CURRENT_LIGHTS, VAR_EGO } from './vm/vars';
 import type { Vm } from './vm/vm';
 
@@ -40,18 +38,10 @@ function boot(): Vm {
   return bootGame(res, index, parseLoff(res), 'MI1').vm;
 }
 
+// One jiffy via the shared engine driver (frame-gated scripts + actors +
+// anim, per-jiffy delay/timer countdown) — same model the shell runs.
 function tick(vm: Vm): void {
-  vm.beginTick();
-  vm.processSentence();
-  for (const s of vm.slots) {
-    if (s.status === 'yielded' && s.freezeCount === 0) {
-      if (s.delayRemaining > 0) { s.delayRemaining--; continue; }
-      s.resume();
-    }
-  }
-  vm.runUntilAllYield();
-  stepAllActorWalks(vm);
-  for (const a of vm.actors.all()) a.anim = stepAnim(a.anim);
+  vm.tick();
 }
 
 /**
@@ -66,11 +56,13 @@ function hover(vm: Vm, x: number, y: number): void {
   vm.vars.writeGlobal(21, y); // VAR_VIRT_MOUSE_Y
   vm.vars.writeGlobal(44, x); // VAR_MOUSE_X
   vm.vars.writeGlobal(45, y); // VAR_MOUSE_Y
-  for (let i = 0; i < 3; i++) tick(vm);
+  // Several frames' worth of jiffies so the per-frame #23 poller actually
+  // runs (a frame fires only every VAR_TIMER_NEXT jiffies).
+  for (let i = 0; i < 24; i++) tick(vm);
 }
 
 /** Boot + drive the intro until we land in the first interactive room. */
-function driveToFirstRoom(vm: Vm, maxTicks = 12000): boolean {
+function driveToFirstRoom(vm: Vm, maxTicks = 60000): boolean {
   for (let t = 0; t < maxTicks && !vm.haltInfo; t++) {
     tick(vm);
     if (vm.currentRoom === FIRST_ROOM) return true;
@@ -108,7 +100,7 @@ describe.skipIf(!hasData)('MI1 smoke — boot → gameplay', () => {
     hover(vm, 160, 140);
     vm.handleSceneClick(1);
     let moved = false;
-    for (let t = 0; t < 400 && !vm.haltInfo; t++) {
+    for (let t = 0; t < 2400 && !vm.haltInfo; t++) {
       tick(vm);
       const a = vm.actors.get(ego);
       if (a.x !== start.x || a.y !== start.y) { moved = true; break; }
@@ -124,11 +116,11 @@ describe.skipIf(!hasData)('MI1 smoke — boot → gameplay', () => {
     // the #23 poller loads it into g108, then a scene click → #4 commits
     // doSentence → #2 → printEgo.
     vm.handleVerbClick(8, 1);
-    for (let i = 0; i < 3; i++) tick(vm);
+    for (let i = 0; i < 24; i++) tick(vm);
     hover(vm, POSTER_X, POSTER_Y);
     vm.handleSceneClick(1);
     let dialog: string | null = null;
-    for (let t = 0; t < 600 && !vm.haltInfo; t++) {
+    for (let t = 0; t < 3600 && !vm.haltInfo; t++) {
       tick(vm);
       if (vm.activeDialog) { dialog = vm.activeDialog.text; break; }
     }

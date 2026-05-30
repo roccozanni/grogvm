@@ -7,8 +7,6 @@
  * underlying `Vm` lives across renders.
  */
 
-import { stepAllActorWalks } from '../../engine/actor/walk';
-import { stepAnim } from '../../engine/graphics/costume-anim';
 import { findPath } from '../../engine/pathfinding/grid';
 import { Canvas2DRenderer } from '../../engine/render/canvas2d';
 import { composeFrame } from '../../engine/render/compositor';
@@ -17,7 +15,7 @@ import type { RoomOffsetTable } from '../../engine/resources/loff';
 import type { ResourceFile } from '../../engine/resources/tree';
 import { bootGame, type GameId } from '../../engine/vm/boot';
 import type { ScriptSlot } from '../../engine/vm/slot';
-import type { HaltInfo, TraceEntry, Vm } from '../../engine/vm/vm';
+import type { HaltInfo, TickResult, TraceEntry, Vm } from '../../engine/vm/vm';
 import { VAR_EGO } from '../../engine/vm/vars';
 import { mountVmFrameInput, type ClickEvent } from './input';
 import { mountPlayArea } from './play-area';
@@ -232,47 +230,18 @@ export function renderVmInspector(
    * `walkTarget`. Returns true if anything ran, was resumed, or
    * we have a moving actor — false signals "no work, stop the loop".
    */
-  const oneTick = (): boolean => {
-    if (!state.vm || state.vm.haltInfo) return false;
-    // Mirror input + cursor state into the engine VARs *before*
-    // resuming scripts so any wait loop polling VAR_LEFTBTN_DOWN /
-    // VAR_USERPUT sees the freshest value this tick.
-    state.vm.beginTick();
-    // Sentence-script driver: if the user committed a verb+object this
-    // tick (or a script pushed a follow-up), start the sentence script
-    // before draining so it runs this tick.
-    state.vm.processSentence();
-    let resumed = false;
-    let delaying = false;
-    for (const s of state.vm.slots) {
-      // Frozen slots (cutscene / freezeScripts) are skipped entirely —
-      // not resumed, and their delay countdown is paused.
-      if (s.status === 'yielded' && s.freezeCount === 0) {
-        // Slots blocked on `delay N` ticks must stay yielded until
-        // their per-slot countdown drains. We decrement each tick;
-        // the slot only resumes when it hits 0. A ticking countdown IS
-        // progress — without counting it, a cutscene whose only live
-        // script is mid-`delay` (everything else frozen) looks "all
-        // dead" and Play auto-pauses a few ticks into the credits.
-        if (s.delayRemaining > 0) {
-          s.delayRemaining--;
-          delaying = true;
-          continue;
-        }
-        s.resume();
-        resumed = true;
-      }
+  // One jiffy (1/60 s). All the timing — input/music/talk timers, the
+  // `delay` countdown, and the frame gate that runs scripts + actors +
+  // anim only every VAR_TIMER_NEXT jiffies — lives in `vm.tick()`, so
+  // the shell and the headless harnesses share one model. We return the
+  // result so the caller can gate idle detection on real game frames.
+  const oneTick = (): TickResult => {
+    if (!state.vm || state.vm.haltInfo) {
+      return { framed: false, resumed: false, ran: 0, delaying: false };
     }
-    const ran = state.vm.runUntilAllYield();
-    stepAllActorWalks(state.vm);
-    // Step every actor's anim playback. Dormant actors with no
-    // active limbs are a no-op (stepAnim short-circuits).
-    for (const actor of state.vm.actors.all()) {
-      actor.anim = stepAnim(actor.anim);
-    }
+    const result = state.vm.tick();
     state.tickCount++;
-    const anyMoving = [...state.vm.actors.all()].some((a) => a.isMoving);
-    return resumed || ran > 0 || anyMoving || delaying;
+    return result;
   };
 
   /**
@@ -346,13 +315,19 @@ export function renderVmInspector(
         Math.max(1, Math.floor(elapsed / minIntervalMs)),
       );
       for (let i = 0; i < batch; i++) {
-        const progressed = oneTick();
+        const result = oneTick();
         if (state.vm.haltInfo) {
           state.playing = false;
           state.idleReason = null;
           repaint();
           return;
         }
+        // Non-frame jiffies are just time passing toward the next game
+        // frame — always "progress". Idle / all-dead detection only
+        // applies on real frames, where scripts + actors actually ran.
+        if (!result.framed) continue;
+        const anyMoving = [...state.vm.actors.all()].some((a) => a.isMoving);
+        const progressed = result.resumed || result.ran > 0 || anyMoving || result.delaying;
         if (!progressed) {
           // Truly nothing left — everything's dead. Pause cleanly.
           state.playing = false;

@@ -90,10 +90,20 @@ Implement these faithfully:
 - [ ] **Compositor honours `VAR_CURRENT_LIGHTS`** — a dark room (room 38
       night scene) should darken via the lights flag, not only via a
       dark palette. See [docs/SCUMM-V5-LIGHTING.md](docs/SCUMM-V5-LIGHTING.md) §4.
-- [ ] **"Le tre prove" cutscene pacing** — the Three-Trials interstitial
-      plays in under a second; the original holds for several. A timing
-      bug in how a `delay` / `wait` / talk-timer gates the cutscene vs.
-      the original ~60 Hz clock.
+- [x] **Engine pacing — jiffy/frame split (2026-05-30).** Everything
+      that moves (clouds, sparkles, lookout fire, Guybrush walking) ran
+      ~6× too fast even though delay-gated cutscene wall-time matched
+      ScummVM. Root cause: the main loop ran scripts + actors + anim
+      **every jiffy** (60 Hz) instead of once per **game frame**
+      (`VAR_TIMER_NEXT` jiffies ≈ 6 → ~10 fps). `Vm.tick()` is now the
+      canonical per-jiffy driver: `beginTick` timers + `delay` countdown
+      run every jiffy; scripts/walk/anim are gated to frame boundaries.
+      See [docs/SCUMM-V5-TIMING.md](docs/SCUMM-V5-TIMING.md).
+- [~] **"Le tre prove" cutscene pacing** — the Three-Trials interstitial
+      played in under a second; the original holds for several. Same root
+      cause as the pacing fix above (a breakHere-loop cutscene running 6×
+      too fast) — **likely fixed by the jiffy/frame split; verify
+      visually.**
 - [ ] **Credits fill colour (teal vs magenta)** — every credit line
       prints `SO_COLOR 3` → CLUT3 = teal in our data, but ScummVM shows
       magenta from the *same* files. Our colour→CLUT mapping is proven

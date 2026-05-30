@@ -32,7 +32,8 @@
  */
 
 import { ActorTable, DEFAULT_ACTOR_COUNT } from '../actor/actor';
-import { startWalk } from '../actor/walk';
+import { startWalk, stepAllActorWalks } from '../actor/walk';
+import { stepAnim } from '../graphics/costume-anim';
 import { findVerbScript } from '../object/verbs';
 import type { LoadedCostume } from '../graphics/costume-loader';
 import type { CharsetHeader } from '../graphics/charset';
@@ -41,6 +42,24 @@ import type { Sentence } from './sentence';
 import { ScriptSlot } from './slot';
 import { Variables } from './variables';
 import * as VARS from './vars';
+
+/**
+ * Jiffies per game frame when `VAR_TIMER_NEXT` is unset / out of range.
+ * MI1 runs the intro with `VAR_TIMER_NEXT = 6` (≈ 10 fps).
+ */
+const DEFAULT_FRAME_INTERVAL = 6;
+
+/** What {@link Vm.tick} did this jiffy. */
+export interface TickResult {
+  /** True if a game frame ran this jiffy (scripts + actors + anim advanced). */
+  readonly framed: boolean;
+  /** True if any slot was resumed this frame. */
+  readonly resumed: boolean;
+  /** Opcodes dispatched this frame. */
+  readonly ran: number;
+  /** True if a slot's `delay` countdown ticked this jiffy. */
+  readonly delaying: boolean;
+}
 
 export class UnknownOpcodeError extends Error {
   constructor(public readonly opcode: number) {
@@ -270,6 +289,14 @@ export class Vm {
    * once the compositor lands. Zero = no room yet.
    */
   currentRoom = 0;
+  /**
+   * Jiffies elapsed toward the next game frame. SCUMM splits the 60 Hz
+   * jiffy clock (which paces `delay` / timers) from the game frame
+   * (scripts + actors + anim), which advances once every
+   * `VAR_TIMER_NEXT` jiffies. {@link tick} accumulates here and runs a
+   * frame when it reaches the interval. See {@link tick}.
+   */
+  private frameAccumulator = 0;
   /**
    * Fully-decoded data for the current room — background bitmap,
    * palette, z-planes, ENCD/EXCD bytecode. `null` until the first
@@ -1096,6 +1123,72 @@ export class Vm {
   }
 
   /**
+   * Advance the engine by one **jiffy** (1/60 s), the unit `delay` and
+   * the timers count in. Returns what happened (see {@link TickResult}).
+   *
+   * SCUMM separates two clocks. The **jiffy clock** (60 Hz) paces
+   * `delay`, `VAR_MUSIC_TIMER`, and the talk timer — all wall-time
+   * accurate. The **game frame** — running scripts, walking actors, and
+   * advancing costume animation — fires only once every
+   * `VAR_TIMER_NEXT` jiffies (MI1: 6 → ~10 fps). Running the frame work
+   * every jiffy instead (the old behaviour) makes everything that moves
+   * — walks, cloud/sparkle/fire anims — run ~6× too fast even though
+   * delay-gated cutscene timing stays correct.
+   *
+   * So every jiffy we tick the input/music/talk timers ({@link beginTick})
+   * and the per-slot `delay` countdown; only on a frame boundary do we
+   * resume scripts, drain them, step walks, and advance anims.
+   *
+   * This is the canonical per-jiffy driver — the shell's main loop and
+   * headless harnesses both call it so the timing model lives in one
+   * place. Frozen slots (cutscene / `freezeScripts`) are never resumed
+   * and their `delay` countdown is paused, matching the original.
+   */
+  tick(): TickResult {
+    if (this._haltInfo) return { framed: false, resumed: false, ran: 0, delaying: false };
+    // Per-jiffy: input/cursor mirror, music + talk timers, camera follow.
+    this.beginTick();
+    // Per-jiffy: drain `delay` countdowns. A frozen slot's delay is paused.
+    let delaying = false;
+    for (const s of this.slots) {
+      if (s.status === 'yielded' && s.freezeCount === 0 && s.delayRemaining > 0) {
+        s.delayRemaining--;
+        delaying = true;
+      }
+    }
+    // Frame gate: only run the heavy frame work every VAR_TIMER_NEXT jiffies.
+    this.frameAccumulator++;
+    if (this.frameAccumulator < this.frameInterval()) {
+      return { framed: false, resumed: false, ran: 0, delaying };
+    }
+    this.frameAccumulator = 0;
+    // ── one game frame ──
+    this.processSentence();
+    let resumed = false;
+    for (const s of this.slots) {
+      if (s.status === 'yielded' && s.freezeCount === 0 && s.delayRemaining === 0) {
+        s.resume();
+        resumed = true;
+      }
+    }
+    const ran = this.runUntilAllYield();
+    stepAllActorWalks(this);
+    for (const actor of this.actors.all()) actor.anim = stepAnim(actor.anim);
+    return { framed: true, resumed, ran, delaying };
+  }
+
+  /**
+   * Jiffies per game frame, from `VAR_TIMER_NEXT` (clamped to a sane
+   * range). MI1 runs ~6 (≈ 10 fps); falls back to
+   * {@link DEFAULT_FRAME_INTERVAL} when the var is unset / nonsensical.
+   */
+  private frameInterval(): number {
+    const v = this.vars.readGlobal(VARS.VAR_TIMER_NEXT);
+    if (!Number.isFinite(v) || v < 1) return DEFAULT_FRAME_INTERVAL;
+    return Math.min(v, 60);
+  }
+
+  /**
    * Scroll the camera to keep the followed actor (`cameraFollowActor`)
    * within a central dead-zone band. The actor can drift up to
    * `CAMERA_DEAD_ZONE` px off-centre before the camera moves — small
@@ -1323,6 +1416,7 @@ export class Vm {
     this.objectClasses.clear();
     this.objectDrawQueue.clear();
     this.currentRoom = 0;
+    this.frameAccumulator = 0;
     this.loadedRoom = null;
     this.lastRoomLoadError = null;
     this.pseudoRooms.clear();

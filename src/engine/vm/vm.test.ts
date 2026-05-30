@@ -739,3 +739,44 @@ describe('Vm — enterRoom + ENCD/EXCD', () => {
     expect(vm.slots.every((s) => s.label === '')).toBe(true);
   });
 });
+
+describe('tick() — jiffy/frame split', () => {
+  // 0x01: increment g0. 0x02: reset pc to 0 and yield (loop forever,
+  // one increment per resume) — i.e. one increment per game frame.
+  const incLoop: Record<number, OpcodeHandler> = {
+    0x01: (vm) => vm.vars.writeGlobal(0, vm.vars.readGlobal(0) + 1),
+    0x02: (_vm, slot) => { slot.pc = 0; slot.yield_(); },
+  };
+
+  it('runs the script frame only every VAR_TIMER_NEXT jiffies', () => {
+    const vm = makeVm(incLoop);
+    vm.vars.writeGlobal(19, 4); // VAR_TIMER_NEXT = 4 jiffies per frame
+    vm.startScript({ scriptId: 1, bytecode: new Uint8Array([0x01, 0x02]) });
+    // First tick is a frame (accumulator 0 -> 1 >= ... ); count frames.
+    let frames = 0;
+    for (let j = 0; j < 20; j++) if (vm.tick().framed) frames++;
+    // 20 jiffies / 4 per frame = 5 frames, and the loop increments g0
+    // exactly once per frame.
+    expect(frames).toBe(5);
+    expect(vm.vars.readGlobal(0)).toBe(5);
+  });
+
+  it('counts down a slot delay every jiffy, resuming on the next frame', () => {
+    const vm = makeVm(incLoop);
+    vm.vars.writeGlobal(19, 5); // 5 jiffies per frame
+    const slot = vm.startScript({ scriptId: 1, bytecode: new Uint8Array([0x01, 0x02]) });
+    // Run one frame so the loop is established, then park it on a delay.
+    vm.tick();
+    slot.yield_();
+    slot.delayRemaining = 8;
+    const g0 = vm.vars.readGlobal(0);
+    // 8 jiffies of delay: decrements every jiffy regardless of frames.
+    for (let j = 0; j < 8; j++) vm.tick();
+    expect(slot.delayRemaining).toBe(0);
+    // It must not have resumed (and incremented) while delaying.
+    expect(vm.vars.readGlobal(0)).toBe(g0);
+    // Next frame boundary resumes it.
+    for (let j = 0; j < 5; j++) vm.tick();
+    expect(vm.vars.readGlobal(0)).toBeGreaterThan(g0);
+  });
+});
