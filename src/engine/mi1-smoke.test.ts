@@ -29,8 +29,9 @@ const hasData = existsSync(INDEX) && existsSync(RESOURCE);
 
 /** The first interactive room of the intro (Mêlée lookout path → room 33). */
 const FIRST_ROOM = 33;
-/** The election-poster object in room 33 + its "Look at" description. */
-const POSTER_OBJ = 429;
+/** The election-poster object in room 33 + a room-px point inside it. */
+const POSTER_X = 268;
+const POSTER_Y = 104;
 const POSTER_LOOK = 'Rieleggete il Governatore Marley.';
 
 function boot(): Vm {
@@ -51,6 +52,21 @@ function tick(vm: Vm): void {
   vm.runUntilAllYield();
   stepAllActorWalks(vm);
   for (const a of vm.actors.all()) a.anim = stepAnim(a.anim);
+}
+
+/**
+ * Point the virtual mouse at a room coord and let the #23 hover poller
+ * run a few frames so it hit-tests the object into g108 (the faithful
+ * way the click flow learns what's under the cursor).
+ */
+function hover(vm: Vm, x: number, y: number): void {
+  vm.mouseRoomX = x;
+  vm.mouseRoomY = y;
+  vm.vars.writeGlobal(20, x); // VAR_VIRT_MOUSE_X
+  vm.vars.writeGlobal(21, y); // VAR_VIRT_MOUSE_Y
+  vm.vars.writeGlobal(44, x); // VAR_MOUSE_X
+  vm.vars.writeGlobal(45, y); // VAR_MOUSE_Y
+  for (let i = 0; i < 3; i++) tick(vm);
 }
 
 /** Boot + drive the intro until we land in the first interactive room. */
@@ -75,7 +91,10 @@ describe.skipIf(!hasData)('MI1 smoke — boot → gameplay', () => {
     // Room reads as lit (the lighting fix) so look-ats give real text.
     expect(vm.vars.readGlobal(VAR_CURRENT_LIGHTS)).not.toBe(0);
     // Control returned to the player: user input enabled, a verb active.
-    expect(vm.cursor.userput).toBe(true);
+    expect(vm.cursor.userput).toBeGreaterThan(0);
+    // Cursor is live (g52 > 0) so the #23 hover poller runs — the basis
+    // of the faithful click flow.
+    expect(vm.cursor.state).toBeGreaterThan(0);
     expect([...vm.verbs.values()].some((v) => v.state === 'on')).toBe(true);
   });
 
@@ -84,12 +103,10 @@ describe.skipIf(!hasData)('MI1 smoke — boot → gameplay', () => {
     expect(driveToFirstRoom(vm)).toBe(true);
     const ego = vm.vars.readGlobal(VAR_EGO);
     const start = { x: vm.actors.get(ego).x, y: vm.actors.get(ego).y };
-    // Bare floor click (no object) → MI1's #4 walks ego to the point.
-    vm.mouseRoomX = 160;
-    vm.mouseRoomY = 140;
-    vm.vars.writeGlobal(44, 160); // VAR_MOUSE_X
-    vm.vars.writeGlobal(45, 140); // VAR_MOUSE_Y
-    vm.handleSceneClick(0, 1);
+    // Hover a bare floor point (no object) then click — #4 walks ego to
+    // the mouse coords. Faithful flow: scene click carries no object id.
+    hover(vm, 160, 140);
+    vm.handleSceneClick(1);
     let moved = false;
     for (let t = 0; t < 400 && !vm.haltInfo; t++) {
       tick(vm);
@@ -103,10 +120,13 @@ describe.skipIf(!hasData)('MI1 smoke — boot → gameplay', () => {
   it('verb-dispatch: Look at the poster runs sentence script #2 → real description', () => {
     const vm = boot();
     expect(driveToFirstRoom(vm)).toBe(true);
-    // Arm "Look at" (verb 8) + click the poster → sentence #2 → printEgo.
-    vm.currentVerb = 8;
-    vm.handleSceneClick(POSTER_OBJ, 1);
-    expect(vm.sentenceStack.length).toBe(1);
+    // Faithful flow: click the "Esamina" verb (8), hover the poster so
+    // the #23 poller loads it into g108, then a scene click → #4 commits
+    // doSentence → #2 → printEgo.
+    vm.handleVerbClick(8, 1);
+    for (let i = 0; i < 3; i++) tick(vm);
+    hover(vm, POSTER_X, POSTER_Y);
+    vm.handleSceneClick(1);
     let dialog: string | null = null;
     for (let t = 0; t < 600 && !vm.haltInfo; t++) {
       tick(vm);

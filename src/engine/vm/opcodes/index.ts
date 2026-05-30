@@ -31,7 +31,7 @@ import { startAnim } from '../../graphics/costume-anim';
 import { pickObject } from '../../object/hittest';
 import { evalExpression } from '../expression';
 import { SENTENCE_CLEAR_VERB } from '../sentence';
-import { VAR_CURRENT_LIGHTS, VAR_HAVE_MSG, VAR_OVERRIDE } from '../vars';
+import { VAR_CURRENT_LIGHTS, VAR_CURSORSTATE, VAR_HAVE_MSG, VAR_OVERRIDE, VAR_USERPUT } from '../vars';
 import {
   derefRead,
   formatRefLabel,
@@ -300,77 +300,84 @@ register(0xa6, makeSetVarRange(true));
 register(0x2c, (vm, slot) => {
   const subop = readU8(slot);
   const action = subop & 0x1f;
+  // Cursor / userput state are COUNTERS (see o5_cursorCommand): hard
+  // on/off set 1/0, the "soft" variants increment/decrement so a
+  // cutscene's soft-off nests and a soft-on only re-shows the cursor if
+  // it was up before. `state`/`userput` are mirrored into
+  // VAR_CURSORSTATE / VAR_USERPUT at the end (matching the original's
+  // `if (version >= 4)` tail), so a script polling them right after this
+  // opcode sees the live value.
   switch (action) {
-    case 0x01:
-      vm.cursor.visible = true;
+    case 0x01: // SO_CURSOR_ON
+      vm.cursor.state = 1;
       vm.annotate('cursorCommand cursorOn');
-      return;
-    case 0x02:
-      vm.cursor.visible = false;
+      break;
+    case 0x02: // SO_CURSOR_OFF
+      vm.cursor.state = 0;
       vm.annotate('cursorCommand cursorOff');
-      return;
-    case 0x03:
-      vm.cursor.userput = true;
+      break;
+    case 0x03: // SO_USERPUT_ON
+      vm.cursor.userput = 1;
       vm.annotate('cursorCommand userputOn');
-      return;
-    case 0x04:
-      vm.cursor.userput = false;
+      break;
+    case 0x04: // SO_USERPUT_OFF
+      vm.cursor.userput = 0;
       vm.annotate('cursorCommand userputOff');
-      return;
-    case 0x05:
-      // Soft subops are the cutscene-friendly variants — same end
-      // state on cursor.visible, separate hard/soft tracking can land
-      // when the cutscene module needs it.
-      vm.cursor.visible = true;
+      break;
+    case 0x05: // SO_CURSOR_SOFT_ON
+      vm.cursor.state++;
       vm.annotate('cursorCommand cursorSoftOn');
-      return;
-    case 0x06:
-      vm.cursor.visible = false;
+      break;
+    case 0x06: // SO_CURSOR_SOFT_OFF
+      vm.cursor.state--;
       vm.annotate('cursorCommand cursorSoftOff');
-      return;
-    case 0x07:
-      vm.cursor.userput = true;
+      break;
+    case 0x07: // SO_USERPUT_SOFT_ON
+      vm.cursor.userput++;
       vm.annotate('cursorCommand userputSoftOn');
-      return;
-    case 0x08:
-      vm.cursor.userput = false;
+      break;
+    case 0x08: // SO_USERPUT_SOFT_OFF
+      vm.cursor.userput--;
       vm.annotate('cursorCommand userputSoftOff');
-      return;
+      break;
     case 0x0a: {
       const cur = readVarOrByte(subop, 1, slot, vm.vars);
       const ch = readVarOrByte(subop, 2, slot, vm.vars);
       vm.annotate(`cursorCommand setCursorImage cur=${cur} char=${ch} (stub)`);
-      return;
+      break;
     }
     case 0x0b: {
       const cur = readVarOrByte(subop, 1, slot, vm.vars);
       const x = readVarOrByte(subop, 2, slot, vm.vars);
       const y = readVarOrByte(subop, 3, slot, vm.vars);
       vm.annotate(`cursorCommand setCursorHotspot cur=${cur} (${x},${y}) (stub)`);
-      return;
+      break;
     }
     case 0x0c: {
       const cur = readVarOrByte(subop, 1, slot, vm.vars);
       vm.annotate(`cursorCommand initCursor cur=${cur} (stub)`);
-      return;
+      break;
     }
     case 0x0d: {
       const charset = readVarOrByte(subop, 1, slot, vm.vars);
       vm.currentCharset = charset;
       vm.annotate(`cursorCommand initCharset charset=${charset}`);
-      return;
+      break;
     }
     case 0x0e: {
       // charsetColor: word-vararg list of CLUT indices, terminated by 0xFF.
       const colors = readWordVararg(slot, vm.vars);
       vm.annotate(`cursorCommand charsetColor [${colors.join(',')}] (stub)`);
-      return;
+      break;
     }
     default:
       throw new Error(
         `cursorCommand: unknown subop 0x${action.toString(16).padStart(2, '0')} (raw=0x${subop.toString(16)})`,
       );
   }
+  // o5_cursorCommand tail (version >= 4): publish the counters.
+  vm.vars.writeGlobal(VAR_CURSORSTATE, vm.cursor.state);
+  vm.vars.writeGlobal(VAR_USERPUT, vm.cursor.userput);
 });
 
 // ─── 0x98  systemOps ─────────────────────────────────────────────────
@@ -1713,10 +1720,10 @@ function verbOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
         break;
       case 0x08:
         // `delete` removes the slot entirely — distinct from `off`,
-        // which preserves it for later `on`.
+        // which preserves it for later `on`. (The active verb lives in a
+        // game global now — g107 — managed by the verb-input script, so
+        // there's no engine-side selection to clear here.)
         vm.verbs.delete(verbId);
-        // If the deleted verb was armed, clear the selection.
-        if (vm.currentVerb === verbId) vm.currentVerb = null;
         subops.push('delete');
         break;
       case 0x09:

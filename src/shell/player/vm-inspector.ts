@@ -672,14 +672,16 @@ function renderInputPanel(state: InspectorState): HTMLElement {
   // logic actually sees.
   const engineRow = document.createElement('p');
   engineRow.className = 'vm-input-live';
-  const verbBits = vm.currentVerb !== null
-    ? `${vm.currentVerb} (${vm.verbs.get(vm.currentVerb)?.name ?? '?'})`
+  // Active verb lives in MI1 game global g107 now (set by script #4).
+  const activeVerb = vm.vars.readGlobal(107);
+  const verbBits = activeVerb > 0
+    ? `${activeVerb} (${vm.verbs.get(activeVerb)?.name ?? '?'})`
     : 'none';
   engineRow.textContent =
-    `vm.cursor.visible=${vm.cursor.visible} · ` +
+    `vm.cursor.state=${vm.cursor.state} · ` +
     `vm.cursor.userput=${vm.cursor.userput} · ` +
     `currentCharset=${vm.currentCharset} · ` +
-    `currentVerb=${verbBits} · ` +
+    `g107(verb)=${verbBits} · ` +
     `verbs=${vm.verbs.size}`;
   panel.appendChild(engineRow);
 

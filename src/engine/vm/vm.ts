@@ -306,14 +306,15 @@ export class Vm {
   mouseRoomY = 0;
   /**
    * Cursor / userput state, mutated by the `cursorCommand` opcode
-   * (0x2C) subops. `visible` gates whether the cursor sprite paints;
-   * `userput` gates whether the input layer accepts clicks (cutscenes
-   * temporarily turn this off so the user can't click through). The
-   * "soft" subops just toggle the same flags for the duration of a
-   * cutscene — distinct call paths but same end state, until we have
-   * a reason to model the soft / hard distinction separately.
+   * (0x2C) subops and mirrored into `VAR_CURSORSTATE` (g52) /
+   * `VAR_USERPUT` (g53). Both are **counters**, matching the original
+   * (`SO_CURSOR_SOFT_ON/OFF` do `state++/--`, hard on/off set 1/0): a
+   * cutscene's soft-off can nest, and a soft-on only re-shows the cursor
+   * if it was on before. `state > 0` = cursor live (gates the sprite and
+   * MI1's #23 hover poller); `userput > 0` = input accepted (cutscenes
+   * drop it so clicks don't pass through).
    */
-  readonly cursor = { visible: false, userput: false };
+  readonly cursor = { state: 0, userput: 0 };
   /**
    * Charset id the engine currently uses for text rendering (verb bar,
    * dialog). Updated by cursorCommand initCharset (subop 0x0D). Zero =
@@ -335,14 +336,6 @@ export class Vm {
    * {@link reset}.
    */
   readonly savedVerbStates = new Map<number, VerbSlot['state']>();
-  /**
-   * The verb the user most recently clicked on the verb bar, awaiting
-   * an object. `null` means no verb is currently armed — a click on
-   * an object becomes a walk command (or a "Look at" via right-click,
-   * the v5 default). Set by the verb-bar input layer; read by the
-   * sentence builder.
-   */
-  currentVerb: number | null = null;
   /**
    * Pending sentences awaiting the sentence-script driver. Treated as
    * a stack (LIFO) — `doSentence` pushes, {@link processSentence} pops
@@ -506,6 +499,8 @@ export class Vm {
    */
   static readonly VAR_MUSIC_TIMER = VARS.VAR_MUSIC_TIMER;
   static readonly VAR_USERPUT = VARS.VAR_USERPUT;
+  /** Engine-maintained cursor state. `> 0` enables MI1's #23 hover poller. */
+  static readonly VAR_CURSORSTATE = VARS.VAR_CURSORSTATE;
   static readonly VAR_SENTENCE_SCRIPT = VARS.VAR_SENTENCE_SCRIPT;
   /** Non-zero while a message is being "said"; gates `wait`-for-message. */
   static readonly VAR_HAVE_MSG = VARS.VAR_HAVE_MSG;
@@ -545,16 +540,6 @@ export class Vm {
   static readonly CLICK_AREA_SCENE = 2;
   static readonly CLICK_AREA_INVENTORY = 3;
 
-  /**
-   * MI1's "Look at" (Esamina) command-verb id. Used as the right-click
-   * default action on a scene object — the v5 convention maps the right
-   * button to an object's *default verb*, which for ordinary scenery is
-   * Look at. (The fully faithful path arms `g107 = g182`, the
-   * hover-tracked per-object default verb that script #4 sets; until we
-   * track g182 per object, Look at is the sensible universal default and
-   * matches the standard MI1 verb layout — verbs 2..11, 8 = Look at.)
-   */
-  static readonly VERB_LOOK_AT = 8;
 
   constructor(init: VmInit) {
     this.vars = new Variables({
@@ -898,38 +883,31 @@ export class Vm {
   }
 
   /**
-   * Handle a verb-bar click (the engine's checkExecVerbs behavior for
-   * a verb). Arms the verb as the current one and fires the input-
-   * script hook. The next object click forms the sentence.
+   * Handle a verb-bar click — the engine's `checkExecVerbs` behaviour
+   * for a verb hit: run the verb-input script (`VAR_VERB_SCRIPT`, MI1
+   * #4) with `[CLICK_AREA_VERB, verbId, button]`. The script arms the
+   * active verb (g107) and updates the sentence line; the actual sentence
+   * is committed by that script via `doSentence` once the object(s) are
+   * gathered. (Inventory items are verbs too — pass their verb id here.)
    */
   handleVerbClick(verbId: number, button = 1): void {
-    this.currentVerb = verbId;
     this.runInputScript(Vm.CLICK_AREA_VERB, verbId, button);
   }
 
   /**
-   * Handle a click in the room scene on object `objId` (0 = clicked
-   * empty floor). Fires the input-script hook, then — if a verb is
-   * armed and a real object was hit — builds the sentence and queues
-   * it for {@link processSentence} to run via the sentence script.
-   *
-   * Right-click (`button === 2`) on an object is the v5 default-verb
-   * shortcut → enqueue a **Look at** sentence regardless of the armed
-   * verb. A left-click uses the armed verb (if any). Single-object
-   * sentences only for now; the two-object "use X with Y" preposition
-   * flow lands next.
+   * Handle a click in the room scene — `checkExecVerbs` runs the verb-
+   * input script with `[CLICK_AREA_SCENE, 0, button]`. The clicked object
+   * is **not** passed: the per-frame hover poller (#23, gated on
+   * `VAR_CURSORSTATE > 0`) has already hit-tested whatever is under the
+   * cursor into the game's active-object globals (g108/g109), and the
+   * verb-input script (#4) reads those, gathers a second object for
+   * Use/Give, and commits via `doSentence` — which {@link processSentence}
+   * then runs. Right-click (`button === 2`) is handled inside #4 (it uses
+   * the hovered object's default verb, g182). This is the faithful path;
+   * the old engine-side single-object enqueue has been retired.
    */
-  handleSceneClick(objId: number, button = 1): void {
-    this.runInputScript(Vm.CLICK_AREA_SCENE, objId, button);
-    if (objId === 0) return;
-    // Right-click = default verb (Look at); left-click = the armed verb.
-    const verb = button === 2 ? Vm.VERB_LOOK_AT : this.currentVerb;
-    if (verb === null) return;
-    this.pushSentence({ verb, objectA: objId, objectB: 0 });
-    // The verb is consumed by the click — deselect it so the UI falls
-    // back to the default ("Walk to"), matching MI1's reset-after-
-    // action. The queued sentence already captured the verb id.
-    this.currentVerb = null;
+  handleSceneClick(button = 1): void {
+    this.runInputScript(Vm.CLICK_AREA_SCENE, 0, button);
   }
 
   /** Push a sentence onto the queue for the sentence driver to run. */
@@ -1042,20 +1020,16 @@ export class Vm {
    *   - `VAR_MUSIC_TIMER` auto-increments — scripts reset it to 0 then
    *     poll for a target to pace cutscenes (MI1's credits wait on it).
    *
-   * We deliberately do NOT auto-pulse `VAR_CURSORSTATE` (52) here: it's
-   * an engine-managed cursor-state var, not a per-tick flag. An earlier
-   * hack pulsed it on left-press believing the *title menu* needed it —
-   * but the title room doesn't even run #23, and the menu appears purely
-   * from the music-timer gate (g14 > 5700), so that pulse drove nothing.
-   * (In *gameplay* rooms #23 IS a per-frame hover poller gated on g52>0;
-   * driving g52 on real clicks enables its in-engine highlighting — a
-   * pending step. It must be a real-click signal, never a beginTick
-   * auto-pulse.) The sentence commit itself is engine-side:
-   * {@link handleSceneClick} / {@link handleVerbClick} → the faithful
-   * `runInputScript` + `pushSentence` path.
+   *   - `VAR_CURSORSTATE` (52) / `VAR_USERPUT` (53) mirror the cursor
+   *     counters. The original writes these at the end of `cursorCommand`
+   *     (`VAR(VAR_CURSORSTATE) = _cursor.state`); we also refresh them
+   *     here so a script polling them mid-frame sees the live value.
+   *     `g52 > 0` is what enables MI1's #23 hover poller (which fills
+   *     g108/g109 — the objects the verb script #4 acts on).
    */
   beginTick(): void {
-    this.vars.writeGlobal(Vm.VAR_USERPUT, this.cursor.userput ? 1 : 0);
+    this.vars.writeGlobal(Vm.VAR_USERPUT, this.cursor.userput);
+    this.vars.writeGlobal(Vm.VAR_CURSORSTATE, this.cursor.state);
     this.vars.writeGlobal(
       Vm.VAR_MUSIC_TIMER,
       this.vars.readGlobal(Vm.VAR_MUSIC_TIMER) + 1,
@@ -1324,12 +1298,11 @@ export class Vm {
     this.costumes.clear();
     this.mouseRoomX = 0;
     this.mouseRoomY = 0;
-    this.cursor.visible = false;
-    this.cursor.userput = false;
+    this.cursor.state = 0;
+    this.cursor.userput = 0;
     this.currentCharset = 0;
     this.verbs.clear();
     this.savedVerbStates.clear();
-    this.currentVerb = null;
     this.sentenceStack.length = 0;
     this.cutsceneStack.length = 0;
     this.input.leftHold = false;

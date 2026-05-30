@@ -85,6 +85,19 @@ const DEFAULT_VERB_DIM_COLOR = 8; // dark grey
 const CURSOR_COLOR_NORMAL = 15; // bright white
 const CURSOR_COLOR_HOVER_OBJECT = 14; // yellow when over an interactable
 
+/**
+ * MI1 game global holding the active (armed) verb, set by the verb-input
+ * script #4. `11` (Vai/Walk-to) is the resting default — treated here as
+ * "nothing armed". Used for the verb-bar highlight + sentence preview;
+ * the engine no longer tracks an armed verb itself.
+ */
+const G_ACTIVE_VERB = 107;
+const VERB_WALK_TO = 11;
+function armedVerb(vm: Vm): number | null {
+  const v = vm.vars.readGlobal(G_ACTIVE_VERB);
+  return v > 0 && v !== VERB_WALK_TO ? v : null;
+}
+
 export interface PlayAreaArgs {
   readonly resourceFile: ResourceFile;
   readonly vm: Vm;
@@ -469,7 +482,7 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
         continue;
       }
       if (!v.name) continue;
-      const ink = pickInk(v, v.id === hoveredVerb, v.id === vm.currentVerb);
+      const ink = pickInk(v, v.id === hoveredVerb, v.id === armedVerb(vm));
       drawText(vbctx, charset, v.name, x, y, palette, ink, v.centered);
     }
   };
@@ -585,19 +598,15 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
   verbBar.addEventListener('pointerdown', (ev) => {
     // Same user-input gate as the scene: a cutscene (userput off) must
     // not let verb-bar clicks arm verbs / fire the input script.
-    if (!vm.cursor.userput) return;
+    if (vm.cursor.userput <= 0) return;
     const { x, y } = localToCanvas(ev);
     const v = verbAt(x, y);
     if (!v || v.state !== 'on') return;
-    const invItem = inventoryItemForVerb(v.id);
-    if (invItem !== null) {
-      // Inventory slot: the click targets the ITEM (an object), not a
-      // command verb — route it like a scene-object click.
-      vm.handleSceneClick(invItem, ev.button === 2 ? 2 : 1);
-    } else {
-      // Command verb: arm it + fire the input-script hook.
-      vm.handleVerbClick(v.id);
-    }
+    // Every verb-bar slot — command verb OR inventory item (verbs
+    // 200..207) — is a verb click in checkExecVerbs terms: fire the
+    // verb-input script with the slot's verb id. #4 arms it / reads the
+    // inventory mapping itself.
+    vm.handleVerbClick(v.id, ev.button === 2 ? 2 : 1);
     paintVerbBar();
     updateSentence();
     args.onCommit();
@@ -620,9 +629,9 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
     // `userputSoftOff`, so this gate stops a floor click from walking
     // ego — or an object click from firing a verb — mid-cutscene. We
     // still return the hover so the inspector can log the click.
-    if (!vm.cursor.userput) return { objId: hoveredObject };
+    if (vm.cursor.userput <= 0) return { objId: hoveredObject };
     const btn = button === 'left' ? 1 : 2;
-    vm.handleSceneClick(hoveredObject ?? 0, btn);
+    vm.handleSceneClick(btn);
     return { objId: hoveredObject };
   };
 
@@ -818,7 +827,7 @@ function sentenceText(
   // Verb name precedence: the verb under the cursor (live preview)
   // beats the armed verb (last click). Falls back to 'Walk to' (the
   // implicit verb when nothing is selected and nothing's hovered).
-  const previewVerbId = hoveredVerb ?? vm.currentVerb;
+  const previewVerbId = hoveredVerb ?? armedVerb(vm);
   const previewVerb =
     previewVerbId !== null ? vm.verbs.get(previewVerbId) : null;
   const verbName = previewVerb?.name || 'Walk to';

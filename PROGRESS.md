@@ -109,6 +109,20 @@ DoD #3 right-click and the 3 smoke tests landed (see locked list). Open:
   side sentence-builder state machine (not a verb table); verb ids +
   globals recorded in the locked-list item. Design with Rocco first.
 
+### Session log (faithful input rebuild — DONE)
+
+Replaced the engine-side click shortcut with MI1's real g52→#23→#4 flow
+(details in the locked list). Open / watch:
+- **Two-object A+B not yet exercised end-to-end** — room 33's intro has
+  no use-with-able object pair; the g110 prep machinery is in place but
+  needs a later room / real inventory item to prove the full A+B commit.
+- **g52 driven from `cursor.state` counter** (mirrors o5_cursorCommand).
+  If a future room shows no hover, check g52>0 (cursor.state) first.
+- **Right-click = g182 default verb** now (faithful), not hardcoded
+  Look-at. The default verb comes from #23/#4 per hovered object.
+- The early "input-model CORRECTED" note (enqueue is engine-side) was
+  wrong and is now fully superseded — #4 commits the sentence.
+
 ### Session log (cutscene UX — DONE)
 
 Closed DoD #6 + the click-gating blocker. Open / worth remembering:
@@ -650,9 +664,25 @@ charset-id resolution, `actorFromPos`/Talk-to, faithful click-to-walk,
 
 **Blocks the Definition of Done:**
 
-- [ ] **Two-object sentences — "Use X with Y"** (DoD #5). The biggest
-      gap. Approach chosen: **port ScummVM's builder faithfully.**
-      **Mechanism cracked (bytecode):**
+- [x] **Faithful input rebuild — DONE (delivers two-object DoD #5,
+      hover, right-click-default-verb).** Retired the engine-side click
+      shortcut (`currentVerb` + `handleSceneClick` enqueue) for the real
+      MI1 flow: the engine drives **g52 (VAR_CURSORSTATE)** from the
+      cursor counters (faithful o5_cursorCommand: `state++/--`, mirrored
+      to g52/g53), so per-frame poller **#23** hit-tests under the cursor
+      → **g108/g109**; clicks just run **#4** (verb→`runInputScript(1,
+      verbid,btn)`, scene→`runInputScript(2,0,btn)` — object NOT passed),
+      and #4 commits `doSentence`. Validated headlessly + the 3 smoke
+      tests now run this real chain. Right-click uses the hovered
+      object's **default verb (g182)** — faithful, supersedes the
+      pragmatic hardcoded Look-at. Cursor model is now numeric counters
+      (`cursor.state`/`cursor.userput`). ⚠️ Two-object *prep* (g110, set
+      by #4 via helper #8's class check) only engages for use-with-able
+      objects — none in room 33's intro, so the A+B path needs a later
+      room (or a real inventory item) to exercise end-to-end; the
+      machinery is in place and proven for single-object + the prep
+      branch logic.
+      **Mechanism (bytecode), for reference:**
       - MI1 verb ids (room 33): 2 Apri, 3 Chiudi, **4 Dai/Give**, 5 Premi,
         6 Tira, **7 Usa/Use**, 8 Esamina, 9 Prendi, 10 Parla, 11 Vai
         (default/Walk-to). Give(4) + Use(7) take two objects.

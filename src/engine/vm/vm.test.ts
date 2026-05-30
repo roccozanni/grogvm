@@ -208,39 +208,19 @@ describe('Vm — talk timer + dialog clearing', () => {
 });
 
 
-describe('Vm — handleSceneClick verb reset', () => {
-  it('queues the sentence then deselects the verb', () => {
+describe('Vm — scene/verb click routing (faithful, no engine shortcut)', () => {
+  it('handleSceneClick does not enqueue engine-side (the verb script commits)', () => {
     const vm = makeVm();
-    vm.currentVerb = 8;
-    vm.handleSceneClick(42, 1);
-    expect(vm.sentenceStack).toEqual([{ verb: 8, objectA: 42, objectB: 0 }]);
-    expect(vm.currentVerb).toBeNull();
-  });
-
-  it('does nothing when no verb is armed', () => {
-    const vm = makeVm();
-    vm.handleSceneClick(42, 1);
+    // No VAR_VERB_SCRIPT set → the input hook is a no-op; the key point
+    // is that the engine itself never pushes a sentence anymore.
+    vm.handleSceneClick(1);
+    vm.handleSceneClick(2);
     expect(vm.sentenceStack.length).toBe(0);
   });
 
-  it('right-click (button 2) queues a Look-at even with no verb armed', () => {
+  it('handleVerbClick does not enqueue engine-side either', () => {
     const vm = makeVm();
-    expect(vm.currentVerb).toBeNull();
-    vm.handleSceneClick(42, 2);
-    expect(vm.sentenceStack).toEqual([{ verb: Vm.VERB_LOOK_AT, objectA: 42, objectB: 0 }]);
-  });
-
-  it('right-click overrides the armed verb with Look-at and clears it', () => {
-    const vm = makeVm();
-    vm.currentVerb = 4; // some other verb armed
-    vm.handleSceneClick(42, 2);
-    expect(vm.sentenceStack).toEqual([{ verb: Vm.VERB_LOOK_AT, objectA: 42, objectB: 0 }]);
-    expect(vm.currentVerb).toBeNull();
-  });
-
-  it('right-click on empty floor (obj 0) does nothing', () => {
-    const vm = makeVm();
-    vm.handleSceneClick(0, 2);
+    vm.handleVerbClick(8, 1);
     expect(vm.sentenceStack.length).toBe(0);
   });
 });
@@ -646,14 +626,18 @@ describe('Vm — beginTick', () => {
   const makeWideVm = () =>
     new Vm({ numVariables: 100, numBitVariables: 64, handlers: new Map() });
 
-  it('mirrors vm.cursor.userput into VAR_USERPUT', () => {
+  it('mirrors the cursor counters into VAR_USERPUT / VAR_CURSORSTATE', () => {
     const vm = makeWideVm();
-    vm.cursor.userput = true;
+    vm.cursor.userput = 1;
+    vm.cursor.state = 1;
     vm.beginTick();
     expect(vm.vars.readGlobal(Vm.VAR_USERPUT)).toBe(1);
-    vm.cursor.userput = false;
+    expect(vm.vars.readGlobal(Vm.VAR_CURSORSTATE)).toBe(1);
+    vm.cursor.userput = 0;
+    vm.cursor.state = 0;
     vm.beginTick();
     expect(vm.vars.readGlobal(Vm.VAR_USERPUT)).toBe(0);
+    expect(vm.vars.readGlobal(Vm.VAR_CURSORSTATE)).toBe(0);
   });
 });
 

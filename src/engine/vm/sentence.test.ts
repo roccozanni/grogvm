@@ -184,34 +184,32 @@ describe('handleVerbClick / handleSceneClick', () => {
     return vm;
   }
 
-  it('handleVerbClick arms the verb and fires the input hook', () => {
+  it('handleVerbClick fires the input hook with [VERB, verbId, button]', () => {
     const vm = vmWithInputScript();
-    vm.handleVerbClick(6);
-    expect(vm.currentVerb).toBe(6);
-    // Input hook started with clickArea=CLICK_AREA_VERB, code=verb.
+    vm.handleVerbClick(6, 1);
     const hook = vm.slots.find((s) => s.scriptId === INPUT_SCRIPT && s.status !== 'dead');
     expect(hook).toBeDefined();
     expect(hook!.locals[0]).toBe(Vm.CLICK_AREA_VERB);
     expect(hook!.locals[1]).toBe(6);
+    expect(hook!.locals[2]).toBe(1);
   });
 
-  it('handleSceneClick builds a sentence when a verb is armed', () => {
+  it('handleSceneClick fires the input hook with [SCENE, 0, button]', () => {
     const vm = vmWithInputScript();
-    vm.handleVerbClick(6);
-    vm.handleSceneClick(42, 1);
-    expect(vm.sentenceStack).toEqual([{ verb: 6, objectA: 42, objectB: 0 }]);
+    vm.handleSceneClick(2); // right button
+    const hook = vm.slots.find((s) => s.scriptId === INPUT_SCRIPT && s.status !== 'dead');
+    expect(hook).toBeDefined();
+    expect(hook!.locals[0]).toBe(Vm.CLICK_AREA_SCENE);
+    // Object id is NOT passed — the hover poller pre-loaded g108/g109.
+    expect(hook!.locals[1]).toBe(0);
+    expect(hook!.locals[2]).toBe(2);
   });
 
-  it('handleSceneClick builds no sentence with no verb armed', () => {
+  it('handleSceneClick no longer enqueues engine-side (the script commits)', () => {
     const vm = vmWithInputScript();
-    vm.handleSceneClick(42, 1);
-    expect(vm.sentenceStack).toEqual([]);
-  });
-
-  it('handleSceneClick on empty floor (objId 0) builds no sentence', () => {
-    const vm = vmWithInputScript();
-    vm.handleVerbClick(6);
-    vm.handleSceneClick(0, 1);
+    vm.handleSceneClick(1);
+    // The stub input script doesn't doSentence, so nothing is queued —
+    // the engine-side shortcut enqueue has been retired.
     expect(vm.sentenceStack).toEqual([]);
   });
 });

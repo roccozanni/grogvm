@@ -380,38 +380,41 @@ describe('seed opcodes — boot prefix from real MI1', () => {
 });
 
 describe('seed opcodes — cursorCommand state wiring', () => {
-  it('cursorOn/cursorOff toggle vm.cursor.visible', () => {
+  it('cursorOn/cursorOff set vm.cursor.state 1/0 + mirror to VAR_CURSORSTATE', () => {
     const vm = makeVm();
     vm.startScript({ scriptId: 1, bytecode: bytes(0x2c, 0x01, 0x2c, 0x02, 0x00) });
     vm.step(); // cursorOn
-    expect(vm.cursor.visible).toBe(true);
+    expect(vm.cursor.state).toBe(1);
+    expect(vm.vars.readGlobal(52)).toBe(1); // VAR_CURSORSTATE published
     vm.step(); // cursorOff
-    expect(vm.cursor.visible).toBe(false);
+    expect(vm.cursor.state).toBe(0);
+    expect(vm.vars.readGlobal(52)).toBe(0);
   });
 
-  it('userputOn/userputOff toggle vm.cursor.userput', () => {
+  it('userputOn/userputOff set vm.cursor.userput 1/0 + mirror to VAR_USERPUT', () => {
     const vm = makeVm();
     vm.startScript({ scriptId: 1, bytecode: bytes(0x2c, 0x03, 0x2c, 0x04, 0x00) });
     vm.step();
-    expect(vm.cursor.userput).toBe(true);
+    expect(vm.cursor.userput).toBe(1);
+    expect(vm.vars.readGlobal(53)).toBe(1); // VAR_USERPUT published
     vm.step();
-    expect(vm.cursor.userput).toBe(false);
+    expect(vm.cursor.userput).toBe(0);
   });
 
-  it('soft variants (0x05–0x08) write the same flags', () => {
+  it('soft variants (0x05–0x08) increment/decrement the counters', () => {
     const vm = makeVm();
     vm.startScript({
       scriptId: 1,
       bytecode: bytes(0x2c, 0x05, 0x2c, 0x07, 0x2c, 0x06, 0x2c, 0x08, 0x00),
     });
-    vm.step(); // cursorSoftOn
-    expect(vm.cursor.visible).toBe(true);
-    vm.step(); // userputSoftOn
-    expect(vm.cursor.userput).toBe(true);
-    vm.step(); // cursorSoftOff
-    expect(vm.cursor.visible).toBe(false);
-    vm.step(); // userputSoftOff
-    expect(vm.cursor.userput).toBe(false);
+    vm.step(); // cursorSoftOn  → state 0→1
+    expect(vm.cursor.state).toBe(1);
+    vm.step(); // userputSoftOn → userput 0→1
+    expect(vm.cursor.userput).toBe(1);
+    vm.step(); // cursorSoftOff → state 1→0
+    expect(vm.cursor.state).toBe(0);
+    vm.step(); // userputSoftOff→ userput 1→0
+    expect(vm.cursor.userput).toBe(0);
   });
 
   it('initCharset (subop 0x0D) writes vm.currentCharset', () => {
@@ -622,17 +625,16 @@ describe('seed opcodes — verbOps state wiring', () => {
     expect(slot.locals[0]).toBe(42);
   });
 
-  it('delete removes the slot and clears currentVerb if it was armed', () => {
+  it('delete removes the verb slot entirely', () => {
     const vm = makeVm();
     vm.startScript({
       scriptId: 1,
       bytecode: bytes(0x7a, 0x07, 0x09, 0xff, 0x7a, 0x07, 0x08, 0xff, 0x00),
     });
-    vm.step();
-    vm.currentVerb = 7;
-    vm.step();
+    vm.step(); // verbOps 7 new
+    expect(vm.verbs.has(7)).toBe(true);
+    vm.step(); // verbOps 7 delete
     expect(vm.verbs.has(7)).toBe(false);
-    expect(vm.currentVerb).toBeNull();
   });
 });
 
