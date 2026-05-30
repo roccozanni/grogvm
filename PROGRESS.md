@@ -666,14 +666,37 @@ charset-id resolution, `actorFromPos`/Talk-to, faithful click-to-walk,
       - **Implication:** the faithful fix is to route clicks through #4
         and let it gather + commit — our engine-side `handleSceneClick`
         enqueue is the single-object SHORTCUT to retire here.
-      - **OPEN — the contract gap (need ScummVM `checkExecVerbs` /
-        `runInputScript`):** feeding the clicked object as `code`
-        (`runInputScript(2, objId, 1)`) does NOT make #4 gather it
-        (proven in `scratch/probe-2obj.ts` — #4 reset to Walk-to and
-        treated it as a bare floor click). So #4 resolves the scene
-        object from engine-provided state (mouse coords → a hit-test, or
-        an active-object var), not from `code`. Need the v5 engine source
-        to pin down exactly what the engine sets/passes per click area.
+      - **SOLVED — full faithful flow cracked + core validated headlessly**
+        (`scratch/probe-hover3.ts`). It's the hover poller, not the click,
+        that supplies the object:
+        1. **Engine drives g52 (VAR_CURSORSTATE) > 0** (no script writes
+           it — it's engine-maintained). Then per-frame poller **#23**
+           (loops `breakHere; jump -412`, gated `unless 0<g52 goto end`)
+           hit-tests the object under the cursor via `findObject`/
+           `actorFromPos` at **g20/g21 (VIRT_MOUSE)** and writes it to
+           **g108** (or **g109** when g110 prep is set), plus g181 (hover),
+           g182 (default verb), and the sentence line (verb 100).
+        2. ScummVM `checkExecVerbs` passes: **verb click →
+           `runInputScript(1, verbid, button)`**; **scene click →
+           `runInputScript(2, 0, button)`** (object is **0** — it comes
+           from g108, NOT the arg).
+        3. #4 reads g107/g108/g109 and commits `doSentence`. For Use(7)/
+           Give(4) it calls helper **#8** (class check) → sets g110 prep
+           so the *next* hover fills g109 (the second object).
+        Validated: g52=1 + hover poster → g108=429; verb 8 + scene click
+        → "Rieleggete il Governatore Marley.". Two-object prep (g110)
+        only engages for use-with-able objects (none in room 33's intro).
+      - **Implementation plan (faithful input rebuild):** (a) engine
+        drives g52>0 when cursor/userput active; (b) keep writing g20/g21
+        each frame (done in input.ts); (c) route clicks as
+        verb→`(1,verbid,btn)` / scene→`(2,0,btn)` / inv→`(3,…)`; (d)
+        **retire** `handleSceneClick`/`handleVerbClick` engine shortcuts
+        (currentVerb + engine enqueue) and let #23+#4 drive everything via
+        g107/g108/g109. This also yields faithful hover (sentence line,
+        g182 default verb) → supersedes the old "drive g52 for #23" item
+        and the pragmatic right-click. ⚠️ NOTE: the earlier "input-model
+        CORRECTED" note was itself a misread — the enqueue is NOT engine-
+        side; #4 does it. Trust THIS block.
       - **Do NOT hardcode a two-object verb list** — #4 already knows.
 - [x] **Cutscene UX (DoD #6) — DONE.** Keyboard **Escape → `vm.abort
       Cutscene()`** (jumps the cutscene script to its armed `overridePc`,
