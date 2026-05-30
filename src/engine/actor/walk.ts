@@ -29,7 +29,29 @@ import { startAnim } from '../graphics/costume-anim';
  * (0=W, 1=E, 2=S, 3=N), per ScummVM's `oldDirToNewDir` table. The anim
  * record for a chore + facing is `chore * 4 + dir`.
  */
-const OLD_DIR: Record<Facing, number> = { W: 0, E: 1, S: 2, N: 3 };
+export const OLD_DIR: Record<Facing, number> = { W: 0, E: 1, S: 2, N: 3 };
+
+/** Inverse of {@link OLD_DIR}: directional index 0..3 → facing. */
+export const FACING_FROM_OLD: readonly Facing[] = ['W', 'E', 'S', 'N'];
+
+/** The anim-record index for a chore at the actor's current facing. */
+export function choreRecord(actor: Actor, chore: number): number {
+  return chore * 4 + OLD_DIR[actor.facing];
+}
+
+/**
+ * (Re)start a costume chore on an actor — the anim record `chore * 4 +
+ * dir(facing)`. Always restarts (resets the playback cursor); callers
+ * that want to keep a running cycle advancing should guard on the
+ * record themselves (see {@link applyChore}). No-op for actors without
+ * a loaded costume.
+ */
+export function startActorChore(vm: Vm, actor: Actor, chore: number): void {
+  if (actor.costume <= 0) return;
+  const costume = vm.getCostume(actor.costume);
+  if (!costume) return;
+  actor.anim = startAnim(actor.anim, choreRecord(actor, chore), costume.header, costume.payload);
+}
 
 /**
  * Drive an actor's costume animation from a chore frame: start the anim
@@ -40,11 +62,8 @@ const OLD_DIR: Record<Facing, number> = { W: 0, E: 1, S: 2, N: 3 };
  */
 function applyChore(vm: Vm, actor: Actor, chore: number): void {
   if (actor.costume <= 0) return;
-  const record = chore * 4 + OLD_DIR[actor.facing];
-  if (actor.anim.animId === record) return;
-  const costume = vm.getCostume(actor.costume);
-  if (!costume) return;
-  actor.anim = startAnim(actor.anim, record, costume.header, costume.payload);
+  if (actor.anim.animId === choreRecord(actor, chore)) return;
+  startActorChore(vm, actor, chore);
 }
 
 /**

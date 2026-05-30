@@ -31,8 +31,7 @@ import {
   DEFAULT_TALK_STOP_FRAME,
   type Actor,
 } from '../../actor/actor';
-import { startWalk } from '../../actor/walk';
-import { startAnim } from '../../graphics/costume-anim';
+import { startWalk, startActorChore, FACING_FROM_OLD } from '../../actor/walk';
 import { pickObject } from '../../object/hittest';
 import { evalExpression } from '../expression';
 import { SENTENCE_CLEAR_VERB } from '../sentence';
@@ -1446,27 +1445,51 @@ for (const op of [0x01, 0x21, 0x41, 0x61, 0x81, 0xa1, 0xc1, 0xe1]) {
 }
 
 // ─── 0x11 / 0x91  animateActor ───────────────────────────────────────
-// Kick off a named anim id on the actor. Anim playback itself is the
-// deferred costume-anim decoder; for now we record the intent so the
-// compositor can read the current anim id.
+// SCUMM v5 `Actor::animateActor(anim)`. The operand is NOT a raw anim-
+// record index — it's `cmd * 4 + dir`, where `cmd = anim / 4` selects an
+// action and `dir = anim & 3` (an old-style direction) parameterizes the
+// turn cmds. Three cmds are pseudo-anims that move/turn the actor; every
+// other value is a costume chore whose record resolves (in v5's
+// `startAnimActor` → `costumeDecodeData`) to `anim * 4 + dir(facing)`.
+//
+//   cmd 2  → stop walking, drop to the stand pose
+//   cmd 3  → set facing immediately to `dir`
+//   cmd 4  → turn to `dir` (we snap facing; no turn animation)
+//   else   → play chore `anim` (record = anim*4 + dir(facing))
+//
+// The old code passed `anim` straight through as the record index,
+// skipping the ×4 — so e.g. the Mêlée-island clouds' `animateActor 4`
+// landed on record 4 (a no-draw command) instead of record 16 (the
+// cloud sprite). See docs/SCUMM-V5-COSTUME-ANIM.md "Clouds".
 function animateActorHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const id = readVarOrByte(opcode, 1, slot, vm.vars);
-  const animId = readVarOrByte(opcode, 2, slot, vm.vars);
+  const anim = readVarOrByte(opcode, 2, slot, vm.vars);
   const actor = actorOrNull(vm, id);
-  if (actor) {
-    // Need the costume header + payload to decode the anim record.
-    // If the costume isn't loaded (id 0 / unknown), the actor's anim
-    // state stays where it is; SCUMM scripts often pre-set anim
-    // before setCostume, which the engine treats as a deferred
-    // assignment that fires once the costume binds.
-    const costume = vm.getCostume(actor.costume);
-    if (costume) {
-      actor.anim = startAnim(actor.anim, animId, costume.header, costume.payload);
-    } else {
-      actor.anim = { ...actor.anim, animId };
-    }
+  if (!actor) {
+    vm.annotate(`animateActor actor=${id} anim=${anim} (no actor)`);
+    return;
   }
-  vm.annotate(`animateActor actor=${id} anim=${animId}`);
+  const cmd = Math.floor(anim / 4);
+  const dirFacing = FACING_FROM_OLD[anim & 3]!;
+  switch (cmd) {
+    case 2: // stop walking, drop to the stand pose
+      actor.isMoving = false;
+      actor.walkTarget = null;
+      startActorChore(vm, actor, actor.standFrame);
+      break;
+    case 3: // set facing immediately
+    case 4: // turn to facing (no turn animation modelled — snap)
+      actor.facing = dirFacing;
+      break;
+    default:
+      // Play the chore. If the costume isn't loaded yet (id 0 / unknown),
+      // SCUMM scripts often pre-set anim before setCostume — keep the
+      // current playback and just record the intent so a later setCostume
+      // can bind it; startActorChore no-ops without a costume.
+      startActorChore(vm, actor, anim);
+      break;
+  }
+  vm.annotate(`animateActor actor=${id} anim=${anim} (cmd ${cmd})`);
 }
 // actor = bit 0x80, anim = bit 0x40 → variants 0x11/0x51/0x91/0xD1.
 // (0x31 getInventoryCount and 0x71 getActorCostume share low5=0x11 but

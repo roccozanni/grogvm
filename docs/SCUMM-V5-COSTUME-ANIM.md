@@ -571,11 +571,56 @@ head stopped; the intro (rooms 10/38, up to 9 actors) composites with
 zero limb-skip errors. Visual confirmation (mirror direction especially)
 is the user's to give.
 
-### Clouds are a DIFFERENT mechanism (not the record decoder)
+### Clouds — SOLVED: positional actors that were invisible (animateActor mapping bug, 2026-05-30)
 
-User confirmed (screenshot, room 38 Mêlée-island lookout): the clouds
-**slide right-to-left** — a positional translation, not a frame-cycle.
-So the clouds are driven by frame displacement (`xinc`/`yinc` on the
-image header) or a script/engine position update, NOT the anim-record
-decoder. They will not be fixed by the costume-anim work; track as a
-separate "scrolling background element" item.
+The earlier "clouds are a different mechanism, not the record decoder"
+note was **half right**. The Mêlée-island clouds live in the wide
+establishing pan, **room 10** (640×200), *not* room 38. They are
+**actors**, driven by `room-10/L202`:
+
+- Three **foreground clouds** = actors 7–9, costume **59**, set to
+  `animateActor anim=4/5/6`, repositioned each loop with `putActor x=L3
+  y=84` while `L2--` → a right-to-left slide. The slide (positional) was
+  already correct.
+- Eleven **background sparkles/clouds** (the LucasArts-logo stars) =
+  actors 1–11, costume **111**, `animateActor anim=2`, spawned by
+  `L204→L203` at scattered positions.
+
+The clouds *moved* but **rendered invisible** because the costume frame
+never resolved. Root cause was **not** the record decoder — it was the
+`animateActor` opcode handler. SCUMM v5 `Actor::animateActor(anim)`
+treats its operand as `cmd*4 + dir`: it calls `startAnimActor(anim)`,
+which resolves the anim record as **`anim * 4 + dir(facing)`** (in
+`costumeDecodeData`). The old handler passed the raw operand straight
+through as the record index, skipping the ×4 — so `animateActor 4`
+landed on record **4** instead of record **16**.
+
+For costume 59 the difference is decisive (`scratch/cloud-records.ts`):
+
+```
+record  4–7  (j=0) → cmd[0]=0x7b  (a no-draw command → nothing drawn)
+record 16–19 (j=1) → picture 0  (cloud sprite 122×45)
+record 20–23 (j=2) → picture 1  (cloud sprite 128×55)
+record 24–27 (j=3) → picture 2  (cloud sprite 124×47)
+```
+
+`animateActor 4/5/6` × 4 (+ default facing S = dir 2) → records
+18/22/26 → cloud pictures 0/1/2. Costume 111's sparkle likewise lives at
+record **10** (`2*4 + 2`), the validated 5→7→9→11→13→19→…→5 pulse — not
+the `0xff ff` sentinel at raw record 2 that earlier analysis was stuck
+on. (The `mask=0xFF`/`0xFFFF` "oddball" records were a red herring: the
+clouds/sparkles never used those records; the wrong index did.)
+
+**Fix.** `animateActorHandler` now implements the v5 dispatch:
+`cmd = anim/4`, `dir = anim&3`; cmd 2 = stop + stand pose, cmd 3 = set
+facing, cmd 4 = turn (snap facing), **else** play chore `anim` via the
+shared `startActorChore` (`record = anim*4 + dir(facing)` — the same
+helper the walk loop uses through `applyChore`/`choreRecord` in
+`walk.ts`). `anim=250` (the `animateActor 250` idiom that precedes the
+real anim) is `cmd 62` → out-of-range chore → no-op, as intended.
+
+**Verified headlessly (`scratch/clouds-render.ts`, `scratch/intro-smoke.ts`):**
+room 10 goes from **0 → 9** actors drawn, the three cloud sprites render
+and slide right-to-left, the full intro reaches room 33 with **zero
+active-limb skip events** and no halts. Visual confirmation in-app is
+the user's to give.

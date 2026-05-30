@@ -988,12 +988,39 @@ describe('actor placement + room-transition opcodes (boot→lookout fixes)', () 
   it('animateActor 0xD1 reads both actor and anim as vars', () => {
     const vm = makeVm();
     vm.vars.writeGlobal(10, 3); // actor id
-    vm.vars.writeGlobal(11, 250); // anim id
+    // anim 15 = cmd 3 (set direction immediately), dir 3 → facing N. cmd 3
+    // is observable without a loaded costume (it just snaps facing), so it
+    // confirms both operands were dereferenced as vars.
+    vm.vars.writeGlobal(11, 15);
     vm.actors.get(3).room = 1;
+    vm.actors.get(3).facing = 'S';
     // 0xD1 animateActor actor=var10 anim=var11, then stop.
     vm.startScript({ scriptId: 1, bytecode: bytes(0xd1, 0x0a, 0x00, 0x0b, 0x00, 0xa0) });
     vm.step();
-    expect(vm.actors.get(3).anim.animId).toBe(250);
+    expect(vm.actors.get(3).facing).toBe('N');
+  });
+
+  it('animateActor maps its operand to a chore record (anim*4 + dir)', () => {
+    const vm = makeVm();
+    // Stub costume: an all-zero anim table is enough — startAnim records
+    // the requested record index even with no real anim data.
+    const stub = {
+      header: {
+        numAnim: 32, format: 0x58, paletteSize: 16, palette: new Uint8Array(16),
+        animCmdOffset: 0, limbOffsets: new Array(16).fill(0), animOffsets: new Array(32).fill(0),
+        mirrorFlag: false,
+      },
+      payload: new Uint8Array(0),
+    };
+    vm.getCostume = (() => stub) as unknown as typeof vm.getCostume;
+    const a = vm.actors.get(3);
+    a.room = 1; a.costume = 1; a.facing = 'S'; // dir S = 2
+    // 0x11 animateActor actor=3 anim=4 (both immediate). The Mêlée clouds'
+    // value: it must resolve to record 4*4 + 2 = 18, NOT the raw 4 (a
+    // no-draw command).
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x11, 0x03, 0x04, 0xa0) });
+    vm.step();
+    expect(a.anim.animId).toBe(18);
   });
 });
 

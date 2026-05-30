@@ -152,11 +152,25 @@ The costume-anim decoder + walk trigger are solid ground to build on;
 `docs/SCUMM-V5-COSTUME-ANIM.md` §"SOLVED" is the reference if anything
 costume-related needs revisiting.
 
-**Separate item — the clouds.** The Mêlée-island clouds (room 38) slide
-right-to-left = a **positional** animation (`xinc`/`yinc` frame
-displacement, or a moving actor/object), **not** the record decoder.
-Investigate independently (engine can do this headlessly). Tracked as
-task #7.
+**Separate item — the clouds. DONE (2026-05-30).** The Mêlée-island
+clouds are **actors** in the room-10 establishing pan (not room 38):
+foreground clouds (costume 59, `L202`) and the LucasArts-logo sparkles
+(costume 111, `L203/204`). They *moved* (via `putActor`) but rendered
+**invisible** — the cause was the `animateActor` opcode, not the record
+decoder. v5 `animateActor(anim)` resolves the record as `anim*4 +
+dir(facing)`; the handler passed the raw operand through, so
+`animateActor 4` hit record 4 (a no-draw command) instead of record 16
+(the cloud sprite). Fixed `animateActorHandler` to the faithful v5
+dispatch (cmd 2/3/4 = stop/set-dir/turn, else play chore `anim` via the
+shared `startActorChore`). Room 10 now draws 9 actors (was 0), the
+clouds slide right-to-left, intro reaches room 33 with zero limb skips.
+Confirmed in-app (user, 2026-05-30). Two follow-ups it surfaced:
+clouds composite **in front of** the mountain (the standing Z-plane
+occlusion bug) and **all animation/movement runs too fast** (per-tick
+rate, even though overall cutscene wall-time matches ScummVM) — both
+tracked in the known-bugs list above.
+See [docs/SCUMM-V5-COSTUME-ANIM.md](docs/SCUMM-V5-COSTUME-ANIM.md)
+§"Clouds — SOLVED".
 
 ### Out of scope (other phases)
 
