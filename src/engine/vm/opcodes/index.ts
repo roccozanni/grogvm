@@ -31,7 +31,7 @@ import { startAnim } from '../../graphics/costume-anim';
 import { pickObject } from '../../object/hittest';
 import { evalExpression } from '../expression';
 import { SENTENCE_CLEAR_VERB } from '../sentence';
-import { VAR_HAVE_MSG } from '../vars';
+import { VAR_CURRENT_LIGHTS, VAR_HAVE_MSG } from '../vars';
 import {
   derefRead,
   formatRefLabel,
@@ -532,6 +532,30 @@ function loadRoomHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
 }
 register(0x72, loadRoomHandler);
 register(0xf2, loadRoomHandler);
+
+// ─── 0x70 / 0xF0  lights ─────────────────────────────────────────────
+// Set the room lighting mode. Layout: arg1 (var-or-byte via bit 0x80),
+// then two raw bytes arg2/arg3. The third arg selects the mode: when
+// it's 0, arg1 becomes `VAR_CURRENT_LIGHTS` (the room-lit bit-flags —
+// see LIGHTMODE_* in vars.ts). Non-zero arg3 is the flashlight variant
+// (arg2 = flashlight strip extent); we don't model the flashlight gfx,
+// but still consume the operands and trigger a redraw so the script
+// stays aligned. The boot seeds VAR_CURRENT_LIGHTS to a lit default, so
+// most rooms never need this — it's used by the few dark rooms.
+register(0x70, lightsHandler);
+register(0xf0, lightsHandler);
+function lightsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
+  const arg1 = readVarOrByte(opcode, 1, slot, vm.vars);
+  const arg2 = readU8(slot);
+  const arg3 = readU8(slot);
+  if (arg3 === 0) {
+    vm.vars.writeGlobal(VAR_CURRENT_LIGHTS, arg1);
+    vm.annotate(`lights g9=${arg1}`);
+  } else {
+    // Flashlight mode — not modeled visually yet.
+    vm.annotate(`lights flashlight w=${arg2} mode=${arg3}`);
+  }
+}
 
 // ─── 0x14 / 0x94 / 0xD8  print / printEgo ────────────────────────────
 // Print a string into an actor's text slot. Layout: actor (var-or-byte

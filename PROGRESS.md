@@ -100,6 +100,21 @@ needed for Talk-to an actor).
 The inspector has stable DOM during Play; controls + frame stack mount
 once and only canvas pixels update per tick.
 
+### Session log (room lighting — DONE)
+
+Room-lighting blocker fixed (details in the locked list). Still open /
+worth remembering:
+- **`lights` flashlight variant (arg3 != 0) is not drawn** — operands
+  consumed so scripts stay aligned, but no flashlight gfx yet.
+- **Deliberately did NOT port `VAR_V5_TALK_STRING_Y = -0x50`** from the
+  original `resetScummVars` — our talk text is positioned from the
+  actor's `drawBounds` (above-head), so seeding a hard-coded talk-Y
+  would fight it. Revisit only if talk placement regresses.
+- **`scratch/dis.ts`** (new full-table v5 disassembler with a `SCAN`
+  mode) **misaligns on some scripts** — its lights-SCAN flagged ASCII
+  strings as opcodes. Trust clean runs; treat SCAN hits as leads, not
+  proof. Empirical probing (`scratch/probe-lights.ts`) is reliable.
+
 ### Session log (charset-id resolution fix + talk position)
 
 The lookout-scene talk used the wrong (thin) font and drew over the
@@ -624,19 +639,25 @@ charset-id resolution, `actorFromPos`/Talk-to, faithful click-to-walk,
       `VAR_USERPUT`) so floor clicks don't walk ego mid-cutscene.
 - [ ] **"Start a new game" from the title menu** (DoD #1). Verify the
       interactive menu path vs. the current auto-attract→intro→room 33.
-- [ ] **Room lighting / `VAR_CURRENT_LIGHTS` (g9) stuck at 0** —
-      INVESTIGATE. In room 33, examining the poster says *"Non si riesce,
-      troppo buio"* instead of the Governor Marley description, because
-      sentence #2 gates the look-at on `g9 != 0` and g9 is **0**.
-      Renders fine visually — this is a *logic* bug. Findings so far:
-      the **`lights` opcode (0x70) is unimplemented** (not registered)
-      and g9 is never set, so it sits at its boot default of 0 (every
-      room reads as dark; room 38 being a night scene only *masked* it).
-      Room 33's own scripts don't dispatch 0x70 (no halt), so the lit
-      state must come from a global / room-enter path — find who sets
-      `lights` for a normal room, implement `o5_lights` (sets
-      `VAR_CURRENT_LIGHTS`, plus the flashlight/actor-light variants),
-      and confirm g9 becomes lit on entering room 33. Distinct from the
+- [x] **Room lighting / `VAR_CURRENT_LIGHTS` (g9) stuck at 0 — DONE.**
+      The lit state is a **boot/reset default**, not a per-room `lights`
+      opcode: the original engine's `resetScummVars` seeds g9 to
+      `base_palette | colors | room_lights_on` (= 7) for every v4–v5
+      game. We never seeded it, so g9 sat at 0 and *every* room read as
+      dark — MI1 sentence #2 then answered "Look at" with "Non si riesce,
+      troppo buio" instead of the description. Confirmed empirically: the
+      `lights` opcode is **never dispatched** on the credits→room-33
+      intro path (`scratch/probe-lights.ts`), and room 33's whole entry
+      path (ENCD → local 201/203) never calls it — so the seed is the
+      only source. Fix: `boot.ts` now seeds `VAR_CURRENT_LIGHTS =
+      LIGHTMODE_DEFAULT` (new `src/engine/vm/lighting.ts` holds the flag
+      *values*; `vars.ts` stays a pure index map). Also **implemented the
+      `lights` opcode (0x70/0xF0)** for the dark rooms that do use it
+      (arg3==0 → set g9; flashlight variant consumed, not yet drawn).
+      Verified: examining the room-33 poster now yields *"Rieleggete il
+      Governatore Marley."*. +6 tests. (Also demystified the "mysterious"
+      `_scummVars[74]=1225` from the same reset — it's our existing MI1
+      copy-protection seed, CD track-2 size, 0x4a==74.) Distinct from the
       cosmetic "compositor doesn't honor `VAR_CURRENT_LIGHTS`" gap.
 - [ ] **End-to-end smoke tests** (3): start→first-room, walk-around,
       verb-dispatch (the suite is green but these scripted integration

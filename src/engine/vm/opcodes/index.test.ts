@@ -259,6 +259,38 @@ describe('seed opcodes — delay', () => {
   });
 });
 
+describe('seed opcodes — lights (0x70)', () => {
+  it('sets VAR_CURRENT_LIGHTS from an immediate arg1 when arg3 == 0', () => {
+    const vm = makeVm();
+    // lights 7, 0, 0  → g9 = 7 (room-lit default)
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x70, 7, 0, 0) });
+    vm.step();
+    expect(vm.vars.readGlobal(9)).toBe(7);
+  });
+
+  it('reads arg1 as a var-ref when bit 0x80 is set (0xF0)', () => {
+    const vm = makeVm();
+    vm.vars.writeGlobal(50, 4);
+    // lights g50, 0, 0  → g9 = value of g50 = 4
+    vm.startScript({ scriptId: 1, bytecode: bytes(0xf0, 0x32, 0x00, 0, 0) });
+    vm.step();
+    expect(vm.vars.readGlobal(9)).toBe(4);
+  });
+
+  it('does NOT touch VAR_CURRENT_LIGHTS in flashlight mode (arg3 != 0)', () => {
+    const vm = makeVm();
+    vm.vars.writeGlobal(9, 7);
+    // lights 0, 72, 1  → flashlight; g9 unchanged. Slot stays aligned
+    // (3 operand bytes consumed) and runs to the trailing stop.
+    const slot = vm.startScript({ scriptId: 1, bytecode: bytes(0x70, 0, 72, 1, 0x00) });
+    vm.step();
+    expect(vm.vars.readGlobal(9)).toBe(7);
+    expect(slot.pc).toBe(4);
+    vm.step();
+    expect(slot.status).toBe('dead');
+  });
+});
+
 describe('seed opcodes — startScript LSCR routing', () => {
   it('routes script ids >= 200 to the current room\'s localScripts', () => {
     const vm = makeVm();

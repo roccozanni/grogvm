@@ -23,8 +23,10 @@ import type { IndexFile } from '../resources/index-file';
 import type { RoomOffsetTable } from '../resources/loff';
 import { loadRoom } from '../room/loader';
 import type { ResourceFile } from '../resources/tree';
+import { LIGHTMODE_DEFAULT } from './lighting';
 import { SEED_OPCODES } from './opcodes';
 import { loadGlobalScript } from './scripts';
+import { VAR_CURRENT_LIGHTS } from './vars';
 import { Vm } from './vm';
 
 export type GameId = 'MI1' | 'MI2';
@@ -92,7 +94,7 @@ export function bootGame(
  * touches. Extend this only when an *observed* uninitialized read
  * forces it — keeps the var bank honest as a diagnostic.
  */
-function seedEngineVariables(vm: Vm, gameId: GameId): void {
+export function seedEngineVariables(vm: Vm, gameId: GameId): void {
   // Screen dimensions in pixels — variables the engine sets so
   // scripts can size things off them.
   vm.vars.writeGlobal(VAR_SCREEN_WIDTH, 320);
@@ -102,6 +104,16 @@ function seedEngineVariables(vm: Vm, gameId: GameId): void {
   // on this for game-specific behavior.
   vm.vars.writeGlobal(VAR_GAME_ID, gameId === 'MI1' ? 0 : 1);
 
+  // Lighting default. The engine seeds VAR_CURRENT_LIGHTS at reset for
+  // every v4–v5 game (room lit + actors palette-lit); the per-room
+  // `lights` opcode overrides it later. Without this, g9 stays 0 and
+  // *every* room reads as dark — e.g. MI1's sentence script #2 then
+  // answers "Look at" with "Non si riesce, troppo buio" because it
+  // gates the real description on g9 != 0. Confirmed by inspection:
+  // the `lights` opcode is never dispatched on the credits→room-33
+  // intro path, so the lit state can only come from this reset seed.
+  vm.vars.writeGlobal(VAR_CURRENT_LIGHTS, LIGHTMODE_DEFAULT);
+
   // Charset id — 0 by default; the boot script will normally call
   // setCharset(N) to change it.
   vm.vars.writeGlobal(VAR_CHARSET, 0);
@@ -109,7 +121,9 @@ function seedEngineVariables(vm: Vm, gameId: GameId): void {
   // MI1 copy-protection: script #176 reads var[0x4a] (= "track-b-size",
   // the size of audio track 2 on the original CD) and quits if it's
   // outside [1200, 1250]. We don't have a CD, so we seed a known-good
-  // value. The original CD's track 2 was ~1225 sectors.
+  // value. The original CD's track 2 was ~1225 sectors. This is the
+  // same MONKEY-only reset seed the original engine applies (it sets
+  // var 74 = 1225 unconditionally for Monkey); 0x4a == 74.
   if (gameId === 'MI1') {
     vm.vars.writeGlobal(VAR_MI1_TRACK_B_SIZE, 1225);
   }
