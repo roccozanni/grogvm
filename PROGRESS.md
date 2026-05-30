@@ -90,11 +90,20 @@ Implement these faithfully:
       sparkles (`neverZclip`) stay in front. Also DONE: **per-object
       z-planes** — a drawn object's own `ZP##` (e.g. the title logo
       #109) now occludes z-clipped actors, so the clouds pass behind the
-      title (was: clouds drew over the title letters). STILL OPEN: the
-      **position/box-derived default clip** for plain actors — they
-      still draw in front of every plane, so the lookout fire (room 38)
-      still draws over the wall. Lands with the walk-box-Z sub-phase.
-      See [docs/SCUMM-V5-ZPLANE.md](docs/SCUMM-V5-ZPLANE.md)
+      title (was: clouds drew over the title letters). The **lookout
+      fire / sentry** (room 38, actors with `alwaysZclip 1`) now sit
+      behind the wall too — verified by ASCII render: the only actor
+      pixels over the wall mask are Guybrush's (he's `neverZclip`,
+      correctly the foreground). STILL OPEN: the **box-derived default
+      clip** for actors with NO explicit `forceClip` — SCUMM uses the
+      walk box's `mask` field as the clip level (verified 0/1/2 across
+      rooms 10/38/33: `mask 0` = front, `mask N` = behind plane N, same
+      mapping as `alwaysZclip`). Not yet wired because every actor in the
+      intro-reachable rooms already sets `forceClip` explicitly, so there
+      is no scene to validate it against headlessly; do it **with a
+      ScummVM/visual check** when a default-clip scene surfaces (needs a
+      point-in-walk-box lookup + `actorZ = boxMask>0 ? boxMask-1 :
+      effectivePlanes`). See [docs/SCUMM-V5-ZPLANE.md](docs/SCUMM-V5-ZPLANE.md)
       §"Actor z-depth" / §"Per-object z-planes".
 - [ ] **Compositor honours `VAR_CURRENT_LIGHTS`** — a dark room (room 38
       night scene) should darken via the lights flag, not only via a
