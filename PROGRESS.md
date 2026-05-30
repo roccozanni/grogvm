@@ -113,59 +113,34 @@ Implement these faithfully:
       single-object; confirm a full A+B commit in a room with a
       use-with-able object / inventory item (room 33's intro has none).
       See [docs/SCUMM-V5-INPUT.md](docs/SCUMM-V5-INPUT.md) §5.
-- [~] **Costume animation decoder** — big progress this session
-      (full trail in
-      [docs/SCUMM-V5-COSTUME-ANIM.md](docs/SCUMM-V5-COSTUME-ANIM.md)).
-      DONE: the compositor now gates on `anim.active` with an init-pose
-      fallback (killed the `decodeCostumeFrame: ran out of RLE bytes …
-      0x3a` skip spam, no regression); and `startAnim` decodes the
-      **single-limb** record format — `u8 mask` (bit7=limb0…bit0=limb7)
-      + per-set-bit `{u16 frameIndex, u8 lenFlags}`, `start =
-      animCmdOffset + frameIndex` — with safe fallbacks for `mask`
-      `0x00`/`0xFF`, a `0xFFFF` frameIndex, and out-of-range starts;
-      AND the **extended** record (the `00 00 00 <mask> <mods>`
-      3-byte-zero-prefix form) decodes to plausible frame *sizes*. BUT a
-      live walk built on it rendered wrong (two heads / wrong facing) and
-      was **reverted** — the limb *count* is wrong (limb 0 is the whole
-      character, not a body that pairs with the separate head limb), and
-      the mirror flag + direction mapping are unimplemented. STILL OPEN:
-      a correct live walk (needs a v5 reference) and the `mask=0xFF` talk
-      records → see **Next step**.
+- [x] **Costume animation decoder** — SOLVED with a v5 (ScummVM)
+      reference (full trail + the correct algorithm in
+      [docs/SCUMM-V5-COSTUME-ANIM.md](docs/SCUMM-V5-COSTUME-ANIM.md)
+      §"SOLVED"). `startAnim` now uses the real model: a **−6 base
+      correction** (`COSTUME_OFFSET_ADJUST` — our payload starts 6 bytes
+      past ScummVM's `_baseptr`) on the record, cmd stream, AND limb
+      table; a **u16 LE mask** (limb i = bit 15-i); `u16 frameIndex` +
+      `u8 extra`; and the **`0x79`/`0x7A` stop/un-stop commands** that
+      drive a **persistent per-limb `stopped` bitmask**. This explains
+      every playtest bug: limb 0 is the whole Guybrush, limb 1 a separate
+      head — the walk *stops* the head (body carries it), stand un-stops
+      it, talk animates it. The **mirror flag** is implemented
+      (`compositeActor`). Verified headlessly: walk = one cycling body,
+      head stopped; intro composites with zero limb-skip errors. 646
+      tests pass.
 
-### Next step — the live walk needs a v5 reference (auto-trigger REVERTED)
+### Next step — visual-confirm the walk, then `mask=0xFF` talk anims
 
-The walk record's *frame sizes* decode (the `00 00 00 <mask> <mods>`
-extended form is in `startAnim`), but **wiring a live walk was reverted
-after playtest** — it rendered badly (two heads, vanishing body, wrong
-facing). Full corrected analysis in
-[docs/SCUMM-V5-COSTUME-ANIM.md](docs/SCUMM-V5-COSTUME-ANIM.md) §"REVERTED
-— the live walk was wrong". Key correction: **limb 0 is the COMPLETE
-Guybrush sprite** (head+body+legs), and **limb 1 is a separate head**
-(talk articulation) — so the record decoding to *two* limbs (mask
-`0xc0` → limbs 0+1) draws two heads. The walk is effectively
-single-limb; static frame-size validation was not enough to catch the
-wrong limb count.
+The live walk is wired and correct headlessly; it needs **visual
+confirmation** (HMR) — especially the **mirror direction** (we flip when
+facing West; if left/right read swapped, change `compositeActor`'s
+condition to `facing === 'E'`). Watch: walk left/right (smooth single
+body, no double head), stop (clean directional stand), walk up/down.
 
-A correct live walk is blocked on a v5 (ScummVM) reference for three
-things, none safely guessable:
-1. **Mask→limb semantics** — pin why `0xc0` should resolve to limb 0
-   only for the walk (head limb belongs to talk).
-2. **The costume mirror flag** (format bit 7) — unimplemented in
-   `compositor.ts` (Phase 3 limitation); without it half the directions
-   face backwards.
-3. **Direction→frame mapping** — standing faced *away*, so
-   `chore*4 + (W0,E1,S2,N3)` doesn't match the costume's frame order.
-
-Kept from this work: the extended-record decode in `startAnim` + its
-tests (dormant — only `animateActor` triggers it, and the intro FX use
-other record forms). Backed out: the chore-frame fields, the walk-loop
-auto-trigger, and the command-byte flicker fix (re-add when the walk is
-done properly). The engine is back to the prior known-good state — a
-walking actor shows its static sprite, not a broken multi-limb walk.
-
-**Still open — `mask=0xFF` talk records** (anims 16–23, costume-111
-sparkle): too short to host 8 modifiers, sentinel meaning unknown; stay
-static. Best cracked from a ScummVM cmd-trajectory trace of a talk anim.
+**Still open — `mask=0xFF` talk records.** With the corrected u16-mask +
+−6 base, the talk anims (16–23) now decode (head lip-sync on limb 1) —
+but `mask=0xFF` records elsewhere (e.g. costume-111 oddballs) may still
+need scrutiny. Re-check talk in-game once the walk is confirmed.
 
 **Separate item — the clouds.** The Mêlée-island clouds (room 38) slide
 right-to-left = a **positional** animation (`xinc`/`yinc` frame

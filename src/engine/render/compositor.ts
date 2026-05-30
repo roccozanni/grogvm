@@ -43,7 +43,7 @@
  */
 
 import type { Actor } from '../actor/actor';
-import { currentAnimCmd } from '../graphics/costume-anim';
+import { currentLimbPicture, COSTUME_OFFSET_ADJUST } from '../graphics/costume-anim';
 import { compositeActor } from '../graphics/composite';
 import type { LoadedCostume } from '../graphics/costume-loader';
 import { decodeCostumeFrame } from '../graphics/costume-frame';
@@ -232,22 +232,29 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
     for (const l of actor.anim.limbs) {
       if (l.active) { anyActive = true; break; }
     }
+    // Mirror: MI1 stores side-view frames facing one way and draws the
+    // other flipped. Apply the costume's mirror flag when the actor
+    // faces West (left). If left/right come out swapped, flip to 'E'.
+    const mirror = costume.header.mirrorFlag && actor.facing === 'W';
     for (let limbIdx = 0; limbIdx < costume.header.limbOffsets.length; limbIdx++) {
       const tableOffset = costume.header.limbOffsets[limbIdx]!;
       if (tableOffset === 0) continue; // unused limb
       const limbActive = actor.anim.limbs[limbIdx]?.active ?? false;
       // When an anim is driving, limbs it doesn't touch don't draw.
       if (anyActive && !limbActive) continue;
-      // Per the SCUMM v5 anim-cmd convention: byte at
-      // `anim.limbs[i].start + cursor` in the costume payload is the
-      // picture index (frame number) when < 0x71. Inactive limbs in the
-      // init-pose fallback read frame 0.
-      const frameIdx = limbActive ? currentAnimCmd(actor.anim, limbIdx, costume.payload) : 0;
-      // Bytes 0x71-0x7C are animation commands (pause/resume/no-draw/
-      // counters), not picture indices — skip drawing this limb this
-      // tick (no skip record; it's a legitimate "draw nothing" frame).
-      if (limbActive && frameIdx >= 0x71 && frameIdx <= 0x7c) continue;
-      const ptrOffset = tableOffset + frameIdx * 2;
+      // Active limbs resolve their picture through the anim state, which
+      // honours the per-limb "stopped" bit and skips command bytes
+      // (returns -1 = draw nothing). Inactive limbs in the init-pose
+      // fallback read frame 0.
+      let frameIdx: number;
+      if (limbActive) {
+        frameIdx = currentLimbPicture(actor.anim, limbIdx, costume.payload);
+        if (frameIdx < 0) continue;
+      } else {
+        frameIdx = 0;
+      }
+      // Limb image table is read with the v5 −6 base correction.
+      const ptrOffset = tableOffset + COSTUME_OFFSET_ADJUST + frameIdx * 2;
       if (ptrOffset + 2 > costume.payload.length) {
         if (limbActive) {
           skippedLimbs.push({
@@ -285,6 +292,7 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
           costPalette: costume.header.palette,
           actorX: actor.x,
           actorY: actor.y,
+          mirror,
           // Default actor z = in front of every plane. Walk-box-derived
           // Z lands with the pathfinding sub-phase; until then this
           // matches "actor is the topmost layer above the room bg"

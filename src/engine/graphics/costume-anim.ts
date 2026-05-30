@@ -54,6 +54,24 @@ const DISABLED_LIMB_MARKER = 0xffff;
 const LENGTH_NOLOOP_FLAG = 0x80;
 const LENGTH_VALUE_MASK = 0x7f;
 
+// Anim-cmd stream command bytes (not picture indices).
+const CMD_LO = 0x71;
+const CMD_HI = 0x7c;
+const CMD_STOP = 0x79; //  → set this limb's "stopped" bit (freeze, don't draw)
+const CMD_UNSTOP = 0x7a; // → clear the "stopped" bit (resume drawing)
+const isAnimCmd = (b: number): boolean => b >= CMD_LO && b <= CMD_HI;
+
+/**
+ * v5 base correction. ScummVM reads every stored costume offset relative
+ * to `_baseptr`; our `payload` array begins **6 bytes past** `_baseptr`
+ * (we parse numAnim/format at payload[0]/[1]; the v5 layout has them at
+ * `_baseptr[6]`/`[7]`). So every stored offset VALUE — the anim record,
+ * the cmd stream, the limb image table — is read at `payload[value - 6]`.
+ * (Frame pointers are decoded via `decodeCostumeFrame`, whose own −6 is
+ * this same correction, so they need no extra adjustment.)
+ */
+export const COSTUME_OFFSET_ADJUST = -6;
+
 /** One limb's playback slot. */
 export interface LimbPlayback {
   /** True when this limb has any anim data right now. */
@@ -80,6 +98,13 @@ export interface AnimState {
   readonly animId: number;
   /** One slot per limb, indexed 0..15. Inactive limbs read frame 0. */
   readonly limbs: ReadonlyArray<LimbPlayback>;
+  /**
+   * Per-limb "stopped" bitmask (bit `i` = limb `i`). A stopped limb does
+   * NOT draw. Set by the `0x79` cmd, cleared by `0x7A`; persists across
+   * `startAnim` calls — this is how the walk freezes the head limb (the
+   * body sprite carries the head) while stand/talk resume it.
+   */
+  readonly stopped: number;
 }
 
 const INACTIVE_LIMB: LimbPlayback = {
@@ -95,6 +120,7 @@ export function createAnimState(_header: CostumeHeader): AnimState {
   return {
     animId: 0,
     limbs: makeInactiveLimbs(),
+    stopped: 0,
   };
 }
 
@@ -132,11 +158,50 @@ export function currentAnimCmd(
 }
 
 /**
- * Start a new anim on an actor. Decodes the anim definition at
- * `header.animOffsets[animId]` and populates per-limb playback slots
- * from the mask + start/length pairs. A `0` or `0xFFFF` entry in
- * animOffsets is the "this anim isn't defined" sentinel — we return
- * an inactive state.
+ * Resolve the picture index a limb should draw this tick — or -1 for
+ * "draw nothing". Returns -1 when the limb is inactive, **stopped**, or
+ * its whole window is command bytes. Command bytes (`0x71-0x7C`: sound /
+ * loop / stop markers) are not drawable pictures, so we advance past
+ * them (wrapping within the loop window) to the next real picture — an
+ * active limb never blanks for a tick.
+ */
+export function currentLimbPicture(
+  state: AnimState,
+  limbIdx: number,
+  payload: Uint8Array,
+): number {
+  const limb = state.limbs[limbIdx];
+  if (!limb || !limb.active) return -1;
+  if ((state.stopped >> limbIdx) & 1) return -1; // stopped → don't draw
+  const len = Math.max(1, limb.length);
+  for (let k = 0; k < len; k++) {
+    const pos = limb.start + ((limb.cursor + k) % len);
+    if (pos < 0 || pos >= payload.length) continue;
+    const b = payload[pos]!;
+    if (!isAnimCmd(b)) return b;
+  }
+  return -1;
+}
+
+/**
+ * Start a new anim on an actor. Decodes the anim record at
+ * `header.animOffsets[animId]` per the v5 algorithm:
+ *
+ *   u16 LE mask           — processed MSB-first; limb `i` = bit `15-i`
+ *   per set bit:
+ *     u16 LE frameIndex j — index into the anim-cmd stream
+ *     if j != 0xFFFF: u8 extra  — low 7 bits = length, bit 7 = no-loop
+ *
+ * `animCmds[j]` decides the limb's fate: `0x7A` un-stops it, `0x79`
+ * stops it (a persistent per-limb bit — neither sets playback), and
+ * anything else starts playback over `cmds[j .. j+(extra&0x7f)]`.
+ *
+ * Limbs NOT named by the mask are left untouched (so talk can drive the
+ * head while the body holds its pose). All stored offsets are read with
+ * the `COSTUME_OFFSET_ADJUST` (−6) base correction.
+ *
+ * A `0`/`0xFFFF` entry in animOffsets is the "anim not defined"
+ * sentinel — we keep the current limb state.
  */
 export function startAnim(
   state: AnimState,
@@ -149,125 +214,81 @@ export function startAnim(
   }
   const animOffset = header.animOffsets[animId]!;
   if (animOffset === 0 || animOffset === DISABLED_LIMB_MARKER) {
-    // No definition for this anim — leave the limbs in their current
-    // state. SCUMM scripts often trigger "stand" or "walk" anims that
-    // aren't defined for a given costume; keeping the prior anim
-    // running is the SCUMM-faithful behaviour.
     return { ...state, animId };
   }
-  if (animOffset + 1 > payload.length) {
-    return { ...state, animId, limbs: makeInactiveLimbs() };
+  const recordStart = animOffset + COSTUME_OFFSET_ADJUST;
+  if (recordStart < 0 || recordStart + 2 > payload.length) {
+    return { ...state, animId };
   }
 
-  // Two record layouts appear in MI1 costumes:
-  //
-  //   compact:   u8 mask          @+0,  mods @+1
-  //   extended:  00 00 00 prefix  @+0,  u8 mask @+3, mods @+4
-  //
-  // Both carry the same per-limb modifier shape — `u8 mask` (bit 7 =
-  // limb 0 … bit 0 = limb 7, MSB = limb 0) + per set bit `{u16 LE
-  // frameIndex, u8 lenFlags}`. The *extended* form prepends a 3-byte
-  // all-zero header; it carries Guybrush's walk / stand / turn anims
-  // (anims 4-11, 40-51). Empirically verified: under this reading those
-  // records resolve to the tall ~20×47 body frames + 11×11 head that a
-  // walking Guybrush is made of (see docs/SCUMM-V5-COSTUME-ANIM.md).
-  //
-  // The discriminator is "first THREE bytes are zero" — that uniquely
-  // marks the walk/stand records and excludes the still-undecoded
-  // oddballs (`00 00 ff …` talk-pose, `00 00 08 …`), which fall through
-  // to the compact path, read mask 0x00, and stay safely static.
-  let maskPos = animOffset;
-  if (
-    payload[animOffset] === 0x00 &&
-    payload[animOffset + 1] === 0x00 &&
-    payload[animOffset + 2] === 0x00
-  ) {
-    maskPos = animOffset + 3;
-  }
-  if (maskPos + 1 > payload.length) {
-    return { ...state, animId, limbs: makeInactiveLimbs() };
-  }
+  // Copy current limbs/stopped; only the masked limbs are updated.
+  const limbs: LimbPlayback[] = state.limbs.map((l) => l);
+  let stopped = state.stopped;
+  const cmdBase = header.animCmdOffset + COSTUME_OFFSET_ADJUST;
 
-  const mask = payload[maskPos]!;
-  // mask 0x00 (no limbs) and 0xFF leave the actor in its current/init
-  // pose. 0xFF is a sentinel for the talk / multi-limb record form we
-  // don't decode yet (the record is far too short to host 8 modifiers)
-  // — activating it would draw garbage, so fall back to the static pose
-  // instead. See the doc's "STILL OPEN" notes.
-  if (mask === 0x00 || mask === 0xff) {
-    return { ...state, animId, limbs: makeInactiveLimbs() };
-  }
-
-  let cursor = maskPos + 1;
-  const limbs: LimbPlayback[] = makeInactiveLimbs() as LimbPlayback[];
-
-  // Iterate bits MSB → LSB so we consume modifier bytes in encoded order.
-  for (let bit = 7; bit >= 0; bit--) {
-    if (!(mask & (1 << bit))) continue;
-    if (cursor + 2 > payload.length) break;
-    const frameIndex = payload[cursor]! | (payload[cursor + 1]! << 8);
-    cursor += 2;
-    const limbIdx = 7 - bit;
-    if (frameIndex === DISABLED_LIMB_MARKER) {
-      limbs[limbIdx] = INACTIVE_LIMB; // disabled — no length byte follows
-      continue;
+  let r = recordStart;
+  let mask = payload[r]! | (payload[r + 1]! << 8);
+  r += 2;
+  // A full anim start applies every limb the mask names (ScummVM passes
+  // usemask = all-ones); partial usemask updates aren't modelled.
+  let i = 0;
+  while ((mask & 0xffff) !== 0 && i < LIMB_COUNT) {
+    if (mask & 0x8000) {
+      if (r + 2 > payload.length) break;
+      const j = payload[r]! | (payload[r + 1]! << 8);
+      r += 2;
+      if (j === DISABLED_LIMB_MARKER) {
+        limbs[i] = INACTIVE_LIMB; // no extra byte follows
+      } else {
+        if (r >= payload.length) break;
+        const extra = payload[r]!;
+        r += 1;
+        const cmdOff = cmdBase + j;
+        const cmd = cmdOff >= 0 && cmdOff < payload.length ? payload[cmdOff]! : -1;
+        if (cmd === CMD_UNSTOP) {
+          stopped &= ~(1 << i);
+        } else if (cmd === CMD_STOP) {
+          stopped |= 1 << i;
+        } else {
+          const start = cmdBase + j;
+          const length = (extra & LENGTH_VALUE_MASK) + 1;
+          const noLoop = (extra & LENGTH_NOLOOP_FLAG) !== 0;
+          limbs[i] =
+            start >= 0 && start < payload.length
+              ? { active: true, start, length, noLoop, cursor: 0, finished: false }
+              : INACTIVE_LIMB;
+        }
+      }
     }
-    if (cursor + 1 > payload.length) break;
-    const lenFlags = payload[cursor]!;
-    cursor += 1;
-    const noLoop = (lenFlags & LENGTH_NOLOOP_FLAG) !== 0;
-    const length = (lenFlags & LENGTH_VALUE_MASK) + 1;
-    // `frameIndex` indexes the frameOffs cmd array at animCmdOffset; the
-    // limb's playback `start` is the absolute payload position of that
-    // first cmd byte (currentAnimCmd reads payload[start + cursor]).
-    const start = header.animCmdOffset + frameIndex;
-    // Defensive: a start that runs past the payload means this record
-    // doesn't fit the single-limb form (some costumes use a richer
-    // encoding we don't decode yet). Leave the limb inactive rather
-    // than read garbage.
-    if (start < 0 || start + length > payload.length) {
-      limbs[limbIdx] = INACTIVE_LIMB;
-      continue;
-    }
-    limbs[limbIdx] = {
-      active: true,
-      start,
-      length,
-      noLoop,
-      cursor: 0,
-      finished: false,
-    };
+    i++;
+    mask = (mask << 1) & 0xffff;
   }
 
-  return { animId, limbs };
+  return { animId, limbs, stopped };
 }
 
 /**
- * Advance every active limb one tick. Loop-on-end for default anims,
- * sticky-on-last-byte for no-loop anims. Returns a new state object
- * (the old one stays unchanged so React-style state-diff tooling
- * stays happy).
+ * Advance every active, non-stopped limb one tick. Loop-on-end for
+ * default anims, sticky-on-last-byte for no-loop anims. Returns a new
+ * state object (the old one stays unchanged).
  */
 export function stepAnim(state: AnimState): AnimState {
-  // Cheap short-circuit when nothing is playing.
-  let anyActive = false;
-  for (const limb of state.limbs) {
-    if (limb.active) {
-      anyActive = true;
+  let anyAdvancing = false;
+  for (let i = 0; i < state.limbs.length; i++) {
+    const l = state.limbs[i]!;
+    if (l.active && l.length > 1 && !((state.stopped >> i) & 1)) {
+      anyAdvancing = true;
       break;
     }
   }
-  if (!anyActive) return state;
+  if (!anyAdvancing) return state;
 
   const limbs: LimbPlayback[] = [];
-  for (const limb of state.limbs) {
-    if (!limb.active) {
-      limbs.push(limb);
-      continue;
-    }
-    if (limb.length <= 1) {
-      // Single-byte loop or no-loop — nothing to advance.
-      limbs.push({ ...limb, finished: limb.noLoop });
+  for (let i = 0; i < state.limbs.length; i++) {
+    const limb = state.limbs[i]!;
+    // Stopped or static limbs hold their frame.
+    if (!limb.active || limb.length <= 1 || (state.stopped >> i) & 1) {
+      limbs.push(limb.active && limb.length <= 1 ? { ...limb, finished: limb.noLoop } : limb);
       continue;
     }
     let next = limb.cursor + 1;
@@ -282,7 +303,7 @@ export function stepAnim(state: AnimState): AnimState {
     }
     limbs.push({ ...limb, cursor: next, finished });
   }
-  return { animId: state.animId, limbs };
+  return { animId: state.animId, limbs, stopped: state.stopped };
 }
 
 function makeInactiveLimbs(): LimbPlayback[] {

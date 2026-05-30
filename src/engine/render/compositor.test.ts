@@ -133,7 +133,9 @@ function makeOneFrameCostume(opts: {
   payloadParts.push(0); // format
   for (let i = 0; i < 16; i++) payloadParts.push(i === pixelIdx ? clutIdx : 0);
   payloadParts.push(0, 0); // animCmdOffset
-  payloadParts.push(54, 0); // limbOffsets[0] = 54
+  // limbOffsets[0] = 60: the compositor reads the frame table with the
+  // v5 -6 base correction (60 - 6 = 54, the table's actual location).
+  payloadParts.push(60, 0);
   for (let i = 1; i < 16; i++) payloadParts.push(0, 0); // limbOffsets[1..15] = 0
   payloadParts.push(0, 0); // animOffsets[0] = 0
   // header ends at byte 54
@@ -163,7 +165,7 @@ function makeOneFrameCostume(opts: {
     paletteSize: 16,
     palette: payload.subarray(2, 18),
     animCmdOffset: 0,
-    limbOffsets: [54, ...Array<number>(15).fill(0)],
+    limbOffsets: [60, ...Array<number>(15).fill(0)],
     animOffsets: [0],
   };
   return { id: 1, header, payload };
@@ -180,7 +182,7 @@ function activeLimb0Anim(): Actor['anim'] {
     finished: false,
   }));
   limbs[0] = { active: true, start: 0, length: 1, noLoop: false, cursor: 0, finished: false };
-  return { animId: 1, limbs };
+  return { animId: 1, limbs, stopped: 0 };
 }
 
 function makeActorAt(id: number, x: number, y: number, costume: number, room: number = 1): Actor {

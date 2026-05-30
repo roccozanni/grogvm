@@ -195,4 +195,56 @@ describe('stepAllActorWalks', () => {
     expect(a3.isMoving).toBe(false); // arrived
     expect(a3.walkTarget).toBeNull();
   });
+
+  // ── walk/stand chore trigger ──────────────────────────────────────
+  // A stub costume whose anim offsets are all 0 is enough: startAnim
+  // records the requested animId (= chore*4 + dir) even when it finds no
+  // record, so we can assert the mapping without decoding real frames.
+  const stubCostume = {
+    header: {
+      numAnim: 32, format: 0x58, paletteSize: 16 as const, palette: new Uint8Array(16),
+      animCmdOffset: 0, limbOffsets: new Array(16).fill(0), animOffsets: new Array(32).fill(0),
+      mirrorFlag: false,
+    },
+    payload: new Uint8Array(0),
+  };
+  function vmWithCostume(): Parameters<typeof stepAllActorWalks>[0] {
+    return { actors: new ActorTable(3), getCostume: () => stubCostume } as unknown as Parameters<typeof stepAllActorWalks>[0];
+  }
+
+  it('drives the walk chore (walkFrame*4 + dir) while moving', () => {
+    const vm = vmWithCostume();
+    const a = vm.actors.get(1);
+    a.costume = 1; a.x = 0; a.y = 0; a.walkTarget = { x: 200, y: 0 }; a.isMoving = true;
+    stepAllActorWalks(vm);
+    expect(a.facing).toBe('E');
+    expect(a.anim.animId).toBe(9); // walkFrame 2 * 4 + dir E(1)
+  });
+
+  it('switches to the stand chore on arrival', () => {
+    const vm = vmWithCostume();
+    const a = vm.actors.get(1);
+    a.costume = 1; a.x = 0; a.y = 0; a.walkTarget = { x: 0, y: -1 }; a.isMoving = true;
+    stepAllActorWalks(vm); // steps north and arrives this tick
+    expect(a.isMoving).toBe(false);
+    expect(a.facing).toBe('N');
+    expect(a.anim.animId).toBe(15); // standFrame 3 * 4 + dir N(3)
+  });
+
+  it('seeds the init pose once for an idle actor with a costume', () => {
+    const vm = vmWithCostume();
+    const a = vm.actors.get(1);
+    a.costume = 1; a.x = 10; a.y = 10; // idle, never animated (animId 0)
+    stepAllActorWalks(vm);
+    expect(a.anim.animId).toBe(6); // initFrame 1 * 4 + dir S(2) (default facing S)
+  });
+
+  it('does not clobber a script-driven anim on an idle FX actor', () => {
+    const vm = vmWithCostume();
+    const a = vm.actors.get(1);
+    a.costume = 1; a.x = 10; a.y = 10;
+    a.anim = { ...a.anim, animId: 2 }; // a sparkle anim set via animateActor
+    stepAllActorWalks(vm);
+    expect(a.anim.animId).toBe(2); // untouched (already non-zero, not moving)
+  });
 });

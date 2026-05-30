@@ -39,6 +39,38 @@ function identityPalette(size: number): Uint8Array {
   return p;
 }
 
+describe('compositeActor — mirror', () => {
+  it('reflects the frame horizontally about the anchor X when mirror=true', () => {
+    // 3×1 frame: pixels [1, 2, 3] at redirX=0, anchor (0,0) in a 6×1 fb.
+    // Unmirrored it occupies cols 0,1,2 as [1,2,3]; mirrored about X=0 it
+    // occupies cols -3..-1 (off-screen left), so nudge the anchor right.
+    const fb = new Uint8Array(6);
+    compositeActor({
+      framebuffer: fb, fbWidth: 6, fbHeight: 1,
+      frame: frame(3, 1, [1, 2, 3], 0, 0),
+      costPalette: identityPalette(8), actorX: 3, actorY: 0, mirror: true,
+    });
+    // Unmirrored at anchor 3 would be cols 3,4,5 = [1,2,3]. Mirrored about
+    // X=3 reflects to cols 0,1,2, reversed → [3,2,1].
+    expect(Array.from(fb)).toEqual([3, 2, 1, 0, 0, 0]);
+  });
+
+  it('is identity (left-right) compared to the unmirrored draw', () => {
+    const mk = (mirror: boolean) => {
+      const fb = new Uint8Array(6);
+      compositeActor({
+        framebuffer: fb, fbWidth: 6, fbHeight: 1,
+        frame: frame(3, 1, [1, 2, 3], 0, 0),
+        costPalette: identityPalette(8), actorX: 0, actorY: 0, mirror,
+      });
+      return Array.from(fb);
+    };
+    expect(mk(false)).toEqual([1, 2, 3, 0, 0, 0]); // cols 0,1,2
+    // Mirrored about X=0 → cols -3..-1 off-screen, nothing drawn.
+    expect(mk(true)).toEqual([0, 0, 0, 0, 0, 0]);
+  });
+});
+
 describe('compositeActor', () => {
   it('writes opaque costume pixels into the framebuffer through the cost palette', () => {
     const framebuffer = new Uint8Array(4 * 4); // all zeros

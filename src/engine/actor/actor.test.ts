@@ -66,6 +66,7 @@ describe('setActorCostume', () => {
     // Pretend the actor was mid-anim — every limb active and cursored.
     a.anim = {
       animId: 7,
+      stopped: 0,
       limbs: a.anim.limbs.map((l) => ({ ...l, active: true, cursor: 5 })),
     };
     setActorCostume(a, 42);

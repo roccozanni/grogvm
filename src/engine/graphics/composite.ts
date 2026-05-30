@@ -39,12 +39,19 @@ export interface CompositeActorOptions {
   readonly actorZ?: number;
   /** Z-planes in source order — `zPlanes[0]` corresponds to `ZP01`. */
   readonly zPlanes?: readonly DecodedZPlane[];
+  /**
+   * Draw the frame horizontally mirrored (reflected about the actor's
+   * anchor X). SCUMM costumes store side-view frames facing one way and
+   * flip them for the opposite facing.
+   */
+  readonly mirror?: boolean;
 }
 
 export function compositeActor(opts: CompositeActorOptions): void {
   const { framebuffer, fbWidth, fbHeight, frame, costPalette, actorX, actorY } = opts;
   const actorZ = opts.actorZ ?? 0;
   const zPlanes = opts.zPlanes ?? [];
+  const mirror = opts.mirror ?? false;
 
   if (framebuffer.length !== fbWidth * fbHeight) {
     throw new Error(
@@ -59,7 +66,9 @@ export function compositeActor(opts: CompositeActorOptions): void {
     }
   }
 
-  const left = actorX + frame.redirX;
+  // Mirrored frames reflect about the anchor X: the unmirrored span
+  // [actorX+redirX, +width) becomes [actorX-redirX-width, actorX-redirX).
+  const left = mirror ? actorX - frame.redirX - frame.width : actorX + frame.redirX;
   const top = actorY + frame.redirY;
 
   // Clip the iteration range to the on-screen portion of the frame so
@@ -74,7 +83,9 @@ export function compositeActor(opts: CompositeActorOptions): void {
     const frameRowBase = py * frame.width;
     const fbRowBase = ry * fbWidth;
     for (let px = startX; px < endX; px++) {
-      const idx = frame.pixels[frameRowBase + px]!;
+      // Mirror: sample the column from the opposite edge of the frame.
+      const srcPx = mirror ? frame.width - 1 - px : px;
+      const idx = frame.pixels[frameRowBase + srcPx]!;
       if (idx === COSTUME_FRAME_TRANSPARENT) continue;
       const rx = left + px;
 

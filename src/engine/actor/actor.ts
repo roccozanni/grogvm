@@ -63,6 +63,18 @@ export interface Actor {
   /** Index into `walkPath` of the *next* waypoint to head toward. */
   walkPathIdx: number;
   isMoving: boolean;
+  /**
+   * Animation "chore" frames — the costume anim record for an action is
+   * `frame * 4 + dir` (dir = `newDirToOldDir(facing)`: W=0, E=1, S=2,
+   * N=3). Set by `actorOps`; defaults match SCUMM's `Actor::initActor`.
+   * The engine plays `walkFrame` while moving and `standFrame` on
+   * arrival, and seeds `initFrame` when the costume first appears.
+   */
+  walkFrame: number;
+  standFrame: number;
+  initFrame: number;
+  talkStartFrame: number;
+  talkStopFrame: number;
   /** Anim playback state — populated by `startAnim`, advanced by `stepAnim`. */
   anim: AnimState;
   /**
@@ -78,6 +90,7 @@ export interface Actor {
 /** Default empty AnimState — every limb inactive. */
 const EMPTY_ANIM_STATE: AnimState = {
   animId: 0,
+  stopped: 0,
   limbs: new Array(16).fill({
     active: false,
     start: 0,
@@ -92,6 +105,13 @@ const EMPTY_ANIM_STATE: AnimState = {
 export const DEFAULT_WALK_SPEED_X = 8;
 export const DEFAULT_WALK_SPEED_Y = 2;
 export const DEFAULT_SCALE = 0xff;
+
+// SCUMM `Actor::initActor` chore-frame defaults. Record = frame*4 + dir.
+export const DEFAULT_INIT_FRAME = 1;
+export const DEFAULT_WALK_FRAME = 2;
+export const DEFAULT_STAND_FRAME = 3;
+export const DEFAULT_TALK_START_FRAME = 4;
+export const DEFAULT_TALK_STOP_FRAME = 5;
 
 export function createActor(id: number): Actor {
   return {
@@ -112,6 +132,11 @@ export function createActor(id: number): Actor {
     walkPath: [],
     walkPathIdx: 0,
     isMoving: false,
+    walkFrame: DEFAULT_WALK_FRAME,
+    standFrame: DEFAULT_STAND_FRAME,
+    initFrame: DEFAULT_INIT_FRAME,
+    talkStartFrame: DEFAULT_TALK_START_FRAME,
+    talkStopFrame: DEFAULT_TALK_STOP_FRAME,
     anim: EMPTY_ANIM_STATE,
     drawBounds: null,
   };

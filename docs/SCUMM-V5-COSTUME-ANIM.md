@@ -506,6 +506,64 @@ static sprite (the prior known-good state) rather than rendering a
 broken multi-limb walk. The decoder (`startAnim`) and its tests remain;
 only the auto-trigger was backed out.
 
+### SOLVED — the real v5 algorithm (with a ScummVM reference, 2026-05-30)
+
+The user provided `costumeDecodeData` + `loadCostume` as a reference
+(used for understanding only, not copied). Everything above is now
+superseded by the correct model — implemented and verified headlessly.
+
+**Base alignment (the root of most of my errors).** From `loadCostume`'s
+field layout (`numAnim` at `_baseptr[6]`, `format` at `[7]`, palette at
+`[8]`, then the offset tables), our `payload` array begins **6 bytes
+past ScummVM's `_baseptr`**. Every stored offset value is `_baseptr`-
+relative, so it's read at `payload[value − 6]` — the anim record, the
+anim-cmd stream, AND the limb image table. (Frame pointers go through
+`decodeCostumeFrame`, whose own −6 is exactly this correction.) Exposed
+as `COSTUME_OFFSET_ADJUST = -6`.
+
+**Record format (the earlier 8-bit-mask reading was wrong).**
+
+```
+u16 LE mask          — MSB-first; limb i = bit (15-i); loop while bits remain
+per set bit:
+  u16 LE frameIndex j
+  if j != 0xFFFF: u8 extra   — low7 = length-1, bit7 = no-loop
+```
+
+`animCmds[j]` (read at the −6 base) decides the limb's fate:
+- `0x7A` → **un-stop** the limb (clear a persistent per-limb bit)
+- `0x79` → **stop** the limb (set the bit) — neither sets playback
+- anything else → play `cmds[j .. j+(extra&0x7f)]`
+
+A **per-limb "stopped" bitmask** lives on the actor's `AnimState` and
+**persists across `startAnim`** (`AnimState.stopped`). A stopped limb
+does not draw. Limbs not named by the mask are left untouched.
+
+**This explains every bug.** For Guybrush:
+- **limb 0 is the whole character** (head+body+legs); **limb 1 is a
+  separate head** for articulation.
+- **WALK** (chore 2, records 8–11): body (limb 0) cycles, head (limb 1)
+  is **stopped** → one Guybrush, no double head.
+- **STAND** (chore 3, 12–15): body pose, head **un-stopped**.
+- **TALK** (chore 4/5, 16–23): head cycles (lip-sync), body untouched
+  (holds its pose because the talk mask doesn't name limb 0).
+- **Mirror**: West records ≡ East records (anim 8 ≡ anim 9) — the
+  costume mirror flag (format bit 7) draws one side flipped. Implemented
+  in `compositeActor` (`mirror` reflects about the anchor X); applied
+  when `mirrorFlag && facing === 'W'` (flip to 'E' if it reads swapped).
+
+**Walk trigger.** `Actor` carries `walk/stand/init/talk*` chore frames
+(from `actorOps`, SCUMM `initActor` defaults). `stepAllActorWalks` plays
+`walkFrame*4+dir` while moving, `standFrame*4+dir` on arrival, and seeds
+`initFrame*4+dir` once for an idle costumed actor (so the head limb has
+playback that stand/walk later resume/freeze). `dir = newDirToOldDir`
+(`W=0,E=1,S=2,N=3`). FX actors driven by `animateActor` are untouched.
+
+Verified headlessly: the walk decodes to a single cycling body with the
+head stopped; the intro (rooms 10/38, up to 9 actors) composites with
+zero limb-skip errors. Visual confirmation (mirror direction especially)
+is the user's to give.
+
 ### Clouds are a DIFFERENT mechanism (not the record decoder)
 
 User confirmed (screenshot, room 38 Mêlée-island lookout): the clouds

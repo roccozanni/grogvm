@@ -19,9 +19,33 @@
  * E/W when the X step is larger, N/S otherwise.
  */
 
-import type { Actor } from './actor';
+import type { Actor, Facing } from './actor';
 import type { Vm } from '../vm/vm';
 import { findPath } from '../pathfinding/grid';
+import { startAnim } from '../graphics/costume-anim';
+
+/**
+ * SCUMM `newDirToOldDir`: facing → the costume's directional index
+ * (0=W, 1=E, 2=S, 3=N), per ScummVM's `oldDirToNewDir` table. The anim
+ * record for a chore + facing is `chore * 4 + dir`.
+ */
+const OLD_DIR: Record<Facing, number> = { W: 0, E: 1, S: 2, N: 3 };
+
+/**
+ * Drive an actor's costume animation from a chore frame: start the anim
+ * record `chore * 4 + dir` for the actor's current facing. Only
+ * (re)starts when the target record changes, so a running walk cycle
+ * keeps advancing through `stepAnim` instead of resetting to frame 0
+ * every tick. No-op for actors without a loaded costume.
+ */
+function applyChore(vm: Vm, actor: Actor, chore: number): void {
+  if (actor.costume <= 0) return;
+  const record = chore * 4 + OLD_DIR[actor.facing];
+  if (actor.anim.animId === record) return;
+  const costume = vm.getCostume(actor.costume);
+  if (!costume) return;
+  actor.anim = startAnim(actor.anim, record, costume.header, costume.payload);
+}
 
 /**
  * Set up an actor's walk: store the target, compute a waypoint path
@@ -146,7 +170,24 @@ function finishWalk(actor: Actor): void {
  */
 export function stepAllActorWalks(vm: Vm): void {
   for (const actor of vm.actors.all()) {
+    const wasMoving = actor.isMoving;
     stepWalk(actor);
+    // Drive the costume chore from movement state:
+    //  - moving        → walk chore (body cycles; the record stops the
+    //                    head limb so the body sprite carries the head)
+    //  - just arrived  → stand chore (un-stops the head, body to pose)
+    //  - idle, no anim → seed the init pose once, so the head limb has
+    //                    playback that stand/walk can later resume/freeze
+    // We touch the anim ONLY in these cases, never on a plain idle tick,
+    // so script-driven FX actors (the intro sparkles run via
+    // `animateActor`) are left alone.
+    if (actor.isMoving) {
+      applyChore(vm, actor, actor.walkFrame);
+    } else if (wasMoving) {
+      applyChore(vm, actor, actor.standFrame);
+    } else if (actor.costume > 0 && actor.anim.animId === 0) {
+      applyChore(vm, actor, actor.initFrame);
+    }
   }
 }
 
