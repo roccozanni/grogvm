@@ -547,12 +547,17 @@ does not draw. Limbs not named by the mask are left untouched.
 - **STAND** (chore 3, 12–15): body pose, head **un-stopped**.
 - **TALK** (chore 4/5, 16–23): head cycles (lip-sync), body untouched
   (holds its pose because the talk mask doesn't name limb 0).
-- **Mirror**: the side-view frames face **right** (East renders
-  correctly unmirrored, confirmed in-game); West is the same art
-  flipped. The costume format's mirror bit (0x80) is **clear on every
-  MI1 costume**, so it is NOT the gate — `compositeActor` mirrors
-  (reflect about the anchor X) keyed purely on `facing === 'W'`. S/N are
-  front/back views with their own art, never mirrored.
+- **Mirror**: W and E share the *same* frames — a walk's West record and
+  East record play the **identical picture sequence** (`scratch/compare-we.ts`),
+  so the engine flips one horizontally; that's genuine engine behaviour,
+  not a compositor shortcut. The costume `mirrorFlag` (format bit 0x80)
+  gives the art's native horizontal orientation: clear (every MI1
+  costume) ⇒ art faces right ⇒ flip West; set ⇒ art faces left ⇒ flip
+  East. Only horizontal facings flip (N/S are front/back views with their
+  own art). `compositeActor` reflects about the anchor X;
+  `mirror = horizontal && (facingWest XOR mirrorFlag)`. (Confirmed
+  in-game for the flag-clear case; the flag-set branch follows the SCUMM
+  convention but no MI1 costume exercises it.)
 
 **Walk trigger.** `Actor` carries `walk/stand/init/talk*` chore frames
 (from `actorOps`, SCUMM `initActor` defaults). `stepAllActorWalks` plays

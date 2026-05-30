@@ -232,12 +232,18 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
     for (const l of actor.anim.limbs) {
       if (l.active) { anyActive = true; break; }
     }
-    // Mirror: MI1 stores side-view frames facing RIGHT (East renders
-    // correctly unmirrored) and draws them flipped for West. The costume
-    // format's mirror bit (0x80) is clear on every MI1 costume, so it
-    // isn't the gate — mirroring is keyed purely on facing West. (S/N
-    // are front/back views with their own art and are never mirrored.)
-    const mirror = actor.facing === 'W';
+    // Mirror. West and East share the SAME side-view frames (proven: a
+    // walk's W and E records play the identical picture sequence), so the
+    // engine flips one of them horizontally — this is genuine engine
+    // behaviour, not a compositor shortcut. The costume's `mirrorFlag`
+    // (format bit 0x80) gives the art's native orientation: when clear
+    // (every MI1 costume) the art faces right, so we flip West; when set
+    // the art faces left, so we'd flip East instead. Only the horizontal
+    // facings flip — N/S are front/back views with their own art.
+    //   mirror = horizontal AND (facing-West XOR mirrorFlag)
+    const facing = actor.facing;
+    const horizontal = facing === 'W' || facing === 'E';
+    const mirror = horizontal && ((facing === 'W') !== costume.header.mirrorFlag);
     for (let limbIdx = 0; limbIdx < costume.header.limbOffsets.length; limbIdx++) {
       const tableOffset = costume.header.limbOffsets[limbIdx]!;
       if (tableOffset === 0) continue; // unused limb
