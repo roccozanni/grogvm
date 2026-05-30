@@ -79,10 +79,8 @@ const INVENTORY_VERB_LAST = 207;
 /** Default CLUT colours when a verb's slot doesn't specify one. */
 const DEFAULT_VERB_COLOR = 7; // light-grey ink
 const DEFAULT_VERB_HI_COLOR = 14; // light yellow
-/** Sentence-line strip height (px, room-space) — one CHAR text row + slack. */
-const SENTENCE_LINE_H = 10;
-/** Sentence-line ink (CLUT index) — the default verb light-grey. */
-const SENTENCE_COLOR = DEFAULT_VERB_COLOR;
+/** Sentence-line strip height (px) — fits MI1's tall verb font (h=14) + slack. */
+const SENTENCE_LINE_H = 16;
 const DEFAULT_VERB_DIM_COLOR = 8; // dark grey
 
 /** Cursor crosshair colours (CLUT indices). */
@@ -159,8 +157,7 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
   // live from `vm.currentCharset`, cached per id so we don't re-walk the
   // LECF tree every repaint.
   const charsetCache = new Map<number, ActiveCharset | null>();
-  const activeCharset = (): ActiveCharset | null => {
-    const id = vm.currentCharset;
+  const charsetById = (id: number): ActiveCharset | null => {
     let c = charsetCache.get(id);
     if (c === undefined) {
       // Resolve by SCUMM charset id via the engine's index-backed
@@ -171,6 +168,7 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
     }
     return c;
   };
+  const activeCharset = (): ActiveCharset | null => charsetById(vm.currentCharset);
 
   // ─── cursor overlay ───
   const cursorOverlay = document.createElement('canvas');
@@ -372,15 +370,24 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
     if (!slctx) return;
     // An inventory item under the cursor (verb-bar hover) takes priority
     // over a room object; otherwise show the room hover.
-    const text = sentenceText(vm, hoveredInvItem ?? hoveredObject, hoveredVerb);
-    // Black ground (verb-bar CLUT 0), then the sentence in the CHAR font,
-    // centred — same renderer the verbs use.
+    const obj = hoveredInvItem ?? hoveredObject;
+    const text = sentenceText(vm, obj, hoveredVerb);
+    // Font + colour come from the verb the sentence is showing (hovered,
+    // else armed, else the walk-to default #11) — so the sentence matches
+    // the verb panel's font (MI1's serif charset 6), not the dialogue
+    // font. The original draws the sentence into verb #100 at the top of
+    // the verb area; we mirror that look on this flush-above strip.
+    const verb =
+      (hoveredVerb !== null ? vm.verbs.get(hoveredVerb) : null) ??
+      (armedVerb(vm) !== null ? vm.verbs.get(armedVerb(vm)!) : null) ??
+      vm.verbs.get(VERB_WALK_TO);
     slctx.clearRect(0, 0, VIEWPORT_W, SENTENCE_LINE_H);
     slctx.fillStyle = clutCss(palette, 0);
     slctx.fillRect(0, 0, VIEWPORT_W, SENTENCE_LINE_H);
-    const charset = activeCharset();
+    const charset = charsetById(verb?.charset ?? vm.currentCharset) ?? activeCharset();
+    const ink = verb?.color || DEFAULT_VERB_COLOR;
     if (charset && text) {
-      drawText(slctx, charset, text, Math.floor(VIEWPORT_W / 2), 1, palette, SENTENCE_COLOR, true);
+      drawText(slctx, charset, text, Math.floor(VIEWPORT_W / 2), 1, palette, ink, true);
     }
   };
 
@@ -500,8 +507,11 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
         continue;
       }
       if (!v.name) continue;
+      // Each verb renders in the charset it was defined under (MI1's verb
+      // panel uses charset 6, a tall serif font — not the dialogue font).
+      const vCharset = charsetById(v.charset) ?? charset;
       const ink = pickInk(v, v.id === hoveredVerb, v.id === armedVerb(vm));
-      drawText(vbctx, charset, v.name, x, y, palette, ink, v.centered);
+      drawText(vbctx, vCharset, v.name, x, y, palette, ink, v.centered);
     }
   };
 
@@ -848,7 +858,10 @@ function sentenceText(
   const previewVerbId = hoveredVerb ?? armedVerb(vm);
   const previewVerb =
     previewVerbId !== null ? vm.verbs.get(previewVerbId) : null;
-  const verbName = previewVerb?.name || 'Walk to';
+  // Idle default = the game's walk-to verb name ("Vai" in the Italian
+  // build), read from verb #11 — not a hardcoded English string.
+  const verbName =
+    previewVerb?.name || vm.verbs.get(VERB_WALK_TO)?.name || 'Walk to';
   const objName =
     hoveredObject !== null
       ? vm.objectName(hoveredObject) ?? `obj #${hoveredObject}`

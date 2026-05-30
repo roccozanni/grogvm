@@ -1073,7 +1073,7 @@ describe('saveRestoreVerbs (0xAB) — cutscene verb hide/restore', () => {
   function makeVerb(vm: Vm, id: number, state: 'on' | 'dim' | 'off' | 'deleted'): void {
     vm.verbs.set(id, {
       id, name: '', color: 1, hiColor: 1, dimColor: 1, backColor: 0,
-      x: 0, y: 0, key: 0, centered: false, image: null, state,
+      x: 0, y: 0, key: 0, charset: 0, centered: false, image: null, state,
     });
   }
 

@@ -204,16 +204,34 @@ Implement these faithfully:
       631+) is still drifted (a non-print opcode mis-size), so its exact
       loop/transition is unconfirmed — untangle that first. See
       `scratch/when-178.ts` (the no-room-at-t5 proof).
-- [~] **Sentence line in-canvas** (2026-05-30, session 3 — pending visual
-      confirm). Was an HTML `<div>` (browser font, bordered box); now a
-      canvas rendered with the active CHAR font via the shared `drawText`,
-      centred on the black verb-bar ground — the authentic MI1 look. Ink =
-      default verb light-grey (CLUT 7); height `SENTENCE_LINE_H` (10 px).
-      Still a separate strip above the verb bar rather than merged into
-      the verb-bar canvas as verb #100 at the verb-area top — the full
-      merge (engine writes verb #100, exact script position/colour) is a
-      later refinement. **Wants a visual check** (look + confirm colour /
-      centring match MI1).
+- [~] **Sentence line + verb-panel fidelity** (2026-05-30, session 3 —
+      pending visual confirm; user feedback from ScummVM screenshots).
+      Was an HTML `<div>` (browser font, bordered box); now a canvas
+      rendered with the CHAR font via the shared `drawText`, centred, on
+      the black ground, **flush above the verb bar** (one verb panel, no
+      gap — matching MI1). Fixed alongside (same screenshots):
+      - **Verb font.** Verbs were drawn in the live *dialogue* charset
+        (2, blocky h9); MI1 defines the verb panel under **charset 6**
+        (tall serif, h14) then switches to 2 for dialogue. Added
+        `VerbSlot.charset`, captured at verb **creation / `new`** (NOT on
+        every `setName` — the sentence script renames verb #100 under
+        charset 2 during play and must not clobber the panel font). Each
+        verb now renders in its own charset; the sentence renders in the
+        **previewed verb's** charset+colour (hovered → armed → walk-to
+        #11), all charset 6.
+      - **"Walk to" → "Vai".** The idle sentence hardcoded English
+        "Walk to"; now reads the walk-to verb's name (verb #11 = "Vai" in
+        the Italian build).
+      - **STILL OFF — verb/sentence COLOURS.** They render `color 6` →
+        CLUT6 = orange (and `color 3` → teal); ScummVM shows them
+        **magenta**. Same root cause as the credits teal-vs-magenta: a
+        runtime UI-palette remap (likely `charsetColor` 0x0E and/or a
+        `setPalColor` we miss) recolours the low indices to the magenta
+        UI theme. Both `color 6` and `color 3` land on magenta in ScummVM,
+        so distinct indices are remapped to the same UI colour. Grouped
+        with the credits palette work — see that entry.
+      **Wants a visual check**: font/placement/"Vai" should now match;
+      colours will still be orange until the UI-palette remap lands.
 - [~] **Dialog escape codes** — DONE: substitutions `0x04` (int-var →
       decimal), `0x07` (string resource), `0x08` (object/verb name),
       threaded through `decodeScummString` / `decodeScummStringPages`.

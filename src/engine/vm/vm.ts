@@ -142,6 +142,15 @@ export interface VerbSlot {
   y: number;
   /** Keyboard shortcut key code (0 = none). */
   key: number;
+  /**
+   * Charset id the verb's text renders with — captured from the active
+   * charset (`cursorCommand initCharset`) when the verb is created /
+   * (re)named, mirroring SCUMM's per-verb `charset_nr`. MI1 sets charset
+   * 6 (a tall serif font) before defining the verb panel, then switches
+   * to charset 2 for dialogue; without capturing this the verbs would
+   * wrongly redraw in whatever charset the dialogue last selected.
+   */
+  charset: number;
   /** Whether the rendered name is centred around `x` rather than left-aligned. */
   centered: boolean;
   /**
