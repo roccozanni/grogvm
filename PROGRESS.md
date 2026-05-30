@@ -149,8 +149,10 @@ Implement these faithfully:
       canonical per-jiffy driver: `beginTick` timers + `delay` countdown
       run every jiffy; scripts/walk/anim are gated to frame boundaries.
       See [docs/SCUMM-V5-TIMING.md](docs/SCUMM-V5-TIMING.md).
-- [~] **"Le tre prove" part-title card** (2026-05-30, session 3 — text
-      fixed; hold deferred to audio). **SOLVED the diagnosis** with the
+- [x] **"Le tre prove" part-title card** (2026-05-30, session 3 — text
+      fixed & **user-confirmed in-app**; the ~5 s hold is sound-gated and
+      deferred to the audio phase, see (b) below). **SOLVED the diagnosis**
+      with the
       real room-96 bytecode (the disassembler's read-until-`0xFF` print
       parse had hidden it — see TOOLING note). Room 96 local script #200,
       decoded by hand from the hex, is:
@@ -202,9 +204,16 @@ Implement these faithfully:
       631+) is still drifted (a non-print opcode mis-size), so its exact
       loop/transition is unconfirmed — untangle that first. See
       `scratch/when-178.ts` (the no-room-at-t5 proof).
-- [ ] **Sentence line in-canvas** — currently an HTML `<div>`; MI1 draws
-      it on the strip at the top of the verb area (verb #100). Render it
-      into the verb-bar canvas via the CHAR renderer and drop the div.
+- [~] **Sentence line in-canvas** (2026-05-30, session 3 — pending visual
+      confirm). Was an HTML `<div>` (browser font, bordered box); now a
+      canvas rendered with the active CHAR font via the shared `drawText`,
+      centred on the black verb-bar ground — the authentic MI1 look. Ink =
+      default verb light-grey (CLUT 7); height `SENTENCE_LINE_H` (10 px).
+      Still a separate strip above the verb bar rather than merged into
+      the verb-bar canvas as verb #100 at the verb-area top — the full
+      merge (engine writes verb #100, exact script position/colour) is a
+      later refinement. **Wants a visual check** (look + confirm colour /
+      centring match MI1).
 - [~] **Dialog escape codes** — DONE: substitutions `0x04` (int-var →
       decimal), `0x07` (string resource), `0x08` (object/verb name),
       threaded through `decodeScummString` / `decodeScummStringPages`.
@@ -212,6 +221,12 @@ Implement these faithfully:
       `0x0A` actor name (actor names aren't modelled), mid-string colour
       `0x0E` (needs rich text).
 - [ ] **Smooth `panCameraTo`** — currently snaps; should pan smoothly.
+      DEFERRED (session 3): `panCameraTo` (0x12) is **never called in any
+      intro-reachable content** — only `setCameraAt` (snaps, correct) and
+      `actorFollowCamera`. So a smooth pan has no visual target to verify
+      against *and* the per-frame pan rate would be a blind guess. Wire it
+      (pan-dest + per-tick step toward it, follow resumes when done) once a
+      scene that uses it surfaces, so the rate can be validated.
 - [ ] **Inventory scroll arrows** (verbs 208/209) for >8 items.
 - [ ] **Two-object "Use X with Y" end-to-end** — the faithful gather
       flow + the `g110` preposition step are in place and proven for

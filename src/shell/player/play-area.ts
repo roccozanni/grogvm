@@ -79,6 +79,10 @@ const INVENTORY_VERB_LAST = 207;
 /** Default CLUT colours when a verb's slot doesn't specify one. */
 const DEFAULT_VERB_COLOR = 7; // light-grey ink
 const DEFAULT_VERB_HI_COLOR = 14; // light yellow
+/** Sentence-line strip height (px, room-space) — one CHAR text row + slack. */
+const SENTENCE_LINE_H = 10;
+/** Sentence-line ink (CLUT index) — the default verb light-grey. */
+const SENTENCE_COLOR = DEFAULT_VERB_COLOR;
 const DEFAULT_VERB_DIM_COLOR = 8; // dark grey
 
 /** Cursor crosshair colours (CLUT indices). */
@@ -180,10 +184,16 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
   // ─── sentence line ───
   // Screen-width, not room-width: this strip is screen UI, sized to the
   // 320-wide viewport (× CSS scale) to line up with the verb bar below.
-  const sentenceLine = document.createElement('div');
+  // Rendered in-canvas with the active CHAR font (not an HTML font) so it
+  // matches MI1 — the original draws the sentence on the strip at the top
+  // of the verb area (verb #100), centred, on the black verb-bar ground.
+  const sentenceLine = document.createElement('canvas');
   sentenceLine.className = 'vm-sentence-line';
+  sentenceLine.width = VIEWPORT_W;
+  sentenceLine.height = SENTENCE_LINE_H;
   sentenceLine.style.width = `${VIEWPORT_W * CSS_SCALE}px`;
-  sentenceLine.textContent = sentenceText(vm, null, null);
+  sentenceLine.style.height = `${SENTENCE_LINE_H * CSS_SCALE}px`;
+  const slctx = sentenceLine.getContext('2d');
 
   // ─── verb bar ───
   // The verb bar is a fixed 320-wide screen element (verbs are placed in
@@ -359,13 +369,19 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
   };
 
   const updateSentence = (): void => {
+    if (!slctx) return;
     // An inventory item under the cursor (verb-bar hover) takes priority
     // over a room object; otherwise show the room hover.
-    sentenceLine.textContent = sentenceText(
-      vm,
-      hoveredInvItem ?? hoveredObject,
-      hoveredVerb,
-    );
+    const text = sentenceText(vm, hoveredInvItem ?? hoveredObject, hoveredVerb);
+    // Black ground (verb-bar CLUT 0), then the sentence in the CHAR font,
+    // centred — same renderer the verbs use.
+    slctx.clearRect(0, 0, VIEWPORT_W, SENTENCE_LINE_H);
+    slctx.fillStyle = clutCss(palette, 0);
+    slctx.fillRect(0, 0, VIEWPORT_W, SENTENCE_LINE_H);
+    const charset = activeCharset();
+    if (charset && text) {
+      drawText(slctx, charset, text, Math.floor(VIEWPORT_W / 2), 1, palette, SENTENCE_COLOR, true);
+    }
   };
 
   // ─── image verbs (inventory slots) ───

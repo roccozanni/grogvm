@@ -1244,15 +1244,12 @@ code {
 
 .vm-sentence-line {
   box-sizing: border-box;
+  display: block;
   margin: 0.5rem 0 0;
-  padding: 0.35rem 0.6rem;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
   border: 1px solid var(--border);
-  border-radius: 3px;
-  background: #1a1a22;
-  font-family: var(--mono, monospace);
-  font-size: 0.9em;
-  color: #ffd54a;
-  min-height: 1.2em;
+  background: #000;
 }
 
 .vm-verb-bar {
