@@ -691,9 +691,12 @@ charset-id resolution, `actorFromPos`/Talk-to, faithful click-to-walk,
       `_scummVars[74]=1225` from the same reset — it's our existing MI1
       copy-protection seed, CD track-2 size, 0x4a==74.) Distinct from the
       cosmetic "compositor doesn't honor `VAR_CURRENT_LIGHTS`" gap.
-- [ ] **End-to-end smoke tests** (3): start→first-room, walk-around,
-      verb-dispatch (the suite is green but these scripted integration
-      tests aren't written).
+- [x] **End-to-end smoke tests (3) — DONE.** `src/engine/mi1-smoke.test
+      .ts` drives the real MI1 data through boot→intro→room 33 and asserts:
+      (1) start→first-room (room 33, lit, ego placed, userput on, a verb
+      active); (2) walk-around (floor click moves ego); (3) verb-dispatch
+      (Look at the poster → "Rieleggete il Governatore Marley."). Data-
+      gated via `describe.skipIf` so CI stays green without `games/MI1`.
 - [ ] **FINAL STEP — opcode-stub audit (start → gameplay/dock scene).**
       Trace every opcode actually dispatched from game start through to
       gameplay start (the dock scene) and flag any that are **stubbed /
