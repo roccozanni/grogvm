@@ -28,20 +28,40 @@ states → audio → MI2) resumes: implement the **non-resource,
 non-sound** opcodes still stubbed, and close the open known-bugs and
 cosmetic gaps.
 
-**Latest (2026-05-30, session 3):** two items closed. (1) **Z-plane
-occlusion is complete** — the **box-derived default clip** landed
-(`findBoxAt` + `resolveActorZ`: a plain actor's `actorZ` comes from the
-`mask` of the walk box it stands in, explicit `forceClip` still
-winning); `pointInBox` handles SCUMM's `(-32000)` invalid box 0 and
-zero-area line boxes. (2) **"Le tre prove" card text fixed** — the
-single `systemText` slot is now a `systemTexts[]` blast list, so the
-card's two `print(254)` lines ("Parte Uno" + "Le Tre Prove") both render
-stacked and clear on the room-33 redraw; its ~5 s hold is sound-gated
-(sound 104) and **deferred to the audio phase** (user decision). Both
-**want a visual check** on the running app (box-clip: a scene where
-Guybrush walks behind scenery; card: the two white lines over room 96).
-Remaining: the standing known-bugs list — see
-[Next step](#next-step-fresh-session--remaining-known-bugs).
+**Latest (2026-05-31, session 3):** a big polish pass — five items
+closed, four user-confirmed in-app. Commits on `main` (unpushed):
+`e9e340a` `2ab98c2` `8946d0b` `17d7499` `aa111e6` `30427c6` `55c8d93`
+`6dba1ff`.
+
+1. **Z-plane occlusion complete** — box-derived default clip (`findBoxAt`
+   + `resolveActorZ`; `pointInBox` handles SCUMM's `(-32000)` invalid
+   box 0 and zero-area line boxes). NOT yet visually validated (no easy
+   normal-play scene — ego is `neverZclip`); mechanism is headless-proven.
+2. **"Le tre prove" card** ✓ user-confirmed — single `systemText` slot →
+   `systemTexts[]` blast list, so the card's two `print(254)` lines stack
+   and clear on room change. The ~5 s hold is sound-gated (sound 104) →
+   **deferred to the audio phase**.
+3. **Disassembler fix** — `print` `SO_TEXTSTRING` now terminates at the
+   `0x00` NUL (was over-reading to a trailing `0xFF`, hiding following
+   opcodes). NB: `disasm.ts` still drifts on some scripts past a
+   non-print opcode mis-size (e.g. global #178 tail) — chase if needed.
+4. **Sentence line + verb panel** ✓ user-confirmed — the sentence is now
+   drawn as **verb #100** inside the verb-bar canvas (top band), not a
+   separate element. Added `VerbSlot.charset` captured at `new`/creation
+   only (SCUMM fixes charset at definition; *not* on `setName`): action
+   verbs render in charset 6 (serif), the sentence in charset 1 (small,
+   as #100 was defined). Idle sentence reads the walk-to verb's name
+   ("Vai", verb #11) instead of a hardcoded "Walk to".
+5. **UI palette colours** ✓ user-confirmed — credits/verbs/sentence were
+   teal/orange, should be magenta. Root cause (the user's lead): MI1's
+   boot palette scripts (#178) set the low UI CLUT indices (1,2,3,6) to
+   the magenta theme via `setPalColor` **while no room is loaded**, so we
+   dropped them. Now recorded as persistent `vm.uiPaletteOverrides` and
+   re-applied over every room's CLUT on load. Bg art uses 0% of those
+   indices, so it's safe.
+
+671 tests pass, typecheck clean. Remaining: the standing known-bugs list
+— see [Next step](#next-step-fresh-session--remaining-known-bugs).
 
 **Session 2 (2026-05-30):** the Mêlée-island title/intro now renders and
 paces correctly. Fixed: the clouds/sparkles render (`animateActor` chore
@@ -202,9 +222,9 @@ Implement these faithfully:
       indices 1/2/3/6 (UI-only), so overriding can't corrupt bg art.
       The original colour→CLUT mapping was always right (copyright
       `color 5` → CLUT5 = magenta); the gap was purely the dropped boot
-      palette. Cleared on `reset`. **Wants a visual confirm in-app.**
-- [~] **Sentence line + verb-panel fidelity** (2026-05-30, session 3 —
-      pending visual confirm; user feedback from ScummVM screenshots).
+      palette. Cleared on `reset`. **Confirmed in-app (user, 2026-05-31).**
+- [x] **Sentence line + verb-panel fidelity** (2026-05-31, session 3 —
+      confirmed in-app; iterated from ScummVM screenshots).
       Was an HTML `<div>` (browser font, bordered box). Now drawn **inside
       the verb-bar canvas as verb #100** — MI1's sentence line is a real
       verb at (160,145) in the top black band of the verb panel, charset 2
@@ -230,8 +250,7 @@ Implement these faithfully:
         magenta (127,47,127), `color 3` → CLUT3 = magenta (223,83,223),
         so verbs, the sentence, and the credits all render in the magenta
         UI theme matching ScummVM.
-      **Wants a visual check**: font/placement/"Vai"/colours should now
-      all match ScummVM.
+      Confirmed in-app: font/placement/"Vai"/colours all match ScummVM.
 - [~] **Dialog escape codes** — DONE: substitutions `0x04` (int-var →
       decimal), `0x07` (string resource), `0x08` (object/verb name),
       threaded through `decodeScummString` / `decodeScummStringPages`.
@@ -270,40 +289,37 @@ Implement these faithfully:
 
 ### Next step (fresh session) — remaining known bugs
 
-Z-plane occlusion is **complete** (explicit `forceClip` + per-object
-z-planes + the box-derived default clip, session 3). Clouds and engine
-pacing are done and user-confirmed. Pick up:
+Session 3 closed z-plane occlusion, the "Le tre prove" card text, the
+sentence-line/verb-panel fidelity, and the whole UI colour palette (all
+user-confirmed except box-clip). Remaining standing known-bugs, roughly
+by value:
 
-1. **Visual check of the box-default clip** (code landed session 3; not
-   yet seen running). Find a room where Guybrush walks behind scenery
-   with NO script-set `forceClip` and confirm against ScummVM. Watch for
-   the **thin-box limitation**: where boxes are zero-area lines (room 38)
-   the per-frame point-in-box can miss (actor on a walkable pixel no box
-   strictly contains → falls back to front). If it bites, add a
-   nearest-box fallback (SCUMM's `adjustXYToBeInBox`) or track the
-   assigned `_walkbox`. See
-   [docs/SCUMM-V5-ZPLANE.md](docs/SCUMM-V5-ZPLANE.md) §"Box-mask".
+1. **Compositor honours `VAR_CURRENT_LIGHTS`** — a dark room (room 38
+   night) should darken via the lights flag, not only a dark palette. See
+   [docs/SCUMM-V5-LIGHTING.md](docs/SCUMM-V5-LIGHTING.md) §4. (Note: the
+   night rooms already ship a dark palette so the gap may be subtle —
+   check whether it's even visible before investing.)
 
-2. **Visual check of the "Le tre prove" card** (text fixed session 3).
-   Both lines now render (`systemTexts[]` blast model) and clear on the
-   room-33 redraw. The card is still *brief* because its ~5 s hold is the
-   duration of sound 104 (audio, Phase 10) — confirm the two stacked
-   white lines look right over room 96's blue background in the meantime.
+2. **Two-object "Use X with Y" end-to-end** — the gather flow + `g110`
+   preposition step are proven for single-object; confirm a full A+B
+   commit in a room with a use-with-able object (room 33's intro has
+   none). See [docs/SCUMM-V5-INPUT.md](docs/SCUMM-V5-INPUT.md) §5.
 
-3. Then the rest of the **standing known-bugs list** (below), roughly by
-   value: compositor honouring `VAR_CURRENT_LIGHTS`, credits fill colour
-   (teal vs magenta), sentence-line in-canvas, smooth `panCameraTo`,
-   inventory scroll arrows, two-object use end-to-end.
+3. **Inventory scroll arrows** (verbs 208/209) for >8 items — needs a
+   save with a full inventory to exercise.
 
-   **Tooling (session 3):** FIXED `disasm.ts`'s `print` sub-op parse —
-   `SO_TEXTSTRING` was read until a trailing `0xFF` instead of the `0x00`
-   NUL that ends a SCUMM print string (`0xFF`/`0xFE` are in-string escape
-   prefixes, not the terminator). It had swallowed everything after a
-   print's text — e.g. script 200's `startSound 104` + `isSoundRunning`
-   wait loop hid inside the "Parte Uno" string. Now terminal at NUL.
-   **STILL DRIFTS** on some scripts (e.g. global #178 past offset ~631):
-   a different non-print opcode is mis-sized there — chase it when the
-   credits-palette (#178) work resumes.
+4. **Smooth `panCameraTo`** — DEFERRED: the opcode is never called in
+   intro-reachable content (only `setCameraAt`/`actorFollowCamera`), so
+   there's no visual target and the pan rate would be a blind guess. Wire
+   it when a scene that uses it surfaces.
+
+**Deferred to later phases:** the "Le tre prove" ~5 s hold (sound-gated →
+audio, Phase 10); save/restore (Phase 9). **Carry-overs from session 3:**
+the box-default clip is mechanism-proven but unvalidated in normal play
+(ego is `neverZclip`, so no easy scene; watch the thin-box limitation in
+[docs/SCUMM-V5-ZPLANE.md](docs/SCUMM-V5-ZPLANE.md) §"Box-mask"); and
+`disasm.ts` still drifts past a non-print opcode mis-size on some scripts
+(e.g. global #178 tail) — chase if a future task needs that script.
 
 The costume-anim decoder, pacing model (`docs/SCUMM-V5-TIMING.md`), and
 z-plane model (`docs/SCUMM-V5-ZPLANE.md`) are solid ground to build on.
