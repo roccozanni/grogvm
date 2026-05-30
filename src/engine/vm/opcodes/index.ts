@@ -24,11 +24,6 @@
 import {
   putActor as actorPut,
   setActorCostume as actorSetCostume,
-  DEFAULT_WALK_FRAME,
-  DEFAULT_STAND_FRAME,
-  DEFAULT_INIT_FRAME,
-  DEFAULT_TALK_START_FRAME,
-  DEFAULT_TALK_STOP_FRAME,
   type Actor,
 } from '../../actor/actor';
 import { startWalk } from '../../actor/walk';
@@ -1520,25 +1515,20 @@ function actorOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
         break;
       }
       case 0x04: {
-        const f = readVarOrByte(sub, 1, slot, vm.vars);
-        if (actor) actor.walkFrame = f;
-        ops.push(`setWalkFrame(${f})`);
+        // setWalkFrame — needs costume-anim integration. Consume + ignore for now.
+        readVarOrByte(sub, 1, slot, vm.vars);
+        ops.push('setWalkFrame');
         break;
       }
       case 0x05: {
-        const start = readVarOrByte(sub, 1, slot, vm.vars); // talk start
-        const stop = readVarOrByte(sub, 2, slot, vm.vars); // talk stop
-        if (actor) {
-          actor.talkStartFrame = start;
-          actor.talkStopFrame = stop;
-        }
-        ops.push(`setTalkFrame(${start},${stop})`);
+        readVarOrByte(sub, 1, slot, vm.vars); // talk start
+        readVarOrByte(sub, 2, slot, vm.vars); // talk stop
+        ops.push('setTalkFrame');
         break;
       }
       case 0x06: {
-        const f = readVarOrByte(sub, 1, slot, vm.vars); // stand frame
-        if (actor) actor.standFrame = f;
-        ops.push(`setStandFrame(${f})`);
+        readVarOrByte(sub, 1, slot, vm.vars); // stand frame
+        ops.push('setStandFrame');
         break;
       }
       case 0x07: {
@@ -1561,12 +1551,6 @@ function actorOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
           actor.walkPath = [];
           actor.walkPathIdx = 0;
           actor.isMoving = false;
-          // Reset chore frames to SCUMM's initActor defaults.
-          actor.walkFrame = DEFAULT_WALK_FRAME;
-          actor.standFrame = DEFAULT_STAND_FRAME;
-          actor.initFrame = DEFAULT_INIT_FRAME;
-          actor.talkStartFrame = DEFAULT_TALK_START_FRAME;
-          actor.talkStopFrame = DEFAULT_TALK_STOP_FRAME;
           // setActorCostume resets anim via the same EMPTY_ANIM_STATE
           // sentinel we use everywhere else; let it do the work.
           actorSetCostume(actor, 0);
@@ -1607,9 +1591,8 @@ function actorOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
         break;
       }
       case 0x0e: {
-        const f = readVarOrByte(sub, 1, slot, vm.vars); // init frame
-        if (actor) actor.initFrame = f;
-        ops.push(`setInitFrame(${f})`);
+        readVarOrByte(sub, 1, slot, vm.vars); // init frame
+        ops.push('setInitFrame');
         break;
       }
       case 0x0f:
