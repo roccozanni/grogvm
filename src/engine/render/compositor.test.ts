@@ -3,6 +3,7 @@ import { createActor, type Actor } from '../actor/actor';
 import type { CostumeHeader } from '../graphics/costume';
 import type { LoadedCostume } from '../graphics/costume-loader';
 import type { LoadedRoom } from '../room/loader';
+import type { LoadedObject } from '../object/loader';
 import { ComposeError, composeFrame } from './compositor';
 
 function makeRoom(width: number, height: number, fill: number): LoadedRoom {
@@ -412,14 +413,18 @@ describe('composeFrame — actor compositing', () => {
 
 // ─── object compositing ──────────────────────────────────────────────
 
-function makeObject(id: number, x: number, y: number, w: number, h: number, fillIdx: number, state = 1) {
+function makeObject(
+  id: number, x: number, y: number, w: number, h: number, fillIdx: number,
+  state = 1, zMask?: Uint8Array,
+): LoadedObject {
   const indexed = new Uint8Array(w * h);
   indexed.fill(fillIdx);
+  const zPlane = zMask ? { width: w, height: h, mask: zMask } : null;
   return {
     objId: id,
     cdhd: { objId: id, x: 0, y: 0, width: w / 8, height: h / 8, flags: 0, parent: 0, walkX: 0, walkY: 0, actorDir: 0 },
     imhd: { objId: id, numImages: 1, flags: 0, x, y, width: w, height: h },
-    images: new Map([[state, { state, indexed }]]),
+    images: new Map([[state, { state, indexed, zPlane }]]),
     name: `obj${id}`,
     verbs: new Map(),
   };
@@ -576,5 +581,49 @@ describe('composeFrame — actor z-clip (forceClip)', () => {
     expect(a.forceClip).toBe(-1); // createActor default
     composeFrame({ room, framebuffer: fb, actors: [a], getCostume: cost });
     expect(fb[1 * 8 + 1]).toBe(0x99);
+  });
+});
+
+describe('composeFrame — drawn-object z-planes occlude z-clipped actors', () => {
+  // A drawn foreground object (e.g. the MI1 title logo) carries a ZP
+  // mask; a z-clipped actor (forceClip>0, the drifting clouds) must be
+  // occluded where the object's z-plane is set, even with no room plane.
+  it('a drawn object with a z-plane hides a forceClip actor behind it', () => {
+    const room = makeRoom(8, 4, 0x10); // no room z-planes
+    const zMask = new Uint8Array(8 * 4); zMask.fill(1);
+    const obj = makeObject(1, 0, 0, 8, 4, 0x20, 1, zMask); // fills canvas + full z-plane
+    (room.objects as Map<number, LoadedObject>).set(1, obj);
+
+    const fb = new Uint8Array(8 * 4);
+    const actor = makeActorAt(2, 1, 1, 1);
+    actor.anim = activeLimb0Anim();
+    actor.forceClip = 1; // behind plane 1 → actorZ = 0
+    composeFrame({
+      room, framebuffer: fb, actors: [actor],
+      getCostume: () => makeOneFrameCostume({ frameW: 2, frameH: 2, pixelIdx: 1, clutIdx: 0x99 }),
+      objectDrawQueue: [1], getObjectState: () => 1,
+    });
+    // The object painted 0x20 everywhere; the actor (behind the object's
+    // z-plane) drew nothing — no 0x99 pixels survive.
+    expect([...fb].some((v) => v === 0x99)).toBe(false);
+    expect([...fb].every((v) => v === 0x20)).toBe(true);
+  });
+
+  it('a neverZclip actor still draws in front of a drawn object z-plane', () => {
+    const room = makeRoom(8, 4, 0x10);
+    const zMask = new Uint8Array(8 * 4); zMask.fill(1);
+    const obj = makeObject(1, 0, 0, 8, 4, 0x20, 1, zMask);
+    (room.objects as Map<number, LoadedObject>).set(1, obj);
+
+    const fb = new Uint8Array(8 * 4);
+    const actor = makeActorAt(2, 1, 1, 1);
+    actor.anim = activeLimb0Anim();
+    actor.forceClip = 0; // neverZclip → in front
+    composeFrame({
+      room, framebuffer: fb, actors: [actor],
+      getCostume: () => makeOneFrameCostume({ frameW: 2, frameH: 2, pixelIdx: 1, clutIdx: 0x99 }),
+      objectDrawQueue: [1], getObjectState: () => 1,
+    });
+    expect(fb[1 * 8 + 1]).toBe(0x99); // actor drew over the object
   });
 });

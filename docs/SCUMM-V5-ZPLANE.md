@@ -376,3 +376,26 @@ walk-box / Y position, so e.g. the lookout fire (room 38) that should sit
 behind the wall still draws over it. That general default lands with the
 walk-box-Z sub-phase; only the explicit `forceClip` flags are honored so
 far.
+
+## Per-object z-planes — drawn objects occlude actors
+
+Objects carry their own z-planes too: ~half of MI1's `OBIM` blocks
+contain a `ZP##` inside their `IMxx` image. When a script `drawObject`s
+such an object, that z-plane makes the object a **foreground** that
+occludes z-clipped actors — exactly how the **MI1 title logo** (room 10,
+object #109, a 224×120 image with an 8739-bit z-plane) sits in *front* of
+the drifting cloud actors.
+
+- The object loader decodes the OR of an `IMxx`'s `ZP##` blocks into
+  `ObjectImage.zPlane` (sized to the object's `imhd.width × height`;
+  width must be a multiple of 8, else skipped).
+- The compositor (`mergeForeground`) ORs each **drawn** object's z-plane
+  into the frontmost plane (index 1) at the object's `imhd.x / y`, then
+  composites actors against that merged set. So a z-clipped actor
+  (`forceClip > 0`, `actorZ = 0`) is hidden behind the title; an
+  in-front actor (`neverZclip` / default, `actorZ = effective plane
+  count`) is not.
+- The z-plane — not the object's image opacity — is the occlusion
+  authority (faithful to SCUMM), so a few title *edge* pixels the
+  authored mask doesn't cover can still show a cloud; that matches the
+  original's masking.

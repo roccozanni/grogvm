@@ -31,6 +31,7 @@
  */
 
 import { decodeSmap } from '../graphics/smap';
+import { decodeZPlane, type DecodedZPlane } from '../graphics/zplane';
 import type { Block } from '../resources/block';
 import { findChild, payloadOf, type ResourceFile } from '../resources/tree';
 import { parseVerbScripts } from './verbs';
@@ -83,6 +84,15 @@ export interface ObjectImage {
   readonly state: number;
   /** `width × height` palette indices, decoded from the IMxx's SMAP. */
   readonly indexed: Uint8Array;
+  /**
+   * The object's own z-plane (the OR of the IMxx's `ZP##` blocks), sized
+   * to the object's `imhd.width × imhd.height`, or `null` if the image
+   * has none. When the object is drawn, this mask makes the object a
+   * foreground that occludes z-clipped actors (e.g. the MI1 title logo
+   * occludes the drifting clouds). Positioned at the object's
+   * `imhd.x / imhd.y`. Width is always a multiple of 8.
+   */
+  readonly zPlane: DecodedZPlane | null;
 }
 
 /** A room-object — the OBIM image data paired with its OBCD metadata. */
@@ -242,10 +252,42 @@ function decodeImages(
     if (!smap) continue;
     try {
       const indexed = decodeSmap(payloadOf(file, smap), imhd.width, imhd.height);
-      images.set(state, { state, indexed });
+      const zPlane = decodeObjectZPlane(file, child, imhd);
+      images.set(state, { state, indexed, zPlane });
     } catch {
       // Skip unparsable image variants — keep the others.
     }
   }
   return images;
+}
+
+/**
+ * Decode an IMxx's `ZP##` z-plane(s) into a single foreground mask (the
+ * OR of all planes present), sized to the object's dimensions. Returns
+ * `null` when the image has no z-plane or its width isn't a multiple of
+ * 8 (the z-plane RLE is strip-based and requires it). A z-plane decode
+ * failure is swallowed — the object still draws, just without occluding
+ * actors.
+ */
+function decodeObjectZPlane(
+  file: ResourceFile,
+  imBlock: Block,
+  imhd: IMHD,
+): DecodedZPlane | null {
+  if (imhd.width % 8 !== 0) return null;
+  let merged: DecodedZPlane | null = null;
+  for (const child of imBlock.children ?? []) {
+    if (!/^ZP[0-9A-F]{2}$/.test(child.tag)) continue;
+    try {
+      const plane = decodeZPlane(payloadOf(file, child), imhd.width, imhd.height);
+      if (!merged) {
+        merged = { width: plane.width, height: plane.height, mask: plane.mask.slice() };
+      } else {
+        for (let i = 0; i < merged.mask.length; i++) merged.mask[i]! |= plane.mask[i]!;
+      }
+    } catch {
+      // Skip an unparsable plane; keep any others.
+    }
+  }
+  return merged;
 }

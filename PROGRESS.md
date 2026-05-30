@@ -87,12 +87,15 @@ Implement these faithfully:
       captured on `actor.forceClip` and the compositor maps them to
       `actorZ` (`alwaysZclip k` → `actorZ = k-1`, behind plane k). The
       Mêlée clouds (`alwaysZclip 1`) now pass behind the mountain; the
-      sparkles (`neverZclip`) stay in front. STILL OPEN: the
+      sparkles (`neverZclip`) stay in front. Also DONE: **per-object
+      z-planes** — a drawn object's own `ZP##` (e.g. the title logo
+      #109) now occludes z-clipped actors, so the clouds pass behind the
+      title (was: clouds drew over the title letters). STILL OPEN: the
       **position/box-derived default clip** for plain actors — they
-      still draw in front of every plane (`actorZ = zPlanes.length`), so
-      the lookout fire (room 38) still draws over the wall. Lands with
-      the walk-box-Z sub-phase. See
-      [docs/SCUMM-V5-ZPLANE.md](docs/SCUMM-V5-ZPLANE.md) §"Actor z-depth".
+      still draw in front of every plane, so the lookout fire (room 38)
+      still draws over the wall. Lands with the walk-box-Z sub-phase.
+      See [docs/SCUMM-V5-ZPLANE.md](docs/SCUMM-V5-ZPLANE.md)
+      §"Actor z-depth" / §"Per-object z-planes".
 - [ ] **Compositor honours `VAR_CURRENT_LIGHTS`** — a dark room (room 38
       night scene) should darken via the lights flag, not only via a
       dark palette. See [docs/SCUMM-V5-LIGHTING.md](docs/SCUMM-V5-LIGHTING.md) §4.

@@ -49,6 +49,7 @@ import type { LoadedCostume } from '../graphics/costume-loader';
 import { decodeCostumeFrame } from '../graphics/costume-frame';
 import type { LoadedObject } from '../object/loader';
 import type { LoadedRoom } from '../room/loader';
+import type { DecodedZPlane } from '../graphics/zplane';
 
 export class ComposeError extends Error {
   constructor(detail: string) {
@@ -158,6 +159,9 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
 
   // Objects — drawn between bg and actors. SCUMM uses TRNS-indexed
   // transparency on object SMAPs (same convention as the room bg).
+  // A drawn object's own z-plane (if any) makes it a foreground that
+  // occludes z-clipped actors — collected here, merged below.
+  const fgPlanes: Array<{ x: number; y: number; plane: DecodedZPlane }> = [];
   if (objectDrawQueue) {
     for (const objId of objectDrawQueue) {
       const obj = room.objects.get(objId);
@@ -182,6 +186,7 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
         continue;
       }
       drawObjectImage(framebuffer, room.width, room.height, obj, image.indexed, room.transparentIndex);
+      if (image.zPlane) fgPlanes.push({ x: obj.imhd.x, y: obj.imhd.y, plane: image.zPlane });
       objectsDrawn++;
     }
   }
@@ -189,6 +194,15 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
   if (!actors || actors.length === 0 || !getCostume) {
     return { actorsDrawn, skippedActors, skippedLimbs, objectsDrawn, skippedObjects };
   }
+
+  // Effective z-planes for actor occlusion: the room's planes, with each
+  // drawn object's z-plane OR'd into the frontmost plane (index 1) at the
+  // object's position. So a drawn foreground object (e.g. the MI1 title
+  // logo) occludes z-clipped actors (the drifting clouds) just as the
+  // room's static foreground does. Actors' `actorZ` is still computed
+  // against `room.zPlanes.length` (below), so neverZclip / default actors
+  // — at or above the room's plane count — are untouched.
+  const actorZPlanes = fgPlanes.length > 0 ? mergeForeground(room, fgPlanes) : room.zPlanes;
 
   // Render actors in id ascending order for stable layering.
   const sorted = [...actors].sort((a, b) => a.id - b.id);
@@ -312,8 +326,11 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
           //     which is what nearly every script wants on first place.
           // Walk-box-derived default Z (for plain actors) lands with the
           // pathfinding sub-phase.
-          actorZ: actor.forceClip > 0 ? actor.forceClip - 1 : room.zPlanes.length,
-          zPlanes: room.zPlanes,
+          // Default / neverZclip depth = the effective plane count, so a
+          // merged drawn-object foreground (which lands at plane index 1)
+          // never occludes an "in front" actor — only z-clipped ones.
+          actorZ: actor.forceClip > 0 ? actor.forceClip - 1 : actorZPlanes.length,
+          zPlanes: actorZPlanes,
         });
         drewLimb = true;
         // Same extent compositeActor draws into: actor anchor + frame redir.
@@ -349,6 +366,38 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
   }
 
   return { actorsDrawn, skippedActors, skippedLimbs, objectsDrawn, skippedObjects };
+}
+
+/**
+ * Build the actor-occlusion z-plane set: a copy of the room's planes
+ * with each drawn object's z-plane OR'd into the frontmost plane
+ * (index 1, i.e. `planes[0]`) at the object's position. The frontmost
+ * plane is where a room's static foreground lives, so merging there
+ * lets a drawn foreground object occlude the same z-clipped actors the
+ * room foreground does. Planes index 2+ are passed through untouched.
+ * If the room has no planes, a fresh foreground plane is created.
+ */
+function mergeForeground(
+  room: LoadedRoom,
+  fgPlanes: ReadonlyArray<{ x: number; y: number; plane: DecodedZPlane }>,
+): readonly DecodedZPlane[] {
+  const w = room.width, h = room.height;
+  const base = room.zPlanes[0];
+  const mask = base ? base.mask.slice() : new Uint8Array(w * h);
+  for (const { x, y, plane } of fgPlanes) {
+    for (let py = 0; py < plane.height; py++) {
+      const fy = y + py;
+      if (fy < 0 || fy >= h) continue;
+      for (let px = 0; px < plane.width; px++) {
+        if (!plane.mask[py * plane.width + px]) continue;
+        const fx = x + px;
+        if (fx < 0 || fx >= w) continue;
+        mask[fy * w + fx] = 1;
+      }
+    }
+  }
+  const merged: DecodedZPlane = { width: w, height: h, mask };
+  return [merged, ...room.zPlanes.slice(1)];
 }
 
 /**
