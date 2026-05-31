@@ -22,7 +22,7 @@
 import type { Actor, Facing } from './actor';
 import type { Vm } from '../vm/vm';
 import { findPath } from '../pathfinding/grid';
-import { findBoxAt } from '../pathfinding/boxes';
+import { findBoxAtOrNearest } from '../pathfinding/boxes';
 import { resolveScale } from '../pathfinding/scale';
 import { startAnim } from '../graphics/costume-anim';
 
@@ -227,7 +227,10 @@ export function stepAllActorWalks(vm: Vm): void {
     // its floor scale) keeps its scale. See pathfinding/scale.ts.
     const room = vm.loadedRoom;
     if ((actor.isMoving || wasMoving) && room && actor.room === vm.currentRoom) {
-      const box = findBoxAt(room.walkBoxes, actor.x, actor.y);
+      // Nearest-box (not strict): MI1's thin cliff boxes mean an actor on a
+      // valid floor pixel often sits in no box strictly — strict lookup would
+      // leave the scale stuck small until a wide box, popping it at the end.
+      const box = findBoxAtOrNearest(room.walkBoxes, actor.x, actor.y);
       if (box) {
         const s = resolveScale(box.scale, room.scaleSlots, actor.y);
         if (s !== null) actor.scale = s;

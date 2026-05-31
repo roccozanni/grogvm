@@ -722,8 +722,17 @@ most lives in the inline known-bug entries above and the linked docs.
   actor stands in **only while moving** — so a script-pinned static actor (the
   room-38 fire, deliberately smaller than its floor scale) is never
   overwritten. End-to-end on real MI1 room 33: slot 0 = `32@y76 → 210@y131`,
-  resolved scale ≈77 near the clifftop → 210 at the dock. +12 tests (741→747),
-  tsc clean. Confirm in-app: Guybrush grows descending the room-33 cliff.
+  resolved scale ≈77 near the clifftop → 210 at the dock. **Follow-up: nearest-box
+  fallback.** First in-app pass showed Guybrush staying small almost the whole
+  descent then popping to full at the end — because MI1's cliff boxes are
+  thin/degenerate and the strict `findBoxAt` returned `null` for most floor
+  pixels (scale left stale), only catching on the wide dock box. Added
+  `findBoxAtOrNearest` (nearest visible box by bounding-rect distance when no
+  box strictly contains the point) and used it for the scale lookup; kept
+  `findBoxAt` for z-clip unchanged. Re-probed: scale now ramps smoothly
+  64→90→123→149→187→207→210 down the cliff. +15 tests total (→750), tsc clean.
+  ✓ Fire + wall composition user-confirmed good; cliff smoothness pending final
+  in-app confirm.
 - [x] **Head limb didn't track facing — FIXED ✓ user-confirmed
   (2026-05-31).** Guybrush's **head (limb 1)** faced the camera at rest
   regardless of facing, while the body faced correctly. Root cause: only

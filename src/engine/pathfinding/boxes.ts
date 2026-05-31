@@ -146,6 +146,41 @@ export function findBoxAt(
   return null;
 }
 
+/**
+ * Like {@link findBoxAt}, but when no box strictly contains the point, return
+ * the *nearest* visible box (by distance to its bounding rect) instead of
+ * `null`. The walkable mask is rasterised leniently and MI1's cliff boxes are
+ * thin/degenerate, so an actor on a valid floor pixel often sits in no box
+ * strictly — which would otherwise leave its perspective scale stale. Used for
+ * actor scaling (a stale box there means a stuck scale); kept separate from
+ * `findBoxAt` so z-clip behaviour is unchanged.
+ */
+export function findBoxAtOrNearest(
+  boxes: ReadonlyArray<WalkBox>,
+  x: number,
+  y: number,
+): WalkBox | null {
+  const strict = findBoxAt(boxes, x, y);
+  if (strict) return strict;
+  let best: WalkBox | null = null;
+  let bestDist = Infinity;
+  for (const box of boxes) {
+    if (isInvisibleBox(box)) continue;
+    const minX = Math.min(box.ulx, box.urx, box.lrx, box.llx);
+    const maxX = Math.max(box.ulx, box.urx, box.lrx, box.llx);
+    const minY = Math.min(box.uly, box.ury, box.lry, box.lly);
+    const maxY = Math.max(box.uly, box.ury, box.lry, box.lly);
+    const cx = Math.max(minX, Math.min(maxX, x));
+    const cy = Math.max(minY, Math.min(maxY, y));
+    const dist = (x - cx) ** 2 + (y - cy) ** 2;
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = box;
+    }
+  }
+  return best;
+}
+
 export function parseWalkBoxes(payload: Uint8Array): WalkBox[] {
   if (payload.length < 2) {
     throw new WalkBoxParseError(`payload too short: ${payload.length} B (need ≥ 2 for count)`);

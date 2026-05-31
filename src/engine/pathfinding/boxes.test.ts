@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   findBoxAt,
+  findBoxAtOrNearest,
   isInvisibleBox,
   parseWalkBoxes,
   pointInBox,
@@ -194,5 +195,32 @@ describe('findBoxAt', () => {
       wb([40, 0, 100, 0, 100, 40, 40, 40], { id: 1, mask: 1 }),
     ];
     expect(findBoxAt(overlap, 50, 20)?.id).toBe(0); // in both → lowest id
+  });
+});
+
+describe('findBoxAtOrNearest', () => {
+  const boxes: WalkBox[] = [
+    wb([0, 0, 40, 0, 40, 40, 0, 40], { id: 0, mask: 0 }),
+    wb([100, 0, 140, 0, 140, 40, 100, 40], { id: 1, mask: 1 }),
+    wb([60, 0, 80, 0, 80, 40, 60, 40], { id: 2, mask: 1, flags: 0x80 }), // invisible
+  ];
+
+  it('returns the containing box when there is one (like findBoxAt)', () => {
+    expect(findBoxAtOrNearest(boxes, 20, 20)?.id).toBe(0);
+    expect(findBoxAtOrNearest(boxes, 120, 20)?.id).toBe(1);
+  });
+
+  it('falls back to the nearest visible box when no box contains the point', () => {
+    // (50,20) is in the gap; box 0 (ends x40) is nearer than box 1 (starts x100).
+    expect(findBoxAtOrNearest(boxes, 50, 20)?.id).toBe(0);
+    // (90,20) is nearer box 1; the invisible box 2 between them is ignored.
+    expect(findBoxAtOrNearest(boxes, 90, 20)?.id).toBe(1);
+  });
+
+  it('returns null only when there are no visible boxes at all', () => {
+    expect(findBoxAtOrNearest([], 10, 10)).toBeNull();
+    expect(
+      findBoxAtOrNearest([wb([0, 0, 10, 0, 10, 10, 0, 10], { id: 0, flags: 0x80 })], 99, 99),
+    ).toBeNull();
   });
 });
