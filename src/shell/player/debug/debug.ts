@@ -62,13 +62,6 @@ export function mountDebugPanel(session: EngineSession, gameId: GameId): DebugPa
     const tickSig = signal(0);
     const playingSig = signal(false);
     const roomSig = signal('');
-    // Throttle the heavy live-panel rebuild while playing: re-rendering the
-    // slot/globals/bits/trace tables (~350 DOM nodes) every frame at 60fps
-    // janks camera-follow. The game canvas still presents every frame; the
-    // tables refresh at ~10 Hz, which is plenty for inspection. When paused or
-    // stepping we rebuild immediately so single-stepping shows state at once.
-    const LIVE_REBUILD_EVERY = 6;
-    let frameCounter = 0;
 
     // Live panels: full rebuild per frame (matches the legacy inspector; the
     // tables have no critical click targets).
@@ -165,9 +158,11 @@ export function mountDebugPanel(session: EngineSession, gameId: GameId): DebugPa
       playingSig.set(st.playing);
       const vm = session.vm;
       roomSig.set(`room ${vm.currentRoom}${vm.loadedRoom ? ` (${vm.loadedRoom.width}×${vm.loadedRoom.height})` : ' — none loaded'}`);
-      // Rebuild the heavy tables every frame only when paused/stepping;
-      // throttle while playing to keep camera-follow smooth.
-      if (!st.playing || ++frameCounter % LIVE_REBUILD_EVERY === 0) repaintLive();
+      // Rebuild the heavy tables (slot/globals/bits/trace, ~350 DOM nodes)
+      // ONLY when paused/stepping — doing it during play janks camera-follow,
+      // and the tables are an unreadable blur at speed anyway. The live tick /
+      // room / play-state labels keep updating every frame (cheap bindText).
+      if (!st.playing) repaintLive();
     });
     onCleanup(unsub);
 
