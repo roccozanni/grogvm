@@ -126,12 +126,17 @@ export function compositeActor(opts: CompositeActorOptions): void {
 
   for (let py = startY; py < endY; py++) {
     const ry = top + py;
-    // Map this scaled destination row back to a source row (nearest-neighbour).
-    const sy = Math.min(frame.height - 1, Math.floor((py * frame.height) / drawH));
+    // Map this scaled destination row back to a source row. CENTERED
+    // nearest-neighbour — sample the middle of each destination cell's source
+    // span (`(py + 0.5) · h / drawH`) rather than its top edge. Centering
+    // distributes the dropped rows/columns evenly instead of biasing toward
+    // one edge, so thin features (Guybrush's eyes) survive downscaling far
+    // better. At scale 255 (drawH == h) this is still exactly `py`.
+    const sy = Math.min(frame.height - 1, Math.floor(((py + 0.5) * frame.height) / drawH));
     const frameRowBase = sy * frame.width;
     const fbRowBase = ry * fbWidth;
     for (let px = startX; px < endX; px++) {
-      const sx = Math.min(frame.width - 1, Math.floor((px * frame.width) / drawW));
+      const sx = Math.min(frame.width - 1, Math.floor(((px + 0.5) * frame.width) / drawW));
       // Mirror: sample the column from the opposite edge of the frame.
       const srcPx = mirror ? frame.width - 1 - sx : sx;
       const idx = frame.pixels[frameRowBase + srcPx]!;
