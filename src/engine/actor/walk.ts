@@ -203,6 +203,17 @@ export function stepAllActorWalks(vm: Vm): void {
     if (actor.isMoving) {
       applyChore(vm, actor, actor.walkFrame);
     } else if (wasMoving) {
+      // Just stopped. The stand (and walk) records only stop/un-stop the
+      // **head** limb — they never re-frame it; only the init pose carries
+      // the head's per-direction frame (W/E, S=front, N=back). So re-apply
+      // init for the CURRENT facing to re-point the head, THEN stand
+      // (which un-stops the head and sets the stand body frame; init and
+      // stand share the body frame per direction, so the body is
+      // unchanged). Without the init re-point the head keeps whatever
+      // frame init last set and faces the wrong way after the actor turns
+      // (e.g. a West-facing Guybrush showing a front "looking-at-camera"
+      // head). See docs/SCUMM-V5-COSTUME-ANIM.md §"head re-point".
+      applyChore(vm, actor, actor.initFrame);
       applyChore(vm, actor, actor.standFrame);
     } else if (actor.costume > 0 && actor.anim.animId === 0) {
       applyChore(vm, actor, actor.initFrame);

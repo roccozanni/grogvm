@@ -17,6 +17,8 @@ import { parseResourceFile } from './resources/file';
 import { parseIndexFile } from './resources/index-file';
 import { parseLoff } from './resources/loff';
 import { SCUMM_V5_XOR_KEY } from './resources/xor';
+import { startActorChore } from './actor/walk';
+import { currentLimbPicture } from './graphics/costume-anim';
 import { bootGame } from './vm/boot';
 import { VAR_CURRENT_LIGHTS, VAR_EGO } from './vm/vars';
 import type { Vm } from './vm/vm';
@@ -126,5 +128,49 @@ describe.skipIf(!hasData)('MI1 smoke — boot → gameplay', () => {
     }
     expect(dialog).toBe(POSTER_LOOK);
     expect(vm.haltInfo).toBeNull();
+  });
+
+  // Regression: the head limb must track facing at rest. The stand/walk
+  // costume records only stop/un-stop the head — only the init pose
+  // carries the head's per-direction frame — so a stop must re-point the
+  // head via init (see stepAllActorWalks' stand branch). Before the fix
+  // the head kept whatever frame init last set, so a turned actor showed
+  // a stale head (e.g. a front "looking-at-camera" head while facing W).
+  it('rest head limb tracks facing (init re-point at stand)', () => {
+    const vm = boot();
+    expect(driveToFirstRoom(vm)).toBe(true);
+    const ego = vm.vars.readGlobal(VAR_EGO);
+    const actor = vm.actors.get(ego);
+    const costume = vm.getCostume(actor.costume);
+    expect(costume).not.toBeNull();
+
+    // The fix sequence (init re-point → stand) for each facing.
+    const headFrame = (facing: 'W' | 'E' | 'S' | 'N'): { start: number; pic: number; stopped: boolean } => {
+      actor.facing = facing;
+      startActorChore(vm, actor, actor.initFrame);
+      startActorChore(vm, actor, actor.standFrame);
+      const l1 = actor.anim.limbs[1]!;
+      return {
+        start: l1.start,
+        pic: l1.active ? currentLimbPicture(actor.anim, 1, costume!.payload) : -1,
+        stopped: ((actor.anim.stopped >> 1) & 1) === 1,
+      };
+    };
+
+    const w = headFrame('W');
+    const e = headFrame('E');
+    const s = headFrame('S');
+    const n = headFrame('N');
+
+    // The head is drawn (active, un-stopped) at rest in every direction.
+    for (const h of [w, e, s, n]) {
+      expect(h.stopped).toBe(false);
+      expect(h.pic).toBeGreaterThanOrEqual(0);
+    }
+    // Front (S), side (W/E), and back (N) are DISTINCT head frames — the
+    // crux: before the fix the head was the same frame for every facing.
+    expect(s.start).not.toBe(w.start); // front ≠ side
+    expect(n.start).not.toBe(w.start); // back ≠ side
+    expect(n.start).not.toBe(s.start); // back ≠ front
   });
 });

@@ -624,3 +624,46 @@ room 10 goes from **0 → 9** actors drawn, the three cloud sprites render
 and slide right-to-left, the full intro reaches room 33 with **zero
 active-limb skip events** and no halts. Visual confirmation in-app is
 the user's to give.
+
+---
+
+## Head re-point — the head limb must track facing at rest (2026-05-31)
+
+**Symptom (user-reported, live).** Guybrush's **head (limb 1)** faced the
+camera at rest regardless of which way he stood or walked, while his
+**body (limb 0)** faced correctly. Surfaced while testing save/load, but
+confirmed a live rendering bug (a faithful save reproduces it).
+
+**Root cause.** For costume 1, the per-direction records resolve like so
+(`chore*4 + dir`, dir W=0/E=1/S=2/N=3):
+
+| chore | head limb (1) behaviour |
+|-------|--------------------------|
+| init (4–7)  | **sets** the head's per-direction frame: W/E→`490` (pic 6, side), S→`491` (pic 0, front), N→`493` (pic 14, back) |
+| stand (12–15) | only **un-stops** the head (`0x7A`) — does *not* re-frame it |
+| walk (8–11)   | only **stops** the head (`0x79`) — the body sprite carries it |
+| talk (16–19)  | animates the head |
+
+So the head's directional frame is established **only by `init`** (and
+talk). `stand`/`walk` assume it's already correct for the facing. Our
+engine bakes direction into the anim record at `startAnim` time, and the
+walk loop re-applied `walk`/`stand` on a facing change — but those records
+never re-frame the head. Result: the head kept whatever frame `init` last
+set. In one save `init` had last run facing **S** (head `491`, front), so
+a West-facing Guybrush drew a front "looking-at-camera" head.
+
+**Fix (`stepAllActorWalks`, walk.ts).** On the walk→stand transition,
+re-apply the **init** chore for the *current* facing (which re-points the
+head limb), then apply **stand** (un-stops the head, sets the stand body
+frame). `init` and `stand` share the body frame per direction, so the
+body is unchanged; only the head is corrected. Verified (`scratch/
+head-verify2.ts`): rest head start is now `490`/`490`/`491`/`493` for
+W/E/S/N (distinct, body-matching, un-stopped). Regression test in
+`mi1-smoke.test.ts` ("rest head limb tracks facing").
+
+**Known follow-up.** This covers walk→stop (the reported case). A *turn
+in place while already idle* (a script changing `facing` without a walk)
+is not yet re-pointed — wire the same re-point on any facing change if a
+scene surfaces it. The room-33 cliff N/S facing flip-flop (a separate
+walk *direction-picker* issue) and the room-38 entry head-loss transient
+also remain on the backlog.
