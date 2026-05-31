@@ -65,6 +65,7 @@ export function mountDebugPanel(session: EngineSession, gameId: GameId): DebugPa
   const dispose = createRoot((disposeRoot) => {
     const tickSig = signal(0);
     const playingSig = signal(false);
+    const roomSig = signal('');
 
     // Live panels: full rebuild per frame (matches the legacy inspector; the
     // tables have no critical click targets).
@@ -104,6 +105,9 @@ export function mountDebugPanel(session: EngineSession, gameId: GameId): DebugPa
     });
     bindText(playBtn, () => (playingSig() ? '⏸ Pause' : '▶ Play'));
 
+    const roomLabel = el('span', { class: 'vm-room-label' });
+    bindText(roomLabel, () => roomSig());
+
     const counter = el('span', { class: 'vm-tick-counter' });
     bindText(counter, () => `tick ${tickSig()}`);
 
@@ -134,6 +138,7 @@ export function mountDebugPanel(session: EngineSession, gameId: GameId): DebugPa
         'Warp',
       ),
       el('button', { class: 'secondary', onClick: () => session.reboot() }, 'Reboot'),
+      roomLabel,
       counter,
     );
 
@@ -155,6 +160,8 @@ export function mountDebugPanel(session: EngineSession, gameId: GameId): DebugPa
       state.tickRateHz = st.tickRateHz;
       tickSig.set(st.tickCount);
       playingSig.set(st.playing);
+      const vm = session.vm;
+      roomSig.set(`room ${vm.currentRoom}${vm.loadedRoom ? ` (${vm.loadedRoom.width}×${vm.loadedRoom.height})` : ' — none loaded'}`);
       repaintLive();
     });
     onCleanup(unsub);
