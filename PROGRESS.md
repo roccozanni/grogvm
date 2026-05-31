@@ -94,14 +94,33 @@ screen-x oscillated. **Fix:** call `moveCameraFollow()` once per game frame in
 snapshot. Probe `scratch/probe-cam-smooth.ts`: old = 44 reversals/−12px,
 fixed = 5/−1px.
 
-### 2. Verb-bar background still wrong
-Reverted to black. The real MI1 look (from the user's ScummVM): a **dark
-sentence-line band** at the top, and the **verbs show magenta behind the
-glyphs** (transparent glyph bg over a magenta field) — NOT a single flat fill
-(which is what broke the sentence band). Need the per-region layout: sentence
-band stays dark; the verb-grid area gets the dark-magenta. Get a clean ScummVM
-close-up of the verb area, or study MI1's verb-panel rendering. Code:
-`src/shell/player/play-area.ts` `paintVerbBar` + `VERB_BAR_BG_COLOR`.
+### 2. Verb-bar background — DIAGNOSED (session 9): bg is fine, real gap is the glyph shadow
+Investigated against the user's ScummVM close-up with headless probes
+(`scratch/probe-verbbar*.ts`, render → PNG via `ppm2png.mjs`; histogram of the
+screenshot via `sample-shot.mjs`/`hist-shot.mjs`). Findings:
+- **The dark-magenta box grid is NOT a flat fill — it's image verbs** already
+  drawn by `paintVerbBar` → `drawVerbImage`: verb #1/obj 1030 (144×48 command-verb
+  panel bg, `dim`), #200–207/obj 1032 (40×24 inventory slots), #208–209/obj 1033
+  (16×24 scroll arrows), all from room 99. A full headless render of the exact
+  paint logic **matches the ScummVM screenshot** (layout + colours). The
+  session-8 "flat magenta fill" attempt was the wrong mechanism; the box grid was
+  always there. So the background needs no change — **confirm in-app it shows**.
+- **Palette verified exact** against the screenshot histogram: box fill = idx 1 =
+  (23,0,23); glyph fill = idx 6 = (127,47,127); both match pixel-for-pixel.
+- **The one real remaining gap:** the verb-text **shadow/outline**. ScummVM draws
+  it dark-magenta (83,0,83 = idx 2, ~12.7k px in the close-up); ours forces the
+  2bpp outline to **black** (`drawText`: `colorMap[2]=colorMap[3]=0`). That
+  (83,0,83) is **not** any static entry in charset 6's colorMap (native [2]=black,
+  [3]=red) — ScummVM builds the verb-text map dynamically via **`charsetColor`
+  (0x0E)** (the deferred Phase-8 opcode). So fixing the shadow = implement
+  `charsetColor` and feed its `_charsetColorMap` into `drawText` for the verb
+  panel; do NOT hardcode a guess (would regress dialog/credits text — see
+  SCUMM-V5-CHAR §5). This is the concrete next step for the verb bar.
+- Minor: verb #8 "Esamina" carries `color=3` (bright, 223,83,223) while the rest
+  are `color=6`; the screenshot shows it the same shade as the others (no
+  223,83,223 pixels at all) — likely the same `charsetColor` dynamic-map effect,
+  revisit with 0x0E.
+Code: `src/shell/player/play-area.ts` `paintVerbBar`/`drawVerbImage`/`drawText`.
 
 ### 3. Ego z-occlusion (deferred, pre-existing, NOT a regression)
 Room-33 Guybrush is `neverZclip` (forceClip=0, engine-set) → always drawn in
