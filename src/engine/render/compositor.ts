@@ -44,7 +44,7 @@
 
 import type { Actor } from '../actor/actor';
 import { currentLimbPicture, COSTUME_OFFSET_ADJUST } from '../graphics/costume-anim';
-import { compositeActor } from '../graphics/composite';
+import { compositeActor, actorFramePlacement } from '../graphics/composite';
 import type { LoadedCostume } from '../graphics/costume-loader';
 import { decodeCostumeFrame } from '../graphics/costume-frame';
 import type { LoadedObject } from '../object/loader';
@@ -331,15 +331,19 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
           // occludes an "in front" actor — only z-clipped ones.
           actorZ: resolveActorZ(actor, room.walkBoxes, actorZPlanes.length),
           zPlanes: actorZPlanes,
+          // Actor scale (0..255, 255 = full). SCUMM scales actors by depth;
+          // the value is set by scripts (actorOps setScale) and, later, by
+          // walk-box scale data.
+          scale: actor.scale,
         });
         drewLimb = true;
-        // Same extent compositeActor draws into: actor anchor + frame redir.
-        const left = actor.x + frame.redirX;
-        const top = actor.y + frame.redirY;
-        if (left < bLeft) bLeft = left;
-        if (top < bTop) bTop = top;
-        if (left + frame.width > bRight) bRight = left + frame.width;
-        if (top + frame.height > bBottom) bBottom = top + frame.height;
+        // Same scaled extent compositeActor draws into — so hit-testing
+        // matches the sprite's on-screen size.
+        const place = actorFramePlacement(frame, actor.x, actor.y, mirror, actor.scale);
+        if (place.left < bLeft) bLeft = place.left;
+        if (place.top < bTop) bTop = place.top;
+        if (place.left + place.width > bRight) bRight = place.left + place.width;
+        if (place.top + place.height > bBottom) bBottom = place.top + place.height;
       } catch (err) {
         if (limbActive) {
           skippedLimbs.push({

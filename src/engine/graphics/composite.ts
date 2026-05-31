@@ -45,6 +45,43 @@ export interface CompositeActorOptions {
    * flip them for the opposite facing.
    */
   readonly mirror?: boolean;
+  /**
+   * Actor scale, 0..255 where 255 = 100% (the default). The frame is
+   * nearest-neighbour scaled around the anchor — the feet stay at
+   * (actorX, actorY) and the sprite shrinks toward them — so a distant
+   * actor draws smaller. SCUMM scales actors by position; 255 is exactly
+   * the un-scaled blit.
+   */
+  readonly scale?: number;
+}
+
+/** Where (and how big) a costume frame lands on screen for a given anchor,
+ *  mirror, and scale. Shared by the blit and the compositor's hit-test bounds
+ *  so they never disagree. At scale 255 this is the native, un-scaled extent. */
+export interface ActorPlacement {
+  readonly left: number;
+  readonly top: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+export function actorFramePlacement(
+  frame: DecodedCostumeFrame,
+  actorX: number,
+  actorY: number,
+  mirror: boolean,
+  scale: number,
+): ActorPlacement {
+  const s = Math.max(0, Math.min(255, scale));
+  const width = Math.max(1, Math.round((frame.width * s) / 255));
+  const height = Math.max(1, Math.round((frame.height * s) / 255));
+  const redirX = Math.round((frame.redirX * s) / 255);
+  const redirY = Math.round((frame.redirY * s) / 255);
+  // Anchor (feet) stays at (actorX, actorY); the offset scales with the frame
+  // so the sprite shrinks toward it. Mirror reflects the span about actorX.
+  const left = mirror ? actorX - redirX - width : actorX + redirX;
+  const top = actorY + redirY;
+  return { left, top, width, height };
 }
 
 export function compositeActor(opts: CompositeActorOptions): void {
@@ -52,6 +89,7 @@ export function compositeActor(opts: CompositeActorOptions): void {
   const actorZ = opts.actorZ ?? 0;
   const zPlanes = opts.zPlanes ?? [];
   const mirror = opts.mirror ?? false;
+  const scale = Math.max(0, Math.min(255, opts.scale ?? 255));
 
   if (framebuffer.length !== fbWidth * fbHeight) {
     throw new Error(
@@ -66,25 +104,36 @@ export function compositeActor(opts: CompositeActorOptions): void {
     }
   }
 
-  // Mirrored frames reflect about the anchor X: the unmirrored span
-  // [actorX+redirX, +width) becomes [actorX-redirX-width, actorX-redirX).
-  const left = mirror ? actorX - frame.redirX - frame.width : actorX + frame.redirX;
-  const top = actorY + frame.redirY;
+  if (scale === 0) return; // scaled to nothing
 
-  // Clip the iteration range to the on-screen portion of the frame so
+  // Scaled placement (nearest-neighbour). At scale 255 this is the native
+  // extent and every map below is the identity, so the path is an exact no-op
+  // for un-scaled actors.
+  const { left, top, width: drawW, height: drawH } = actorFramePlacement(
+    frame,
+    actorX,
+    actorY,
+    mirror,
+    scale,
+  );
+
+  // Clip the iteration range to the on-screen portion of the (scaled) frame so
   // we never index out of bounds and avoid touching off-screen pixels.
   const startX = Math.max(0, -left);
-  const endX = Math.min(frame.width, fbWidth - left);
+  const endX = Math.min(drawW, fbWidth - left);
   const startY = Math.max(0, -top);
-  const endY = Math.min(frame.height, fbHeight - top);
+  const endY = Math.min(drawH, fbHeight - top);
 
   for (let py = startY; py < endY; py++) {
     const ry = top + py;
-    const frameRowBase = py * frame.width;
+    // Map this scaled destination row back to a source row (nearest-neighbour).
+    const sy = Math.min(frame.height - 1, Math.floor((py * frame.height) / drawH));
+    const frameRowBase = sy * frame.width;
     const fbRowBase = ry * fbWidth;
     for (let px = startX; px < endX; px++) {
+      const sx = Math.min(frame.width - 1, Math.floor((px * frame.width) / drawW));
       // Mirror: sample the column from the opposite edge of the frame.
-      const srcPx = mirror ? frame.width - 1 - px : px;
+      const srcPx = mirror ? frame.width - 1 - sx : sx;
       const idx = frame.pixels[frameRowBase + srcPx]!;
       if (idx === COSTUME_FRAME_TRANSPARENT) continue;
       const rx = left + px;

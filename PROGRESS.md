@@ -701,22 +701,21 @@ most lives in the inline known-bug entries above and the linked docs.
 
 **Rendering / animation**
 
-- **Actor scaling (perspective depth) — UNIMPLEMENTED** *(2026-05-31,
-  user-observed)*. In ScummVM, Guybrush **grows as he descends the room-33
-  cliff toward the camera** (small at top → full size at the dock) — and
-  shrinks walking away. SCUMM scales actors by position via walk-box scale
-  data: each box carries a `scaleSlot` (we already parse it,
-  `boxes.ts:170`) indexing the room's **`SCAL`** block (in the catalog but
-  **not parsed** — pairs defining a scale-vs-`y` gradient); the actor's
-  `scale` (0–255) is set from the box it stands in (interpolated by `y`),
-  and the compositor draws the costume frame scaled. Today none of this is
-  wired: `actor.scale` exists but is only saved/restored (never set from
-  boxes), and `compositeActor` has **no scale parameter** (always 100%).
-  NOT a pathfinding side effect — a distinct feature. Three pieces for a
-  future polish phase: (1) parse `SCAL` into per-room scale slots; (2) on
-  actor move, set `actor.scale` from the current box's `scaleSlot`
-  interpolated by `y`; (3) scale the costume blit in `compositeActor` by
-  `scale/255`. See [docs/SCUMM-V5-ZPLANE.md] / pathfinding/boxes.ts.
+- **Actor scaling (perspective depth) — Fix A DONE (2026-05-31, composition
+  pass).** The original three pieces were: (1) parse `SCAL` into per-room
+  scale slots; (2) set `actor.scale` from the current box's `scaleSlot`
+  interpolated by `y`; (3) **scale the costume blit in `compositeActor`**.
+  **(3) is now done** — `compositeActor` takes `scale` (0–255, 255 = exact
+  no-op), nearest-neighbour scales the frame around the feet anchor, and the
+  compositor passes `actor.scale` + uses the same `actorFramePlacement` for
+  hit-test bounds. A headless probe of room 38 showed actor scales **are**
+  already set by scripts (Guybrush 239, fire 128) but were ignored — so this
+  immediately applies **script-set** scales (e.g. the room-38 fire now draws
+  ~50%). **Remaining (pieces 1+2) — box/`SCAL`-driven scaling:** if room 33's
+  cliff (Guybrush grows descending) is box-scale-driven rather than
+  script-set, his `scale` stays 255 and he won't shrink yet → then do (1)
+  parse `SCAL` + (2) set `actor.scale` from the box `scaleSlot` interpolated
+  by `y`. Confirm against room 33 in-app. See pathfinding/boxes.ts.
 - [x] **Head limb didn't track facing — FIXED ✓ user-confirmed
   (2026-05-31).** Guybrush's **head (limb 1)** faced the camera at rest
   regardless of facing, while the body faced correctly. Root cause: only

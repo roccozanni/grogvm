@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { compositeActor } from './composite';
+import { compositeActor, actorFramePlacement } from './composite';
 import { COSTUME_FRAME_TRANSPARENT } from './costume-frame';
 import type { DecodedCostumeFrame } from './costume-frame';
 import type { DecodedZPlane } from './zplane';
@@ -68,6 +68,85 @@ describe('compositeActor — mirror', () => {
     expect(mk(false)).toEqual([1, 2, 3, 0, 0, 0]); // cols 0,1,2
     // Mirrored about X=0 → cols -3..-1 off-screen, nothing drawn.
     expect(mk(true)).toEqual([0, 0, 0, 0, 0, 0]);
+  });
+});
+
+describe('compositeActor — scale', () => {
+  it('scale 255 is identical to an un-scaled draw', () => {
+    const draw = (scale?: number) => {
+      const fb = new Uint8Array(16);
+      compositeActor({
+        framebuffer: fb, fbWidth: 4, fbHeight: 4,
+        frame: frame(2, 2, [1, 2, 3, 4], 0, 0),
+        costPalette: identityPalette(8), actorX: 0, actorY: 0, scale,
+      });
+      return Array.from(fb);
+    };
+    expect(draw(255)).toEqual(draw(undefined)); // explicit 255 == default
+    expect(draw(255)).toEqual([1, 2, 0, 0, 3, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  });
+
+  it('halves a frame at scale ~128 (nearest-neighbour)', () => {
+    // 4×2 frame → round(4*128/255)=2 wide, round(2*128/255)=1 tall.
+    const fb = new Uint8Array(16); // 8×2
+    compositeActor({
+      framebuffer: fb, fbWidth: 8, fbHeight: 2,
+      frame: frame(4, 2, [1, 1, 1, 1, 1, 1, 1, 1], 0, 0),
+      costPalette: identityPalette(8), actorX: 0, actorY: 0, scale: 128,
+    });
+    // 2×1 block at the anchor; rest untouched.
+    expect(Array.from(fb)).toEqual([1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  });
+
+  it('keeps the feet anchored — the sprite shrinks upward toward (actorX, actorY)', () => {
+    // redirY = -2: the 2-tall frame sits with its bottom at the anchor row.
+    // At full scale it occupies rows 2..3 (anchor y=4 → feet just below).
+    const full = new Uint8Array(20); // 4×5
+    compositeActor({
+      framebuffer: full, fbWidth: 4, fbHeight: 5,
+      frame: frame(1, 2, [1, 1], 0, -2),
+      costPalette: identityPalette(8), actorX: 0, actorY: 4, scale: 255,
+    });
+    expect([full[8], full[12]]).toEqual([1, 1]); // rows 2 and 3 (y*4 + 0)
+
+    // At scale 128 the 1-tall scaled sprite lands at row 3 (bottom stays put),
+    // NOT row 2 — it shrank toward the feet, not the top.
+    const half = new Uint8Array(20);
+    compositeActor({
+      framebuffer: half, fbWidth: 4, fbHeight: 5,
+      frame: frame(1, 2, [1, 1], 0, -2),
+      costPalette: identityPalette(8), actorX: 0, actorY: 4, scale: 128,
+    });
+    expect(half[12]).toBe(1); // row 3
+    expect(half[8]).toBe(0); // row 2 empty
+  });
+
+  it('draws nothing at scale 0', () => {
+    const fb = new Uint8Array(16);
+    compositeActor({
+      framebuffer: fb, fbWidth: 4, fbHeight: 4,
+      frame: frame(2, 2, [1, 2, 3, 4], 0, 0),
+      costPalette: identityPalette(8), actorX: 0, actorY: 0, scale: 0,
+    });
+    expect(Array.from(fb)).toEqual(new Array(16).fill(0));
+  });
+});
+
+describe('actorFramePlacement', () => {
+  it('is the native extent at scale 255', () => {
+    const f = frame(10, 20, new Array(200).fill(1), -5, -18);
+    expect(actorFramePlacement(f, 100, 50, false, 255)).toEqual({
+      left: 95, top: 32, width: 10, height: 20,
+    });
+  });
+
+  it('shrinks toward the feet anchor at half scale', () => {
+    const f = frame(10, 20, new Array(200).fill(1), -5, -20); // feet at anchor
+    const p = actorFramePlacement(f, 100, 50, false, 128);
+    // width/height ~halve; bottom (top+height) stays at the feet row (~50).
+    expect(p.width).toBe(5);
+    expect(p.height).toBe(10);
+    expect(p.top + p.height).toBe(50); // feet anchored
   });
 });
 
