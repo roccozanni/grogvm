@@ -82,7 +82,7 @@ engine-side fixes (all separate from the rebuild; 753 tests green, tsc clean):
   paused/stepping (was every frame, then a 10 Hz throttle). Good hygiene, but
   **did NOT fix the stutter** → the stutter is not the debug panel.
 
-## Open issues (session 9: #1 fixed+confirmed, #2 fixed pending visual confirm, #3 still open)
+## Open issues (session 9: #1 & #2 fixed+confirmed; #3 still open)
 
 ### 1. Camera-follow stutter + "two Guybrush" — FIXED & user-confirmed (session 9)
 Ordering bug, as hypothesised. `moveCameraFollow()` ran in `beginTick()` (every
@@ -94,49 +94,20 @@ screen-x oscillated. **Fix:** call `moveCameraFollow()` once per game frame in
 snapshot. Probe `scratch/probe-cam-smooth.ts`: old = 44 reversals/−12px,
 fixed = 5/−1px.
 
-### 2. Verb-bar background — DIAGNOSED (session 9): bg is fine, real gap is the glyph shadow
-Investigated against the user's ScummVM close-up with headless probes
-(`scratch/probe-verbbar*.ts`, render → PNG via `ppm2png.mjs`; histogram of the
-screenshot via `sample-shot.mjs`/`hist-shot.mjs`). Findings:
-- **The black-around-the-glyphs bug — FIXED (session 9).** User reported the
-  cells still read black in-app even though the box grid + glyph shadow were
-  right. Root cause: `drawText` painted each glyph with `ctx.putImageData`, which
-  **overwrites** the whole destination rectangle (its transparent alpha-0 pixels
-  included) instead of compositing — so right after `drawVerbImage` drew the plum
-  box, the glyph blit **erased it back to transparent (=black) in a rectangle
-  around every verb's text**. (An ASCII map of the user's screenshot showed plum
-  only *between* cells, black *around* each glyph — the tell.) The headless probe
-  skipped transparent pixels, so it never reproduced it. Fix: `drawText` now
-  stamps the glyph onto a scratch canvas and `drawImage`s it (source-over,
-  honours alpha) instead of `putImageData`. Same pattern `drawVerbImage` already
-  used. **NEEDS USER VISUAL CONFIRM** (canvas compositing — happy-dom can't pixel-test it).
-- **The dark-magenta box grid is NOT a flat fill — it's image verbs** already
-  drawn by `paintVerbBar` → `drawVerbImage`: verb #1/obj 1030 (144×48 command-verb
-  panel bg, `dim`), #200–207/obj 1032 (40×24 inventory slots), #208–209/obj 1033
-  (16×24 scroll arrows), all from room 99. A full headless render of the exact
-  paint logic **matches the ScummVM screenshot** (layout + colours). The
-  session-8 "flat magenta fill" attempt was the wrong mechanism; the box grid was
-  always there. So the background needs no change — **confirm in-app it shows**.
-- **Palette verified exact** against the screenshot histogram: box fill = idx 1 =
-  (23,0,23); glyph fill = idx 6 = (127,47,127); both match pixel-for-pixel.
-- **Verb-text shadow — FIXED (session 9).** ScummVM draws the glyph shadow
-  dark-magenta (83,0,83 = idx 2, ~12.7k px in the close-up); we were forcing the
-  2bpp outline to **black**. Traced to **`charsetColor` (0x0E)**: MI1 boots with
-  `charsetColor [0,6,2]` (value 1 = fill → CLUT 6, value 2 = shadow → CLUT 2). The
-  opcode was a stub — now captured into `vm.charsetColorMap` (saved/restored,
-  cleared on reset); `paintVerbBar` passes `charsetColorMap[2]` as the shadow to
-  `drawText`. **Scoped to the verb panel** — `drawText`'s `shadowColor` defaults
-  to black, so dialog/credits/sentence text is byte-identical (no regression, per
-  the SCUMM-V5-CHAR §5 warning). Headless re-render now matches the close-up.
-  **NEEDS USER VISUAL CONFIRM.**
-- Minor open: verb #8 "Esamina" carries `color=3` (bright, 223,83,223) while the
-  rest are `color=6`, so it renders brighter than its neighbours; the close-up
-  shows no 223,83,223 pixels (AA from the 2× screenshot scale may hide it, or our
-  per-verb colour read is off for #8). Low priority — revisit if it looks wrong
-  in-app. SCUMM `drawVerb` does `setColor(vs->color)`, so a genuine `color=3`
-  would render bright; check whether a verbOps re-colours it.
-Code: `src/shell/player/play-area.ts` `paintVerbBar`/`drawVerbImage`/`drawText`;
-`src/engine/vm/opcodes/index.ts` 0x0E; `vm.charsetColorMap`.
+### 2. Verb-bar background — FIXED & user-confirmed (session 9)
+The dark-magenta box grid was always there (image verbs obj 1030/1032/1033), but
+two bugs hid it. (a) **Glyph shadow**: we forced the 2bpp outline to black;
+`charsetColor` (0x0E) was a stub — MI1 boots `[0,6,2]` (fill→CLUT6, shadow→CLUT2).
+Now captured into `vm.charsetColorMap` (saved/restored) and used as the verb-text
+shadow only (dialog/credits left on black). (b) **The real culprit**: `drawText`
+used `putImageData`, which overwrites the dest rect incl. transparent pixels — so
+each glyph blit erased the plum box to black around the text. Now stamps the glyph
+to a scratch canvas and `drawImage`s it (source-over). Palette verified exact vs
+the ScummVM close-up (box=idx1=(23,0,23), fill=idx6=(127,47,127)).
+Minor open: verb #8 "Esamina" reads `color=3` (brighter than its `color=6`
+neighbours) — low priority, revisit if it looks off in-app.
+Code: `play-area.ts` `paintVerbBar`/`drawVerbImage`/`drawText`; `opcodes/index.ts`
+0x0E; `vm.charsetColorMap`.
 
 ### 3. Ego z-occlusion (deferred, pre-existing, NOT a regression)
 Room-33 Guybrush is `neverZclip` (forceClip=0, engine-set) → always drawn in
