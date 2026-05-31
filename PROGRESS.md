@@ -357,14 +357,26 @@ files via the VM resolvers. **Storage (user):** named localStorage slots
       fresh boot → re-serializes identically + keeps ticking); 8 storage
       tests. 688 total, typecheck clean.
 
-### Remaining
+- [x] **Confirmed in-app (user, 2026-05-31):** Boot→Load restores room
+      33 + ego + verbs and play resumes; export/import a slot works. A
+      load-while-running bug (clicks captured but ignored — frame input
+      stayed bound to the discarded VM) was found and **fixed**
+      (`installVm` invalidates the mounted frame so input rebinds; load
+      also preserves the play state). Click handling confirmed working
+      after the fix.
 
-- [ ] **Confirm the Saves panel in-app** (visual): save mid-room, reload
-      the page / Boot, load the slot, verify the room + ego + verbs come
-      back and play resumes. Export a slot, re-import it.
-- [ ] **Polish to consider:** a "Quick Save / Quick Load" pair in the
-      control bar; a confirm step on Delete; auto-name collisions. Hold
-      until the panel is confirmed working.
+### Surfaced (but NOT a save bug)
+
+- **Head limb doesn't track facing** — testing the save surfaced that
+  Guybrush's head always faces the camera at rest. Confirmed this is a
+  **pre-existing live costume-anim bug**, not save/load (the restore is
+  faithful — the round-trip is byte-identical). Moved to the
+  post-save/load backlog under Rendering / animation.
+
+### Remaining (polish)
+
+- [ ] **Quick Save / Quick Load** pair in the control bar; a confirm
+      step on Delete; auto-name collisions. Hold unless wanted.
 
 Several **post-save/load backlog** items (inventory scroll arrows,
 two-object "use X with Y") need a saved game with the right state to
@@ -378,17 +390,31 @@ most lives in the inline known-bug entries above and the linked docs.
 
 **Rendering / animation**
 
-- **N/S (vertical) walk glitches** *(new, 2026-05-31, user-reported)*.
-  Two symptoms, likely one root cause in the walk **facing-direction
-  resolution** during vertical motion: (a) room 33 (dock) — on entry
-  Guybrush walks down the cliff and his facing **flip-flops left↔right
-  several times** during the descent; (b) room 38 (lookout) — on entry
-  he briefly **loses his head**. The head-loss is almost certainly the
-  costume-anim **per-limb stop bitmask** (head = limb 1; walk *stops*
-  the head, stand *un-stops* it — a transient where the head limb is
-  stopped but the stand chore hasn't re-enabled it). The L/R flip is the
-  direction picked per step when the path is mostly vertical (dx≈0 →
-  facing oscillates on tiny x jitter). See
+- **Head limb doesn't track facing** *(2026-05-31, user-reported;
+  confirmed LIVE — not a save/load bug)*. Guybrush's **head (limb 1)
+  faces the camera (front/south) at rest regardless of which way he's
+  standing or walking**, while his **body (limb 0) faces the correct
+  direction**. Confirmed persistent during live play and walking (so
+  it's a costume-anim/compositor bug, not save-state — a restored game
+  reproduces it because the save is faithful; the round-trip test is
+  byte-identical). Mechanism check: the stand chore is
+  `startActorChore(standFrame=3)` → record `3*4 + OLD_DIR[facing]` (W→12,
+  matches the saved `animId`), so the engine *does* pick the
+  per-direction stand record — yet the head still renders front for
+  every direction. So the gap is in how the **head limb resolves its
+  per-direction picture** from that record (or the head is driven by a
+  separate chore we're not applying per-facing). Two related symptoms,
+  likely the same head-limb root cause:
+  - room 38 (lookout) — on entry he briefly **loses his head** (the
+    per-limb **stop bitmask**: walk *stops* the head, stand *un-stops*
+    it; a transient where it's stopped but the stand chore hasn't
+    re-enabled it).
+  - room 33 (dock) — on entry his **facing flip-flops left↔right** down
+    the cliff (near-vertical path, dx≈0 → direction oscillates on x
+    jitter — this one is in the *walk* direction picker, may be
+    separate).
+  Needs careful costume-anim reference work + visual validation; don't
+  guess the head-chore semantics. See
   [docs/SCUMM-V5-COSTUME-ANIM.md](docs/SCUMM-V5-COSTUME-ANIM.md).
 - **Room 38 (lookout) fire composites *over* Guybrush** *(new,
   2026-05-31, user-reported)*. The campfire actor draws on top of
