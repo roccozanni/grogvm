@@ -31,13 +31,15 @@ multi-page build later); this phase does only the Explorer split. See the
 [Phase 10 section](#active-phase--phase-10-shell-rebuild--enginesession)
 below.
 
-**Progress — Task 1 done (2026-05-31, session 7).** The `EngineSession` +
-`Clock` seam is built and tested headlessly (`engine/session/`, 14 new tests,
-702 total green, tsc clean) — scope contract + design in
-[docs/ENGINE-SESSION.md](docs/ENGINE-SESSION.md). The legacy
-`vm-inspector.ts` is intentionally left on its own rAF loop (it's deleted in
-task 7); the session is the canonical copy. App behaviour unchanged. **Next:
-task 2 (reactive core).**
+**Progress — Tasks 1 & 2 done (2026-05-31, session 7).** Task 1: the
+`EngineSession` + `Clock` seam, built + tested headlessly (`engine/session/`) —
+scope contract in [docs/ENGINE-SESSION.md](docs/ENGINE-SESSION.md); the legacy
+`vm-inspector.ts` is intentionally left on its own rAF loop (deleted in task
+7), the session is the canonical copy. Task 2: the `shell/reactive/` kernel
+(`signal`/`effect`/`computed`/`batch`/`untracked`/`createRoot`/`onCleanup` +
+`el`/`bind*` DOM helpers), no runtime dependency, `happy-dom` added as a
+test-only dev shim. 723 total green, tsc clean. App behaviour unchanged (both
+tasks additive). **Next: task 3 (multi-page build + routing helper).**
 
 Why: `renderPlayer` (player.ts, 1714 lines) was a vertically-stacked
 *resource browser*, not a game player — the actual game was wedged inside
@@ -221,9 +223,21 @@ green; `tsc` clean.
       inspector keeps its own rAF loop (temporary duplication) until tasks
       5–7. App behaviour is unchanged this task (the session is additive).
       See docs/ENGINE-SESSION.md §2.
-- [ ] **2. Reactive core (shell/reactive/).** `signal`, `effect`, and a
-      small element/render helper (component = function returning element +
-      cleanup). Unit tests for dependency tracking, re-run, and disposal.
+- [x] **2. Reactive core (shell/reactive/). DONE (2026-05-31, session 7).**
+      `reactivity.ts` — a ~110-LOC fine-grained kernel: `signal` / `effect`
+      (re-collects deps each run → conditional reads track correctly) /
+      `computed` / `batch` / `untracked` / `createRoot` / `onCleanup`
+      (ownership, so a component disposes every effect it made). Synchronous
+      notify, no dependency. `dom.ts` — `el()` static element builder + the
+      effect-backed reactive bindings `bindText`/`bindAttr`/`bindClass` +
+      `append`/`clear` (deliberately un-magic: dynamic = explicit `bind*`,
+      matching clarity-over-cleverness). 21 new tests: `reactivity.test.ts`
+      (Node) covers tracking/re-run/dynamic-deps/dispose/nested-effects;
+      `dom.test.ts` (happy-dom via `// @vitest-environment` docblock) covers
+      `el` + reactive bindings + root disposal. Added **happy-dom** as a
+      *dev*-dependency — a test-only DOM shim, the same role `fake-indexeddb`
+      already plays for storage tests; engine tests stay node-default. 723
+      total green, tsc clean.
 - [ ] **3. Multi-page build + routing helper.** Set up Vite
       `rollupOptions.input` with three HTML entries — `index.html` (`/`,
       library + the install flow as an in-page step), `explore.html`
