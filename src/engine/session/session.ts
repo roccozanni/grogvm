@@ -53,8 +53,14 @@ export function createSession(
   game: SessionGame,
   renderer: Renderer,
   clock: Clock,
-  opts?: { bootParam?: number; tickRateHz?: number },
+  opts?: { bootParam?: number; tickRateHz?: number; autoPauseOnIdle?: boolean },
 ): EngineSession {
+  // Auto-pause when the engine settles into an idle wait loop. The Debug
+  // surface wants this (don't burn frames at a static screen); the Play
+  // surface sets it false so the game runs continuously — there's no resume
+  // button on the clean player, so a self-pause would soft-lock. All-dead and
+  // halt pauses always apply regardless.
+  const autoPauseOnIdle = opts?.autoPauseOnIdle ?? true;
   let vm: Vm = bootGame(
     game.resourceFile,
     game.index,
@@ -245,7 +251,7 @@ export function createSession(
         composeAndPresent(true);
         return;
       }
-      if (checkIdle()) {
+      if (autoPauseOnIdle && checkIdle()) {
         pauseInternal(idleMessage());
         composeAndPresent(true);
         return;

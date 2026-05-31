@@ -44,10 +44,13 @@ a `shell/routing/` helper; `vite build` emits the three static entries with the
 heavy player chunk code-split onto play/explore only. Task 4: `/explore` now
 renders a session-free Explorer (resource browsers, no VM) via an `includeVm`
 flag on the shared loader; the physical code relocation into `shell/explorer/`
-is deferred to task 7 (avoids risky churn on the doomed `player.ts`). 728 total
-green, tsc clean. **Next: task 5 (Play view on the EngineSession).** NB: the
-earlier `vite.config.ts` change means a running dev server needs a restart to
-pick up the new entries.
+is deferred to task 7 (avoids risky churn on the doomed `player.ts`). Task 5:
+`/play` rebuilt as the clean Play surface on the EngineSession (game canvas via
+`onFrame` + reused play-area overlays + `RafClock`, runs continuously, minimal
+save/load/exit bar) — **implemented, builds + 728 tests green + tsc clean, but
+NOT yet visually verified in-app** (needs a screenshot/click-through). **Next:
+in-app visual check of `/play`, then task 6 (Debug drawer).** NB: the
+`vite.config.ts` change (task 3) means a running dev server needs a restart.
 
 Why: `renderPlayer` (player.ts, 1714 lines) was a vertically-stacked
 *resource browser*, not a game player — the actual game was wedged inside
@@ -283,13 +286,30 @@ green; `tsc` clean.
       met: `/explore` builds no session. (Bundle note: `/explore` still
       transitively pulls the inspector chunk via `player.ts`; that separates
       in task 7.)
-- [ ] **5. Play view (player/play/, /play).** Loads the game from `?game=`
-      and creates the session. Clean game canvas (`Canvas2DRenderer` fed by
-      `onFrame`) + minimal overlay (save / load / exit). Port the cursor /
-      verb-bar / sentence-line / talk-text rendering out of `play-area.ts`;
-      input goes through `session.sendInput` only. No VM internals here.
-      **Validate visually** (screenshot / user confirm — size plausibility is
-      not enough; see project memory).
+- [~] **5. Play view (player/play/, /play). IMPLEMENTED — PENDING IN-APP
+      VISUAL VERIFICATION (2026-05-31, session 7).** `src/shell/player/play/play.ts`
+      `renderPlay(game, onBack)`: loads the game (`shell/storage/game-files.ts`
+      `loadSessionGame`), creates an `EngineSession` with a `Canvas2DRenderer`
+      bound to the frame canvas + a `RafClock` (`shell/player/raf-clock.ts`),
+      and `autoPauseOnIdle: false` so the game runs continuously (no resume
+      button on the clean player → a self-pause would soft-lock; Debug still
+      pauses manually). Overlays + room input **reuse** the proven
+      `play-area.ts` (cursor / verb bar / sentence / talk) and
+      `mountVmFrameInput` (reading `session.vm`); they re-mount only on a room
+      dimension change (frame canvas reused). `session.onFrame` → `play.redraw()`
+      each frame. Minimal bar: ← Library (exit), Quick save / Quick load
+      (localStorage `quicksave` slot via `session.snapshot/restore`). `/play`
+      page now renders this instead of the legacy view. Added an
+      `autoPauseOnIdle` option to `createSession`. 728 green, tsc clean,
+      `vite build` splits a dedicated play chunk.
+      **NEEDS A SCREENSHOT/USER CONFIRM** (project memory: never claim a visual
+      feature works on size-plausibility alone). Known inherited play-area
+      debug-isms that will show until play-area is cleaned (task 6/7): the
+      dashed camera-viewport rect and the always-on crosshair (drawn even when
+      `vm.cursor.visible` is false). `session.sendInput` is currently used only
+      for Escape — the room pointer path writes `session.vm` directly via the
+      reused `mountVmFrameInput` (equivalent vm state); routing it fully
+      through `sendInput` is a later cleanup.
 - [ ] **6. Debug drawer (player/debug/).** Port the inspector panels — slot
       table, globals/bits grids, trace ring, actor table, walk overlay, halt
       panel, recent-clicks/input panel — onto `session.vm` and the reactive

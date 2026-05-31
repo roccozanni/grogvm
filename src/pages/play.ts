@@ -1,12 +1,10 @@
 // Entry for `/play/?game=<id>` — the player.
 //
-// TEMPORARY (Phase 10): renders the legacy `renderPlayer` (the combined
-// resource-browser + VM-inspector view). Tasks 5–6 replace this with the
-// clean Play canvas + Debug drawer built on the EngineSession; task 7 deletes
-// the legacy view. The page scaffold (boot, ?game= resolve, permission gate)
-// stays.
+// Renders the clean Play surface (game canvas + overlays, built on the
+// EngineSession). The Debug drawer (task 6) mounts alongside it next; the
+// legacy combined view is deleted in task 7.
 import '../styles.css';
-import { renderPlayer } from '../shell/player/player';
+import { renderPlay } from '../shell/player/play/play';
 import { currentGameParam, homeHref } from '../shell/routing/routing';
 import { mountPage, findInstalledByGameId, renderMissingGame, withReadPermission } from './shared';
 
@@ -23,7 +21,7 @@ mountPage((root) => {
       return;
     }
     withReadPermission(root, game, () => {
-      root.replaceChildren(renderPlayer(game, () => location.assign(homeHref)));
+      root.replaceChildren(renderPlay(game, () => location.assign(homeHref)));
     });
   })();
 });
