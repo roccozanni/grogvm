@@ -605,13 +605,8 @@ export function renderLive(state: InspectorState, repaint: () => void): Document
     return frag;
   }
 
-  // Live tick counter — moved out of the controls bar so the
-  // bar can stay stable across rAF repaints without losing clicks.
-  const counter = document.createElement('p');
-  counter.className = 'vm-tick-counter-live';
-  counter.textContent = `tick ${state.tickCount}`;
-  counter.title = 'Engine ticks since this VM was booted';
-  frag.appendChild(counter);
+  // (The tick counter lives in the Debug controls bar, next to the room
+  // readout — see shell/player/debug. No separate live counter here.)
 
   if (state.vm.haltInfo) {
     frag.appendChild(renderHaltPanel(state.vm.haltInfo));
