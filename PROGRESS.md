@@ -390,32 +390,33 @@ most lives in the inline known-bug entries above and the linked docs.
 
 **Rendering / animation**
 
-- **Head limb doesn't track facing** *(2026-05-31, user-reported;
-  confirmed LIVE — not a save/load bug)*. Guybrush's **head (limb 1)
-  faces the camera (front/south) at rest regardless of which way he's
-  standing or walking**, while his **body (limb 0) faces the correct
-  direction**. Confirmed persistent during live play and walking (so
-  it's a costume-anim/compositor bug, not save-state — a restored game
-  reproduces it because the save is faithful; the round-trip test is
-  byte-identical). Mechanism check: the stand chore is
-  `startActorChore(standFrame=3)` → record `3*4 + OLD_DIR[facing]` (W→12,
-  matches the saved `animId`), so the engine *does* pick the
-  per-direction stand record — yet the head still renders front for
-  every direction. So the gap is in how the **head limb resolves its
-  per-direction picture** from that record (or the head is driven by a
-  separate chore we're not applying per-facing). Two related symptoms,
-  likely the same head-limb root cause:
+- [x] **Head limb didn't track facing — FIXED (2026-05-31).** Guybrush's
+  **head (limb 1)** faced the camera at rest regardless of facing, while
+  the body faced correctly. Root cause: only the **init** records set the
+  head's per-direction frame (W/E→490, S→491 front, N→493 back); the
+  **stand/walk** records only un-stop / stop the head, never re-frame it.
+  The walk loop re-applied stand on a facing change, but stand doesn't
+  re-point the head, so it kept whatever frame init last ran. **Fix:** on
+  the walk→stand transition (`stepAllActorWalks`), re-apply **init** for
+  the current facing (re-points the head) then **stand** (un-stops it,
+  sets the stand body frame; body is identical between init/stand per
+  dir). Verified per-facing (490/490/491/493 distinct, drawn); regression
+  test in `mi1-smoke`; see
+  [docs/SCUMM-V5-COSTUME-ANIM.md](docs/SCUMM-V5-COSTUME-ANIM.md)
+  §"Head re-point". **Visual confirmation pending.** Remaining
+  head/facing sub-symptoms (likely related, NOT yet fixed):
+  - **Turn-in-place re-point** — a script changing `facing` while the
+    actor is *idle* (no walk) doesn't re-point the head yet. Wire the
+    same init re-point on any facing change if a scene surfaces it.
   - room 38 (lookout) — on entry he briefly **loses his head** (the
     per-limb **stop bitmask**: walk *stops* the head, stand *un-stops*
     it; a transient where it's stopped but the stand chore hasn't
     re-enabled it).
   - room 33 (dock) — on entry his **facing flip-flops left↔right** down
     the cliff (near-vertical path, dx≈0 → direction oscillates on x
-    jitter — this one is in the *walk* direction picker, may be
-    separate).
-  Needs careful costume-anim reference work + visual validation; don't
-  guess the head-chore semantics. See
-  [docs/SCUMM-V5-COSTUME-ANIM.md](docs/SCUMM-V5-COSTUME-ANIM.md).
+    jitter — this is in the *walk* direction picker, separate from the
+    head frame). See
+    [docs/SCUMM-V5-COSTUME-ANIM.md](docs/SCUMM-V5-COSTUME-ANIM.md).
 - **Room 38 (lookout) fire composites *over* Guybrush** *(new,
   2026-05-31, user-reported)*. The campfire actor draws on top of
   Guybrush's torso/arm; it should sit in front of only his lower body
