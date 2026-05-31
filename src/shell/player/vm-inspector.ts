@@ -401,6 +401,13 @@ export function renderVmInspector(
     state.recentClicks = [];
     state.lastPalette = null;
     state.lastTransparentIndex = null;
+    // Force the frame to re-mount on the next refresh: the play-area /
+    // frame-input click handlers capture the VM instance at build time
+    // (buildFrame), and refreshFrame only rebuilds on a dimension change.
+    // Without this, swapping the VM (Load, re-Boot) into a same-size room
+    // leaves clicks routed to the old, discarded VM — captured by the
+    // input panel but ignored by the engine.
+    state.mountedFrame = null;
     (globalThis as { __vm?: Vm }).__vm = vm;
     // Tiny dev helper: __walkActor(id, x, y) sets up an actor walk
     // through the real pathfinder so you can see the overlay light
@@ -432,21 +439,27 @@ export function renderVmInspector(
   // ── Save / load ───────────────────────────────────────────────────
   // Save captures the live VM; load boots a fresh VM (so the resolvers
   // are rebuilt for this game) and restores the snapshot into it, then
-  // installs it. Loading always lands paused so the user can inspect the
-  // restored state before resuming.
+  // installs it. Load PRESERVES the play state: if the engine was
+  // running it resumes running, so a mid-play load just continues; if it
+  // was paused it stays paused (with a banner) for inspection.
   const captureSnapshot = (label: string): SaveState | null => {
     if (!state.vm) return null;
     return snapshotVm(state.vm, { game: gameId, label, savedAt: Date.now() });
   };
 
   const loadSnapshot = (snap: SaveState): void => {
+    const wasPlaying = state.playing;
     stopLoop();
-    state.playing = false;
     const vm = bootGame(resourceFile, index, loff, gameId).vm;
     restoreVm(vm, snap);
-    installVm(vm);
-    state.idleReason =
-      `loaded save${snap.label ? ` "${snap.label}"` : ''} — room ${vm.currentRoom} (paused; click Play to resume)`;
+    installVm(vm); // adopts vm, resets tracking, invalidates the mounted frame
+    if (wasPlaying) {
+      state.playing = true;
+      scheduleNextTick();
+    } else {
+      state.idleReason =
+        `loaded save${snap.label ? ` "${snap.label}"` : ''} — room ${vm.currentRoom} (paused; click Play to resume)`;
+    }
     repaint();
   };
 

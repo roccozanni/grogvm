@@ -6,3 +6,5 @@ dist
 coverage
 games
 scratch
+# Local exported save games (not part of the repo)
+/saves/
