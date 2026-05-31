@@ -5,14 +5,10 @@
  *
  * Controls (play / pause / step / rate / run-to-idle / warp / reboot) call the
  * session. The inspection panels (slot table, globals / bits grids, trace,
- * actor table, input panel, halt) and the full saves panel are REUSED from the
- * legacy `vm-inspector.ts` via a session-backed `InspectorState` — the loop
- * fields it once owned are stubbed (the session owns the loop now) and the
- * display fields are refreshed each frame.
- *
- * TEMPORARY (Phase 10): the panel renderers still live in the soon-to-be-
- * deleted `vm-inspector.ts`; they relocate into this folder in task 7 (same
- * deferred-move pattern as the Explorer in task 4).
+ * actor table, input panel, halt) and the full saves panel are the pure
+ * renderers in `./panels.ts`, driven by a session-backed `InspectorState` —
+ * the loop fields it once owned are stubbed (the session owns the loop now)
+ * and the display fields are refreshed each frame.
  */
 import { signal, bindText, el, createRoot, onCleanup } from '../../reactive';
 import type { EngineSession } from '../../../engine/session';
@@ -23,7 +19,7 @@ import {
   renderSavesPanel,
   type InspectorState,
   type RecentClick,
-} from '../vm-inspector';
+} from './panels';
 
 const RECENT_CLICKS_CAP = 12;
 const RATE_STEPS = [1, 2, 5, 10, 15, 30, 60, 120];
