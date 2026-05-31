@@ -390,28 +390,26 @@ most lives in the inline known-bug entries above and the linked docs.
 
 **Rendering / animation**
 
-- [x] **Head limb didn't track facing — FIXED (2026-05-31).** Guybrush's
-  **head (limb 1)** faced the camera at rest regardless of facing, while
-  the body faced correctly. Root cause: only the **init** records set the
-  head's per-direction frame (W/E→490, S→491 front, N→493 back); the
-  **stand/walk** records only un-stop / stop the head, never re-frame it.
-  The walk loop re-applied stand on a facing change, but stand doesn't
-  re-point the head, so it kept whatever frame init last ran. **Fix:** on
-  the walk→stand transition (`stepAllActorWalks`), re-apply **init** for
-  the current facing (re-points the head) then **stand** (un-stops it,
-  sets the stand body frame; body is identical between init/stand per
-  dir). Verified per-facing (490/490/491/493 distinct, drawn); regression
-  test in `mi1-smoke`; see
+- [x] **Head limb didn't track facing — FIXED ✓ user-confirmed
+  (2026-05-31).** Guybrush's **head (limb 1)** faced the camera at rest
+  regardless of facing, while the body faced correctly. Root cause: only
+  the **init** records set the head's per-direction frame (W/E→490, S→491
+  front, N→493 back); the **stand/walk** records only un-stop / stop the
+  head, never re-frame it. The walk loop re-applied stand on a facing
+  change, but stand doesn't re-point the head, so it kept whatever frame
+  init last ran. **Fix:** on the walk→stand transition
+  (`stepAllActorWalks`), re-apply **init** for the current facing
+  (re-points the head) then **stand** (un-stops it, sets the stand body
+  frame; body is identical between init/stand per dir). Regression test
+  in `mi1-smoke`; see
   [docs/SCUMM-V5-COSTUME-ANIM.md](docs/SCUMM-V5-COSTUME-ANIM.md)
-  §"Head re-point". **Visual confirmation pending.** Remaining
-  head/facing sub-symptoms (likely related, NOT yet fixed):
+  §"Head re-point". **Also fixed the room 38 entry head-loss** ✓
+  user-confirmed — the same re-point→un-stop sequence clears the
+  transient where the head limb was left stopped on entry.
+  Remaining head/facing sub-symptoms (likely related, NOT yet fixed):
   - **Turn-in-place re-point** — a script changing `facing` while the
     actor is *idle* (no walk) doesn't re-point the head yet. Wire the
     same init re-point on any facing change if a scene surfaces it.
-  - room 38 (lookout) — on entry he briefly **loses his head** (the
-    per-limb **stop bitmask**: walk *stops* the head, stand *un-stops*
-    it; a transient where it's stopped but the stand chore hasn't
-    re-enabled it).
   - room 33 (dock) — on entry his **facing flip-flops left↔right** down
     the cliff (near-vertical path, dx≈0 → direction oscillates on x
     jitter — this is in the *walk* direction picker, separate from the
