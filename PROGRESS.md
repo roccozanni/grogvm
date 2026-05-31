@@ -52,10 +52,16 @@ a collapsible live-VM inspector beside the canvas on the same session (controls
 wired to the session; panels + saves reused from the legacy inspector). Built,
 728 green, tsc clean. The drawer is now an **always-visible panel below** the
 game (user: it's a learning tool — no toggle; and beside-the-canvas squeezed it
-into an unreadable column). A new **task 6b** (camera-driven 320-wide Play
-viewport, user-requested) is queued — a coordinated session+play-area+input
-change. **Next: in-app check of the Debug panel, then task 6b (camera
-viewport), then task 7 (dismantle legacy + relocate + split CSS).**
+into an unreadable column). Task 6b: a camera-driven 320-wide Play viewport
+(off-camera not drawn) across session+play-area+input behind one shared
+`viewport.ts` helper. Task 7: relocated the deferred code to permanent homes,
+**deleted both god-objects** (`player.ts`, `vm-inspector.ts`), split the CSS.
+
+**Phase 10 is COMPLETE.** The shell is rebuilt around the `EngineSession`
+seam; 735 tests green, tsc clean, static multi-page build works.
+**Next: the composition issue** (engine work, separate from the rebuild) —
+actor scaling / ego z-occlusion / room-38 fire. See the report under the
+post-save/load backlog; confirmed *not* a rebuild regression.
 
 Why: `renderPlayer` (player.ts, 1714 lines) was a vertically-stacked
 *resource browser*, not a game player — the actual game was wedged inside
@@ -372,14 +378,32 @@ green; `tsc` clean.
       slice + overlay + input stay consistent. Needs a visual check (room 33
       scrolling). Likely also unblocks the deferred walk overlay (fixed
       viewport). ✅ done as above.
-- [ ] **7. Dismantle the legacy player + split CSS.** **Relocate** the
-      resource-browser code (room / costume / charset / block-tree viewers,
-      currently still in `player.ts` behind `renderExplorer`) into
-      `src/shell/explorer/` as its permanent home, dropping the re-export
-      shim. Remove the old `player.ts` and `vm-inspector.ts` (their game/VM
-      role now lives in `player/play` + `player/debug`). Break the 1327-line
-      `styles.css` into per-screen stylesheets. Confirm nothing else imported
-      them. (This is where the task-1 / task-4 deferred physical moves land.)
+- [x] **7. Dismantle the legacy player + split CSS. DONE (2026-05-31,
+      session 7).** Paid off all the deferred-relocation debt. Explorer code:
+      `player.ts` → `shell/explorer/explorer.ts` (the real module, not a shim),
+      with the dead `renderPlayer` + VM-inspector branch stripped. Debug panels:
+      the live renderers (`renderLive` / `renderSavesPanel` + helpers +
+      `InspectorState`/`RecentClick`) extracted verbatim from the ~1900-line
+      `vm-inspector.ts` into `shell/player/debug/panels.ts` (785 lines); the
+      ~1100 lines of dead orchestrator/loop/frame/controls deleted with the
+      file. `styles.css` split into `styles/{base,explorer,player}.css` behind
+      an `@import` barrel (no rule dropped — built bundle identical). Both
+      god-objects gone; nothing imports them. 735 tests green, tsc clean,
+      build OK. Minor leftovers (non-blocking, pick up anytime): the **walk
+      overlay** in Debug (deferred from task 6 — cross-surface onto the Play
+      canvas; the fixed viewport from 6b makes it tractable now), trimming
+      `InspectorState`'s now-vestigial loop fields, removing a few dead
+      `.vm-*` CSS rules, and optional per-page CSS loading.
+
+### Phase 10 — COMPLETE (2026-05-31)
+
+All eight tasks done; the shell is rebuilt around the `EngineSession` seam.
+The engine was not touched (the rebuild was scoped to the shell). Next up is
+**engine** work: the composition issues surfaced during the rebuild — see the
+[post-save/load backlog](#post-saveload-backlog-revisit-after-phase-9)
+(actor scaling, ego z-occlusion, room-38 fire) — confirmed *not* caused by the
+rebuild (the compositor is byte-identical; the camera viewport just made the
+pre-existing gaps visible at true scale).
 - [ ] **8. Verify.** `vitest` green, `tsc` clean, `vite build` emits the
       three static entries, and an in-app pass: `/play?game=…` boots → intro
       → room 33; the Debug drawer works; `/explore?game=…` shows the format
