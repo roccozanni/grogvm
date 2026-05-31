@@ -82,7 +82,7 @@ engine-side fixes (all separate from the rebuild; 753 tests green, tsc clean):
   paused/stepping (was every frame, then a 10 Hz throttle). Good hygiene, but
   **did NOT fix the stutter** → the stutter is not the debug panel.
 
-## Open issues — START HERE next session (2026-05-31, session 8, context full)
+## Open issues (session 9: #1 fixed+confirmed, #2 fixed pending visual confirm, #3 still open)
 
 ### 1. Camera-follow stutter + "two Guybrush" — FIXED & user-confirmed (session 9)
 Ordering bug, as hypothesised. `moveCameraFollow()` ran in `beginTick()` (every
