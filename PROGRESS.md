@@ -11,7 +11,7 @@ detail the next phase here.
 
 ## Status
 
-**Phase 8 — Polish (winding down → Phase 9 next).** MI1 plays its full intro and is
+**Phase 9 — Save states (active).** MI1 plays its full intro and is
 interactively playable in the first room: the faithful
 click → verb → sentence flow (hover poller → verb-input script →
 sentence script), cutscenes that hide the UI and can be skipped
@@ -23,13 +23,24 @@ rebuilt against the real v5 algorithm and Guybrush's walk cycle plays
 correctly (confirmed in-game) — see the Costume animation decoder item
 below.
 
-Phase 8 was a focused polish pass before the original roadmap (save
-states → audio → MI2) resumes. It's now wound down: the remaining
-stubbed opcodes and known-bug/cosmetic gaps are collected in the
-**[Post-save/load backlog](#post-saveload-backlog-revisit-after-phase-9)**
-and parked. Next active work is **Phase 9 — save states**.
+Phase 8 (polish) wound down; its remaining stubbed opcodes and
+known-bug/cosmetic gaps are parked in the
+**[Post-save/load backlog](#post-saveload-backlog-revisit-after-phase-9)**.
+**Phase 9 (save states) is now active** — see the Phase 9 section below.
 
-**Latest (2026-05-31, session 4):** modelled `roomOps screenEffect`
+**Latest (2026-05-31, session 5):** Phase 9 save/load landed end-to-end.
+Engine core (`src/engine/vm/savestate.ts`): `snapshotVm` / `restoreVm`
+round-trip the full live VM state to a versioned JSON blob (typed arrays
+as base64); bytecode/rooms/costumes reload from the game files via the
+VM resolvers, so the save carries only runtime state. Shell
+(`src/shell/storage/savegames.ts` + a "Saves" inspector panel):
+per-game localStorage slots with save / load / delete / file
+export / import. Proven by a real-MI1 round-trip test (boot → room 33 →
+snapshot → restore into a fresh boot → re-serializes byte-for-byte and
+keeps ticking). 688 tests pass, typecheck clean. **Panel visuals still
+to be confirmed in-app.**
+
+**Earlier this day (session 4):** modelled `roomOps screenEffect`
 (0x0A) state — operand split into `switchRoomEffect`/`switchRoomEffect2`,
 the `0` fade-in trigger, surfaced in the inspector; **transition
 animation deferred** (intro is all instant cuts, no reachable scene to
@@ -305,13 +316,59 @@ Implement these faithfully:
       walk East and West both correct (body faces the right way, single
       sprite, no flicker / no double head). 646 tests pass.
 
-### Next step — Phase 9 (save/load)
+## Active phase — Phase 9: Save states
 
-Phase 8 polish is wound down. The remaining polish/known-bug items are
-collected in the **Post-save/load backlog** below and intentionally
-parked; the next active work is **Phase 9 — save states**. Several
-backlog items (inventory scroll, two-object use-with) actually *need* a
-saved game to exercise, so they're natural to revisit right after.
+### Goal
+
+Save and restore a game in progress: snapshot the full live VM state to
+a durable, inspectable form and load it back so play resumes exactly.
+**Format decision (user):** our own self-describing JSON snapshot (typed
+arrays base64-encoded), *not* the original SCUMM `.sav` layout — the save
+carries only runtime state; bytecode/rooms/costumes reload from the game
+files via the VM resolvers. **Storage (user):** named localStorage slots
++ file export/import.
+
+### Done
+
+- [x] **Engine core** — `src/engine/vm/savestate.ts`: `snapshotVm(vm)` →
+      a versioned `SaveState`, `restoreVm(vm, state)` loads it into a
+      freshly `bootGame`-ed VM (same game ⇒ matching resolvers + MAXS).
+      Captures the full surface mapped in recon: variables (globals/room/
+      bit banks), all 25 slots (mid-script pc, locals, freeze/override,
+      and per-slot bytecode for exact resume), object/owner/class/
+      inventory state, verbs + saved verb states, sentence/cutscene
+      stacks, dialog/system-text + the multi-page talk queue, actors
+      (incl. anim limbs + `stopped` bitmask), camera/cursor/screen/
+      screenEffect/pseudoRooms/UI-palette overrides. Supporting:
+      `Variables.snapshotBits/restoreBits`, `Vm.reloadCurrentRoomResources`
+      (reload room art/scripts without re-running ENCD — the restored
+      slots already cover it; factored out of `enterRoom` as
+      `applyRoomResources`), `Vm.snapshotTalkQueue/restoreTalkQueue`.
+- [x] **Storage** — `src/shell/storage/savegames.ts`: per-game
+      localStorage slots (write/read/list/delete) + a lightweight index;
+      defensive against unavailable/quota'd storage.
+- [x] **UI** — vm-inspector "Saves" panel: name + Save, Load (boots fresh
+      + restores, lands paused), Delete, Export (download JSON), Import
+      (load a JSON file). Own container, not rebuilt per tick (input keeps
+      focus). `installVm()` factored out of `bootFresh` and reused by Load.
+- [x] **Tests** — synthetic round-trip across every field (save→load→save
+      is identity), prior-state clearing, version guard; real-MI1
+      integration round-trip (boot → room 33 → snapshot → restore into a
+      fresh boot → re-serializes identically + keeps ticking); 8 storage
+      tests. 688 total, typecheck clean.
+
+### Remaining
+
+- [ ] **Confirm the Saves panel in-app** (visual): save mid-room, reload
+      the page / Boot, load the slot, verify the room + ego + verbs come
+      back and play resumes. Export a slot, re-import it.
+- [ ] **Polish to consider:** a "Quick Save / Quick Load" pair in the
+      control bar; a confirm step on Delete; auto-name collisions. Hold
+      until the panel is confirmed working.
+
+Several **post-save/load backlog** items (inventory scroll arrows,
+two-object "use X with Y") need a saved game with the right state to
+exercise — natural to revisit now that saves exist.
 
 ### Post-save/load backlog (revisit after Phase 9)
 
@@ -440,7 +497,7 @@ Kept intentionally undetailed. We'll break each into tasks when we start
 it. Order and scope may shift as we learn the territory — see
 ARCHITECTURE.md §9 for the original outline.
 
-- **Phase 9 — Save states.**
+- **Phase 9 — Save states.** *(active — see the Phase 9 section above.)*
 - **Phase 10 — Audio.** iMUSE + AdLib first; MT-32 and CD redbook later.
 - **Phase 11 — MI2 + polish.**
 
