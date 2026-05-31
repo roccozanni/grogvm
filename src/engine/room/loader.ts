@@ -33,6 +33,7 @@ import { decodeZPlanes, type DecodedZPlane } from '../graphics/zplane';
 import { parseRoomObjects, type LoadedObject } from '../object/loader';
 import { parseWalkBoxes, type WalkBox } from '../pathfinding/boxes';
 import { buildWalkableMask } from '../pathfinding/mask';
+import { parseScal, type ScaleSlot } from '../pathfinding/scale';
 import type { RoomOffsetTable } from '../resources/loff';
 
 export class RoomLoadError extends Error {
@@ -83,6 +84,12 @@ export interface LoadedRoom {
    * future optimisation.
    */
   readonly walkBoxes: ReadonlyArray<WalkBox>;
+  /**
+   * Per-room `SCAL` scale slots (perspective-depth gradients). Empty when the
+   * room has no `SCAL` block. A walk box's `scale` field selects one (or a
+   * direct scale) — see `pathfinding/scale.ts`.
+   */
+  readonly scaleSlots: readonly ScaleSlot[];
   /**
    * Cached walkable-pixel mask — `width × height` bytes, 1 =
    * walkable, 0 = blocked. Built once at room-load time from
@@ -169,6 +176,10 @@ export function loadRoom(
       ? buildWalkableMask(walkBoxes, decoded.width, decoded.height)
       : new Uint8Array(0);
 
+  // SCAL — perspective scale gradients. Optional (most rooms have none).
+  const scalBlock = findChild(roomBlock, 'SCAL');
+  const scaleSlots = scalBlock ? parseScal(payloadOf(file, scalBlock)) : [];
+
   return {
     id: roomId,
     width: decoded.width,
@@ -185,6 +196,7 @@ export function loadRoom(
     objects,
     walkBoxes,
     walkableMask,
+    scaleSlots,
   };
 }
 

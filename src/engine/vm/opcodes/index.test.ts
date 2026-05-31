@@ -311,7 +311,7 @@ describe('seed opcodes — startScript LSCR routing', () => {
       localScripts: new Map([[201, localBytecode]]),
       objects: new Map(),
       walkBoxes: [],
-      walkableMask: new Uint8Array(0),
+      walkableMask: new Uint8Array(0), scaleSlots: [],
     };
     (vm as unknown as { currentRoom: number }).currentRoom = 5;
     // bytecode: startScript #201 with no args
@@ -607,7 +607,7 @@ describe('seed opcodes — verbOps state wiring', () => {
         ],
       ]),
       walkBoxes: [],
-      walkableMask: new Uint8Array(0),
+      walkableMask: new Uint8Array(0), scaleSlots: [],
     };
     // findObject(50, 50) — both immediate (opcode 0x35, no mode bits set)
     vm.startScript({
@@ -786,7 +786,7 @@ describe('inventory subsystem', () => {
           verbs: new Map(),
         }],
       ]),
-      walkBoxes: [], walkableMask: new Uint8Array(0),
+      walkBoxes: [], walkableMask: new Uint8Array(0), scaleSlots: [],
     };
     vm.startScript({ scriptId: 1, bytecode: bytes(0x25, 0x63, 0x00, 0x00) });
     vm.step();
@@ -832,7 +832,7 @@ describe('inventory subsystem', () => {
           verbs: new Map([[8, new Uint8Array([0x00])]]),
         }],
       ]),
-      walkBoxes: [], walkableMask: new Uint8Array(0),
+      walkBoxes: [], walkableMask: new Uint8Array(0), scaleSlots: [],
     };
     // getVerbEntryPoint g0 = (obj 42, verb 8) → 1; g1 = (obj 42, verb 9) → 0.
     vm.startScript({
@@ -878,7 +878,7 @@ describe('getDist + ifClassOfIs', () => {
         imhd: { objId, numImages: 0, flags: 0, x: 0, y: 0, width: 0, height: 0 },
         images: new Map(), name: 'thing', verbs: new Map(),
       }]]),
-      walkBoxes: [], walkableMask: new Uint8Array(0),
+      walkBoxes: [], walkableMask: new Uint8Array(0), scaleSlots: [],
     };
   }
 

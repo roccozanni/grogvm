@@ -63,8 +63,13 @@ export interface WalkBox {
   readonly mask: number;
   /** Flags byte. Bit 0x80 set → invisible box (excluded from pathfinding). */
   readonly flags: number;
-  /** SCAL slot, 0 = no per-box actor scaling. */
-  readonly scaleSlot: number;
+  /**
+   * Per-box scale field (u16). `0` = no per-box scaling; bit `0x8000` set =
+   * a `SCAL`-slot reference (slot index = `scale & 0x7FFF`, interpolated by
+   * the actor's y); otherwise a direct fixed scale (1..255). See
+   * `pathfinding/scale.ts` (`resolveScale`).
+   */
+  readonly scale: number;
 }
 
 /** True when this box should not be considered for walking. */
@@ -167,8 +172,9 @@ export function parseWalkBoxes(payload: Uint8Array): WalkBox[] {
       lly: readI16LE(payload, off + 14),
       mask: payload[off + 16]!,
       flags: payload[off + 17]!,
-      scaleSlot: payload[off + 18]!,
-      // payload[off + 19] = padding
+      // u16: the high bit (0x8000) flags a SCAL-slot reference, so this must
+      // be read as 16 bits — not just the low byte.
+      scale: payload[off + 18]! | (payload[off + 19]! << 8),
     });
     off += 20;
   }

@@ -711,11 +711,19 @@ most lives in the inline known-bug entries above and the linked docs.
   hit-test bounds. A headless probe of room 38 showed actor scales **are**
   already set by scripts (Guybrush 239, fire 128) but were ignored — so this
   immediately applies **script-set** scales (e.g. the room-38 fire now draws
-  ~50%). **Remaining (pieces 1+2) — box/`SCAL`-driven scaling:** if room 33's
-  cliff (Guybrush grows descending) is box-scale-driven rather than
-  script-set, his `scale` stays 255 and he won't shrink yet → then do (1)
-  parse `SCAL` + (2) set `actor.scale` from the box `scaleSlot` interpolated
-  by `y`. Confirm against room 33 in-app. See pathfinding/boxes.ts.
+  ~50%, ✓ user-confirmed). **Fix C — box/`SCAL`-driven scaling — DONE
+  (2026-05-31), pending in-app confirm.** Room 33's cliff is box-driven: each
+  walk box carries a u16 `scale` field — `0` = none, `0x8000`-flagged = a
+  `SCAL`-slot reference (slot = `scale & 0x7FFF`, interpolated by `y`), else a
+  direct scale. (The old parser read only the low byte and dropped the
+  `0x8000` flag — fixed.) Pieces: (1) `pathfinding/scale.ts` `parseScal` +
+  `resolveScale`; (2) room loader exposes `LoadedRoom.scaleSlots`; (3) the
+  walk driver (`stepAllActorWalks`) recomputes `actor.scale` from the box the
+  actor stands in **only while moving** — so a script-pinned static actor (the
+  room-38 fire, deliberately smaller than its floor scale) is never
+  overwritten. End-to-end on real MI1 room 33: slot 0 = `32@y76 → 210@y131`,
+  resolved scale ≈77 near the clifftop → 210 at the dock. +12 tests (741→747),
+  tsc clean. Confirm in-app: Guybrush grows descending the room-33 cliff.
 - [x] **Head limb didn't track facing — FIXED ✓ user-confirmed
   (2026-05-31).** Guybrush's **head (limb 1)** faced the camera at rest
   regardless of facing, while the body faced correctly. Root cause: only

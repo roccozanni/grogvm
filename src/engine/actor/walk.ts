@@ -22,6 +22,8 @@
 import type { Actor, Facing } from './actor';
 import type { Vm } from '../vm/vm';
 import { findPath } from '../pathfinding/grid';
+import { findBoxAt } from '../pathfinding/boxes';
+import { resolveScale } from '../pathfinding/scale';
 import { startAnim } from '../graphics/costume-anim';
 
 /**
@@ -218,6 +220,19 @@ export function stepAllActorWalks(vm: Vm): void {
   for (const actor of vm.actors.all()) {
     const wasMoving = actor.isMoving;
     stepWalk(actor);
+
+    // Perspective scale: recompute from the walk box the actor now stands in
+    // (SCUMM scales actors by floor depth). Only while moving / just-arrived,
+    // so a script-pinned static actor (e.g. the room-38 fire, set smaller than
+    // its floor scale) keeps its scale. See pathfinding/scale.ts.
+    const room = vm.loadedRoom;
+    if ((actor.isMoving || wasMoving) && room && actor.room === vm.currentRoom) {
+      const box = findBoxAt(room.walkBoxes, actor.x, actor.y);
+      if (box) {
+        const s = resolveScale(box.scale, room.scaleSlots, actor.y);
+        if (s !== null) actor.scale = s;
+      }
+    }
     // Drive the costume chore from movement state:
     //  - moving        → walk chore (body cycles; the record stops the
     //                    head limb so the body sprite carries the head)

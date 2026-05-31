@@ -17,7 +17,7 @@ function rect(id: number, x: number, y: number, w: number, h: number, flags = 0)
     llx: x,             lly: y + h - 1,
     mask: 0x83,
     flags,
-    scaleSlot: 0,
+    scale: 0,
   };
 }
 
@@ -88,7 +88,7 @@ describe('buildWalkableMask', () => {
       llx: 0, lly: 4,
       mask: 0x83,
       flags: 0,
-      scaleSlot: 0,
+      scale: 0,
     };
     const mask = buildWalkableMask([trap], 12, 6);
     // Row 0: x in [2..7] inclusive → 6 px
@@ -123,7 +123,7 @@ describe('buildWalkableMask', () => {
       llx: 5, lly: 5,
       mask: 0x83,
       flags: 0,
-      scaleSlot: 0,
+      scale: 0,
     };
     const mask = buildWalkableMask([degenerate], 16, 8);
     // A 1-pixel point: ceil(5)=5 and floor(5)=5 → 1 px walkable at (5,5).
@@ -139,7 +139,7 @@ describe('buildWalkableMask', () => {
       id: 0,
       ulx: x0, uly: y0, urx: x0, ury: y0,
       lrx: x1, lry: y1, llx: x1, lly: y1,
-      mask: 0x83, flags: 0, scaleSlot: 0,
+      mask: 0x83, flags: 0, scale: 0,
     };
   }
   function reachable(mask: Uint8Array, w: number, h: number, sx: number, sy: number, tx: number, ty: number): boolean {

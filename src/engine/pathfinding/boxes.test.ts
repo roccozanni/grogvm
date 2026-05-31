@@ -8,14 +8,14 @@ import {
   type WalkBox,
 } from './boxes';
 
-function box(corners: ReadonlyArray<number>, mask = 0x83, flags = 0, scaleSlot = 0): number[] {
+function box(corners: ReadonlyArray<number>, mask = 0x83, flags = 0, scale = 0): number[] {
   // corners: [ulx, uly, urx, ury, lrx, lry, llx, lly] — 8 i16 LE values.
   const bytes: number[] = [];
   for (const v of corners) {
     const u = v & 0xffff;
     bytes.push(u & 0xff, (u >>> 8) & 0xff);
   }
-  bytes.push(mask, flags, scaleSlot, 0);
+  bytes.push(mask, flags, scale & 0xff, (scale >>> 8) & 0xff);
   return bytes;
 }
 
@@ -70,11 +70,11 @@ describe('parseWalkBoxes', () => {
     expect(isInvisibleBox(boxes[1]!)).toBe(true);
   });
 
-  it('round-trips mask and scaleSlot bytes', () => {
-    const boxes = parseWalkBoxes(payload(1, box([0, 0, 10, 0, 10, 10, 0, 10], 0x42, 0x40, 5)));
+  it('round-trips mask and the u16 scale field (incl. the 0x8000 slot flag)', () => {
+    const boxes = parseWalkBoxes(payload(1, box([0, 0, 10, 0, 10, 10, 0, 10], 0x42, 0x40, 0x8001)));
     expect(boxes[0]!.mask).toBe(0x42);
     expect(boxes[0]!.flags).toBe(0x40);
-    expect(boxes[0]!.scaleSlot).toBe(5);
+    expect(boxes[0]!.scale).toBe(0x8001); // slot-ref flag preserved
   });
 
   it('handles count = 0 (empty walk-box block)', () => {
@@ -107,7 +107,7 @@ function wb(
     llx: llx!, lly: lly!,
     mask: opts.mask ?? 0,
     flags: opts.flags ?? 0,
-    scaleSlot: 0,
+    scale: 0,
   };
 }
 

@@ -43,7 +43,7 @@ function roomWithObjects(
     localScripts: new Map(),
     objects: new Map(objects.map((o) => [o.objId, o])),
     walkBoxes: [],
-    walkableMask: new Uint8Array(0),
+    walkableMask: new Uint8Array(0), scaleSlots: [],
   };
 }
 
@@ -681,7 +681,7 @@ describe('Vm — enterRoom + ENCD/EXCD', () => {
       localScripts: new Map(),
       objects: new Map(),
       walkBoxes: [],
-      walkableMask: new Uint8Array(0),
+      walkableMask: new Uint8Array(0), scaleSlots: [],
     };
   }
 
