@@ -19,7 +19,7 @@ import { loadSessionGame } from '../../storage/game-files';
 import { readSave, writeSave } from '../../storage/savegames';
 import { mountPlayArea, type PlayAreaHandles } from '../play-area';
 import { mountVmFrameInput } from '../input';
-import { mountDebugDrawer } from '../debug/debug';
+import { mountDebugPanel } from '../debug/debug';
 import { RafClock } from '../raf-clock';
 
 const SCALE = 2;
@@ -54,8 +54,9 @@ async function mountGame(game: StoredGame, main: HTMLElement, onBack: () => void
   const stack = el('div', { class: 'vm-frame-stack' });
   const status = el('span', { class: 'play-status' });
 
-  // The Debug drawer shares this session (live VM inspection beside the game).
-  const debug = mountDebugDrawer(session, game.gameId);
+  // The Debug panel shares this session (live VM inspection below the game,
+  // always visible — it's a learning tool).
+  const debug = mountDebugPanel(session, game.gameId);
 
   // Overlays are re-mounted on a dimension change (frame canvas is reused).
   let mounted: { width: number; height: number; play: PlayAreaHandles; disposeInput: () => void } | null = null;
@@ -125,8 +126,10 @@ async function mountGame(game: StoredGame, main: HTMLElement, onBack: () => void
     status,
   );
 
-  const body = el('div', { class: 'play-body' }, gameArea, debug.element);
-  main.replaceChildren(bar, body);
+  // Debug panel sits BELOW the play area (full width) so its panels/grids
+  // have room — beside the fixed-width canvas they collapsed into a squeezed
+  // column.
+  main.replaceChildren(bar, gameArea, debug.element);
 
   // Present one frame immediately (populates the overlays), then run.
   session.step();

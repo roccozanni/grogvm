@@ -1,7 +1,7 @@
 /**
- * Debug drawer (ARCHITECTURE.md §7, Q8) — live VM inspection beside the Play
- * canvas, driven off the SAME EngineSession. Collapsible; collapsed it's just
- * a toggle, so the player stays clean.
+ * Debug panel (ARCHITECTURE.md §7, Q8) — live VM inspection below the Play
+ * canvas, driven off the SAME EngineSession. **Always visible**: webscumm is a
+ * learning tool, so the VM internals are never hidden behind a toggle.
  *
  * Controls (play / pause / step / rate / run-to-idle / warp / reboot) call the
  * session. The inspection panels (slot table, globals / bits grids, trace,
@@ -14,7 +14,7 @@
  * deleted `vm-inspector.ts`; they relocate into this folder in task 7 (same
  * deferred-move pattern as the Explorer in task 4).
  */
-import { signal, effect, bindText, el, createRoot, onCleanup } from '../../reactive';
+import { signal, bindText, el, createRoot, onCleanup } from '../../reactive';
 import type { EngineSession } from '../../../engine/session';
 import type { GameId } from '../../install/detect';
 import type { ClickEvent } from '../input';
@@ -28,14 +28,14 @@ import {
 const RECENT_CLICKS_CAP = 12;
 const RATE_STEPS = [1, 2, 5, 10, 15, 30, 60, 120];
 
-export interface DebugDrawer {
+export interface DebugPanel {
   readonly element: HTMLElement;
   /** Record a room click for the Input panel's history. */
   recordClick(e: ClickEvent, objId: number | null): void;
   dispose(): void;
 }
 
-export function mountDebugDrawer(session: EngineSession, gameId: GameId): DebugDrawer {
+export function mountDebugPanel(session: EngineSession, gameId: GameId): DebugPanel {
   // InspectorState backing the reused panels. Loop-internal fields are stubbed
   // (the session owns the loop); the meaningful display fields are refreshed
   // from session state each frame.
@@ -63,19 +63,18 @@ export function mountDebugDrawer(session: EngineSession, gameId: GameId): DebugD
   let recordClick: (e: ClickEvent, objId: number | null) => void = () => {};
 
   const dispose = createRoot((disposeRoot) => {
-    const open = signal(false);
     const tickSig = signal(0);
     const playingSig = signal(false);
 
-    // ── live panels: full rebuild per frame (matches the legacy inspector;
-    //    the tables have no critical click targets). Only while open. ──
+    // Live panels: full rebuild per frame (matches the legacy inspector; the
+    // tables have no critical click targets).
     const live = el('div', { class: 'vm-live' });
     const repaintLive = (): void => {
       state.vm = session.vm;
       live.replaceChildren(renderLive(state, repaintLive));
     };
 
-    // ── saves: rebuilt only on discrete actions (keeps the slot input focus) ──
+    // Saves: rebuilt only on discrete actions (keeps the slot-name input focus).
     const saves = el('div', { class: 'vm-saves-host' });
     const repaintSaves = (): void => {
       saves.replaceChildren(
@@ -92,7 +91,7 @@ export function mountDebugDrawer(session: EngineSession, gameId: GameId): DebugD
       );
     };
 
-    // ── controls (wired straight to the session) ──
+    // Controls (wired straight to the session).
     const playBtn = el('button', {
       class: 'secondary',
       onClick: () => {
@@ -138,24 +137,16 @@ export function mountDebugDrawer(session: EngineSession, gameId: GameId): DebugD
       counter,
     );
 
-    const content = el('div', { class: 'vm-debug-content' }, controls, saves, live);
-    const toggle = el('button', { class: 'secondary vm-debug-toggle', onClick: () => open.set((p) => !p) });
-    bindText(toggle, () => (open() ? 'Debug ✕' : 'Debug ▸'));
-    element = el('div', { class: 'vm-debug-drawer' }, toggle, content);
+    element = el(
+      'section',
+      { class: 'vm-debug' },
+      el('h2', { class: 'vm-debug-heading' }, 'VM inspector'),
+      controls,
+      saves,
+      live,
+    );
 
-    // Show/hide the content; populate it the first time it opens.
-    effect(() => {
-      content.hidden = !open();
-    });
-    effect(() => {
-      if (open()) {
-        repaintSaves();
-        repaintLive();
-      }
-    });
-
-    // Per-frame refresh: cheap label updates always; rebuild the heavy panels
-    // only while the drawer is open.
+    // Per-frame refresh: live label updates + rebuild the panels.
     const unsub = session.onFrame(() => {
       const st = session.status();
       state.tickCount = st.tickCount;
@@ -164,7 +155,7 @@ export function mountDebugDrawer(session: EngineSession, gameId: GameId): DebugD
       state.tickRateHz = st.tickRateHz;
       tickSig.set(st.tickCount);
       playingSig.set(st.playing);
-      if (open()) repaintLive();
+      repaintLive();
     });
     onCleanup(unsub);
 
@@ -172,8 +163,12 @@ export function mountDebugDrawer(session: EngineSession, gameId: GameId): DebugD
       const entry: RecentClick = { ...e, tickCount: state.tickCount, objId };
       state.recentClicks.unshift(entry);
       if (state.recentClicks.length > RECENT_CLICKS_CAP) state.recentClicks.length = RECENT_CLICKS_CAP;
-      if (open()) repaintLive();
+      repaintLive();
     };
+
+    // Initial paint.
+    repaintSaves();
+    repaintLive();
 
     return disposeRoot;
   });

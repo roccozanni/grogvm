@@ -50,9 +50,12 @@ is deferred to task 7 (avoids risky churn on the doomed `player.ts`). Task 5:
 save/load/exit bar) — ✓ user-confirmed in-app. Task 6: the **Debug drawer** —
 a collapsible live-VM inspector beside the canvas on the same session (controls
 wired to the session; panels + saves reused from the legacy inspector). Built,
-728 green, tsc clean — **pending in-app visual verification** (walk overlay
-deferred). **Next: in-app check of the Debug drawer, then task 7 (dismantle the
-legacy player + relocate the reused code + split CSS).**
+728 green, tsc clean. The drawer is now an **always-visible panel below** the
+game (user: it's a learning tool — no toggle; and beside-the-canvas squeezed it
+into an unreadable column). A new **task 6b** (camera-driven 320-wide Play
+viewport, user-requested) is queued — a coordinated session+play-area+input
+change. **Next: in-app check of the Debug panel, then task 6b (camera
+viewport), then task 7 (dismantle legacy + relocate + split CSS).**
 
 Why: `renderPlayer` (player.ts, 1714 lines) was a vertically-stacked
 *resource browser*, not a game player — the actual game was wedged inside
@@ -312,24 +315,45 @@ green; `tsc` clean.
       for Escape — the room pointer path writes `session.vm` directly via the
       reused `mountVmFrameInput` (equivalent vm state); routing it fully
       through `sendInput` is a later cleanup.
-- [~] **6. Debug drawer (player/debug/). IMPLEMENTED — PENDING IN-APP VISUAL
+- [~] **6. Debug panel (player/debug/). IMPLEMENTED — PENDING IN-APP VISUAL
       VERIFICATION (2026-05-31, session 7).** `shell/player/debug/debug.ts`
-      `mountDebugDrawer(session, gameId)` → a collapsible drawer mounted beside
-      the Play canvas, sharing the **same** session. Fresh controls wired to
-      the session — Play/Pause, Step, Run-to-idle (`skipCutscene`), rate
-      `<select>` (`setRate`), Warp (`enterRoom`), Reboot, live tick counter
-      (reactive `signal` + `bindText`). The inspection panels (input/cursor,
-      actor table, slot table, trace ring, globals/bits grids, halt) and the
-      full saves panel are **reused** from `vm-inspector.ts` (`renderLive` +
-      `renderSavesPanel`, now exported) backed by a session-driven
-      `InspectorState`; rebuilt per frame only while the drawer is open.
-      Room clicks feed the Input panel's history (`debug.recordClick` from the
-      Play input). 728 green, tsc clean, `vite build` OK.
-      **NEEDS SCREENSHOT/USER CONFIRM.** Deferred within Debug: the **walk
-      overlay** (it draws onto the Play frame canvas — cross-surface; revisit
-      with the play-area port). Same as task 4: the reused panel renderers
-      still live in `vm-inspector.ts`; they relocate into `player/debug/` in
-      task 7.
+      `mountDebugPanel(session, gameId)` → an **always-visible** panel **below**
+      the Play canvas (full width), sharing the **same** session. (User
+      decisions: it's a learning tool, so no collapse toggle — always shown;
+      and below the game, not beside — beside, the grids collapsed into a
+      squeezed column.) Fresh controls wired to the session — Play/Pause, Step,
+      Run-to-idle (`skipCutscene`), rate `<select>` (`setRate`), Warp
+      (`enterRoom`), Reboot, live tick counter (reactive `signal`/`bindText`).
+      The inspection panels (input/cursor, actor table, slot table, trace,
+      globals/bits grids, halt) and the full saves panel are **reused** from
+      `vm-inspector.ts` (`renderLive` + `renderSavesPanel`, now exported)
+      backed by a session-driven `InspectorState`, rebuilt per frame. Room
+      clicks feed the Input panel history. 728 green, tsc clean, `vite build`
+      OK. **NEEDS SCREENSHOT/USER CONFIRM.** Deferred within Debug: the **walk
+      overlay** (draws onto the Play frame canvas — cross-surface; revisit with
+      the camera viewport / play-area port). Same as task 4: the reused panel
+      renderers still live in `vm-inspector.ts`; they relocate into
+      `player/debug/` in task 7.
+- [ ] **6b. Camera-driven Play viewport (NEW — user-requested, 2026-05-31).**
+      Today the Play frame is **room-sized** (the canvas resizes per room and
+      wide scrolling rooms show their whole width). Make it **camera-driven**:
+      a fixed 320-wide viewport showing the `cameraLeft` slice; off-camera
+      regions are **not** drawn (user-confirmed). Coordinated change across
+      three layers — must land together (a partial change misaligns the
+      cursor/clicks in wide rooms like room 33):
+      1. **Session/compositor** — compose the full room, then present a
+         320-wide slice at `cameraLeft = clamp(camera.x − 160, 0, roomW − 320)`.
+         `FrameInfo.width` becomes the viewport width. Headless-testable.
+      2. **`play-area.ts`** — cursor overlay → 320 wide; draw camera-relative
+         (translate by `−cameraLeft`; reconcile `paintDialog`'s existing
+         camera math; drop the debug viewport rect). Read the real room width
+         from `vm.loadedRoom` (the passed width is now the viewport).
+      3. **`input.ts`** — split `clientToRoomCoords` into viewport-width
+         (unscale) vs room-width (clamp); feed `cameraLeft` as `cameraX`. Update
+         `input.test.ts`.
+      Share one `cameraLeft(camera.x, roomWidth)` helper across all three so the
+      slice + overlay + input stay consistent. Needs a visual check (room 33
+      scrolling). Likely also unblocks the deferred walk overlay (fixed viewport).
 - [ ] **7. Dismantle the legacy player + split CSS.** **Relocate** the
       resource-browser code (room / costume / charset / block-tree viewers,
       currently still in `player.ts` behind `renderExplorer`) into
