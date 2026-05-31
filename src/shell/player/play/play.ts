@@ -19,6 +19,7 @@ import { loadSessionGame } from '../../storage/game-files';
 import { readSave, writeSave } from '../../storage/savegames';
 import { mountPlayArea, type PlayAreaHandles } from '../play-area';
 import { mountVmFrameInput } from '../input';
+import { mountDebugDrawer } from '../debug/debug';
 import { RafClock } from '../raf-clock';
 
 const SCALE = 2;
@@ -53,6 +54,9 @@ async function mountGame(game: StoredGame, main: HTMLElement, onBack: () => void
   const stack = el('div', { class: 'vm-frame-stack' });
   const status = el('span', { class: 'play-status' });
 
+  // The Debug drawer shares this session (live VM inspection beside the game).
+  const debug = mountDebugDrawer(session, game.gameId);
+
   // Overlays are re-mounted on a dimension change (frame canvas is reused).
   let mounted: { width: number; height: number; play: PlayAreaHandles; disposeInput: () => void } | null = null;
 
@@ -80,8 +84,8 @@ async function mountGame(game: StoredGame, main: HTMLElement, onBack: () => void
       roomWidth: frame.width,
       roomHeight: frame.height,
       onMove: () => play.onPointerMove(),
-      onLeftClick: () => void play.onRoomClick('left'),
-      onRightClick: () => void play.onRoomClick('right'),
+      onLeftClick: (e) => debug.recordClick(e, play.onRoomClick('left').objId),
+      onRightClick: (e) => debug.recordClick(e, play.onRoomClick('right').objId),
       onEscape: () => session.sendInput({ type: 'key', key: 'Escape' }),
     });
     gameArea.replaceChildren(stack, play.verbBar);
@@ -94,6 +98,7 @@ async function mountGame(game: StoredGame, main: HTMLElement, onBack: () => void
   });
 
   const exit = (): void => {
+    debug.dispose();
     session.dispose();
     onBack();
   };
@@ -120,7 +125,8 @@ async function mountGame(game: StoredGame, main: HTMLElement, onBack: () => void
     status,
   );
 
-  main.replaceChildren(bar, gameArea);
+  const body = el('div', { class: 'play-body' }, gameArea, debug.element);
+  main.replaceChildren(bar, body);
 
   // Present one frame immediately (populates the overlays), then run.
   session.step();

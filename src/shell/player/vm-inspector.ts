@@ -27,7 +27,7 @@ import { mountPlayArea } from './play-area';
  * count at the moment it landed — handy for correlating a click with
  * trace entries / state changes that follow.
  */
-interface RecentClick extends ClickEvent {
+export interface RecentClick extends ClickEvent {
   readonly tickCount: number;
   /** Object id under the click, or null if the click hit empty room. */
   readonly objId: number | null;
@@ -49,7 +49,7 @@ const MAX_TICKS_PER_FRAME = 64;
  */
 const MAX_SKIP_TICKS = 20000;
 
-interface InspectorState {
+export interface InspectorState {
   vm: Vm | null;
   /** How many globals to render — start small, expand on demand. */
   globalsShown: number;
@@ -594,7 +594,7 @@ export function renderVmInspector(
  * controls bar and the frame area are built separately and reused
  * across tick repaints so their click targets stay stable.
  */
-function renderLive(state: InspectorState, repaint: () => void): DocumentFragment {
+export function renderLive(state: InspectorState, repaint: () => void): DocumentFragment {
   const frag = document.createDocumentFragment();
 
   if (!state.vm) {
@@ -678,7 +678,7 @@ function modString(m: ClickEvent['modifiers']): string {
  * snapshot into it (see `loadSnapshot` in the closure). Export downloads
  * a slot as JSON; import loads a JSON file straight into the engine.
  */
-function renderSavesPanel(
+export function renderSavesPanel(
   state: InspectorState,
   gameId: GameId,
   capture: (label: string) => SaveState | null,

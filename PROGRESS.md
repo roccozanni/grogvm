@@ -47,10 +47,12 @@ flag on the shared loader; the physical code relocation into `shell/explorer/`
 is deferred to task 7 (avoids risky churn on the doomed `player.ts`). Task 5:
 `/play` rebuilt as the clean Play surface on the EngineSession (game canvas via
 `onFrame` + reused play-area overlays + `RafClock`, runs continuously, minimal
-save/load/exit bar) — **implemented, builds + 728 tests green + tsc clean, but
-NOT yet visually verified in-app** (needs a screenshot/click-through). **Next:
-in-app visual check of `/play`, then task 6 (Debug drawer).** NB: the
-`vite.config.ts` change (task 3) means a running dev server needs a restart.
+save/load/exit bar) — ✓ user-confirmed in-app. Task 6: the **Debug drawer** —
+a collapsible live-VM inspector beside the canvas on the same session (controls
+wired to the session; panels + saves reused from the legacy inspector). Built,
+728 green, tsc clean — **pending in-app visual verification** (walk overlay
+deferred). **Next: in-app check of the Debug drawer, then task 7 (dismantle the
+legacy player + relocate the reused code + split CSS).**
 
 Why: `renderPlayer` (player.ts, 1714 lines) was a vertically-stacked
 *resource browser*, not a game player — the actual game was wedged inside
@@ -286,8 +288,8 @@ green; `tsc` clean.
       met: `/explore` builds no session. (Bundle note: `/explore` still
       transitively pulls the inspector chunk via `player.ts`; that separates
       in task 7.)
-- [~] **5. Play view (player/play/, /play). IMPLEMENTED — PENDING IN-APP
-      VISUAL VERIFICATION (2026-05-31, session 7).** `src/shell/player/play/play.ts`
+- [x] **5. Play view (player/play/, /play). DONE — ✓ user-confirmed in-app
+      (2026-05-31, session 7).** `src/shell/player/play/play.ts`
       `renderPlay(game, onBack)`: loads the game (`shell/storage/game-files.ts`
       `loadSessionGame`), creates an `EngineSession` with a `Canvas2DRenderer`
       bound to the frame canvas + a `RafClock` (`shell/player/raf-clock.ts`),
@@ -310,12 +312,24 @@ green; `tsc` clean.
       for Escape — the room pointer path writes `session.vm` directly via the
       reused `mountVmFrameInput` (equivalent vm state); routing it fully
       through `sendInput` is a later cleanup.
-- [ ] **6. Debug drawer (player/debug/).** Port the inspector panels — slot
-      table, globals/bits grids, trace ring, actor table, walk overlay, halt
-      panel, recent-clicks/input panel — onto `session.vm` and the reactive
-      core, in a collapsible drawer beside the canvas. Tick controls (step /
-      play / rate / run-to-idle) call the session. Saves panel lives here
-      and/or in Play's overlay.
+- [~] **6. Debug drawer (player/debug/). IMPLEMENTED — PENDING IN-APP VISUAL
+      VERIFICATION (2026-05-31, session 7).** `shell/player/debug/debug.ts`
+      `mountDebugDrawer(session, gameId)` → a collapsible drawer mounted beside
+      the Play canvas, sharing the **same** session. Fresh controls wired to
+      the session — Play/Pause, Step, Run-to-idle (`skipCutscene`), rate
+      `<select>` (`setRate`), Warp (`enterRoom`), Reboot, live tick counter
+      (reactive `signal` + `bindText`). The inspection panels (input/cursor,
+      actor table, slot table, trace ring, globals/bits grids, halt) and the
+      full saves panel are **reused** from `vm-inspector.ts` (`renderLive` +
+      `renderSavesPanel`, now exported) backed by a session-driven
+      `InspectorState`; rebuilt per frame only while the drawer is open.
+      Room clicks feed the Input panel's history (`debug.recordClick` from the
+      Play input). 728 green, tsc clean, `vite build` OK.
+      **NEEDS SCREENSHOT/USER CONFIRM.** Deferred within Debug: the **walk
+      overlay** (it draws onto the Play frame canvas — cross-surface; revisit
+      with the play-area port). Same as task 4: the reused panel renderers
+      still live in `vm-inspector.ts`; they relocate into `player/debug/` in
+      task 7.
 - [ ] **7. Dismantle the legacy player + split CSS.** **Relocate** the
       resource-browser code (room / costume / charset / block-tree viewers,
       currently still in `player.ts` behind `renderExplorer`) into

@@ -1377,3 +1377,50 @@ a.button.secondary {
 .back-link {
   color: var(--fg);
 }
+
+/* ── Phase 10: Debug drawer beside the Play canvas (task 6) ──────────── */
+.play-body {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+.play-game {
+  flex: 0 0 auto;
+}
+.vm-debug-drawer {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.vm-debug-toggle {
+  margin-bottom: 0.5rem;
+}
+.vm-debug-content[hidden] {
+  display: none;
+}
+.vm-debug-content {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.5rem;
+  max-height: 80vh;
+  overflow: auto;
+}
+.vm-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+.vm-controls .vm-rate-label,
+.vm-controls .vm-warp-label {
+  opacity: 0.7;
+  font-size: 0.85em;
+}
+.vm-warp-input {
+  width: 4rem;
+}
+.vm-tick-counter {
+  margin-left: auto;
+  opacity: 0.7;
+  font-size: 0.9em;
+}
