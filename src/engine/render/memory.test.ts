@@ -48,6 +48,15 @@ describe('MemoryRenderer', () => {
     expect(r.presentCount).toBe(3);
   });
 
+  it('records the latest dims via resize', () => {
+    const r = new MemoryRenderer();
+    expect([r.width, r.height]).toEqual([0, 0]);
+    r.resize(320, 144);
+    expect([r.width, r.height]).toEqual([320, 144]);
+    r.resize(320, 200);
+    expect([r.width, r.height]).toEqual([320, 200]);
+  });
+
   it('marks itself disposed', () => {
     const r = new MemoryRenderer();
     expect(r.disposed).toBe(false);

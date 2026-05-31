@@ -11,6 +11,12 @@ export interface Renderer {
    * Pass `null` to disable; pixels of every index become opaque.
    */
   setTransparentIndex(index: number | null): void;
+  /**
+   * Resize the backing surface to `width × height` native pixels. The
+   * engine calls this when the loaded room's dimensions change so the
+   * next `present` of a differently-sized framebuffer is accepted.
+   */
+  resize(width: number, height: number): void;
   /** Push an indexed-color framebuffer to the screen. */
   present(indexed: Uint8Array): void;
   /** Release any backing resources. */

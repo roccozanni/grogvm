@@ -9,8 +9,16 @@ export class MemoryRenderer implements Renderer {
   palette: Uint8Array = new Uint8Array(768);
   framebuffer: Uint8Array = new Uint8Array(0);
   transparentIndex: number | null = null;
+  /** Latest dims set via {@link resize}; 0 until the first resize. */
+  width = 0;
+  height = 0;
   presentCount = 0;
   disposed = false;
+
+  resize(width: number, height: number): void {
+    this.width = width;
+    this.height = height;
+  }
 
   setPalette(rgb: Uint8Array): void {
     this.palette = Uint8Array.from(rgb);

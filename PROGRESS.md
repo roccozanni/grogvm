@@ -11,7 +11,45 @@ detail the next phase here.
 
 ## Status
 
-**Phase 9 — Save states (active).** MI1 plays its full intro and is
+**Phase 10 — Shell rebuild + EngineSession (active).** The engine is
+solid ground (689 tests green); the **shell** grew organically into a hot
+mess and is being rebuilt from scratch. An architecture-planning session
+(2026-05-31, session 6) locked the design into ARCHITECTURE.md — see
+§4 / §5.8–5.9 / §7 / §8 / §9 and decided open-questions **Q7–Q10**.
+Headline decisions: build the **`EngineSession`** seam that §4 always
+promised (engine owns the loop, clock injected so it's Node-testable);
+split the resource browser out into its own standalone **Explorer** screen
+(stateless, session-free); rebuild the **Player** as a clean game canvas +
+a collapsible **Debug** drawer (two faces of one live session); introduce a
+**~100-LOC reactive core** (`signal`/`effect`) to kill the hand-rolled
+per-tick DOM diffing. Ship a **multi-page static build** with path routing
+(`/`, `/explore`, `/play` as real HTML entries; the game id rides in
+`?game=`) — refresh-safe, indexable, no server, engine chunk only on `/play`
+(Q11). **No engine-logic changes** — this is a shell-layer rebuild. The full
+Home/Reference website (Q12) is **deferred** (its pages slot into the same
+multi-page build later); this phase does only the Explorer split. See the
+[Phase 10 section](#active-phase--phase-10-shell-rebuild--enginesession)
+below.
+
+**Progress — Task 1 done (2026-05-31, session 7).** The `EngineSession` +
+`Clock` seam is built and tested headlessly (`engine/session/`, 14 new tests,
+702 total green, tsc clean) — scope contract + design in
+[docs/ENGINE-SESSION.md](docs/ENGINE-SESSION.md). The legacy
+`vm-inspector.ts` is intentionally left on its own rAF loop (it's deleted in
+task 7); the session is the canonical copy. App behaviour unchanged. **Next:
+task 2 (reactive core).**
+
+Why: `renderPlayer` (player.ts, 1714 lines) was a vertically-stacked
+*resource browser*, not a game player — the actual game was wedged inside
+the VM inspector. `vm-inspector.ts` (1900 lines) was a god-object owning
+the VM lifecycle, rAF loop, save/load, input, and eight debug panels, all
+reaching straight into engine internals. The promised `EngineSession`
+boundary never existed. All inspection views are **preserved** (moved into
+Debug / Resources, never deleted — it's a learning tool).
+
+---
+
+**Phase 9 — Save states (done, confirmed in-app).** MI1 plays its full intro and is
 interactively playable in the first room: the faithful
 click → verb → sentence flow (hover poller → verb-input script →
 sentence script), cutscenes that hide the UI and can be skipped
@@ -121,6 +159,114 @@ notes now lives in `docs/` — in particular:
 **Tooling:** `src/engine/vm/disasm.ts` is a tested SCUMM v5
 disassembler (CLI front-end `scratch/dis.ts`, with a `SCAN` mode). Keep
 it in sync with the executing opcode table — see AGENTS.md.
+
+---
+
+## Active phase — Phase 10: Shell rebuild + EngineSession
+
+### Goal
+
+Rebuild the shell from scratch around the `EngineSession` seam: split the
+resource browser into a standalone **Explorer** screen, and rebuild the
+**Player** as a game canvas + collapsible **Debug** drawer. The engine stays
+untouched (it's solid: 689 tests green). Definition of done: MI1 boots →
+plays through the intro into room 33 in the **Player**; the **Debug** drawer
+and the **Explorer** screen expose every inspection view the old shell had;
+the old `player.ts` and `vm-inspector.ts` god-objects are deleted; tests
+green; `tsc` clean.
+
+### Locked design (ARCHITECTURE.md)
+
+- **`EngineSession`** (§5.9, Q7) — `createSession(files, renderer, clock)`
+  wires VM + compositor + loop + `Renderer` and exposes
+  `play/pause/step/setRate`, `sendInput`, `snapshot/restore`, `onFrame`,
+  and a read-only `vm` for Debug. The **clock is injected** (Q10): rAF in
+  the browser, a manual stepper in tests → the loop is finally
+  Node-testable against a `MemoryRenderer`.
+- **Explorer is its own screen** (§7, Q8) — stateless static format browser
+  (rooms / costumes / charsets / block tree), creates no session, works even
+  when the VM can't boot. Not a Player view.
+- **Player = canvas + Debug drawer** (§7, Q8) — Play always visible; Debug is
+  a collapsible drawer reading `session.vm` (see both on the same tick;
+  collapsed → clean full play).
+- **Reactive core** (§7, Q9) — `signal`/`effect`/render helper in
+  `shell/reactive/`, ~100 LOC, no dependency, unit-tested.
+- **Multi-page build + path routing** (§7, §8, Q11) — real HTML entries per
+  page (`index.html`→`/`, `explore.html`→`/explore`, `play.html`→`/play`) via
+  Vite `rollupOptions.input`; the game id rides in `?game=` (client-only,
+  local). The URL is the state — no in-memory nav machine, just a tiny
+  `shell/routing/` helper + `<a href>`. Refresh-safe, indexable, no server;
+  engine chunk loads only on `/play` (and `/explore`).
+- **Deferred (Q12)** — the full Home/Reference website. Its pages (`/docs`,
+  `/docs/:slug` from `docs/*.md`) slot into the same multi-page build later;
+  this phase does only the Explorer split.
+
+### Task breakdown (ordered — each step stays runnable)
+
+- [x] **1. `EngineSession` + `Clock` (engine/session/). DONE (2026-05-31,
+      session 7).** Full scope contract in
+      [docs/ENGINE-SESSION.md](docs/ENGINE-SESSION.md). Built
+      `engine/session/{clock,types,session,index}.ts`: `createSession(game,
+      renderer, clock, opts?)` wires VM + compositor + injected `Renderer` +
+      injected `Clock` and exposes `play/pause/step/setRate`, `sendInput`,
+      `snapshot/restore` (play-state-preserving), `reboot`, debug
+      `enterRoom`/`skipCutscene`, `onFrame`, `status`, `dispose`. Loop
+      semantics (throttle/batch, idle auto-pause, all-dead pause) ported off
+      rAF onto the clock; `ManualClock` is the headless driver. Added
+      `Renderer.resize` (Canvas2D + Memory). 14 new tests (real-MI1 gated,
+      `MemoryRenderer` + `ManualClock`) — 702 total green, tsc clean.
+      **Refinement vs the original plan:** `vm-inspector.ts` is *not* rewired
+      onto the session this task — it's slated for deletion in task 7, so
+      rewiring it would be throwaway. The session is the canonical copy; the
+      inspector keeps its own rAF loop (temporary duplication) until tasks
+      5–7. App behaviour is unchanged this task (the session is additive).
+      See docs/ENGINE-SESSION.md §2.
+- [ ] **2. Reactive core (shell/reactive/).** `signal`, `effect`, and a
+      small element/render helper (component = function returning element +
+      cleanup). Unit tests for dependency tracking, re-run, and disposal.
+- [ ] **3. Multi-page build + routing helper.** Set up Vite
+      `rollupOptions.input` with three HTML entries — `index.html` (`/`,
+      library + the install flow as an in-page step), `explore.html`
+      (`/explore`), `play.html` (`/play`) — each with a bootstrap module
+      under `src/pages/`. A tiny `shell/routing/` helper parses
+      `location.pathname` + `?game=`; navigation is `<a href>`. Wire the
+      directory permission re-grant on the entries that need a game. **Tests:**
+      the routing helper (path + `?game=` parsing) unit-tested.
+- [ ] **4. Explorer page (shell/explorer/, /explore).** Port the room /
+      costume / charset viewers + the raw block-tree sections out of the old
+      `player.ts`. Pure file parsing — no session, no VM. Loads the game from
+      `?game=`; linked from the Library ("Explore") and deep-linkable.
+- [ ] **5. Play view (player/play/, /play).** Loads the game from `?game=`
+      and creates the session. Clean game canvas (`Canvas2DRenderer` fed by
+      `onFrame`) + minimal overlay (save / load / exit). Port the cursor /
+      verb-bar / sentence-line / talk-text rendering out of `play-area.ts`;
+      input goes through `session.sendInput` only. No VM internals here.
+      **Validate visually** (screenshot / user confirm — size plausibility is
+      not enough; see project memory).
+- [ ] **6. Debug drawer (player/debug/).** Port the inspector panels — slot
+      table, globals/bits grids, trace ring, actor table, walk overlay, halt
+      panel, recent-clicks/input panel — onto `session.vm` and the reactive
+      core, in a collapsible drawer beside the canvas. Tick controls (step /
+      play / rate / run-to-idle) call the session. Saves panel lives here
+      and/or in Play's overlay.
+- [ ] **7. Delete the god-objects + split CSS.** Remove the old
+      `player.ts` and `vm-inspector.ts`; break the 1327-line `styles.css`
+      into per-screen stylesheets. Confirm nothing else imported them.
+- [ ] **8. Verify.** `vitest` green, `tsc` clean, `vite build` emits the
+      three static entries, and an in-app pass: `/play?game=…` boots → intro
+      → room 33; the Debug drawer works; `/explore?game=…` shows the format
+      views; a **refresh** of each deep link still loads (path routing /
+      static build holds).
+
+### Notes / constraints
+
+- **No engine-logic changes.** If something needs the VM to behave
+  differently, that's a separate engine task, not this rebuild.
+- **Preserve every inspection view** — they move, they don't disappear
+  (learning tool; project memory). A view lands in the Debug drawer (live VM)
+  or the Explorer page (static formats), never deleted.
+- Don't start a dev server — Rocco runs one; rely on his HMR for visual
+  checks and `vitest`/`tsc` for correctness (project memory).
 
 ---
 
@@ -555,13 +701,16 @@ Kept intentionally undetailed. We'll break each into tasks when we start
 it. Order and scope may shift as we learn the territory — see
 ARCHITECTURE.md §9 for the original outline.
 
-- **Phase 9 — Save states.** *(active — see the Phase 9 section above.)*
-- **Phase 10 — Audio.** iMUSE + AdLib first; MT-32 and CD redbook later.
-- **Phase 11 — MI2 + polish.**
+- **Phase 9 — Save states.** *(done, confirmed in-app — see the Phase 9
+  section above.)*
+- **Phase 10 — Shell rebuild + EngineSession.** *(active — see the Phase 10
+  section above.)*
+- **Phase 11 — Audio.** iMUSE + AdLib first; MT-32 and CD redbook later.
+- **Phase 12 — MI2 + polish.**
 
-A revisit candidate for any phase: **fix the costume-anim decoder
-against MI1 Guybrush** so actors actually animate as they walk.
-See `docs/SCUMM-V5-COSTUME-ANIM.md`.
+The **post-save/load backlog** (rendering/animation, input/UI, stubbed
+cosmetic opcodes — see the Phase 8 section) is independent of the shell
+rebuild and gets picked up as engine work alongside or after Phase 10.
 
 ---
 

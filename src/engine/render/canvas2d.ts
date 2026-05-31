@@ -14,8 +14,8 @@ export class Canvas2DRenderer implements Renderer {
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
-    private readonly width: number,
-    private readonly height: number,
+    private width: number,
+    private height: number,
   ) {
     canvas.width = width;
     canvas.height = height;
@@ -23,6 +23,17 @@ export class Canvas2DRenderer implements Renderer {
     if (!ctx) throw new Error('2D canvas context not available');
     ctx.imageSmoothingEnabled = false;
     this.ctx = ctx;
+  }
+
+  resize(width: number, height: number): void {
+    if (width === this.width && height === this.height) return;
+    this.width = width;
+    this.height = height;
+    // Setting canvas.width/height resets the 2D context state, so
+    // re-apply the no-smoothing flag the pixel-art upscale relies on.
+    this.canvas.width = width;
+    this.canvas.height = height;
+    this.ctx.imageSmoothingEnabled = false;
   }
 
   setPalette(rgb: Uint8Array): void {

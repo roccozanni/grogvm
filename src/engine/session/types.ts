@@ -1,0 +1,104 @@
+import type { Vm } from '../vm/vm';
+import type { GameId } from '../vm/boot';
+import type { SaveState } from '../vm/savestate';
+import type { ComposeFrameResult } from '../render/compositor';
+import type { ResourceFile } from '../resources/tree';
+import type { IndexFile } from '../resources/index-file';
+import type { RoomOffsetTable } from '../resources/loff';
+
+/** Everything `bootGame` needs to start (and re-start) a game, bundled. */
+export interface SessionGame {
+  readonly resourceFile: ResourceFile;
+  readonly index: IndexFile;
+  readonly loff: RoomOffsetTable;
+  readonly gameId: GameId;
+}
+
+/**
+ * Engine-level input. The shell translates browser events into these and
+ * calls {@link EngineSession.sendInput}. NOTE: verb/sentence click dispatch
+ * (running input-script #4 against the hovered object) is NOT handled here —
+ * that's the Play surface's job (Phase 10, task 5). This covers only the
+ * engine-level surface: cursor position, button holds, and the Escape /
+ * abort-cutscene key.
+ */
+export type InputEvent =
+  | { readonly type: 'move'; readonly roomX: number; readonly roomY: number }
+  | {
+      readonly type: 'down';
+      readonly button: 'left' | 'right';
+      readonly roomX: number;
+      readonly roomY: number;
+    }
+  | { readonly type: 'up'; readonly button: 'left' | 'right' }
+  | { readonly type: 'key'; readonly key: string };
+
+/** Emitted to {@link EngineSession.onFrame} subscribers after each present. */
+export interface FrameInfo {
+  /** Cumulative jiffies ticked since the current VM was booted/restored. */
+  readonly tickCount: number;
+  /** True if a game frame actually ran this present (not just a timing jiffy). */
+  readonly framed: boolean;
+  readonly width: number;
+  readonly height: number;
+  /** `loadedRoom.id`, or `null` during the brief no-room interval. */
+  readonly roomId: number | null;
+  /** 768-byte RGB palette: the room's, else the last-seen / default. */
+  readonly palette: Uint8Array;
+  readonly transparentIndex: number | null;
+  /** A COPY of the indexed framebuffer that was presented (width*height). */
+  readonly framebuffer: Uint8Array;
+  /** Compositor diagnostics (actors/objects drawn + per-limb skip reasons). */
+  readonly compose: ComposeFrameResult;
+  /** True if the VM has halted on an unhandled opcode. */
+  readonly halted: boolean;
+}
+
+export interface SessionStatus {
+  readonly playing: boolean;
+  readonly tickCount: number;
+  /** Set when the loop auto-paused (idle wait loop / all slots dead / loaded a save). */
+  readonly idleReason: string | null;
+  readonly halted: boolean;
+  readonly tickRateHz: number;
+}
+
+/**
+ * The single object the shell holds to run a game (ARCHITECTURE.md §5.9).
+ * Wires VM + compositor + renderer + loop; the clock is injected.
+ */
+export interface EngineSession {
+  /**
+   * The live VM. Swapped by {@link restore} / {@link reboot}, so always
+   * read it through this getter rather than caching it. The Debug surface
+   * reads it directly (privileged); Play uses only the high-level API.
+   */
+  readonly vm: Vm;
+
+  // ── clock control (arms/disarms the injected clock; never calls rAF) ──
+  play(): void;
+  pause(): void;
+  /** Advance exactly one jiffy, compose, present, emit. Ignores throttle. */
+  step(): FrameInfo;
+  setRate(hz: number): void;
+
+  sendInput(ev: InputEvent): void;
+
+  // ── persistence ──
+  snapshot(label?: string, savedAt?: number): SaveState;
+  /** Boot a fresh VM for the same game and restore into it. Preserves play/pause. */
+  restore(state: SaveState): void;
+  /** Fresh boot of the same game (discards current state). */
+  reboot(): void;
+
+  // ── debug drivers ──
+  /** Warp into a room via the faithful enterRoom path, then settle its entry script. */
+  enterRoom(roomId: number): void;
+  /** Run synchronously until control returns to the player. True if reached. */
+  skipCutscene(): boolean;
+
+  /** Subscribe to frame emissions. Returns an unsubscribe function. */
+  onFrame(cb: (frame: FrameInfo) => void): () => void;
+  status(): SessionStatus;
+  dispose(): void;
+}

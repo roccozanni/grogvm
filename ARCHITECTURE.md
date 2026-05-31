@@ -88,7 +88,7 @@ releases. The resource layer decrypts on read.
 │  - File System Access API, IndexedDB persistence   │
 │  - Hosts the engine in a <canvas>                  │
 └────────────────────────────────────────────────────┘
-                       │   boots with a GameHandle
+                       │   createSession(files, renderer, clock)
                        ▼
 ┌────────────────────────────────────────────────────┐
 │  Engine  (src/engine)                              │
@@ -116,6 +116,34 @@ The **host shell** and the **engine** are independent. The shell knows how to
 locate game files and persist user state; the engine knows how to take an
 opened set of game files and produce frames + audio + accept input. They
 communicate through a small `EngineSession` boundary, never through globals.
+
+`EngineSession` is a real, built object (see §5.9), not just a conceptual
+seam. It is an **engine-side factory** the shell calls with three things:
+the parsed game files, a `Renderer` (§5.4), and a `Clock`. It wires the VM,
+the frame compositor, and the renderer together and owns the per-tick game
+loop, exposing a small control surface: `play / pause / step / setRate`,
+`sendInput`, `snapshot / restore`, and an `onFrame` callback. The shell
+*hosts* a session; it does not reach into VM internals to drive it.
+
+The **clock is injected, not owned by the session.** `requestAnimationFrame`
+is a browser API and the engine must run headless in Node (§6), so the shell
+injects the clock — `requestAnimationFrame` in the browser, a manual stepper
+in tests. This is what makes the whole game loop unit-testable: drive N ticks
+against a `MemoryRenderer` and assert on the emitted frames.
+
+The **Player** screen hosts one session and presents two views of it: **Play**
+(the clean game canvas, always visible) and **Debug** (a collapsible drawer —
+live VM inspection: slots, variables, trace, actors, tick controls). They are
+two faces of the *same running tick*, so the drawer sits beside the canvas
+rather than replacing it; collapsed, you get a clean full-width play. Play uses
+only the session's high-level API; Debug additionally reads the session's live
+`vm` (privileged, read-mostly) — a learning tool exists to expose internals.
+
+The **resource Explorer** is a *separate* screen, not a Player view: it is
+stateless static analysis of the game files (room / costume / charset / block
+viewers) and creates **no session at all** — different lifecycle, different
+data dependency, so it doesn't belong inside the thing that hosts a live loop.
+See §7.
 
 ---
 
@@ -247,9 +275,9 @@ compatible with original SCUMM save files (a non-goal).
 
 ### 5.8 Game loop — `src/engine/loop.ts`
 
-`requestAnimationFrame`-driven, with a fixed-step "engine tick" running at
-the rate scripts expect (SCUMM v5 paces internal time at roughly 60Hz, with
-some subsystems updating at lower divisors). One tick:
+A fixed-step "engine tick" running at the rate scripts expect (SCUMM v5 paces
+internal time at roughly 60Hz, with some subsystems updating at lower
+divisors). One tick:
 
 1. Drain input events into VM-visible state.
 2. Run script slots until all yield.
@@ -258,6 +286,57 @@ some subsystems updating at lower divisors). One tick:
 5. Compose framebuffer: room background → Z-masked actors → objects →
    verb UI → text.
 6. Hand the framebuffer + palette to the renderer.
+
+The loop is **pure tick logic** — it does not own a clock. It exposes a
+`tick()` that advances exactly one engine tick and returns the composited
+frame. What *drives* tick() is the injected `Clock` (see §5.9): a real
+`requestAnimationFrame` loop in the browser, a synchronous stepper in tests.
+This keeps the loop DOM-free and lets a test step it deterministically.
+
+### 5.9 Engine session — `src/engine/session/`
+
+The single object the shell holds. `createSession(files, renderer, clock)`
+wires the VM, the frame compositor, the loop (§5.8), and a `Renderer` (§5.4)
+into one unit and is the *only* thing the shell needs to run a game:
+
+```ts
+interface EngineSession {
+  // clock control — the session arms/disarms the injected clock,
+  // it never calls requestAnimationFrame itself
+  play(): void;                 // tick each clock frame at the target rate
+  pause(): void;
+  step(): void;                 // advance exactly one engine tick (debug)
+  setRate(hz: number): void;    // target ticks/sec while playing
+
+  sendInput(ev: InputEvent): void;
+
+  snapshot(): SaveState;        // delegates to src/engine/save
+  restore(state: SaveState): void;
+
+  onFrame(cb: (frame: FrameInfo) => void): void;  // after each composited frame
+  readonly vm: Vm;              // privileged read access for the Debug surface
+
+  dispose(): void;
+}
+
+interface Clock {
+  start(onFrame: () => void): void;   // rAF in browser; manual in tests
+  stop(): void;
+}
+```
+
+- **Play** consumes only the high-level API (`play/pause`, `sendInput`,
+  `onFrame`, `snapshot/restore`).
+- **Debug** additionally reads `session.vm` and its trace ring to render the
+  inspector panels, and uses `step` / `setRate` for frame-by-frame control.
+  Idle-detection / run-to-idle (today tangled into the inspector) move onto
+  the session as a small, testable helper over `vm` state.
+- **Resources** does not create a session at all — it parses the game files
+  and renders static views, so it works even when the VM can't boot.
+
+The session is the seam that finally makes the loop testable: tests construct
+one with a `MemoryRenderer` and a manual clock, step N ticks, and assert on
+the emitted `FrameInfo` and `vm` state — no DOM, no rAF (see §6, "Game loop").
 
 ---
 
@@ -316,15 +395,44 @@ issues — never for verifying decoder correctness or VM behavior.
 
 ## 7. Host shell — `src/shell/`
 
-Vanilla TypeScript + Vite, no framework. The shell has three screens:
+Vanilla TypeScript + Vite, **no framework**, plus one small primitive we own:
+a ~100-line reactive core (`signal` / `effect` / a render helper) in
+`shell/reactive/`. It exists to kill the hand-rolled per-tick DOM diffing
+that made the old shell unmaintainable — components are plain functions that
+return an element plus a cleanup, and `effect` re-runs only the bindings that
+depend on a changed signal. No dependency, fully unit-testable in Node. This
+is a deliberate amendment to the original "no framework, no reactivity" stance
+(see §11, Q9): the cost of a tiny owned primitive is far below the cost of
+manual DOM updates across a live, ticking inspector.
 
-1. **Library** — list of installed games, "Play" buttons, "Install game"
-   button.
+The shell has four **pages**, each a real route in a multi-page static build
+(path routing; client-only params like the game id ride in the query string —
+see §11, Q11):
+
+1. **Library** — list of installed games, "Play" / "Explore" buttons,
+   "Install game" button.
 2. **Install** — opens the directory picker via the File System Access
    API, detects which game (MI1/MI2) the directory holds, stores the
    `FileSystemDirectoryHandle` in IndexedDB so it persists across reloads.
-3. **Player** — full-screen canvas hosting the engine, plus a minimal
-   overlay for save/load and exit.
+3. **Explorer** — a static format browser for an installed game: room /
+   costume / charset viewers and the raw block tree. Creates **no session**;
+   parses the opened files directly, so it works even when the VM can't boot.
+   A standalone tool that shares the engine's decoders but nothing else.
+4. **Player** — hosts one `EngineSession` (§5.9) and presents two views of
+   it: **Play** + a collapsible **Debug** drawer.
+   - **Play** (always visible) — a clean game canvas with a minimal overlay
+     (save / load / exit). The "just play the game" experience.
+   - **Debug** (drawer, toggled) — live VM inspection driven off the same
+     session: slot table, variable/bit grids, trace ring, actor table, walk
+     overlay, halt panel, and the tick controls (step / play / rate /
+     run-to-idle). Reads `session.vm`. Sits beside the canvas so you can
+     watch the frame and the VM state on the same tick; collapsed → full
+     play.
+
+All inspection views from the old shell survive — they move from a single
+stacked god-page into the Player's Debug drawer (live VM) and the Explorer
+screen (static formats), never deleted (a learning tool keeps its internals
+visible; see the project memory note).
 
 ### Persistence
 
@@ -347,20 +455,27 @@ Vanilla TypeScript + Vite, no framework. The shell has three screens:
 ```
 webscumm/
 ├── ARCHITECTURE.md
-├── index.html
+├── index.html                  # `/`        → library page entry
+├── explore.html                # `/explore` → explorer page entry (reads ?game=)
+├── play.html                   # `/play`    → player page entry  (reads ?game=)
 ├── package.json
 ├── tsconfig.json
-├── vite.config.ts
+├── vite.config.ts              # multi-page rollupOptions.input (one per page)
 ├── vitest.config.ts
 ├── public/
 ├── test/
 │   └── fixtures/                # synthetic binary fixtures for tests
 └── src/
-    ├── main.ts                  # entry: mounts the shell
+    ├── pages/                   # one bootstrap module per HTML entry (library/explore/play)
     ├── shell/
-    │   ├── library/             # library screen
+    │   ├── reactive/            # ~100-LOC signal/effect/render core (no deps)
+    │   ├── routing/             # parse location.pathname + ?game= (no nav state machine)
+    │   ├── library/             # library page  ( / )
     │   ├── install/             # install flow + game detection
-    │   ├── player/              # full-screen canvas + overlay
+    │   ├── explorer/            # standalone static format browser (no session)
+    │   ├── player/              # hosts one EngineSession
+    │   │   ├── play/            # clean game canvas + minimal overlay
+    │   │   └── debug/           # live-VM inspector drawer (reads session.vm)
     │   └── storage/             # IndexedDB wrappers
     └── engine/
         ├── resources/           # .000/.001 parsing, blocks, XOR
@@ -370,7 +485,8 @@ webscumm/
         ├── input/
         ├── audio/               # interface + silent default
         ├── save/
-        └── loop.ts
+        ├── session/             # EngineSession factory: vm+compositor+loop+renderer
+        └── loop.ts              # pure per-tick step logic (no clock)
 ```
 
 Tests live next to the code they cover as `*.test.ts` files (Vitest
@@ -397,9 +513,10 @@ runnable steps. Each phase ends with something we can see/poke at.
 | **5. VM skeleton** | Script slots, variable bank, opcode dispatch table with a handful of opcodes. Run the boot script far enough to fail loudly. |
 | **6. Enough opcodes to walk** | Implement opcodes needed to reach the SCUMM Bar — actor walking, room transitions, simple object interactions. |
 | **7. Verb UI + input** | Verbs, sentence line, click-to-walk, look-at/pick-up actually working. |
-| **8. Save states** | Snapshot + restore VM state, IndexedDB slots, overlay UI. |
-| **9. Audio** | iMUSE driver, AdLib (OPL3) synth, then MT-32 if appetite remains. CD redbook later still. |
-| **10. MI2 + polish** | Verify MI2 boots on the same engine; fix the inevitable v5-but-slightly-different edge cases. |
+| **8. Save states** | Snapshot + restore VM state, localStorage slots, overlay UI. |
+| **9. Shell rebuild + EngineSession** | Extract the `EngineSession` seam (§5.9) out of the inspector god-object; build the ~100-LOC reactive core; split the resource browser into a standalone **Explorer** screen; rebuild the **Player** as a game canvas + collapsible Debug drawer. No engine-logic changes. (Full Home/Reference website is deferred — §11 Q12.) |
+| **10. Audio** | iMUSE driver, AdLib (OPL3) synth, then MT-32 if appetite remains. CD redbook later still. |
+| **11. MI2 + polish** | Verify MI2 boots on the same engine; fix the inevitable v5-but-slightly-different edge cases. |
 
 Phases are not commitments — they're the current best guess at a learning
 order. Reorder freely as we discover the territory.
@@ -502,3 +619,119 @@ quirks.
 enum (`MI1_CD`, `MI2`), and engine code branches on it at the small
 number of known difference points (kept isolated, not sprinkled). We do
 not fork the codebase per game.
+
+---
+
+**Q7. Build the `EngineSession` seam now, or keep the loop shell-driven?**
+The shell↔engine boundary was always described in §4, but never built — the
+loop, VM lifecycle, save/load, and eight debug panels grew into a single
+1900-line inspector that reaches straight into VM internals.
+**Status: Decided (2026-05-31).** Build it now (§5.9). `createSession(files,
+renderer, clock)` owns the loop and exposes a small control surface; both the
+Play and Debug surfaces consume the same session. This is the lever that lets
+the rest of the shell rebuild be clean, and it finally makes the game loop
+unit-testable. The alternative — a thin in-shell `SessionController` that
+still imports `bootGame`/slots/trace — was rejected: it leaves the engine
+internals leaking into the shell, the exact problem we're fixing.
+
+---
+
+**Q8. Player layout, and where does the resource browser live?**
+The old Player was a single vertically-stacked page mixing the game frame
+with room/costume/charset viewers, the VM inspector, and raw block dumps.
+There was no way to "just play".
+**Status: Decided (2026-05-31, revised same day).** Two moves:
+1. **The resource browser splits out into its own `Explorer` screen** — it's
+   stateless static analysis of the files (no VM, no session, no loop), a
+   different lifecycle and data dependency from the live Player. It does not
+   belong inside the thing that hosts a session. (Earlier the same day this
+   was going to be a third Player "surface"; that was reversed — see §7.)
+2. **The Player is a game canvas + a collapsible `Debug` drawer**, not
+   switchable tabs. Play and Debug are two faces of the *same running tick*,
+   so seeing both at once (frame + slots/trace) is the point; collapsed gives
+   a clean full-width play.
+Every old inspection view is preserved — moved into the Debug drawer (live VM)
+or the Explorer screen (static formats); none deleted (project memory: a
+learning tool keeps its internals visible). The "three switchable surfaces"
+and "tidy the existing stacked dashboard" options were both rejected.
+
+---
+
+**Q9. Reactive layer for the shell: none, a tiny owned core, or a framework?**
+The old shell hand-rolled per-tick DOM updates (full `replaceChildren` plus a
+manual `MountedFrame` diff), which was the main source of the mess and of
+dropped-input bugs across rAF boundaries.
+**Status: Decided (2026-05-31).** A ~100-line reactive core we own
+(`signal` / `effect` / a render helper) in `shell/reactive/` — no dependency,
+unit-testable in Node. This **amends** the original §7 "vanilla, no framework"
+line, which also implied no reactivity. We keep "no framework / no dependency"
+but allow this one small owned primitive. A real library (lit / preact /
+solid) was rejected to avoid the dependency and stay close to the from-scratch
+ethos; strict-vanilla-just-split was rejected because it leaves the per-tick
+update pain in place.
+
+---
+
+**Q10. Who owns the clock — the session or the shell?**
+The engine must run headless in Node (§6), but `requestAnimationFrame` is a
+browser API.
+**Status: Decided (2026-05-31).** The shell **injects** a `Clock` into the
+session; the session arms/disarms it but never calls `requestAnimationFrame`
+itself (§5.9). Browser = a real rAF clock; tests = a manual stepper. The loop
+(§5.8) stays pure tick logic. This is what makes the loop deterministically
+testable against a `MemoryRenderer`.
+
+---
+
+**Q11. Routing + the static-hosting constraint.**
+Hard requirements: ship a **statically hosted build, no server, ever**;
+**refresh / deep-link must work**; and the content pages must be
+**crawler-indexable**.
+**Status: Decided (2026-05-31, revised same day — supersedes an earlier
+hash-routing lean).** Use **path-based routing via a multi-page static
+build**, with client-only parameters in the query string:
+1. **Page identity is the path; each page is a real static file.** The build
+   emits one HTML entry per page — `/`, `/docs`, `/docs/:slug`, `/explore`,
+   `/play` (Vite multi-page `rollupOptions.input`; the `docs/:slug` pages are
+   generated from `docs/*.md` at build time — the deferred Reference work,
+   Q12). A refresh of `/docs/smap` serves a real `/docs/smap/index.html`; a
+   crawler gets a real document per URL. No server, **no SPA-fallback hack** —
+   the fallback is what made path routing look costly in the earlier lean, and
+   emitting real files avoids it entirely. Per-entry builds also give natural
+   code-splitting: the heavy engine chunk loads only on `/play` (and
+   `/explore` for the decoders).
+2. **Client-only parameters ride in the query string, not the path.** Explore
+   and Play need a *game id*, which is just an IndexedDB key local to the
+   user's browser — not globally meaningful and not indexable anyway. So
+   `/play?game=MI1`: the static host serves `/play/index.html` ignoring the
+   query; the client reads `?game=` and boots. (A hash fragment works too;
+   query string is conventional and is the choice.)
+3. **Consequence — two tiers of shareability, by design.** Page URLs (`/`,
+   `/docs/...`, `/explore`, `/play`) are globally shareable and indexable.
+   Game-param deep links (`/play?game=MI1`) resolve only on the **same browser
+   profile** that installed that game — inherent to a local-files app, and
+   accepted. Nobody should treat a game deep-link as portable across devices.
+Because the URL carries the page identity, the shell needs no in-memory nav
+state machine: navigation is `<a href>` + parsing `location.pathname` /
+`location.search` (a tiny `shell/routing/` helper). MPA fits this app because
+navigations are rare and heavy (launching a game), not a high-frequency SPA.
+Why this supersedes the earlier hash lean: indexing the content pages is
+exactly what a `#` fragment *cannot* deliver (crawlers/servers treat
+everything after `#` as one page). The multi-page static build gives refresh
+**and** indexing with zero server — strictly better than both hash routing and
+an SPA-with-fallback.
+
+---
+
+**Q12. Long-term: a full website (Home / Reference / Explorer / Player)?**
+A natural end state is a whole site: a home page, **reference pages generated
+from `docs/`** (the 18 SCUMM-v5 format docs are real educational content), the
+resource Explorer, and the Player/debugger — with route-level code-splitting
+so the heavy engine chunk loads only on the Player.
+**Status: Deferred (2026-05-31, user decision).** The *content* (Home,
+Reference) is a later phase; this phase does only the **Explorer split** (Q8).
+But the routing target (Q11) is chosen so Home and Reference are just more page
+entries when they land: `/` already exists, `/docs` + `/docs/:slug` slot into
+the same multi-page build with HTML generated from `docs/*.md` at build time.
+The one dependency that future phase would likely justify — a tiny markdown
+renderer for Reference — is flagged for then, not now.
