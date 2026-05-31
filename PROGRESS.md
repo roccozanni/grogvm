@@ -72,20 +72,72 @@ engine-side fixes (all separate from the rebuild; 753 tests green, tsc clean):
 - **Scale resets to full** in non-scaled boxes (was stuck sub-255 after a
   scaled room → permanently slightly small). User-spotted.
 - **Centered downscale sampling** — preserves thin features (Guybrush's eyes)
-  when scaled down (was floor-biased, dropping them). *Pending visual confirm.*
+  when scaled down (was floor-biased, dropping them). ✓ user-confirmed (eyes back).
 - **Lookahead walk facing** — faces the local path direction, not the far
   final target (room-33 cliff reads S, then E on the dock). ✓ user-confirmed.
-- **Verb-bar background** → dark-magenta UI field (CLUT 2), not black.
-  *Pending visual confirm (exact shade tweakable via `VERB_BAR_BG_COLOR`).*
-- **Debug-panel stutter** — throttle the live-table rebuild to ~10 Hz while
-  playing (was ~350 DOM nodes/frame at 60fps, janking camera-follow); rebuilds
-  immediately when paused/stepping. *Pending visual confirm.*
+- **Verb-bar background** — attempted a magenta fill; it wrongly painted the
+  sentence-line band magenta too, so **reverted to black** (`VERB_BAR_BG_COLOR
+  = 0`). STILL WRONG / open — see below.
+- **Debug-panel rebuild → pause-only** — the live tables now rebuild only when
+  paused/stepping (was every frame, then a 10 Hz throttle). Good hygiene, but
+  **did NOT fix the stutter** → the stutter is not the debug panel.
 
-**Remaining (deferred): ego z-occlusion.** Room-33 Guybrush is `neverZclip`
-(forceClip=0, engine-set) → always drawn in front of the house; "behind the
-house/wall" needs box-mask z-clip honoured for the ego. The z-occlusion code is
-unchanged (git-verified) — this is the long-standing limitation, just more
-visible now that the ego is correctly sized. See the post-save/load backlog.
+## Open issues — START HERE next session (2026-05-31, session 8, context full)
+
+### 1. Camera-follow stutter + "two Guybrush" — it's ORDERING, not perf (KEY)
+**User's correct framing:** before the Phase-10 rebuild this was perfectly
+smooth, and the engine already rendered the whole room then — so it is **not**
+doing more work now and does **not** need optimization. What changed: the old
+player was **room-driven** (drew the full room; the camera was just a **dashed
+rectangle** overlay that moved over a static render). Task **6b** made it
+**camera-driven** — we now slice the 320-wide viewport at `cameraLeft` and
+present it, so the **background actually scrolls**. The stutter (and a brief
+"two Guybrush" during smooth play — gone under `step`, so not a real double
+draw) appeared with that change. So the bug is the **order/timing** in which we
+(a) move the actor, (b) update the camera-follow, (c) compose → slice →
+present — not how long any of it takes. Throttling the debug panel did nothing,
+confirming this.
+**Hypothesis to chase:** the actor moves ~2px/frame but the camera-follow
+(SCUMM has a dead-zone / steps the camera) likely updates in **jumps** or lags
+by a frame, so each presented frame the actor's *screen* position
+(`roomX − cameraLeft`) oscillates and the background scrolls in chunks →
+jitter + the actor appearing to drift then snap (the "two Guybrush" optical).
+Before, the same camera steps only moved the dashed rect, so nothing scrolled.
+**Where to look:**
+- Camera-follow update in `src/engine/vm/vm.ts` (the `camera.x` update / follow
+  + clamp at ~L1344-1351; find the `actorFollowCamera` / dead-zone logic and
+  see if `camera.x` moves smoothly per frame or in steps).
+- The slice + `cameraLeft` in `src/engine/session/session.ts`
+  `composeAndPresent` (`viewportLeft(vm.camera.x, roomW)`), and the order in
+  `runBatch`: `vm.tick()` (moves actor + camera) → `composeAndPresent`. Confirm
+  the slice uses the *post-tick* camera and that actor+camera are consistent in
+  the *same* presented frame.
+- `src/shell/player/play/play.ts` `onFrame` → `play.redraw()` (overlays drawn
+  after the present — check the cursor/verb overlay isn't using a different
+  `cameraLeft` than the frame slice; `play-area.ts` `cameraLeftPx()` must match
+  the session's `viewportLeft`).
+- Compare to how the **legacy** room-driven path presented (git: pre-rebuild
+  `vm-inspector` buildFrame/updateFrame) to see why it was smooth.
+**Likely fix direction:** make the camera track the actor per-frame so the
+actor stays put on screen and the bg scrolls by a consistent delta (or smooth
+the camera), and ensure a single consistent (actor, camera) snapshot per
+presented frame.
+
+### 2. Verb-bar background still wrong
+Reverted to black. The real MI1 look (from the user's ScummVM): a **dark
+sentence-line band** at the top, and the **verbs show magenta behind the
+glyphs** (transparent glyph bg over a magenta field) — NOT a single flat fill
+(which is what broke the sentence band). Need the per-region layout: sentence
+band stays dark; the verb-grid area gets the dark-magenta. Get a clean ScummVM
+close-up of the verb area, or study MI1's verb-panel rendering. Code:
+`src/shell/player/play-area.ts` `paintVerbBar` + `VERB_BAR_BG_COLOR`.
+
+### 3. Ego z-occlusion (deferred, pre-existing, NOT a regression)
+Room-33 Guybrush is `neverZclip` (forceClip=0, engine-set) → always drawn in
+front of the house. The z-occlusion code is git-verified unchanged; it's the
+long-standing "ego neverZclip" limitation, just more visible now that he's
+correctly sized. "Behind the house/wall" needs box-mask z-clip honoured for the
+ego. See the post-save/load backlog "Box-default z-clip validation".
 
 Why: `renderPlayer` (player.ts, 1714 lines) was a vertically-stacked
 *resource browser*, not a game player — the actual game was wedged inside
