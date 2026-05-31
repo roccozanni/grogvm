@@ -548,7 +548,7 @@ export class Vm {
   roomScroll: { min: number; max: number } | null = null;
   /**
    * Actor the camera tracks (0 = none), set by `actorFollowCamera`.
-   * Each tick {@link moveCameraFollow} scrolls the camera to keep this
+   * Each game frame {@link moveCameraFollow} scrolls the camera to keep this
    * actor inside a central dead-zone band — without it the camera snaps
    * once and the actor walks off the edge.
    */
@@ -1257,7 +1257,6 @@ export class Vm {
         }
       }
     }
-    this.moveCameraFollow();
   }
 
   /**
@@ -1284,7 +1283,8 @@ export class Vm {
    */
   tick(): TickResult {
     if (this._haltInfo) return { framed: false, resumed: false, ran: 0, delaying: false };
-    // Per-jiffy: input/cursor mirror, music + talk timers, camera follow.
+    // Per-jiffy: input/cursor mirror, music + talk timers. (Camera-follow is
+    // NOT here — it runs once per game frame after the walk; see below.)
     this.beginTick();
     // Per-jiffy: drain `delay` countdowns. A frozen slot's delay is paused.
     let delaying = false;
@@ -1312,6 +1312,15 @@ export class Vm {
     const ran = this.runUntilAllYield();
     stepAllActorWalks(this);
     for (const actor of this.actors.all()) actor.anim = stepAnim(actor.anim);
+    // Camera-follow runs here — once per game frame, *after* the walk — not in
+    // beginTick (per-jiffy, before the walk). The followed actor only moves in
+    // stepAllActorWalks, so following it beforehand left the camera a frame
+    // behind: the presented frame showed the actor at its new position against
+    // a camera based on its old one, then the camera caught up on the next
+    // jiffy while the actor sat still — the actor's screen position oscillated
+    // (stutter / "two Guybrush"). Following after the walk keeps (actor, camera)
+    // consistent within the single tick the session then presents.
+    this.moveCameraFollow();
     return { framed: true, resumed, ran, delaying };
   }
 

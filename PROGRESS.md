@@ -84,44 +84,15 @@ engine-side fixes (all separate from the rebuild; 753 tests green, tsc clean):
 
 ## Open issues — START HERE next session (2026-05-31, session 8, context full)
 
-### 1. Camera-follow stutter + "two Guybrush" — it's ORDERING, not perf (KEY)
-**User's correct framing:** before the Phase-10 rebuild this was perfectly
-smooth, and the engine already rendered the whole room then — so it is **not**
-doing more work now and does **not** need optimization. What changed: the old
-player was **room-driven** (drew the full room; the camera was just a **dashed
-rectangle** overlay that moved over a static render). Task **6b** made it
-**camera-driven** — we now slice the 320-wide viewport at `cameraLeft` and
-present it, so the **background actually scrolls**. The stutter (and a brief
-"two Guybrush" during smooth play — gone under `step`, so not a real double
-draw) appeared with that change. So the bug is the **order/timing** in which we
-(a) move the actor, (b) update the camera-follow, (c) compose → slice →
-present — not how long any of it takes. Throttling the debug panel did nothing,
-confirming this.
-**Hypothesis to chase:** the actor moves ~2px/frame but the camera-follow
-(SCUMM has a dead-zone / steps the camera) likely updates in **jumps** or lags
-by a frame, so each presented frame the actor's *screen* position
-(`roomX − cameraLeft`) oscillates and the background scrolls in chunks →
-jitter + the actor appearing to drift then snap (the "two Guybrush" optical).
-Before, the same camera steps only moved the dashed rect, so nothing scrolled.
-**Where to look:**
-- Camera-follow update in `src/engine/vm/vm.ts` (the `camera.x` update / follow
-  + clamp at ~L1344-1351; find the `actorFollowCamera` / dead-zone logic and
-  see if `camera.x` moves smoothly per frame or in steps).
-- The slice + `cameraLeft` in `src/engine/session/session.ts`
-  `composeAndPresent` (`viewportLeft(vm.camera.x, roomW)`), and the order in
-  `runBatch`: `vm.tick()` (moves actor + camera) → `composeAndPresent`. Confirm
-  the slice uses the *post-tick* camera and that actor+camera are consistent in
-  the *same* presented frame.
-- `src/shell/player/play/play.ts` `onFrame` → `play.redraw()` (overlays drawn
-  after the present — check the cursor/verb overlay isn't using a different
-  `cameraLeft` than the frame slice; `play-area.ts` `cameraLeftPx()` must match
-  the session's `viewportLeft`).
-- Compare to how the **legacy** room-driven path presented (git: pre-rebuild
-  `vm-inspector` buildFrame/updateFrame) to see why it was smooth.
-**Likely fix direction:** make the camera track the actor per-frame so the
-actor stays put on screen and the bg scrolls by a consistent delta (or smooth
-the camera), and ensure a single consistent (actor, camera) snapshot per
-presented frame.
+### 1. Camera-follow stutter + "two Guybrush" — FIXED & user-confirmed (session 9)
+Ordering bug, as hypothesised. `moveCameraFollow()` ran in `beginTick()` (every
+jiffy, *before* the walk) but the actor only moves at frame end in
+`stepAllActorWalks()` → the presented frame had the actor at its new position
+with a camera based on the old one; the camera caught up the next jiffy →
+screen-x oscillated. **Fix:** call `moveCameraFollow()` once per game frame in
+`vm.tick()`, *after* the walk+anim, so (actor, camera) form one consistent
+snapshot. Probe `scratch/probe-cam-smooth.ts`: old = 44 reversals/−12px,
+fixed = 5/−1px.
 
 ### 2. Verb-bar background still wrong
 Reverted to black. The real MI1 look (from the user's ScummVM): a **dark
