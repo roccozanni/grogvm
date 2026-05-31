@@ -37,8 +37,21 @@ VM resolvers, so the save carries only runtime state. Shell
 per-game localStorage slots with save / load / delete / file
 export / import. Proven by a real-MI1 round-trip test (boot → room 33 →
 snapshot → restore into a fresh boot → re-serializes byte-for-byte and
-keeps ticking). 688 tests pass, typecheck clean. **Panel visuals still
-to be confirmed in-app.**
+keeps ticking). Save/load **confirmed in-app**; a load-while-running bug
+(frame input stayed bound to the discarded VM) was found and fixed.
+
+Save testing surfaced a batch of pre-existing **costume-anim / walk**
+bugs, all now fixed (engine-side, so they survive the planned player
+rebuild): the **head limb didn't track facing** at rest (only `init`
+sets the head's per-direction frame; stand/walk only stop/un-stop it) →
+fixed with a shared `applyStandPose` (init→stand re-point) on the
+walk-stop transition, `faceActor`, and `animateActor` set-direction;
+this also fixed the **room-38 entry head-loss** (✓ both user-confirmed).
+And the **room-33 N/S walk facing flip-flop** — facing now follows the
+final-target vector, not the per-tick step (a jagged path no longer
+thrashes the facing). 689 tests pass, typecheck clean. **Next session:
+rebuild the player from scratch** (the engine is solid ground; all the
+above is engine-side).
 
 **Earlier this day (session 4):** modelled `roomOps screenEffect`
 (0x0A) state — operand split into `switchRoomEffect`/`switchRoomEffect2`,
@@ -406,15 +419,19 @@ most lives in the inline known-bug entries above and the linked docs.
   §"Head re-point". **Also fixed the room 38 entry head-loss** ✓
   user-confirmed — the same re-point→un-stop sequence clears the
   transient where the head limb was left stopped on entry.
-  Remaining head/facing sub-symptoms (likely related, NOT yet fixed):
-  - **Turn-in-place re-point** — a script changing `facing` while the
-    actor is *idle* (no walk) doesn't re-point the head yet. Wire the
-    same init re-point on any facing change if a scene surfaces it.
-  - room 33 (dock) — on entry his **facing flip-flops left↔right** down
-    the cliff (near-vertical path, dx≈0 → direction oscillates on x
-    jitter — this is in the *walk* direction picker, separate from the
-    head frame). See
-    [docs/SCUMM-V5-COSTUME-ANIM.md](docs/SCUMM-V5-COSTUME-ANIM.md).
+  Follow-up head/facing fixes (2026-05-31, same session — *visual
+  confirmation pending*):
+  - [x] **Turn-in-place re-point** — `faceActor` and `animateActor`
+    set-direction changed `facing` without re-posing, so the body **and**
+    head kept the old facing (and `animateActor` "stop" missed the head
+    re-point). Factored the init→stand re-point into a shared
+    `applyStandPose(vm, actor)` and call it from the walk-stop transition,
+    `faceActor`, and `animateActor` stop/set-dir (idle only).
+  - [x] **Room 33 N/S facing flip-flop** — facing was picked from the
+    per-tick clamped step, so a jagged pathfinder polyline (±1px wobble on
+    a near-vertical descent) flipped E↔W↔S every few ticks. Facing now
+    follows the vector to the **final target** (stable for the walk) — the
+    descent verified as a single clean S (was dozens of flips).
 - **Room 38 (lookout) fire composites *over* Guybrush** *(new,
   2026-05-31, user-reported)*. The campfire actor draws on top of
   Guybrush's torso/arm; it should sit in front of only his lower body
