@@ -35,9 +35,9 @@ the `0` fade-in trigger, surfaced in the inspector; **transition
 animation deferred** (intro is all instant cuts, no reachable scene to
 validate; see [docs/SCUMM-V5-SCREEN-EFFECT.md](docs/SCUMM-V5-SCREEN-EFFECT.md)).
 Consolidated all deferred Phase-8 items into the post-save/load backlog
-and added two new user-reported render bugs to it (room 38 fire over
-Guybrush; N/S walk facing flip-flop + brief head-loss). 674 tests pass,
-typecheck clean.
+and added three new user-reported items to it (room 38 fire over
+Guybrush; N/S walk facing flip-flop + brief head-loss; skip current
+dialog sentence with `.`). 674 tests pass, typecheck clean.
 
 **Latest (2026-05-31, session 3):** a big polish pass — five items
 closed, four user-confirmed in-app. Commits on `main` (unpushed):
@@ -368,6 +368,18 @@ most lives in the inline known-bug entries above and the linked docs.
   [docs/SCUMM-V5-INPUT.md](docs/SCUMM-V5-INPUT.md) §5.
 - **Inventory scroll arrows** (verbs 208/209) for >8 items — needs a
   save with a full inventory to exercise.
+- **Skip the current dialog sentence with `.` (dot)** *(new,
+  2026-05-31, user-reported)*. ScummVM maps the **dot** key to
+  "advance past the current line of speech" — the per-sentence analogue
+  of Escape's whole-cutscene skip. Hook: a `.` keydown in
+  `src/shell/player/input.ts` (mirroring `onEscape`) → a new
+  `vm.skipText()` that drains the **current talk page** — advance to the
+  next page if one is queued, else clear `VAR_HAVE_MSG` / `talkDelay`
+  (same path the talk timer takes when a page's delay runs out, see
+  `vm.ts beginTick` / `talkPages`). Distinct from `abortCutscene`: it
+  ends one line, not the scene. See
+  [docs/SCUMM-V5-INPUT.md](docs/SCUMM-V5-INPUT.md) /
+  [docs/SCUMM-V5-CHAR.md](docs/SCUMM-V5-CHAR.md).
 
 **Opcodes still stubbed (cosmetic / peripheral)**
 
