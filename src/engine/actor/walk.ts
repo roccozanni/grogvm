@@ -19,7 +19,7 @@
  * E/W when the X step is larger, N/S otherwise.
  */
 
-import type { Actor, Facing } from './actor';
+import { DEFAULT_SCALE, type Actor, type Facing } from './actor';
 import type { Vm } from '../vm/vm';
 import { findPath } from '../pathfinding/grid';
 import { findBoxAtOrNearest } from '../pathfinding/boxes';
@@ -257,10 +257,12 @@ export function stepAllActorWalks(vm: Vm): void {
       // valid floor pixel often sits in no box strictly — strict lookup would
       // leave the scale stuck small until a wide box, popping it at the end.
       const box = findBoxAtOrNearest(room.walkBoxes, actor.x, actor.y);
-      if (box) {
-        const s = resolveScale(box.scale, room.scaleSlots, actor.y);
-        if (s !== null) actor.scale = s;
-      }
+      const s = box ? resolveScale(box.scale, room.scaleSlots, actor.y) : null;
+      // No per-box scaling here (a non-scaled box, or no box) → full size.
+      // Crucially this RESETS the scale: otherwise a sub-255 value picked up
+      // in a scaled room (e.g. 210 on the room-33 dock) would stick forever in
+      // later non-scaled rooms, leaving the actor permanently slightly small.
+      actor.scale = s ?? DEFAULT_SCALE;
     }
     // Drive the costume chore from movement state:
     //  - moving        → walk chore (body cycles; the record stops the

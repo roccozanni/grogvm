@@ -274,3 +274,35 @@ describe('stepAllActorWalks', () => {
     expect(a.anim.animId).toBe(2); // untouched (already non-zero, not moving)
   });
 });
+
+describe('stepAllActorWalks — perspective scale', () => {
+  function vmInRoom(boxScale: number): Parameters<typeof stepAllActorWalks>[0] {
+    const box = {
+      id: 0, ulx: 0, uly: 0, urx: 100, ury: 0, lrx: 100, lry: 100, llx: 0, lly: 100,
+      mask: 0, flags: 0, scale: boxScale,
+    };
+    return {
+      actors: new ActorTable(3),
+      currentRoom: 1,
+      loadedRoom: { walkBoxes: [box], scaleSlots: [] },
+    } as unknown as Parameters<typeof stepAllActorWalks>[0];
+  }
+
+  it('sets a moving actor to the box direct scale', () => {
+    const vm = vmInRoom(210);
+    const a = vm.actors.get(1);
+    a.room = 1; a.x = 50; a.y = 50; a.scale = 255;
+    a.walkTarget = { x: 60, y: 50 }; a.isMoving = true; a.walkSpeedX = 2;
+    stepAllActorWalks(vm);
+    expect(a.scale).toBe(210);
+  });
+
+  it('RESETS a moving actor to full size in a non-scaled box (no stuck scale)', () => {
+    const vm = vmInRoom(0); // box specifies no scaling
+    const a = vm.actors.get(1);
+    a.room = 1; a.x = 50; a.y = 50; a.scale = 100; // stuck small from a prior room
+    a.walkTarget = { x: 60, y: 50 }; a.isMoving = true; a.walkSpeedX = 2;
+    stepAllActorWalks(vm);
+    expect(a.scale).toBe(255); // reset to DEFAULT_SCALE, not left at 100
+  });
+});
