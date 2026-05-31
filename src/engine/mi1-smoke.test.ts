@@ -17,7 +17,7 @@ import { parseResourceFile } from './resources/file';
 import { parseIndexFile } from './resources/index-file';
 import { parseLoff } from './resources/loff';
 import { SCUMM_V5_XOR_KEY } from './resources/xor';
-import { startActorChore } from './actor/walk';
+import { applyStandPose } from './actor/walk';
 import { currentLimbPicture } from './graphics/costume-anim';
 import { bootGame } from './vm/boot';
 import { VAR_CURRENT_LIGHTS, VAR_EGO } from './vm/vars';
@@ -144,11 +144,11 @@ describe.skipIf(!hasData)('MI1 smoke — boot → gameplay', () => {
     const costume = vm.getCostume(actor.costume);
     expect(costume).not.toBeNull();
 
-    // The fix sequence (init re-point → stand) for each facing.
+    // Turn the actor in place to each facing and re-point the stand pose
+    // (the real helper the walk loop + faceActor/animateActor use).
     const headFrame = (facing: 'W' | 'E' | 'S' | 'N'): { start: number; pic: number; stopped: boolean } => {
       actor.facing = facing;
-      startActorChore(vm, actor, actor.initFrame);
-      startActorChore(vm, actor, actor.standFrame);
+      applyStandPose(vm, actor);
       const l1 = actor.anim.limbs[1]!;
       return {
         start: l1.start,

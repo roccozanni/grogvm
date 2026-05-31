@@ -31,7 +31,7 @@ import {
   DEFAULT_TALK_STOP_FRAME,
   type Actor,
 } from '../../actor/actor';
-import { startWalk, startActorChore, FACING_FROM_OLD } from '../../actor/walk';
+import { startWalk, startActorChore, applyStandPose, FACING_FROM_OLD } from '../../actor/walk';
 import { pickObject } from '../../object/hittest';
 import { evalExpression } from '../expression';
 import { SENTENCE_CLEAR_VERB } from '../sentence';
@@ -1363,6 +1363,9 @@ function faceActorHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
       const dy = ty - actor.y;
       actor.facing =
         Math.abs(dx) >= Math.abs(dy) ? (dx >= 0 ? 'E' : 'W') : dy >= 0 ? 'S' : 'N';
+      // Turn in place toward the target: re-point the stand pose so the
+      // body and head face the new direction (only when idle).
+      if (!actor.isMoving) applyStandPose(vm, actor);
     }
   }
   vm.annotate(`faceActor actor=${id} target=${targetId}`);
@@ -1475,11 +1478,16 @@ function animateActorHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
     case 2: // stop walking, drop to the stand pose
       actor.isMoving = false;
       actor.walkTarget = null;
-      startActorChore(vm, actor, actor.standFrame);
+      applyStandPose(vm, actor); // re-points the directional head, not just stand
       break;
     case 3: // set facing immediately
     case 4: // turn to facing (no turn animation modelled — snap)
       actor.facing = dirFacing;
+      // Turn in place: re-point the stand pose so the body AND head face
+      // the new direction now (the stand record alone won't re-frame the
+      // head). Only when idle — a walking actor's chore is driven by the
+      // walk loop.
+      if (!actor.isMoving) applyStandPose(vm, actor);
       break;
     default:
       // Play the chore. If the costume isn't loaded yet (id 0 / unknown),

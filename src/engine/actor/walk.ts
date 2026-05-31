@@ -67,6 +67,26 @@ function applyChore(vm: Vm, actor: Actor, chore: number): void {
 }
 
 /**
+ * Put an idle actor into its stand pose for its CURRENT facing,
+ * re-pointing the directional limbs — including the head.
+ *
+ * The costume's stand (and walk) records only **stop/un-stop** the head
+ * limb; only the **init** pose carries the head's per-direction frame
+ * (W/E, S=front, N=back). So we apply init for the current facing (which
+ * re-points the head *and* body) then stand (which un-stops the head and
+ * sets the stand body frame — identical to init's body per direction).
+ * Without the init step the head keeps whatever frame init last set and
+ * faces the wrong way after the actor turns. Use after a walk ends and
+ * whenever a script turns the actor in place (faceActor / animateActor
+ * set-direction). No-op without a loaded costume.
+ */
+export function applyStandPose(vm: Vm, actor: Actor): void {
+  if (actor.costume <= 0) return;
+  startActorChore(vm, actor, actor.initFrame);
+  startActorChore(vm, actor, actor.standFrame);
+}
+
+/**
  * Set up an actor's walk: store the target, compute a waypoint path
  * through the current room's walkable mask (or straight-line fall-back
  * when there's no mask), and flip `isMoving` on. Shared by the
@@ -132,11 +152,18 @@ export function stepWalk(actor: Actor): void {
   const stepX = clampToward(dx, actor.walkSpeedX);
   const stepY = clampToward(dy, actor.walkSpeedY);
 
-  // Facing follows the dominant component of this tick's step.
-  if (Math.abs(stepX) >= Math.abs(stepY) && stepX !== 0) {
-    actor.facing = stepX > 0 ? 'E' : 'W';
-  } else if (stepY !== 0) {
-    actor.facing = stepY > 0 ? 'S' : 'N';
+  // Facing follows the overall direction to the FINAL target, not this
+  // tick's step. The pathfinder polyline can wobble ±1px on a near-
+  // vertical descent (room 33's cliff), and a per-tick/per-leg facing
+  // flips E↔W↔S every few ticks as the wobble changes the dominant step.
+  // The target is stable for the whole walk, so the facing stays steady
+  // (a descent reads as a clean N/S). Horizontal wins ties (SCUMM bias).
+  const fx = (actor.walkTarget ?? aim).x - actor.x;
+  const fy = (actor.walkTarget ?? aim).y - actor.y;
+  if (Math.abs(fx) >= Math.abs(fy) && fx !== 0) {
+    actor.facing = fx > 0 ? 'E' : 'W';
+  } else if (fy !== 0) {
+    actor.facing = fy > 0 ? 'S' : 'N';
   }
 
   actor.x += stepX;
@@ -203,18 +230,10 @@ export function stepAllActorWalks(vm: Vm): void {
     if (actor.isMoving) {
       applyChore(vm, actor, actor.walkFrame);
     } else if (wasMoving) {
-      // Just stopped. The stand (and walk) records only stop/un-stop the
-      // **head** limb — they never re-frame it; only the init pose carries
-      // the head's per-direction frame (W/E, S=front, N=back). So re-apply
-      // init for the CURRENT facing to re-point the head, THEN stand
-      // (which un-stops the head and sets the stand body frame; init and
-      // stand share the body frame per direction, so the body is
-      // unchanged). Without the init re-point the head keeps whatever
-      // frame init last set and faces the wrong way after the actor turns
-      // (e.g. a West-facing Guybrush showing a front "looking-at-camera"
-      // head). See docs/SCUMM-V5-COSTUME-ANIM.md §"head re-point".
-      applyChore(vm, actor, actor.initFrame);
-      applyChore(vm, actor, actor.standFrame);
+      // Just stopped: re-point the directional limbs (esp. the head) for
+      // the final facing — see applyStandPose / SCUMM-V5-COSTUME-ANIM.md
+      // §"Head re-point".
+      applyStandPose(vm, actor);
     } else if (actor.costume > 0 && actor.anim.animId === 0) {
       applyChore(vm, actor, actor.initFrame);
     }
