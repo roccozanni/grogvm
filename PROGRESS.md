@@ -41,9 +41,13 @@ scope contract in [docs/ENGINE-SESSION.md](docs/ENGINE-SESSION.md); the legacy
 test-only dev shim. Task 3: the multi-page static build + path routing — three
 real HTML entries (`/`, `/explore/`, `/play/`) with `src/pages/` bootstraps and
 a `shell/routing/` helper; `vite build` emits the three static entries with the
-heavy player chunk code-split onto play/explore only. 728 total green, tsc
-clean. **Next: task 4 (Explorer screen).** NB: a `vite.config.ts` change means
-a running dev server must be restarted to pick up the new entries.
+heavy player chunk code-split onto play/explore only. Task 4: `/explore` now
+renders a session-free Explorer (resource browsers, no VM) via an `includeVm`
+flag on the shared loader; the physical code relocation into `shell/explorer/`
+is deferred to task 7 (avoids risky churn on the doomed `player.ts`). 728 total
+green, tsc clean. **Next: task 5 (Play view on the EngineSession).** NB: the
+earlier `vite.config.ts` change means a running dev server needs a restart to
+pick up the new entries.
 
 Why: `renderPlayer` (player.ts, 1714 lines) was a vertically-stacked
 *resource browser*, not a game player — the actual game was wedged inside
@@ -262,10 +266,23 @@ green; `tsc` clean.
       render the legacy `renderPlayer` for now — task 4 gives `/explore` a
       real Explorer, tasks 5–6 give `/play` the Play+Debug rebuild, task 7
       deletes the legacy view.
-- [ ] **4. Explorer page (shell/explorer/, /explore).** Port the room /
-      costume / charset viewers + the raw block-tree sections out of the old
-      `player.ts`. Pure file parsing — no session, no VM. Loads the game from
-      `?game=`; linked from the Library ("Explore") and deep-linkable.
+- [x] **4. Explorer page (shell/explorer/, /explore). DONE (2026-05-31,
+      session 7).** `/explore?game=<id>` now renders a **session-free** view:
+      the room / costume / charset viewers + the raw block-tree sections, with
+      **no VM and no `EngineSession`** (only file parsing). Mechanism: the
+      shared loader gained an `includeVm` flag — the resource-browser sections
+      are always built; the VM inspector (the only VM-dependent part) is gated
+      off for the Explorer. `renderExplorer` (player.ts) = the browser with
+      `includeVm=false`; `shell/explorer/explorer.ts` re-exports it for a
+      stable page import; `src/pages/explore.ts` uses it. 728 green, tsc clean,
+      `vite build` emits all three entries. **Refinement vs the original plan
+      (same rationale as task 1):** the browser code is *not physically moved*
+      out of the doomed `player.ts` yet — relocating ~1500 lines now would be
+      risky churn on a file deleted in task 7, so the physical move into
+      `shell/explorer/` happens there. Runtime behaviour is the goal and it's
+      met: `/explore` builds no session. (Bundle note: `/explore` still
+      transitively pulls the inspector chunk via `player.ts`; that separates
+      in task 7.)
 - [ ] **5. Play view (player/play/, /play).** Loads the game from `?game=`
       and creates the session. Clean game canvas (`Canvas2DRenderer` fed by
       `onFrame`) + minimal overlay (save / load / exit). Port the cursor /
@@ -279,9 +296,14 @@ green; `tsc` clean.
       core, in a collapsible drawer beside the canvas. Tick controls (step /
       play / rate / run-to-idle) call the session. Saves panel lives here
       and/or in Play's overlay.
-- [ ] **7. Delete the god-objects + split CSS.** Remove the old
-      `player.ts` and `vm-inspector.ts`; break the 1327-line `styles.css`
-      into per-screen stylesheets. Confirm nothing else imported them.
+- [ ] **7. Dismantle the legacy player + split CSS.** **Relocate** the
+      resource-browser code (room / costume / charset / block-tree viewers,
+      currently still in `player.ts` behind `renderExplorer`) into
+      `src/shell/explorer/` as its permanent home, dropping the re-export
+      shim. Remove the old `player.ts` and `vm-inspector.ts` (their game/VM
+      role now lives in `player/play` + `player/debug`). Break the 1327-line
+      `styles.css` into per-screen stylesheets. Confirm nothing else imported
+      them. (This is where the task-1 / task-4 deferred physical moves land.)
 - [ ] **8. Verify.** `vitest` green, `tsc` clean, `vite build` emits the
       three static entries, and an in-app pass: `/play?game=…` boots → intro
       → room 33; the Debug drawer works; `/explore?game=…` shows the format

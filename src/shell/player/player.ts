@@ -40,7 +40,27 @@ import { renderVmInspector } from './vm-inspector';
 
 const ROOM_DISPLAY_SCALE = 2;
 
+/** The player: resource browser + the VM inspector (the running game). */
 export function renderPlayer(game: StoredGame, onBack: () => void): HTMLElement {
+  return renderShell(game, onBack, true);
+}
+
+/**
+ * The resource Explorer: the SAME resource browser (rooms / costumes /
+ * charsets / block tree) WITHOUT the VM inspector — so it needs no session
+ * and no VM (ARCHITECTURE.md §7, Q8).
+ *
+ * TEMPORARY home (Phase 10): the browser code still physically lives in this
+ * (soon-to-be-deleted) file; `src/shell/explorer/explorer.ts` re-exports this
+ * so the `/explore` page has a stable import. When the legacy player is
+ * dismantled in task 7, the browser code relocates into `src/shell/explorer/`
+ * and this wrapper goes away.
+ */
+export function renderExplorer(game: StoredGame, onBack: () => void): HTMLElement {
+  return renderShell(game, onBack, false);
+}
+
+function renderShell(game: StoredGame, onBack: () => void, includeVm: boolean): HTMLElement {
   const container = document.createElement('div');
   container.className = 'player';
   container.innerHTML = `
@@ -61,12 +81,16 @@ export function renderPlayer(game: StoredGame, onBack: () => void): HTMLElement 
   });
 
   const main = container.querySelector('main')!;
-  void loadAndRender(game, main);
+  void loadAndRender(game, main, includeVm);
 
   return container;
 }
 
-async function loadAndRender(game: StoredGame, target: HTMLElement): Promise<void> {
+async function loadAndRender(
+  game: StoredGame,
+  target: HTMLElement,
+  includeVm: boolean,
+): Promise<void> {
   try {
     const indexName = indexFilenameFor(game.gameId);
     const resourcesName = resourcesFilenameFor(game.gameId);
@@ -244,28 +268,34 @@ async function loadAndRender(game: StoredGame, target: HTMLElement): Promise<voi
       showCharsets();
     }
 
-    // VM section: parse the index file and LOFF, then mount the
-    // inspector. If either parse fails we surface the error inside
-    // a placeholder section so the rest of the player still works.
-    let vmSection: HTMLElement;
-    try {
-      const idx = parseIndexFile(indexFileBundle);
-      const loff = parseLoff(resourceFileBundle);
-      vmSection = renderVmInspector(resourceFileBundle, idx, loff, game.gameId);
-    } catch (err) {
-      vmSection = document.createElement('section');
-      vmSection.className = 'vm-inspector';
-      vmSection.appendChild(renderError(err as Error));
+    // The resource-browser sections are session-free. The Explorer
+    // (`includeVm === false`) stops here; the Player additionally mounts the
+    // VM inspector (the only VM/session-dependent part).
+    const sections: HTMLElement[] = [roomSection, costumeSection, charsetSection];
+
+    if (includeVm) {
+      // Parse the index file and LOFF, then mount the inspector. If either
+      // parse fails we surface the error inside a placeholder section so the
+      // rest of the player still works.
+      let vmSection: HTMLElement;
+      try {
+        const idx = parseIndexFile(indexFileBundle);
+        const loff = parseLoff(resourceFileBundle);
+        vmSection = renderVmInspector(resourceFileBundle, idx, loff, game.gameId);
+      } catch (err) {
+        vmSection = document.createElement('section');
+        vmSection.className = 'vm-inspector';
+        vmSection.appendChild(renderError(err as Error));
+      }
+      sections.push(vmSection);
     }
 
-    target.replaceChildren(
-      roomSection,
-      costumeSection,
-      charsetSection,
-      vmSection,
+    sections.push(
       renderSection(`Index (${indexName})`, indexBytes.length, indexFileBundle.tree),
       renderSection(`Resources (${resourcesName})`, resourceBytes.length, resourceFileBundle.tree),
     );
+
+    target.replaceChildren(...sections);
   } catch (err) {
     target.replaceChildren(renderError(err as Error));
   }

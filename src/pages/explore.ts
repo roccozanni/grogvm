@@ -1,11 +1,11 @@
 // Entry for `/explore/?game=<id>` — the resource explorer.
 //
-// TEMPORARY (Phase 10): renders the legacy `renderPlayer` (which contains the
-// room / costume / charset / block-tree browsers). Task 4 replaces this with a
-// dedicated, session-free Explorer surface; task 7 deletes the legacy view.
-// The page scaffold (boot, ?game= resolve, permission gate) stays.
+// Renders the session-free Explorer (room / costume / charset / block-tree
+// browsers; no VM, no EngineSession). The browser code still physically lives
+// in the legacy player file and is re-exported via shell/explorer/ until task
+// 7 relocates it — see shell/explorer/explorer.ts.
 import '../styles.css';
-import { renderPlayer } from '../shell/player/player';
+import { renderExplorer } from '../shell/explorer/explorer';
 import { currentGameParam, homeHref } from '../shell/routing/routing';
 import { mountPage, findInstalledByGameId, renderMissingGame, withReadPermission } from './shared';
 
@@ -22,7 +22,7 @@ mountPage((root) => {
       return;
     }
     withReadPermission(root, game, () => {
-      root.replaceChildren(renderPlayer(game, () => location.assign(homeHref)));
+      root.replaceChildren(renderExplorer(game, () => location.assign(homeHref)));
     });
   })();
 });
