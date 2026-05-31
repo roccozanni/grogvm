@@ -82,6 +82,9 @@ async function mountGame(game: StoredGame, main: HTMLElement, onBack: () => void
     const input = mountVmFrameInput({
       canvas: frameCanvas,
       vm: session.vm,
+      // frame.width is the camera VIEWPORT width (the canvas size); the real
+      // room width + camera offset are read live from the VM inside the input.
+      viewportWidth: frame.width,
       roomWidth: frame.width,
       roomHeight: frame.height,
       onMove: () => play.onPointerMove(),

@@ -38,6 +38,7 @@ import { pickObject } from '../../engine/object/hittest';
 import type { ResourceFile } from '../../engine/resources/tree';
 import type { Vm, VerbSlot } from '../../engine/vm/vm';
 import { VAR_EGO } from '../../engine/vm/vars';
+import { VIEWPORT_W, viewportLeft } from '../../engine/graphics/viewport';
 
 /**
  * MI1 verb area starts at screen y = 144 (rooms are 200 tall total,
@@ -59,7 +60,6 @@ const CSS_SCALE = 2;
  * only ever sees a 320-wide slice. So those strips are sized to this,
  * NOT to the room width.
  */
-const VIEWPORT_W = 320;
 /** The minimal charset shape the text renderer needs (header + payload). */
 type ActiveCharset = { header: CharsetHeader; payload: Uint8Array };
 // Max pixel width for a talk/dialog line before word-wrap kicks in.
@@ -152,6 +152,12 @@ export interface PlayAreaHandles {
  */
 export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
   const { vm, roomWidth, roomHeight, palette } = args;
+  // `roomWidth` here is the VIEWPORT width (the overlay is a fixed camera
+  // window — see ARCHITECTURE §5.4 / the viewport module). The real room may
+  // be wider; the overlay draws camera-relative via this offset, matching the
+  // slice the session presents into the frame canvas underneath.
+  const cameraLeftPx = (): number =>
+    viewportLeft(vm.camera.x, vm.loadedRoom?.width ?? roomWidth, roomWidth);
   // The active charset changes at runtime (`cursorCommand initCharset`):
   // the credits use charset 4 (a 2-bpp serif title font), gameplay
   // dialog/verbs another. Loading it once at mount froze us on whatever
@@ -207,11 +213,13 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
     if (!cctx) return;
     cctx.clearRect(0, 0, roomWidth, roomHeight);
 
-    // Camera viewport indicator — outlines the 320-wide slice of the
-    // room the player would actually see on screen. Debug-only;
-    // helps explain why on-camera content appears off-centre on the
-    // full-room debug view.
-    drawViewportRect(cctx);
+    // The overlay is a fixed camera window; everything below is in ROOM
+    // coordinates, so translate by the camera's left edge to map room → screen
+    // (same slice the session draws into the frame canvas). Off-camera content
+    // falls outside the canvas and isn't shown.
+    const cameraLeft = cameraLeftPx();
+    cctx.save();
+    cctx.translate(-cameraLeft, 0);
 
     // Active dialog text (from `print` / `printEgo`). Painted before
     // the cursor so the crosshair stays on top.
@@ -235,11 +243,9 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
       }
     }
 
-    // Crosshair — always painted in the inspector context so the
-    // user can validate input wiring even before the boot script
-    // enables the cursor. Engine-truth `vm.cursor.visible` is surfaced
-    // in the Input panel for diagnosis; the game would normally skip
-    // this paint when it's false.
+    // Crosshair at the cursor's room position. (Drawn unconditionally for
+    // input diagnosis even when the game would hide it; `vm.cursor` truth is
+    // in the Input panel.)
     const cx = vm.mouseRoomX;
     const cy = vm.mouseRoomY;
     const color = hoveredObject !== null ? CURSOR_COLOR_HOVER_OBJECT : CURSOR_COLOR_NORMAL;
@@ -247,6 +253,8 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
     // 7×1 horizontal + 1×7 vertical centred at (cx, cy).
     cctx.fillRect(cx - 3, cy, 7, 1);
     cctx.fillRect(cx, cy - 3, 1, 7);
+
+    cctx.restore();
   };
 
   /**
@@ -262,28 +270,6 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
    * If the charset hasn't loaded the dialog renders nothing — better
    * to silently drop than to halt the engine on a missing font.
    */
-  /**
-   * Paint a dashed outline showing the player-visible camera viewport.
-   * Rect = `[cameraLeft, screen.top]` extending `[VIEWPORT_W,
-   * screen.bottom - screen.top]`. With the room canvas showing the
-   * full 640×200 (debug view), this rect tells the user exactly which
-   * slice of pixels the real game would display on screen.
-   */
-  const drawViewportRect = (ctx: CanvasRenderingContext2D): void => {
-    const cameraLeft = vm.camera.x - VIEWPORT_W / 2;
-    const top = vm.screen.top;
-    const height = Math.max(1, vm.screen.bottom - vm.screen.top);
-    // Subtle: a few-pixel outline with a half-pixel offset so the
-    // dashes sit on integer rows, plus an inset shadow on the inside
-    // so it reads against either light or dark backgrounds.
-    ctx.save();
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 4]);
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
-    ctx.strokeRect(cameraLeft + 0.5, top + 0.5, VIEWPORT_W - 1, height - 1);
-    ctx.restore();
-  };
-
   const drawDialog = (ctx: CanvasRenderingContext2D): void => {
     const charset = activeCharset();
     if (!charset) return;
@@ -302,14 +288,13 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
     charset: ActiveCharset,
     d: NonNullable<typeof vm.activeDialog>,
   ): void => {
-    // SCUMM print `at(x, y)` is in SCREEN coords — relative to the
-    // camera's viewport. To paint into the room canvas (which spans
-    // the full room width), add the camera's left edge:
-    //   roomX = screenX + (camera.x - VIEWPORT_HALF)
-    // Actor-overhead positions are already in room coords (they read
-    // actor.x which is room-space), so no offset there.
-    const VIEWPORT_HALF = 160;
-    const cameraLeft = vm.camera.x - VIEWPORT_HALF;
+    // The overlay context is translated by `-cameraLeft` (see drawCursor),
+    // so we compute positions in ROOM coordinates here. SCUMM print `at(x, y)`
+    // is in SCREEN coords, so add `cameraLeft` to get room space; actor-
+    // overhead positions are already room-space. Uses the SAME clamped
+    // `cameraLeft` as the frame slice so text and pixels line up.
+    const VIEWPORT_HALF = VIEWPORT_W / 2;
+    const cameraLeft = cameraLeftPx();
     // Word-wrap to the talk text box so long lines don't overrun the
     // viewport. SCUMM v5 breaks talk text at spaces against the screen
     // margin; `drawText` then centres each wrapped line independently.

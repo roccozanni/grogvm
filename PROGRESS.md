@@ -334,9 +334,26 @@ green; `tsc` clean.
       the camera viewport / play-area port). Same as task 4: the reused panel
       renderers still live in `vm-inspector.ts`; they relocate into
       `player/debug/` in task 7.
-- [ ] **6b. Camera-driven Play viewport (NEW — user-requested, 2026-05-31).**
-      Today the Play frame is **room-sized** (the canvas resizes per room and
-      wide scrolling rooms show their whole width). Make it **camera-driven**:
+- [~] **6b. Camera-driven Play viewport. IMPLEMENTED — PENDING IN-APP VISUAL
+      VERIFICATION (2026-05-31, session 7).** Was room-sized (canvas resized per
+      room; wide rooms showed their whole width — e.g. **room 33 is 1008×144**,
+      so it rendered 1008 wide). Now **camera-driven**: a fixed 320-wide
+      viewport scrolled by the camera; off-camera columns are not drawn.
+      Implemented across three layers behind one shared helper
+      `engine/graphics/viewport.ts` (`VIEWPORT_W`, `viewportLeft`): (1) the
+      session composes the full room then presents the `cameraLeft` slice
+      (`FrameInfo.width` = viewport width); (2) `play-area.ts` cursor overlay is
+      now camera-relative (`ctx.translate(-cameraLeft)`; `paintDialog` uses the
+      same clamped offset; debug viewport rect removed); (3) `input.ts`
+      `clientToRoomCoords` splits unscale-width (viewport) from clamp-width
+      (room) and reads the room width + camera **live** from the VM each event.
+      +7 tests (viewport helper, clientToRoomCoords split, camera input wiring,
+      session slice assertion) — 735 green, tsc clean, `vite build` OK.
+      **NEEDS USER CONFIRM in room 33** (camera should follow Guybrush across
+      the docks instead of showing the whole 1008px room; cursor + clicks must
+      stay aligned). Likely unblocks the deferred walk overlay next.
+      ────────── original plan ──────────
+      Make it **camera-driven**:
       a fixed 320-wide viewport showing the `cameraLeft` slice; off-camera
       regions are **not** drawn (user-confirmed). Coordinated change across
       three layers — must land together (a partial change misaligns the
@@ -353,7 +370,8 @@ green; `tsc` clean.
          `input.test.ts`.
       Share one `cameraLeft(camera.x, roomWidth)` helper across all three so the
       slice + overlay + input stay consistent. Needs a visual check (room 33
-      scrolling). Likely also unblocks the deferred walk overlay (fixed viewport).
+      scrolling). Likely also unblocks the deferred walk overlay (fixed
+      viewport). ✅ done as above.
 - [ ] **7. Dismantle the legacy player + split CSS.** **Relocate** the
       resource-browser code (room / costume / charset / block-tree viewers,
       currently still in `player.ts` behind `renderExplorer`) into

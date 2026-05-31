@@ -47,6 +47,11 @@ describe.skipIf(!hasData)('EngineSession — real MI1', () => {
     expect(frame.roomId).toBe(33);
     expect(frame.width).toBeGreaterThan(0);
     expect(frame.framebuffer.length).toBe(frame.width * frame.height);
+    // Camera-driven viewport: the presented frame is at most VIEWPORT_W wide,
+    // and equals min(320, roomWidth) — never the full width of a wide room.
+    const roomW = session.vm.loadedRoom!.width;
+    expect(frame.width).toBe(Math.min(320, roomW));
+    expect(frame.width).toBeLessThanOrEqual(320);
     expect(frame.compose.actorsDrawn).toBeGreaterThanOrEqual(1);
     expect(frame.halted).toBe(false);
     // It actually reached the renderer at the right size, with a real palette.

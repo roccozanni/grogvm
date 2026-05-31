@@ -133,6 +133,34 @@ describe('clientToRoomCoords', () => {
     expect(p).toEqual({ roomX: 319, roomY: 199 });
   });
 
+  it('unscales against the viewport but clamps to the real room width', () => {
+    // 320-wide canvas (shown at 2× = 640) into a 500-wide room, camera at 180.
+    const p = clientToRoomCoords({
+      clientX: 200,
+      clientY: 100,
+      canvasRect: { left: 0, top: 0, width: 640, height: 400 },
+      viewportWidth: 320,
+      roomWidth: 500,
+      roomHeight: 200,
+      cameraX: 180,
+    });
+    // localX = 200 / (640/320=2) = 100; + cameraX 180 = 280 (within room 500).
+    expect(p.roomX).toBe(280);
+  });
+
+  it('a click at the viewport right edge clamps to roomWidth-1, not viewport', () => {
+    const p = clientToRoomCoords({
+      clientX: 10_000,
+      clientY: 0,
+      canvasRect: { left: 0, top: 0, width: 640, height: 400 },
+      viewportWidth: 320,
+      roomWidth: 500,
+      roomHeight: 200,
+      cameraX: 180,
+    });
+    expect(p.roomX).toBe(499); // real room edge, not 319
+  });
+
   it('handles a degenerate 0×0 rect without dividing by zero', () => {
     expect(() =>
       clientToRoomCoords({
@@ -339,26 +367,28 @@ describe('mountVmFrameInput — dispose', () => {
   });
 });
 
-describe('mountVmFrameInput — cameraX wiring', () => {
-  it('uses the live cameraX from the getter (per-event lookup)', () => {
+describe('mountVmFrameInput — camera viewport wiring', () => {
+  it('maps clicks through the live camera offset (320 viewport into a wider room)', () => {
     const vm = makeVm();
     const canvas = new FakeCanvas();
-    // 2× scale on a 500-wide world, so localX = clientX / 2.
-    canvas.rect = { left: 0, top: 0, width: 1000, height: 400 };
-    let cameraX = 0;
+    // 320-wide viewport displayed at 2× → 640 CSS px.
+    canvas.rect = { left: 0, top: 0, width: 640, height: 400 };
     mountVmFrameInput({
       canvas: canvas as unknown as HTMLCanvasElement,
       vm,
-      roomWidth: 500,
+      viewportWidth: 320,
+      roomWidth: 500, // real room width (no room loaded → fallback used for clamp)
       roomHeight: 200,
-      getCameraX: () => cameraX,
     });
 
+    // Camera centred at 160 → cameraLeft = clamp(160-160, 0, 500-320) = 0.
+    vm.camera.x = 160;
     canvas.dispatch('pointermove', makeEvent({ clientX: 200, clientY: 100 }));
-    expect(vm.mouseRoomX).toBe(100);
+    expect(vm.mouseRoomX).toBe(100); // localX = 200 / 2
 
-    cameraX = 40;
+    // Scroll right: centre 400 → cameraLeft = clamp(400-160, 0, 180) = 180.
+    vm.camera.x = 400;
     canvas.dispatch('pointermove', makeEvent({ clientX: 200, clientY: 100 }));
-    expect(vm.mouseRoomX).toBe(140);
+    expect(vm.mouseRoomX).toBe(280); // 100 + 180
   });
 });

@@ -32,6 +32,7 @@
  */
 
 import type { Vm } from '../../engine/vm/vm';
+import { viewportLeft } from '../../engine/graphics/viewport';
 
 export interface ModifierKeys {
   readonly shift: boolean;
@@ -62,9 +63,16 @@ export interface ClientToRoomArgs {
    * tweak doesn't silently break input.
    */
   readonly canvasRect: { left: number; top: number; width: number; height: number };
+  /** Real room width — used to CLAMP the resolved room coordinate. */
   readonly roomWidth: number;
   readonly roomHeight: number;
-  /** Left edge of the viewport in world coords. Defaults to 0. */
+  /**
+   * On-screen viewport width in native pixels — used to UNSCALE the click
+   * (the canvas shows a `viewportWidth`-wide camera window). Defaults to
+   * `roomWidth` (i.e. the canvas spans the whole room — no camera scroll).
+   */
+  readonly viewportWidth?: number;
+  /** Left edge of the viewport in room coords. Defaults to 0. */
   readonly cameraX?: number;
 }
 
@@ -75,9 +83,11 @@ export interface ClientToRoomArgs {
  */
 export function clientToRoomCoords(args: ClientToRoomArgs): RoomPoint {
   const { clientX, clientY, canvasRect, roomWidth, roomHeight, cameraX = 0 } = args;
+  const viewportWidth = args.viewportWidth ?? roomWidth;
   // Avoid divide-by-zero if a 0×0 rect ever sneaks in (the canvas
-  // briefly has no layout during teardown).
-  const scaleX = canvasRect.width > 0 ? canvasRect.width / roomWidth : 1;
+  // briefly has no layout during teardown). Unscale against the VIEWPORT
+  // width (the canvas size); clamp against the real room width below.
+  const scaleX = canvasRect.width > 0 ? canvasRect.width / viewportWidth : 1;
   const scaleY = canvasRect.height > 0 ? canvasRect.height / roomHeight : 1;
   const localX = (clientX - canvasRect.left) / scaleX;
   const localY = (clientY - canvasRect.top) / scaleY;
@@ -102,10 +112,12 @@ const VAR_MOUSE_Y = 45;
 export interface MountInputArgs {
   readonly canvas: HTMLCanvasElement;
   readonly vm: Vm;
+  /** Fallback room width (used only before a room loads). The real room width
+   *  + camera offset are read live from the VM each event. */
   readonly roomWidth: number;
   readonly roomHeight: number;
-  /** Defaults to a constant 0. Wire this up when the camera lands. */
-  readonly getCameraX?: () => number;
+  /** On-screen viewport (canvas) width in native pixels. Defaults to roomWidth. */
+  readonly viewportWidth?: number;
   /** Left-click handler. Bound semantics ("use the current verb") live with the caller. */
   readonly onLeftClick?: (e: ClickEvent) => void;
   /** Right-click handler. The v5 convention treats this as the "Look at" shortcut. */
@@ -135,15 +147,22 @@ export interface MountedInput {
 export function mountVmFrameInput(args: MountInputArgs): MountedInput {
   const { canvas, vm } = args;
 
-  const point = (ev: { clientX: number; clientY: number }): RoomPoint =>
-    clientToRoomCoords({
+  const point = (ev: { clientX: number; clientY: number }): RoomPoint => {
+    // Read room width + camera live: rooms (and the camera) change without an
+    // input re-mount, and the same clamped `cameraLeft` the frame slice uses
+    // keeps clicks aligned with the on-screen pixels.
+    const viewportWidth = args.viewportWidth ?? args.roomWidth;
+    const roomWidth = vm.loadedRoom?.width ?? args.roomWidth;
+    return clientToRoomCoords({
       clientX: ev.clientX,
       clientY: ev.clientY,
       canvasRect: canvas.getBoundingClientRect(),
-      roomWidth: args.roomWidth,
+      viewportWidth,
+      roomWidth,
       roomHeight: args.roomHeight,
-      cameraX: args.getCameraX?.() ?? 0,
+      cameraX: viewportLeft(vm.camera.x, roomWidth, viewportWidth),
     });
+  };
 
   const modsOf = (ev: {
     shiftKey: boolean;

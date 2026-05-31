@@ -19,6 +19,7 @@ import { bootGame } from '../vm/boot';
 import type { Vm } from '../vm/vm';
 import { snapshotVm, restoreVm, type SaveState } from '../vm/savestate';
 import { composeFrame } from '../render/compositor';
+import { VIEWPORT_W, viewportLeft } from '../graphics/viewport';
 import type { Renderer } from '../render/renderer';
 import {
   VAR_MOUSE_X,
@@ -87,7 +88,8 @@ export function createSession(
   let lastTransparentIndex: number | null = null;
   let lastW = -1;
   let lastH = -1;
-  let framebuffer = new Uint8Array(320 * 200);
+  let roomScratch = new Uint8Array(320 * 200); // full-room compose buffer
+  let viewScratch = new Uint8Array(320 * 200); // presented viewport slice
 
   const frameSubs = new Set<(f: FrameInfo) => void>();
 
@@ -169,24 +171,44 @@ export function createSession(
 
   const composeAndPresent = (framed: boolean): FrameInfo => {
     const room = vm.loadedRoom;
-    const width = room?.width ?? 320;
+    const roomW = room?.width ?? 320;
     const height = room?.height ?? 144;
-    const need = width * height;
-    if (framebuffer.length < need) framebuffer = new Uint8Array(need);
-    const fb = framebuffer.subarray(0, need);
+    // Camera-driven viewport: present a fixed-width window into the room,
+    // scrolled by the camera. Off-camera columns are never drawn.
+    const viewportW = Math.min(VIEWPORT_W, roomW);
 
+    // Compose the full room (background + actors + objects, all in room space).
+    const roomNeed = roomW * height;
+    if (roomScratch.length < roomNeed) roomScratch = new Uint8Array(roomNeed);
+    const roomBuf = roomScratch.subarray(0, roomNeed);
     const compose = composeFrame({
       room,
-      framebuffer: fb,
+      framebuffer: roomBuf,
       actors: room ? vm.actors.inRoom(vm.currentRoom) : [],
       getCostume: (id) => vm.getCostume(id),
       objectDrawQueue: vm.objectDrawQueue,
       getObjectState: (id) => vm.objectStates.get(id) ?? 1,
     });
 
-    if (width !== lastW || height !== lastH) {
-      renderer.resize(width, height);
-      lastW = width;
+    // Extract the camera slice. When the viewport spans the whole room (the
+    // common, non-scrolling case) we present the room buffer directly.
+    const cameraLeft = room ? viewportLeft(vm.camera.x, roomW, viewportW) : 0;
+    let fb: Uint8Array;
+    if (viewportW === roomW) {
+      fb = roomBuf;
+    } else {
+      const viewNeed = viewportW * height;
+      if (viewScratch.length < viewNeed) viewScratch = new Uint8Array(viewNeed);
+      fb = viewScratch.subarray(0, viewNeed);
+      for (let y = 0; y < height; y++) {
+        const src = y * roomW + cameraLeft;
+        fb.set(roomBuf.subarray(src, src + viewportW), y * viewportW);
+      }
+    }
+
+    if (viewportW !== lastW || height !== lastH) {
+      renderer.resize(viewportW, height);
+      lastW = viewportW;
       lastH = height;
     }
 
@@ -207,7 +229,7 @@ export function createSession(
     const info: FrameInfo = {
       tickCount,
       framed,
-      width,
+      width: viewportW,
       height,
       roomId: room?.id ?? null,
       palette: room?.palette ?? lastPalette ?? BLACK_PALETTE,
