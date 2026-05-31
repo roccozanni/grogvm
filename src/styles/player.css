@@ -1,0 +1,638 @@
+/* ── VM inspector ───────────────────────────────────────────────── */
+
+.vm-inspector {
+  margin-top: 1.5rem;
+}
+
+.vm-inspector > h2 {
+  font-size: 1rem;
+  color: var(--accent);
+  margin: 0 0 0.5rem;
+}
+
+.vm-inspector h3 {
+  font-size: 0.85em;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 1.25rem 0 0.5rem;
+}
+
+.vm-controls {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.vm-controls button {
+  font-family: inherit;
+  font-size: 0.85em;
+  padding: 0.3rem 0.8rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.vm-controls button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.vm-empty {
+  color: var(--muted);
+  font-style: italic;
+  margin: 0.5rem 0;
+}
+
+.vm-slots table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85em;
+}
+
+.vm-slots th,
+.vm-slots td,
+.vm-actors th,
+.vm-actors td {
+  text-align: left;
+  padding: 0.3rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.vm-slots th,
+.vm-actors th {
+  color: var(--muted);
+  font-weight: 500;
+  background: #06070b;
+}
+
+.vm-actors table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+}
+
+.actor-in-current-room {
+  background: rgba(255, 200, 90, 0.05);
+}
+
+.actor-in-current-room td:first-child {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.actor-hidden {
+  opacity: 0.5;
+}
+
+.vm-actor-anim-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+}
+
+.vm-actor-anim-block {
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.8em;
+}
+
+.vm-actor-anim-head {
+  color: var(--accent, #ffc85a);
+  margin-bottom: 0.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.vm-actor-anim-limbs {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.vm-actor-anim-limbs th,
+.vm-actor-anim-limbs td {
+  text-align: left;
+  padding: 0.15rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.vm-actor-anim-limbs th {
+  color: var(--muted);
+  font-weight: 500;
+  background: #06070b;
+}
+
+.limb-finished {
+  color: var(--muted);
+}
+
+.slot-row.slot-running td:nth-child(4) {
+  color: #6cdf6c;
+}
+
+.slot-row.slot-yielded td:nth-child(4) {
+  color: var(--accent);
+}
+
+.slot-row.slot-frozen td:nth-child(4) {
+  color: #6c8edf;
+}
+
+.slot-row.slot-dead {
+  color: var(--muted);
+}
+
+.slot-row.slot-halted td:nth-child(4) {
+  color: var(--error);
+}
+
+.slot-halt-badge {
+  display: inline-block;
+  padding: 0 0.4em;
+  border-radius: 3px;
+  background: var(--error);
+  color: #000;
+  font-size: 0.85em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.vm-empty-cell {
+  text-align: center;
+  font-style: italic;
+  color: var(--muted);
+}
+
+.vm-trace-list {
+  background: #06070b;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.4rem 0.6rem;
+  max-height: 260px;
+  overflow: auto;
+  font-size: 0.8em;
+  line-height: 1.5;
+}
+
+.vm-trace-row {
+  white-space: nowrap;
+  color: #cdd4e6;
+}
+
+.vm-trace-row:first-child {
+  color: var(--fg);
+  font-weight: 500;
+}
+
+.vm-var-grid {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 4px;
+  font-size: 0.8em;
+}
+
+.var-cell {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  background: #06070b;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+
+.var-nonzero {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.var-idx {
+  color: var(--muted);
+}
+
+.var-val {
+  font-variant-numeric: tabular-nums;
+}
+
+.vm-vars > button,
+.vm-bits > button {
+  margin-top: 0.5rem;
+}
+
+.vm-bit-grid {
+  display: grid;
+  grid-template-columns: repeat(32, minmax(0, 1fr));
+  gap: 2px;
+  font-size: 0.7em;
+}
+
+.bit-cell {
+  text-align: center;
+  background: #06070b;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 0.1rem 0;
+  color: var(--muted);
+}
+
+.bit-on {
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
+}
+
+.vm-halt {
+  background: #2a0e10;
+  border: 1px solid var(--error);
+  border-radius: 4px;
+  padding: 0.75rem 1rem;
+  margin: 0.5rem 0 1rem;
+}
+
+.vm-halt h3 {
+  color: var(--error);
+  margin: 0 0 0.4rem;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.95em;
+}
+
+.vm-halt-meta {
+  color: #ffb3b3;
+  margin: 0 0 0.6rem;
+  font-size: 0.85em;
+}
+
+.vm-halt-ctx-label {
+  color: var(--muted);
+  font-size: 0.75em;
+  margin: 0.5rem 0 0.25rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.vm-halt-ctx {
+  display: flex;
+  gap: 4px;
+  background: #06070b;
+  padding: 0.4rem 0.6rem;
+  border-radius: 3px;
+  font-size: 0.85em;
+  border: 1px solid var(--border);
+}
+
+.hex-cell {
+  font-variant-numeric: tabular-nums;
+  color: #cdd4e6;
+}
+
+.hex-here {
+  color: var(--error);
+  font-weight: 700;
+}
+
+.vm-frame {
+  margin: 0.5rem 0 1rem;
+}
+
+.vm-tick-counter {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+  align-self: center;
+}
+
+.vm-tick-rate {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.85em;
+  align-self: center;
+}
+
+.vm-tick-rate select {
+  background: var(--surface, #14171f);
+  color: inherit;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0.15rem 0.35rem;
+  font-size: inherit;
+  font-family: inherit;
+}
+
+.vm-idle-banner {
+  background: #14202c;
+  border: 1px solid #2a5078;
+  border-radius: 4px;
+  padding: 0.5rem 0.75rem;
+  margin: 0.5rem 0 1rem;
+  color: #bcd6ee;
+  font-size: 0.85em;
+}
+
+.vm-frame-err {
+  color: #ffb3b3;
+  margin: 0 0 0.4rem;
+  font-size: 0.8em;
+  font-style: italic;
+}
+
+.vm-frame-meta {
+  color: var(--muted);
+  font-size: 0.8em;
+  margin: 0.4rem 0 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.vm-frame-skip-list {
+  margin: 0.25rem 0 0;
+  padding-left: 1.25rem;
+  font-size: 0.8em;
+  color: #ffd6a8;
+}
+
+.vm-frame-canvas {
+  /* CSS width/height set inline per render so the canvas displays at
+     2× the native room dimensions. Native bitmap stays in canvas
+     `width`/`height` attributes. Same approach as the room viewer's
+     room-canvas. */
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  border: 1px solid var(--border);
+  display: block;
+  background-color: #1a1a22;
+  background-image:
+    linear-gradient(45deg, #2a2a34 25%, transparent 25%),
+    linear-gradient(-45deg, #2a2a34 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #2a2a34 75%),
+    linear-gradient(-45deg, transparent 75%, #2a2a34 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+
+.vm-frame-stack {
+  position: relative;
+  display: block;
+}
+
+.vm-frame-stack .vm-frame-canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.vm-frame-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  /* Border still belongs to the underlying frame canvas — overlay
+     sits flush. */
+  border: 1px solid transparent;
+}
+
+.vm-frame-toggles {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin: 0.4rem 0 0.25rem;
+  font-size: 0.85em;
+  color: var(--muted);
+}
+
+.vm-frame-toggles label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+}
+
+.vm-frame-toggles-info {
+  font-variant-numeric: tabular-nums;
+}
+
+.vm-input-panel {
+  margin: 0.75rem 0 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.vm-input-panel h3 {
+  margin: 0 0 0.4rem;
+  font-size: 0.9em;
+}
+
+.vm-input-live {
+  margin: 0 0 0.4rem;
+  font-family: var(--mono, monospace);
+  font-size: 0.8em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.vm-input-clicks {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-family: var(--mono, monospace);
+  font-size: 0.8em;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.vm-input-clicks li {
+  list-style: square;
+}
+
+/* ── Save / load panel ── */
+.vm-saves-panel {
+  margin: 0.75rem 0 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.vm-saves-panel h3 {
+  margin: 0 0 0.4rem;
+  font-size: 0.9em;
+}
+
+.vm-saves-row {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 0.4rem;
+}
+
+.vm-saves-name {
+  flex: 1 1 10rem;
+  min-width: 8rem;
+  padding: 0.25rem 0.4rem;
+  font-family: var(--mono, monospace);
+  font-size: 0.8em;
+}
+
+.vm-saves-status {
+  margin: 0 0 0.4rem;
+  font-size: 0.78em;
+  color: var(--muted);
+  min-height: 1em;
+}
+
+.vm-saves-status.vm-saves-error {
+  color: #ff6b6b;
+}
+
+.vm-saves-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.vm-saves-item {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.vm-saves-info {
+  flex: 1 1 auto;
+  font-family: var(--mono, monospace);
+  font-size: 0.78em;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vm-saves-item button {
+  font-size: 0.75em;
+  padding: 0.15rem 0.45rem;
+}
+
+.vm-tick-counter-live {
+  margin: 0.25rem 0;
+  font-family: var(--mono, monospace);
+  font-size: 0.85em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.vm-frame-stack .vm-frame-cursor {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  border: 1px solid transparent;
+  /* Painted on top of frame + walk overlay. */
+  z-index: 2;
+}
+
+.vm-verb-bar {
+  box-sizing: border-box;
+  display: block;
+  margin: 0.25rem 0 0;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  border: 1px solid var(--border);
+  background: #000;
+  cursor: pointer;
+}
+
+
+/* ── Phase 10 shell rebuild: pages + Play surface ──────────────────────
+   Minimal layout for the multi-page shell. Gets folded into per-screen
+   stylesheets when styles.css is split in task 7. */
+
+/* <a> elements styled as buttons (library Play / Explore links). */
+a.button {
+  display: inline-block;
+  font: inherit;
+  background: #1a1d28;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  padding: 0.4rem 0.8rem;
+  margin-right: 0.5rem;
+  border-radius: 4px;
+  text-decoration: none;
+  cursor: pointer;
+}
+a.button.secondary {
+  opacity: 0.85;
+}
+
+/* Play surface. */
+.play-screen {
+  padding: 0.75rem;
+}
+.play-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.play-status {
+  opacity: 0.7;
+  font-size: 0.9em;
+}
+.play-game {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.play-error,
+.page-message {
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+.back-link {
+  color: var(--fg);
+}
+
+/* ── Phase 10: Debug panel BELOW the Play canvas (task 6) — always shown ── */
+.vm-debug {
+  width: 100%;
+  margin-top: 0.75rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.75rem;
+}
+.vm-debug-heading {
+  margin: 0 0 0.5rem;
+}
+.vm-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+.vm-controls .vm-rate-label,
+.vm-controls .vm-warp-label {
+  opacity: 0.7;
+  font-size: 0.85em;
+}
+.vm-warp-input {
+  width: 4rem;
+}
+.vm-tick-counter {
+  margin-left: auto;
+  opacity: 0.7;
+  font-size: 0.9em;
+}
