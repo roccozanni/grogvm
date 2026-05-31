@@ -88,6 +88,32 @@ describe('stepWalk', () => {
     expect(a.facing).toBe('E');
   });
 
+  it('faces the local path direction (lookahead), not the far-off final target', () => {
+    // Path goes straight DOWN, then turns RIGHT — like room 33's cliff → dock.
+    // Aiming at the final target (40,40) is a down-right tie → would face E the
+    // whole descent; the lookahead aims at the next waypoint (0,40) → S.
+    const a = createActor(1);
+    a.x = 0;
+    a.y = 0;
+    a.walkPath = [
+      { x: 0, y: 40 }, // descend
+      { x: 40, y: 40 }, // then east along the "dock"
+    ];
+    a.walkPathIdx = 0;
+    a.walkTarget = { x: 40, y: 40 };
+    a.isMoving = true;
+    a.walkSpeedX = 2;
+    a.walkSpeedY = 2;
+
+    stepWalk(a);
+    expect(a.facing).toBe('S'); // descending — faces south, not the eastern target
+
+    // Walk down to the corner, then one step along the horizontal leg.
+    for (let i = 0; i < 40 && a.walkPathIdx === 0; i++) stepWalk(a);
+    stepWalk(a);
+    expect(a.facing).toBe('E'); // now heading east along the dock leg
+  });
+
   it('is a no-op when isMoving is false', () => {
     const a = createActor(1);
     a.x = 10;

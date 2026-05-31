@@ -154,14 +154,16 @@ export function stepWalk(actor: Actor): void {
   const stepX = clampToward(dx, actor.walkSpeedX);
   const stepY = clampToward(dy, actor.walkSpeedY);
 
-  // Facing follows the overall direction to the FINAL target, not this
-  // tick's step. The pathfinder polyline can wobble ±1px on a near-
-  // vertical descent (room 33's cliff), and a per-tick/per-leg facing
-  // flips E↔W↔S every few ticks as the wobble changes the dominant step.
-  // The target is stable for the whole walk, so the facing stays steady
-  // (a descent reads as a clean N/S). Horizontal wins ties (SCUMM bias).
-  const fx = (actor.walkTarget ?? aim).x - actor.x;
-  const fy = (actor.walkTarget ?? aim).y - actor.y;
+  // Facing follows the LOCAL path direction via a short lookahead: the next
+  // waypoint at least FACING_LOOKAHEAD px ahead (or the final aim near the
+  // end). Looking ahead — rather than at this tick's ±1px step — avoids the
+  // flip-flop on near-axis-aligned grid paths, while still turning with the
+  // path's actual shape. Aiming at the *final* target instead faced the dock
+  // (far east) for the whole room-33 cliff descent; the lookahead reads it as
+  // S down the cliff, then E along the dock. Horizontal wins ties (SCUMM bias).
+  const look = facingLookahead(actor);
+  const fx = look.x - actor.x;
+  const fy = look.y - actor.y;
   if (Math.abs(fx) >= Math.abs(fy) && fx !== 0) {
     actor.facing = fx > 0 ? 'E' : 'W';
   } else if (fy !== 0) {
@@ -175,6 +177,30 @@ export function stepWalk(actor: Actor): void {
   if (actor.x === aim.x && actor.y === aim.y) {
     if (!advanceWaypoint(actor)) finishWalk(actor);
   }
+}
+
+/** How far ahead (room px) facing looks along the path. Big enough to smooth
+ *  the ±1px jitter of a near-axis-aligned grid path; small enough to still
+ *  turn promptly at a real corner (e.g. cliff → dock). */
+const FACING_LOOKAHEAD = 16;
+
+/**
+ * The point facing should aim at: the first waypoint at least
+ * {@link FACING_LOOKAHEAD} px ahead of the actor, else the last waypoint, else
+ * the straight-line `walkTarget`. (Distinct from {@link currentAim}, which is
+ * the *next* waypoint the actor physically steps toward.)
+ */
+function facingLookahead(actor: Actor): { x: number; y: number } {
+  const path = actor.walkPath;
+  const look2 = FACING_LOOKAHEAD * FACING_LOOKAHEAD;
+  for (let i = actor.walkPathIdx; i < path.length; i++) {
+    const wp = path[i]!;
+    const dx = wp.x - actor.x;
+    const dy = wp.y - actor.y;
+    if (dx * dx + dy * dy >= look2) return wp;
+  }
+  if (path.length > 0) return path[path.length - 1]!;
+  return actor.walkTarget ?? { x: actor.x, y: actor.y };
 }
 
 /**

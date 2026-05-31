@@ -757,11 +757,16 @@ most lives in the inline known-bug entries above and the linked docs.
     re-point). Factored the init→stand re-point into a shared
     `applyStandPose(vm, actor)` and call it from the walk-stop transition,
     `faceActor`, and `animateActor` stop/set-dir (idle only).
-  - [x] **Room 33 N/S facing flip-flop** — facing was picked from the
-    per-tick clamped step, so a jagged pathfinder polyline (±1px wobble on
-    a near-vertical descent) flipped E↔W↔S every few ticks. Facing now
-    follows the vector to the **final target** (stable for the walk) — the
-    descent verified as a single clean S (was dozens of flips).
+  - [x] **Room 33 N/S facing flip-flop → lookahead facing (2026-05-31,
+    revised).** Originally: facing from the per-tick clamped step flip-flopped
+    E↔W↔S on a jagged near-vertical path; session 5 changed it to aim at the
+    **final target**. That overcorrected — walking the cliff *to the dock*
+    (far east) then faced **E the whole descent** instead of S (user-reported).
+    Now facing aims at a **lookahead point** (`facingLookahead`, the next
+    waypoint ≥16px ahead, else the last waypoint, else `walkTarget`): smooths
+    the ±1px jitter (no flip-flop) *and* follows the path's actual shape.
+    Verified on real room 33: S down the cliff, E along the dock. Straight-line
+    walks fall back to `walkTarget` (unchanged). +1 test.
 - **Room 38 (lookout) fire composites *over* Guybrush** *(new,
   2026-05-31, user-reported)*. The campfire actor draws on top of
   Guybrush's torso/arm; it should sit in front of only his lower body
