@@ -83,6 +83,11 @@ const DEFAULT_VERB_HI_COLOR = 14; // light yellow
 const VERB_SENTENCE = 100;
 const DEFAULT_VERB_DIM_COLOR = 8; // dark grey
 
+/** Verb-panel background — the dark-magenta UI field (CLUT 2 ≈ (83,0,83) via
+ *  the boot UI-palette overrides), not black. Adjust if a different MI1 build
+ *  uses another shade. */
+const VERB_BAR_BG_COLOR = 2;
+
 /** Cursor crosshair colours (CLUT indices). */
 const CURSOR_COLOR_NORMAL = 15; // bright white
 const CURSOR_COLOR_HOVER_OBJECT = 14; // yellow when over an interactable
@@ -431,11 +436,13 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
     const charset = activeCharset();
     vbctx.clearRect(0, 0, VIEWPORT_W, VERB_BAR_HEIGHT);
 
-    // Background: CLUT colour 0 (black in MI1). NB: do NOT use the
-    // room's transparent index here — that's a transparency *key*, not a
-    // background colour (room 33's is idx 5 = magenta), and filling with
-    // it painted the bar's uncovered strip purple.
-    vbctx.fillStyle = clutCss(palette, 0);
+    // Background: the magenta UI panel colour, not black. MI1's verb panel
+    // sits on a dark-magenta field (the boot UI palette sets CLUT 2 to
+    // ~(83,0,83) — see the UI-palette overrides), with the verbs drawn over
+    // it; ScummVM shows that magenta behind the verbs. (Earlier this used
+    // CLUT 0 = pure black; and the room's transparent index — idx 5, a
+    // brighter magenta key, not a background colour — read too purple.)
+    vbctx.fillStyle = clutCss(palette, VERB_BAR_BG_COLOR);
     vbctx.fillRect(0, 0, VIEWPORT_W, VERB_BAR_HEIGHT);
 
     if (!charset) {
