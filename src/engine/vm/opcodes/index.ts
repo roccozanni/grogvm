@@ -370,8 +370,12 @@ register(0x2c, (vm, slot) => {
     }
     case 0x0e: {
       // charsetColor: word-vararg list of CLUT indices, terminated by 0xFF.
+      // SCUMM's _charsetColorMap — the text renderer maps glyph pixel values
+      // through it (value 1 = fill, value 2 = shadow/outline, …). MI1 sets
+      // [0,6,2], which gives the verb panel its dark-magenta glyph shadow.
       const colors = readWordVararg(slot, vm.vars);
-      vm.annotate(`cursorCommand charsetColor [${colors.join(',')}] (stub)`);
+      vm.charsetColorMap = colors;
+      vm.annotate(`cursorCommand charsetColor [${colors.join(',')}]`);
       break;
     }
     default:

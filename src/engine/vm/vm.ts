@@ -538,6 +538,16 @@ export class Vm {
    */
   readonly uiPaletteOverrides = new Map<number, readonly [number, number, number]>();
   /**
+   * Charset colour map set by `cursorCommand charsetColor` (subop 0x0E):
+   * the list of CLUT indices the text renderer maps glyph pixel values
+   * through. MI1's boot sets `[0, 6, 2]` — value 1 (the glyph fill) → CLUT
+   * 6 (magenta), value 2 (the shadow/outline) → CLUT 2 (dark magenta). The
+   * verb panel renders with this map, which is why the verb glyphs carry a
+   * dark-magenta shadow, not a black one. Empty until a charsetColor runs.
+   * Cleared by {@link reset}.
+   */
+  charsetColorMap: number[] = [];
+  /**
    * Camera-centre scroll bounds set by `roomOps roomScroll` (subop
    * 0x01): the min/max X the camera centre may reach in this room.
    * `null` means "use the default bounds" — `[160, width-160]`, the
@@ -1567,6 +1577,7 @@ export class Vm {
     this.loadedRoom = null;
     this.lastRoomLoadError = null;
     this.uiPaletteOverrides.clear();
+    this.charsetColorMap = [];
     this.pseudoRooms.clear();
     this.systemRequest = null;
     this.actors.reset();

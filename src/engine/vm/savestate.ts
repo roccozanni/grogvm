@@ -117,6 +117,7 @@ export interface SaveState {
   // ── Cursor / charset / system ───────────────────────────────────
   readonly cursor: { state: number; userput: number };
   readonly currentCharset: number;
+  readonly charsetColorMap: ReadonlyArray<number>;
   readonly systemRequest: 'restart' | 'pause' | 'quit' | null;
 
   // ── Verbs ───────────────────────────────────────────────────────
@@ -271,6 +272,7 @@ export function snapshotVm(vm: Vm, meta?: { game?: string; label?: string; saved
 
     cursor: { state: vm.cursor.state, userput: vm.cursor.userput },
     currentCharset: vm.currentCharset,
+    charsetColorMap: [...vm.charsetColorMap],
     systemRequest: vm.systemRequest,
 
     verbs: [...vm.verbs.values()].map((v) => ({ ...v, image: v.image ? { ...v.image } : null })),
@@ -357,6 +359,7 @@ export function restoreVm(vm: Vm, state: SaveState): void {
   vm.cursor.state = state.cursor.state;
   vm.cursor.userput = state.cursor.userput;
   vm.currentCharset = state.currentCharset;
+  vm.charsetColorMap = state.charsetColorMap ? [...state.charsetColorMap] : [];
   vm.systemRequest = state.systemRequest;
 
   // Verbs.

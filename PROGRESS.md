@@ -107,20 +107,24 @@ screenshot via `sample-shot.mjs`/`hist-shot.mjs`). Findings:
   always there. So the background needs no change — **confirm in-app it shows**.
 - **Palette verified exact** against the screenshot histogram: box fill = idx 1 =
   (23,0,23); glyph fill = idx 6 = (127,47,127); both match pixel-for-pixel.
-- **The one real remaining gap:** the verb-text **shadow/outline**. ScummVM draws
-  it dark-magenta (83,0,83 = idx 2, ~12.7k px in the close-up); ours forces the
-  2bpp outline to **black** (`drawText`: `colorMap[2]=colorMap[3]=0`). That
-  (83,0,83) is **not** any static entry in charset 6's colorMap (native [2]=black,
-  [3]=red) — ScummVM builds the verb-text map dynamically via **`charsetColor`
-  (0x0E)** (the deferred Phase-8 opcode). So fixing the shadow = implement
-  `charsetColor` and feed its `_charsetColorMap` into `drawText` for the verb
-  panel; do NOT hardcode a guess (would regress dialog/credits text — see
-  SCUMM-V5-CHAR §5). This is the concrete next step for the verb bar.
-- Minor: verb #8 "Esamina" carries `color=3` (bright, 223,83,223) while the rest
-  are `color=6`; the screenshot shows it the same shade as the others (no
-  223,83,223 pixels at all) — likely the same `charsetColor` dynamic-map effect,
-  revisit with 0x0E.
-Code: `src/shell/player/play-area.ts` `paintVerbBar`/`drawVerbImage`/`drawText`.
+- **Verb-text shadow — FIXED (session 9).** ScummVM draws the glyph shadow
+  dark-magenta (83,0,83 = idx 2, ~12.7k px in the close-up); we were forcing the
+  2bpp outline to **black**. Traced to **`charsetColor` (0x0E)**: MI1 boots with
+  `charsetColor [0,6,2]` (value 1 = fill → CLUT 6, value 2 = shadow → CLUT 2). The
+  opcode was a stub — now captured into `vm.charsetColorMap` (saved/restored,
+  cleared on reset); `paintVerbBar` passes `charsetColorMap[2]` as the shadow to
+  `drawText`. **Scoped to the verb panel** — `drawText`'s `shadowColor` defaults
+  to black, so dialog/credits/sentence text is byte-identical (no regression, per
+  the SCUMM-V5-CHAR §5 warning). Headless re-render now matches the close-up.
+  **NEEDS USER VISUAL CONFIRM.**
+- Minor open: verb #8 "Esamina" carries `color=3` (bright, 223,83,223) while the
+  rest are `color=6`, so it renders brighter than its neighbours; the close-up
+  shows no 223,83,223 pixels (AA from the 2× screenshot scale may hide it, or our
+  per-verb colour read is off for #8). Low priority — revisit if it looks wrong
+  in-app. SCUMM `drawVerb` does `setColor(vs->color)`, so a genuine `color=3`
+  would render bright; check whether a verbOps re-colours it.
+Code: `src/shell/player/play-area.ts` `paintVerbBar`/`drawVerbImage`/`drawText`;
+`src/engine/vm/opcodes/index.ts` 0x0E; `vm.charsetColorMap`.
 
 ### 3. Ego z-occlusion (deferred, pre-existing, NOT a regression)
 Room-33 Guybrush is `neverZclip` (forceClip=0, engine-set) → always drawn in
@@ -519,9 +523,11 @@ Implement these faithfully:
       `setRGBRoomIntensity`, `saveString` / `loadString`.
 - [ ] **`cursorCommand` image sub-ops (0x2C)** — `setCursorImage`
       (`0x0A`, charset-glyph cursor), `setCursorHotspot` (`0x0B`),
-      `setCursor` (`0x0C`). Plus **`charsetColor` (`0x0E`)** — implement
-      carefully; tie it to the credits-colour item below (a naive impl
-      regresses the talk-text fill/outline model — see SCUMM-V5-CHAR §5).
+      `setCursor` (`0x0C`). **`charsetColor` (`0x0E`)** — DONE for the verb
+      panel (session 9): captured into `vm.charsetColorMap`, used as the verb
+      glyph shadow only (dialog/credits text deliberately left on black so the
+      talk-text model isn't disturbed — SCUMM-V5-CHAR §5). Feeding the map into
+      dialog/credits rendering too is still open if a scene needs it.
 - [ ] **`matrixOp` (0x30)** — box-flags / box-scale / create-box-matrix
       (walk-box connectivity).
 - [x] **`systemOps` (0x98)** — restart / pause / quit recorded as

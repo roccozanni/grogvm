@@ -476,7 +476,10 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
       // panel uses charset 6, a tall serif font — not the dialogue font).
       const vCharset = charsetById(v.charset) ?? charset;
       const ink = pickInk(v, v.id === hoveredVerb, v.id === armedVerb(vm));
-      drawText(vbctx, vCharset, text, x, y, palette, ink, v.centered);
+      // MI1's charsetColor map ([0,6,2]) gives glyph value 2 (the shadow) its
+      // dark-magenta CLUT index — use it for the verb panel's coloured shadow.
+      const shadow = vm.charsetColorMap[2];
+      drawText(vbctx, vCharset, text, x, y, palette, ink, v.centered, shadow);
     }
   };
 
@@ -725,12 +728,17 @@ function drawText(
   palette: Uint8Array,
   inkColor: number,
   centered: boolean,
+  shadowColor?: number,
 ): void {
   const colorMap = new Uint8Array(charset.header.colorMap);
   colorMap[1] = inkColor; // fill = text colour
   if (charset.header.bpp === 2) {
-    colorMap[2] = 0; // outline / shadow = black
-    colorMap[3] = 0;
+    // The 2bpp glyph's value-2/3 pixels are the shadow/outline. Default to
+    // black; the verb panel passes MI1's charsetColor shadow (CLUT 2, a dark
+    // magenta) so the verbs read with their proper coloured shadow.
+    const sh = shadowColor ?? 0;
+    colorMap[2] = sh;
+    colorMap[3] = sh;
   }
   // Render each line separately so a centred multi-line block centres
   // every line on `x` independently (a single whole-block render would
