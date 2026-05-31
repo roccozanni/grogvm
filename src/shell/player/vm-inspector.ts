@@ -14,9 +14,11 @@ import type { IndexFile } from '../../engine/resources/index-file';
 import type { RoomOffsetTable } from '../../engine/resources/loff';
 import type { ResourceFile } from '../../engine/resources/tree';
 import { bootGame, type GameId } from '../../engine/vm/boot';
+import { restoreVm, type SaveState, snapshotVm } from '../../engine/vm/savestate';
 import type { ScriptSlot } from '../../engine/vm/slot';
 import type { HaltInfo, TickResult, TraceEntry, Vm } from '../../engine/vm/vm';
 import { VAR_EGO } from '../../engine/vm/vars';
+import { deleteSave, listSaves, readSave, SaveStoreError, writeSave } from '../storage/savegames';
 import { mountVmFrameInput, type ClickEvent } from './input';
 import { mountPlayArea } from './play-area';
 
@@ -377,13 +379,20 @@ export function renderVmInspector(
   frameContainer.className = 'vm-frame-host';
   const liveContainer = document.createElement('div');
   liveContainer.className = 'vm-live-host';
+  //   - savesContainer: the save/load slot panel. Rebuilt only on
+  //     discrete actions (save/load/delete/repaint), never per tick, so
+  //     the slot-name input keeps focus while the engine runs.
+  const savesContainer = document.createElement('div');
+  savesContainer.className = 'vm-saves-host';
   section.appendChild(controlsContainer);
   section.appendChild(frameContainer);
+  section.appendChild(savesContainer);
   section.appendChild(liveContainer);
 
-  const bootFresh = (): void => {
-    stopLoop();
-    const { vm } = bootGame(resourceFile, index, loff, gameId);
+  // Install a freshly-built VM into the inspector: adopt the reference,
+  // zero the per-VM tracking, and (re)wire the dev console hooks. Shared
+  // by Boot (a fresh boot) and Load (a boot then save-state restore).
+  const installVm = (vm: Vm): void => {
     state.vm = vm;
     state.tickCount = 0;
     state.lastIdleFingerprint = null;
@@ -412,6 +421,32 @@ export function renderVmInspector(
           }
         }
       };
+  };
+
+  const bootFresh = (): void => {
+    stopLoop();
+    installVm(bootGame(resourceFile, index, loff, gameId).vm);
+    repaint();
+  };
+
+  // ── Save / load ───────────────────────────────────────────────────
+  // Save captures the live VM; load boots a fresh VM (so the resolvers
+  // are rebuilt for this game) and restores the snapshot into it, then
+  // installs it. Loading always lands paused so the user can inspect the
+  // restored state before resuming.
+  const captureSnapshot = (label: string): SaveState | null => {
+    if (!state.vm) return null;
+    return snapshotVm(state.vm, { game: gameId, label, savedAt: Date.now() });
+  };
+
+  const loadSnapshot = (snap: SaveState): void => {
+    stopLoop();
+    state.playing = false;
+    const vm = bootGame(resourceFile, index, loff, gameId).vm;
+    restoreVm(vm, snap);
+    installVm(vm);
+    state.idleReason =
+      `loaded save${snap.label ? ` "${snap.label}"` : ''} — room ${vm.currentRoom} (paused; click Play to resume)`;
     repaint();
   };
 
@@ -524,8 +559,15 @@ export function renderVmInspector(
     liveContainer.replaceChildren(renderLive(state, repaint));
   };
 
+  const repaintSaves = (): void => {
+    savesContainer.replaceChildren(
+      renderSavesPanel(state, gameId, captureSnapshot, loadSnapshot, repaintSaves),
+    );
+  };
+
   const repaint = (): void => {
     repaintControls();
+    repaintSaves();
     repaintLive();
   };
 
@@ -612,6 +654,165 @@ function modString(m: ClickEvent['modifiers']): string {
   if (m.alt) parts.push('Alt');
   if (m.meta) parts.push('Meta');
   return parts.join('+');
+}
+
+/**
+ * Save / load panel — named slots in localStorage plus file import/
+ * export. Rebuilt only on discrete actions (never per tick) so the
+ * slot-name input keeps focus while the engine is running.
+ *
+ * Save snapshots the live VM; load boots a fresh VM and restores the
+ * snapshot into it (see `loadSnapshot` in the closure). Export downloads
+ * a slot as JSON; import loads a JSON file straight into the engine.
+ */
+function renderSavesPanel(
+  state: InspectorState,
+  gameId: GameId,
+  capture: (label: string) => SaveState | null,
+  load: (snap: SaveState) => void,
+  refresh: () => void,
+): HTMLElement {
+  const panel = document.createElement('section');
+  panel.className = 'vm-saves-panel';
+
+  const heading = document.createElement('h3');
+  heading.textContent = 'Saves';
+  panel.appendChild(heading);
+
+  const status = document.createElement('p');
+  status.className = 'vm-saves-status';
+  const setStatus = (msg: string, isError = false): void => {
+    status.textContent = msg;
+    status.classList.toggle('vm-saves-error', isError);
+  };
+
+  // ── Save + Import row ──
+  const row = document.createElement('div');
+  row.className = 'vm-saves-row';
+
+  const nameInput = document.createElement('input');
+  nameInput.type = 'text';
+  nameInput.className = 'vm-saves-name';
+  nameInput.placeholder = 'slot name';
+  nameInput.maxLength = 40;
+
+  const saveBtn = button('Save', 'primary');
+  saveBtn.disabled = !state.vm;
+  if (!state.vm) saveBtn.title = 'Boot the game first';
+  const doSave = (): void => {
+    const name = nameInput.value.trim() || defaultSaveName();
+    const snap = capture(name);
+    if (!snap) {
+      setStatus('nothing to save — boot the game first', true);
+      return;
+    }
+    try {
+      writeSave(gameId, name, snap);
+      nameInput.value = '';
+      refresh();
+    } catch (err) {
+      setStatus(err instanceof SaveStoreError ? err.message : String(err), true);
+    }
+  };
+  saveBtn.addEventListener('click', doSave);
+  nameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') doSave();
+  });
+
+  const importBtn = button('Import file');
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = 'application/json,.json';
+  fileInput.style.display = 'none';
+  importBtn.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files?.[0];
+    if (!file) return;
+    void file.text().then((txt) => {
+      try {
+        load(JSON.parse(txt) as SaveState);
+      } catch (err) {
+        setStatus(`import failed: ${err instanceof Error ? err.message : String(err)}`, true);
+        refresh();
+      }
+    });
+  });
+
+  row.append(nameInput, saveBtn, importBtn, fileInput);
+  panel.append(row, status);
+
+  // ── Slot list ──
+  const slots = listSaves(gameId);
+  if (slots.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'vm-empty';
+    empty.textContent = '(no saved games yet)';
+    panel.appendChild(empty);
+    return panel;
+  }
+
+  const list = document.createElement('ul');
+  list.className = 'vm-saves-list';
+  for (const meta of slots) {
+    const li = document.createElement('li');
+    li.className = 'vm-saves-item';
+
+    const info = document.createElement('span');
+    info.className = 'vm-saves-info';
+    info.textContent = `${meta.name} — room ${meta.room} · ${formatWhen(meta.savedAt)}`;
+
+    const loadBtn = button('Load');
+    loadBtn.addEventListener('click', () => {
+      const snap = readSave(gameId, meta.name);
+      if (snap) {
+        load(snap);
+      } else {
+        setStatus(`slot "${meta.name}" is missing or corrupt`, true);
+        refresh();
+      }
+    });
+
+    const exportBtn = button('Export');
+    exportBtn.addEventListener('click', () => {
+      const snap = readSave(gameId, meta.name);
+      if (snap) downloadJson(`${gameId}-${meta.name}.websave.json`, JSON.stringify(snap));
+    });
+
+    const delBtn = button('Delete');
+    delBtn.addEventListener('click', () => {
+      deleteSave(gameId, meta.name);
+      refresh();
+    });
+
+    li.append(info, loadBtn, exportBtn, delBtn);
+    list.appendChild(li);
+  }
+  panel.appendChild(list);
+  return panel;
+}
+
+/** A timestamp-based default slot name when the user leaves the field blank. */
+function defaultSaveName(): string {
+  const d = new Date();
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  return `save ${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function formatWhen(ms: number): string {
+  return ms ? new Date(ms).toLocaleString() : 'unknown time';
+}
+
+/** Trigger a browser download of `text` as `filename`. */
+function downloadJson(filename: string, text: string): void {
+  const blob = new Blob([text], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 /**

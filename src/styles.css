@@ -1223,6 +1223,78 @@ code {
   list-style: square;
 }
 
+/* ── Save / load panel ── */
+.vm-saves-panel {
+  margin: 0.75rem 0 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.vm-saves-panel h3 {
+  margin: 0 0 0.4rem;
+  font-size: 0.9em;
+}
+
+.vm-saves-row {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 0.4rem;
+}
+
+.vm-saves-name {
+  flex: 1 1 10rem;
+  min-width: 8rem;
+  padding: 0.25rem 0.4rem;
+  font-family: var(--mono, monospace);
+  font-size: 0.8em;
+}
+
+.vm-saves-status {
+  margin: 0 0 0.4rem;
+  font-size: 0.78em;
+  color: var(--muted);
+  min-height: 1em;
+}
+
+.vm-saves-status.vm-saves-error {
+  color: #ff6b6b;
+}
+
+.vm-saves-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.vm-saves-item {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.vm-saves-info {
+  flex: 1 1 auto;
+  font-family: var(--mono, monospace);
+  font-size: 0.78em;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vm-saves-item button {
+  font-size: 0.75em;
+  padding: 0.15rem 0.45rem;
+}
+
 .vm-tick-counter-live {
   margin: 0.25rem 0;
   font-family: var(--mono, monospace);
