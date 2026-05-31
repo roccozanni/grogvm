@@ -736,32 +736,7 @@ export class Vm {
     // Pseudo-rooms (0xCC) alias one logical id onto another's physical
     // resources — resolve through the mapper, identity for normal ids.
     const physicalRoom = this.pseudoRooms.get(roomId) ?? roomId;
-    if (this.resolveRoom) {
-      try {
-        this.loadedRoom = this.resolveRoom(physicalRoom);
-        this.lastRoomLoadError = null;
-      } catch (err) {
-        this.loadedRoom = null;
-        this.lastRoomLoadError = err instanceof Error ? err.message : String(err);
-      }
-    } else {
-      this.loadedRoom = null;
-    }
-
-    // Re-apply the persistent UI-palette overrides (set by boot palette
-    // scripts before any room existed) on top of this room's freshly
-    // decoded CLUT — otherwise the room's placeholder VGA-16 low palette
-    // clobbers the verb/credit/sentence colours every room change.
-    if (this.loadedRoom && this.uiPaletteOverrides.size > 0) {
-      const pal = this.loadedRoom.palette;
-      for (const [idx, [r, g, b]] of this.uiPaletteOverrides) {
-        if (idx >= 0 && idx < 256) {
-          pal[idx * 3] = r;
-          pal[idx * 3 + 1] = g;
-          pal[idx * 3 + 2] = b;
-        }
-      }
-    }
+    this.applyRoomResources(physicalRoom);
 
     const next = this.loadedRoom;
     if (next?.entryScript && next.entryScript.length > 0) {
@@ -776,6 +751,72 @@ export class Vm {
         // No free slot — silently skip.
       }
     }
+  }
+
+  /**
+   * Decode `physicalRoom` into {@link loadedRoom} and re-apply the
+   * persistent UI-palette overrides (set by boot palette scripts before
+   * any room existed) on top of its freshly decoded CLUT — otherwise the
+   * room's placeholder VGA-16 low palette clobbers the verb/credit/
+   * sentence colours every room change. Shared by {@link enterRoom} and
+   * {@link reloadCurrentRoomResources}; does NOT run entry/exit scripts.
+   */
+  private applyRoomResources(physicalRoom: number): void {
+    if (this.resolveRoom) {
+      try {
+        this.loadedRoom = this.resolveRoom(physicalRoom);
+        this.lastRoomLoadError = null;
+      } catch (err) {
+        this.loadedRoom = null;
+        this.lastRoomLoadError = err instanceof Error ? err.message : String(err);
+      }
+    } else {
+      this.loadedRoom = null;
+    }
+
+    if (this.loadedRoom && this.uiPaletteOverrides.size > 0) {
+      const pal = this.loadedRoom.palette;
+      for (const [idx, [r, g, b]] of this.uiPaletteOverrides) {
+        if (idx >= 0 && idx < 256) {
+          pal[idx * 3] = r;
+          pal[idx * 3 + 1] = g;
+          pal[idx * 3 + 2] = b;
+        }
+      }
+    }
+  }
+
+  /**
+   * Reload the current room's resources (background, palette, z-planes,
+   * scripts) into {@link loadedRoom} **without** running entry/exit
+   * scripts or clearing per-room runtime state. For save-state restore:
+   * the room's scripts are already represented by the restored slots, so
+   * re-running ENCD would double them. `currentRoom`, `pseudoRooms`, and
+   * `uiPaletteOverrides` must already be set when this is called.
+   */
+  reloadCurrentRoomResources(): void {
+    if (this.currentRoom === 0) {
+      this.loadedRoom = null;
+      return;
+    }
+    const physical = this.pseudoRooms.get(this.currentRoom) ?? this.currentRoom;
+    this.applyRoomResources(physical);
+  }
+
+  /**
+   * Save-state access to the multi-page talk queue (the `talkPages` /
+   * `talkPageDlg` / `talkPageSystem` private fields). Returns a copy;
+   * {@link restoreTalkQueue} writes it back. Kept narrow so the queue's
+   * internals stay private outside save/restore.
+   */
+  snapshotTalkQueue(): { pages: string[]; dlg: ActiveDialog | null; system: boolean } {
+    return { pages: [...this.talkPages], dlg: this.talkPageDlg, system: this.talkPageSystem };
+  }
+
+  restoreTalkQueue(q: { pages: readonly string[]; dlg: ActiveDialog | null; system: boolean }): void {
+    this.talkPages = [...q.pages];
+    this.talkPageDlg = q.dlg;
+    this.talkPageSystem = q.system;
   }
 
   /**

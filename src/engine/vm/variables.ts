@@ -111,6 +111,25 @@ export class Variables {
     else this.bitBuffer[byte] = this.bitBuffer[byte]! & ~mask;
   }
 
+  /**
+   * Raw packed bit buffer, as a copy — for save-state serialization.
+   * (The buffer is private so the bit-packing layout stays encapsulated;
+   * save/restore round-trips the bytes verbatim.)
+   */
+  snapshotBits(): Uint8Array {
+    return this.bitBuffer.slice();
+  }
+
+  /**
+   * Overwrite the packed bit buffer from a save-state snapshot. Copies up
+   * to the current buffer length (same game ⇒ same size); a shorter input
+   * leaves the tail zeroed, a longer one is truncated.
+   */
+  restoreBits(bytes: Uint8Array): void {
+    this.bitBuffer.fill(0);
+    this.bitBuffer.set(bytes.subarray(0, this.bitBuffer.length));
+  }
+
   readRoom(index: number): number {
     if (index < 0 || index >= this.roomVars.length) {
       this.recordOob('room', index, 'read');
