@@ -1,6 +1,6 @@
 import type { App } from '../app';
-import { ensureReadPermission } from '../storage/permission';
 import { listGames, removeGame, type StoredGame } from '../storage/games';
+import { playHref, exploreHref } from '../routing/routing';
 
 export function renderLibrary(app: App, flash?: string): HTMLElement {
   const container = document.createElement('div');
@@ -66,28 +66,20 @@ function renderGameList(app: App, games: StoredGame[]): HTMLElement {
 function renderGameRow(app: App, game: StoredGame): HTMLElement {
   const li = document.createElement('li');
   li.className = 'game-row';
+  // Play / Explore are real links to the /play/ and /explore/ pages (the game
+  // id rides in ?game=). The folder permission re-grant happens on the
+  // destination page (it needs a user gesture there) — see src/pages/shared.ts.
   li.innerHTML = `
     <span class="name"></span>
     <span class="game-id"></span>
-    <button class="play">Play</button>
+    <a class="play button">Play</a>
+    <a class="explore button secondary">Explore</a>
     <button class="remove secondary">Remove</button>
   `;
   li.querySelector('.name')!.textContent = game.displayName;
   li.querySelector('.game-id')!.textContent = game.gameId;
-
-  li.querySelector('.play')!.addEventListener('click', () => {
-    void (async () => {
-      const granted = await ensureReadPermission(game.directoryHandle);
-      if (!granted) {
-        app.navigate({
-          kind: 'library',
-          flash: `Read permission denied for "${game.directoryHandle.name}". Click Play again to retry.`,
-        });
-        return;
-      }
-      app.navigate({ kind: 'player', game });
-    })();
-  });
+  li.querySelector<HTMLAnchorElement>('.play')!.href = playHref(game.gameId);
+  li.querySelector<HTMLAnchorElement>('.explore')!.href = exploreHref(game.gameId);
 
   li.querySelector('.remove')!.addEventListener('click', () => {
     void (async () => {

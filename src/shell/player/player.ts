@@ -1,4 +1,3 @@
-import type { App } from '../app';
 import type { StoredGame } from '../storage/games';
 import type { GameId } from '../install/detect';
 import { parseResourceFile } from '../../engine/resources/file';
@@ -41,7 +40,7 @@ import { renderVmInspector } from './vm-inspector';
 
 const ROOM_DISPLAY_SCALE = 2;
 
-export function renderPlayer(app: App, game: StoredGame): HTMLElement {
+export function renderPlayer(game: StoredGame, onBack: () => void): HTMLElement {
   const container = document.createElement('div');
   container.className = 'player';
   container.innerHTML = `
@@ -58,7 +57,7 @@ export function renderPlayer(app: App, game: StoredGame): HTMLElement {
   container.querySelector('h1')!.textContent = game.displayName;
   container.querySelector('.subtitle')!.textContent = `${game.gameId} · ${game.directoryHandle.name}`;
   container.querySelector('.back')!.addEventListener('click', () => {
-    app.navigate({ kind: 'library' });
+    onBack();
   });
 
   const main = container.querySelector('main')!;

@@ -38,8 +38,12 @@ scope contract in [docs/ENGINE-SESSION.md](docs/ENGINE-SESSION.md); the legacy
 7), the session is the canonical copy. Task 2: the `shell/reactive/` kernel
 (`signal`/`effect`/`computed`/`batch`/`untracked`/`createRoot`/`onCleanup` +
 `el`/`bind*` DOM helpers), no runtime dependency, `happy-dom` added as a
-test-only dev shim. 723 total green, tsc clean. App behaviour unchanged (both
-tasks additive). **Next: task 3 (multi-page build + routing helper).**
+test-only dev shim. Task 3: the multi-page static build + path routing — three
+real HTML entries (`/`, `/explore/`, `/play/`) with `src/pages/` bootstraps and
+a `shell/routing/` helper; `vite build` emits the three static entries with the
+heavy player chunk code-split onto play/explore only. 728 total green, tsc
+clean. **Next: task 4 (Explorer screen).** NB: a `vite.config.ts` change means
+a running dev server must be restarted to pick up the new entries.
 
 Why: `renderPlayer` (player.ts, 1714 lines) was a vertically-stacked
 *resource browser*, not a game player — the actual game was wedged inside
@@ -238,14 +242,26 @@ green; `tsc` clean.
       *dev*-dependency — a test-only DOM shim, the same role `fake-indexeddb`
       already plays for storage tests; engine tests stay node-default. 723
       total green, tsc clean.
-- [ ] **3. Multi-page build + routing helper.** Set up Vite
-      `rollupOptions.input` with three HTML entries — `index.html` (`/`,
-      library + the install flow as an in-page step), `explore.html`
-      (`/explore`), `play.html` (`/play`) — each with a bootstrap module
-      under `src/pages/`. A tiny `shell/routing/` helper parses
-      `location.pathname` + `?game=`; navigation is `<a href>`. Wire the
-      directory permission re-grant on the entries that need a game. **Tests:**
-      the routing helper (path + `?game=` parsing) unit-tested.
+- [x] **3. Multi-page build + routing helper. DONE (2026-05-31, session 7).**
+      Vite `rollupOptions.input` with three real HTML entries —
+      `index.html` (`/`, library + in-page install), `explore/index.html`
+      (`/explore/`), `play/index.html` (`/play/`) — each booted by a module
+      under `src/pages/` (`library.ts` / `explore.ts` / `play.ts`) +
+      `shared.ts` (browser-support gate, `?game=` resolve, folder-permission
+      re-grant gate — the grant needs a user gesture on the destination page,
+      so it shows a "Grant folder access" button when not already granted).
+      `shell/routing/routing.ts`: `gameParam`/`currentGameParam`/`playHref`/
+      `exploreHref`/`homeHref` (path = page, `?game=` = client-only id);
+      navigation is plain `<a href>`. `App` dropped its `player` screen
+      (library/install only); library Play/Explore are now links;
+      `renderPlayer(game, onBack)` lost its `App` dependency; `main.ts`
+      retired. **Verified:** `vite build` emits `dist/{index,play/index,
+      explore/index}.html` with code-splitting — the 156 kB player/engine
+      chunk loads only on `/play` + `/explore`, the library entry is ~4 kB.
+      728 total green, tsc clean. **TEMPORARY:** `/play` and `/explore` both
+      render the legacy `renderPlayer` for now — task 4 gives `/explore` a
+      real Explorer, tasks 5–6 give `/play` the Play+Debug rebuild, task 7
+      deletes the legacy view.
 - [ ] **4. Explorer page (shell/explorer/, /explore).** Port the room /
       costume / charset viewers + the raw block-tree sections out of the old
       `player.ts`. Pure file parsing — no session, no VM. Loads the game from

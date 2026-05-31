@@ -1,12 +1,12 @@
 import { renderLibrary } from './library/library';
 import { renderInstall } from './install/install';
-import { renderPlayer } from './player/player';
-import type { StoredGame } from './storage/games';
 
+// Controller for the `/` page only: the library and the in-page install flow.
+// The player and explorer are now separate pages (/play/, /explore/), reached
+// by link — see src/pages/ and ARCHITECTURE.md §7 / §11 Q11.
 export type Screen =
   | { kind: 'library'; flash?: string }
-  | { kind: 'install'; error?: string }
-  | { kind: 'player'; game: StoredGame };
+  | { kind: 'install'; error?: string };
 
 export class App {
   private screen: Screen = { kind: 'library' };
@@ -30,9 +30,6 @@ export class App {
         break;
       case 'install':
         this.root.appendChild(renderInstall(this, this.screen.error));
-        break;
-      case 'player':
-        this.root.appendChild(renderPlayer(this, this.screen.game));
         break;
     }
   }
