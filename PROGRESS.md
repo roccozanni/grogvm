@@ -58,10 +58,34 @@ into an unreadable column). Task 6b: a camera-driven 320-wide Play viewport
 **deleted both god-objects** (`player.ts`, `vm-inspector.ts`), split the CSS.
 
 **Phase 10 is COMPLETE.** The shell is rebuilt around the `EngineSession`
-seam; 735 tests green, tsc clean, static multi-page build works.
-**Next: the composition issue** (engine work, separate from the rebuild) —
-actor scaling / ego z-occlusion / room-38 fire. See the report under the
-post-save/load backlog; confirmed *not* a rebuild regression.
+seam; static multi-page build works.
+
+**Composition / actor-rendering pass (2026-05-31, session 8).** A batch of
+engine-side fixes (all separate from the rebuild; 753 tests green, tsc clean):
+- **Actor scaling applied** — `compositeActor` now scales the blit by
+  `actor.scale/255` (255 = exact no-op) around the feet anchor; fixed the
+  room-38 fire size. ✓ user-confirmed.
+- **Box/`SCAL`-driven scaling** — parse `SCAL`, box `scale` u16 (the `0x8000`
+  slot-ref flag the old parser dropped), set `actor.scale` from the box while
+  walking + a nearest-box fallback (thin cliff boxes). Room-33 cliff now
+  scales smoothly. ✓ user-confirmed.
+- **Scale resets to full** in non-scaled boxes (was stuck sub-255 after a
+  scaled room → permanently slightly small). User-spotted.
+- **Centered downscale sampling** — preserves thin features (Guybrush's eyes)
+  when scaled down (was floor-biased, dropping them). *Pending visual confirm.*
+- **Lookahead walk facing** — faces the local path direction, not the far
+  final target (room-33 cliff reads S, then E on the dock). ✓ user-confirmed.
+- **Verb-bar background** → dark-magenta UI field (CLUT 2), not black.
+  *Pending visual confirm (exact shade tweakable via `VERB_BAR_BG_COLOR`).*
+- **Debug-panel stutter** — throttle the live-table rebuild to ~10 Hz while
+  playing (was ~350 DOM nodes/frame at 60fps, janking camera-follow); rebuilds
+  immediately when paused/stepping. *Pending visual confirm.*
+
+**Remaining (deferred): ego z-occlusion.** Room-33 Guybrush is `neverZclip`
+(forceClip=0, engine-set) → always drawn in front of the house; "behind the
+house/wall" needs box-mask z-clip honoured for the ego. The z-occlusion code is
+unchanged (git-verified) — this is the long-standing limitation, just more
+visible now that the ego is correctly sized. See the post-save/load backlog.
 
 Why: `renderPlayer` (player.ts, 1714 lines) was a vertically-stacked
 *resource browser*, not a game player — the actual game was wedged inside
