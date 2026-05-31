@@ -769,11 +769,40 @@ function drawText(
           img.data[o + 2] = rgb[2];
           img.data[o + 3] = 255;
         }
-        ctx.putImageData(img, startX, lineY);
+        // Composite the glyph, don't blit it. putImageData overwrites the
+        // destination rectangle wholesale — its transparent (alpha-0) pixels
+        // would erase whatever was painted underneath (e.g. the verb panel's
+        // plum box), leaving a black rectangle around the text. Stamp the
+        // glyph onto a scratch canvas and drawImage it instead, which honours
+        // alpha and composites source-over the existing content.
+        const scratch = glyphScratch(r.width, r.height);
+        scratch.ctx.clearRect(0, 0, r.width, r.height);
+        scratch.ctx.putImageData(img, 0, 0);
+        // Draw only the w×h sub-region — the scratch canvas may be larger
+        // (reused across calls; it only ever grows).
+        ctx.drawImage(scratch.canvas, 0, 0, r.width, r.height, startX, lineY, r.width, r.height);
       }
     }
     lineY += charset.header.fontHeight;
   }
+}
+
+/** Lazily-created scratch canvas for compositing a single glyph run (see
+ *  drawText). Module-level so it's reused across calls rather than allocated
+ *  per glyph. */
+let glyphScratchCanvas: HTMLCanvasElement | null = null;
+let glyphScratchCtx: CanvasRenderingContext2D | null = null;
+function glyphScratch(
+  w: number,
+  h: number,
+): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } {
+  if (!glyphScratchCanvas) {
+    glyphScratchCanvas = document.createElement('canvas');
+    glyphScratchCtx = glyphScratchCanvas.getContext('2d');
+  }
+  if (glyphScratchCanvas.width < w) glyphScratchCanvas.width = w;
+  if (glyphScratchCanvas.height < h) glyphScratchCanvas.height = h;
+  return { canvas: glyphScratchCanvas, ctx: glyphScratchCtx! };
 }
 
 /**

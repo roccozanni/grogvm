@@ -98,6 +98,18 @@ fixed = 5/−1px.
 Investigated against the user's ScummVM close-up with headless probes
 (`scratch/probe-verbbar*.ts`, render → PNG via `ppm2png.mjs`; histogram of the
 screenshot via `sample-shot.mjs`/`hist-shot.mjs`). Findings:
+- **The black-around-the-glyphs bug — FIXED (session 9).** User reported the
+  cells still read black in-app even though the box grid + glyph shadow were
+  right. Root cause: `drawText` painted each glyph with `ctx.putImageData`, which
+  **overwrites** the whole destination rectangle (its transparent alpha-0 pixels
+  included) instead of compositing — so right after `drawVerbImage` drew the plum
+  box, the glyph blit **erased it back to transparent (=black) in a rectangle
+  around every verb's text**. (An ASCII map of the user's screenshot showed plum
+  only *between* cells, black *around* each glyph — the tell.) The headless probe
+  skipped transparent pixels, so it never reproduced it. Fix: `drawText` now
+  stamps the glyph onto a scratch canvas and `drawImage`s it (source-over,
+  honours alpha) instead of `putImageData`. Same pattern `drawVerbImage` already
+  used. **NEEDS USER VISUAL CONFIRM** (canvas compositing — happy-dom can't pixel-test it).
 - **The dark-magenta box grid is NOT a flat fill — it's image verbs** already
   drawn by `paintVerbBar` → `drawVerbImage`: verb #1/obj 1030 (144×48 command-verb
   panel bg, `dim`), #200–207/obj 1032 (40×24 inventory slots), #208–209/obj 1033
