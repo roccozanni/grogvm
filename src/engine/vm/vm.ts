@@ -554,6 +554,26 @@ export class Vm {
    */
   cameraFollowActor = 0;
   /**
+   * Room-transition screen effect, set by `roomOps screenEffect`
+   * (0x33 subop 0x0A — v5 `SO_ROOM_FADE`). v5 packs two effect numbers
+   * into the single operand: the **low byte** is `switchRoomEffect`
+   * (the fade-IN effect played when the next room is revealed) and the
+   * **high byte** is `switchRoomEffect2` (the fade-OUT effect played
+   * when leaving the current room). An operand of **0** is the special
+   * "reveal the current room NOW" trigger — it requests an immediate
+   * fade-in with the pending effect and leaves the effect numbers
+   * unchanged (`requestFadeIn` flips true; the shell may consume it).
+   *
+   * We record the effect numbers and surface them in the inspector. The
+   * transition **animations** (instant / dissolve / scroll) are *not*
+   * implemented: MI1's intro-reachable path uses only effect 129
+   * (instant) plus a bare `loadRoomWithEgo`, so there is no non-instant
+   * transition to animate against yet, and the effect-number → animation
+   * mapping can't be validated without a reachable scene that uses one.
+   * Cleared by {@link reset}. See docs/SCUMM-V5-SCREEN-EFFECT.md.
+   */
+  readonly screenEffect = { switchRoomEffect: 0, switchRoomEffect2: 0, requestFadeIn: false };
+  /**
    * Active playable-screen vertical bounds, set by `roomOps setScreen`
    * (0x33 subop 0x03). The engine treats rows `[top, bottom)` of the
    * room as the camera viewport; rows below `bottom` are typically the
@@ -1532,6 +1552,9 @@ export class Vm {
     this.cameraFollowActor = 0;
     this.screen.top = 0;
     this.screen.bottom = 200;
+    this.screenEffect.switchRoomEffect = 0;
+    this.screenEffect.switchRoomEffect2 = 0;
+    this.screenEffect.requestFadeIn = false;
   }
 
   /** Set the human label for the *next* trace entry (called from a handler). */

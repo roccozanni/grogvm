@@ -671,6 +671,21 @@ function renderInputPanel(state: InspectorState): HTMLElement {
     panel.appendChild(sysRow);
   }
 
+  // roomOps screenEffect (0x0A) — the room-transition fade effects. We
+  // record but don't yet animate them (the intro path is all instant);
+  // surface them only when a script has set a non-default effect so the
+  // row stays silent during normal play.
+  const fx = vm.screenEffect;
+  if (fx.switchRoomEffect !== 0 || fx.switchRoomEffect2 !== 0 || fx.requestFadeIn) {
+    const fxRow = document.createElement('p');
+    fxRow.className = 'vm-input-live';
+    fxRow.textContent =
+      `screenEffect in=${fx.switchRoomEffect} out=${fx.switchRoomEffect2}` +
+      (fx.requestFadeIn ? ' · fadeIn requested' : '') +
+      ' (recorded; transition not animated)';
+    panel.appendChild(fxRow);
+  }
+
   const varsRow = document.createElement('p');
   varsRow.className = 'vm-input-live';
   varsRow.textContent =

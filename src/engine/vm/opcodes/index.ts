@@ -2106,9 +2106,24 @@ function roomOpsHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
       return;
     }
     case 0x0a: {
-      // screenEffect: effect (var-or-word)
+      // screenEffect (SO_ROOM_FADE): a single var-or-word operand. v5
+      // splits it into two effect numbers — low byte = switchRoomEffect
+      // (the fade-IN effect when the next room is revealed), high byte =
+      // switchRoomEffect2 (the fade-OUT effect when leaving). Operand 0
+      // is the special "fade the current room in NOW" trigger (no room
+      // change, effect numbers unchanged). We record the effect numbers;
+      // the transition animations are deferred — MI1's intro path is all
+      // effect 129 (instant), so there's nothing to animate against yet.
+      // See Vm.screenEffect / docs/SCUMM-V5-SCREEN-EFFECT.md.
       const e = readVarOrWord(subop, 1, slot, vm.vars);
-      vm.annotate(`roomOps screenEffect ${e} (stub)`);
+      if (e === 0) {
+        vm.screenEffect.requestFadeIn = true;
+        vm.annotate('roomOps screenEffect fadeIn (effect unchanged)');
+      } else {
+        vm.screenEffect.switchRoomEffect = e & 0xff;
+        vm.screenEffect.switchRoomEffect2 = (e >> 8) & 0xff;
+        vm.annotate(`roomOps screenEffect in=${e & 0xff} out=${(e >> 8) & 0xff}`);
+      }
       return;
     }
     case 0x0b: {

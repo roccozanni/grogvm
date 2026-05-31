@@ -168,6 +168,40 @@ describe('phase 8 — roomOps setPalColor (0x04)', () => {
   });
 });
 
+describe('phase 8 — roomOps screenEffect (0x0A)', () => {
+  it('splits the operand into switchRoomEffect (low) / switchRoomEffect2 (high)', () => {
+    const vm = makeVm();
+    // screenEffect 0x8180 → in=0x80 (128), out=0x81 (129) — MI1's
+    // pre-loadRoom transition idiom.
+    run(vm, bytes(0x33, 0x0a, 0x80, 0x81));
+    expect(vm.screenEffect.switchRoomEffect).toBe(0x80);
+    expect(vm.screenEffect.switchRoomEffect2).toBe(0x81);
+    expect(vm.screenEffect.requestFadeIn).toBe(false);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  it('treats operand 0 as a fade-in trigger, leaving the effect numbers unchanged', () => {
+    const vm = makeVm();
+    run(vm, bytes(0x33, 0x0a, 0x81, 0x81)); // sets in=out=129
+    run(vm, bytes(0x33, 0x0a, 0x00, 0x00)); // fade-in trigger
+    expect(vm.screenEffect.switchRoomEffect).toBe(0x81);
+    expect(vm.screenEffect.switchRoomEffect2).toBe(0x81);
+    expect(vm.screenEffect.requestFadeIn).toBe(true);
+  });
+
+  it('reset() clears the screen effect state', () => {
+    const vm = makeVm();
+    run(vm, bytes(0x33, 0x0a, 0x80, 0x81));
+    run(vm, bytes(0x33, 0x0a, 0x00, 0x00));
+    vm.reset();
+    expect(vm.screenEffect).toEqual({
+      switchRoomEffect: 0,
+      switchRoomEffect2: 0,
+      requestFadeIn: false,
+    });
+  });
+});
+
 describe('phase 8 — dialog escape codes (substitutions)', () => {
   // print actor=255 (system) → SO_TEXTSTRING with the given body bytes.
   function systemPrint(...body: number[]): Vm {

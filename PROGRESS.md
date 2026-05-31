@@ -11,7 +11,7 @@ detail the next phase here.
 
 ## Status
 
-**Phase 8 — Polish (active).** MI1 plays its full intro and is
+**Phase 8 — Polish (winding down → Phase 9 next).** MI1 plays its full intro and is
 interactively playable in the first room: the faithful
 click → verb → sentence flow (hover poller → verb-input script →
 sentence script), cutscenes that hide the UI and can be skipped
@@ -23,10 +23,21 @@ rebuilt against the real v5 algorithm and Guybrush's walk cycle plays
 correctly (confirmed in-game) — see the Costume animation decoder item
 below.
 
-Phase 8 is a focused polish pass before the original roadmap (save
-states → audio → MI2) resumes: implement the **non-resource,
-non-sound** opcodes still stubbed, and close the open known-bugs and
-cosmetic gaps.
+Phase 8 was a focused polish pass before the original roadmap (save
+states → audio → MI2) resumes. It's now wound down: the remaining
+stubbed opcodes and known-bug/cosmetic gaps are collected in the
+**[Post-save/load backlog](#post-saveload-backlog-revisit-after-phase-9)**
+and parked. Next active work is **Phase 9 — save states**.
+
+**Latest (2026-05-31, session 4):** modelled `roomOps screenEffect`
+(0x0A) state — operand split into `switchRoomEffect`/`switchRoomEffect2`,
+the `0` fade-in trigger, surfaced in the inspector; **transition
+animation deferred** (intro is all instant cuts, no reachable scene to
+validate; see [docs/SCUMM-V5-SCREEN-EFFECT.md](docs/SCUMM-V5-SCREEN-EFFECT.md)).
+Consolidated all deferred Phase-8 items into the post-save/load backlog
+and added two new user-reported render bugs to it (room 38 fire over
+Guybrush; N/S walk facing flip-flop + brief head-loss). 674 tests pass,
+typecheck clean.
 
 **Latest (2026-05-31, session 3):** a big polish pass — five items
 closed, four user-confirmed in-app. Commits on `main` (unpushed):
@@ -107,10 +118,17 @@ gameplay-logic stubs**; the remaining stubs are cosmetic / peripheral.
 Implement these faithfully:
 
 - [~] **`roomOps` (0x33)** — DONE: `setPalColor` (mutates the live room
-      CLUT the compositor reads) and `roomScroll` (camera min/max bounds,
-      honoured by `setCameraTo`, cleared on room change). STILL STUBBED:
-      `shakeOn`/`shakeOff`, `roomIntensity` / `setRGBRoomIntensity`,
-      `screenEffect` (fade in/out), `saveString` / `loadString`.
+      CLUT the compositor reads), `roomScroll` (camera min/max bounds,
+      honoured by `setCameraTo`, cleared on room change), and
+      **`screenEffect`** (0x0A — *state modelled*: the operand is split
+      into `switchRoomEffect`/`switchRoomEffect2` on `vm.screenEffect`,
+      `0` is the fade-in trigger; surfaced in the inspector. The
+      transition **animation** is deferred — the intro path is all
+      effect 129 (instant cut), so there's no non-instant fade to
+      validate against, and the effect#→animation mapping lives only in
+      gfx.cpp. See [docs/SCUMM-V5-SCREEN-EFFECT.md](docs/SCUMM-V5-SCREEN-EFFECT.md)).
+      STILL STUBBED: `shakeOn`/`shakeOff`, `roomIntensity` /
+      `setRGBRoomIntensity`, `saveString` / `loadString`.
 - [ ] **`cursorCommand` image sub-ops (0x2C)** — `setCursorImage`
       (`0x0A`, charset-glyph cursor), `setCursorHotspot` (`0x0B`),
       `setCursor` (`0x0C`). Plus **`charsetColor` (`0x0E`)** — implement
@@ -287,39 +305,87 @@ Implement these faithfully:
       walk East and West both correct (body faces the right way, single
       sprite, no flicker / no double head). 646 tests pass.
 
-### Next step (fresh session) — remaining known bugs
+### Next step — Phase 9 (save/load)
 
-Session 3 closed z-plane occlusion, the "Le tre prove" card text, the
-sentence-line/verb-panel fidelity, and the whole UI colour palette (all
-user-confirmed except box-clip). Remaining standing known-bugs, roughly
-by value:
+Phase 8 polish is wound down. The remaining polish/known-bug items are
+collected in the **Post-save/load backlog** below and intentionally
+parked; the next active work is **Phase 9 — save states**. Several
+backlog items (inventory scroll, two-object use-with) actually *need* a
+saved game to exercise, so they're natural to revisit right after.
 
-1. **Compositor honours `VAR_CURRENT_LIGHTS`** — a dark room (room 38
-   night) should darken via the lights flag, not only a dark palette. See
-   [docs/SCUMM-V5-LIGHTING.md](docs/SCUMM-V5-LIGHTING.md) §4. (Note: the
-   night rooms already ship a dark palette so the gap may be subtle —
-   check whether it's even visible before investing.)
+### Post-save/load backlog (revisit after Phase 9)
 
-2. **Two-object "Use X with Y" end-to-end** — the gather flow + `g110`
-   preposition step are proven for single-object; confirm a full A+B
-   commit in a room with a use-with-able object (room 33's intro has
-   none). See [docs/SCUMM-V5-INPUT.md](docs/SCUMM-V5-INPUT.md) §5.
+Everything deferred out of Phase 8, in one place. Roughly by value;
+none of these block the intro or first-room play. Detailed context for
+most lives in the inline known-bug entries above and the linked docs.
 
-3. **Inventory scroll arrows** (verbs 208/209) for >8 items — needs a
-   save with a full inventory to exercise.
+**Rendering / animation**
 
-4. **Smooth `panCameraTo`** — DEFERRED: the opcode is never called in
-   intro-reachable content (only `setCameraAt`/`actorFollowCamera`), so
-   there's no visual target and the pan rate would be a blind guess. Wire
-   it when a scene that uses it surfaces.
+- **N/S (vertical) walk glitches** *(new, 2026-05-31, user-reported)*.
+  Two symptoms, likely one root cause in the walk **facing-direction
+  resolution** during vertical motion: (a) room 33 (dock) — on entry
+  Guybrush walks down the cliff and his facing **flip-flops left↔right
+  several times** during the descent; (b) room 38 (lookout) — on entry
+  he briefly **loses his head**. The head-loss is almost certainly the
+  costume-anim **per-limb stop bitmask** (head = limb 1; walk *stops*
+  the head, stand *un-stops* it — a transient where the head limb is
+  stopped but the stand chore hasn't re-enabled it). The L/R flip is the
+  direction picked per step when the path is mostly vertical (dx≈0 →
+  facing oscillates on tiny x jitter). See
+  [docs/SCUMM-V5-COSTUME-ANIM.md](docs/SCUMM-V5-COSTUME-ANIM.md).
+- **Room 38 (lookout) fire composites *over* Guybrush** *(new,
+  2026-05-31, user-reported)*. The campfire actor draws on top of
+  Guybrush's torso/arm; it should sit in front of only his lower body
+  (he's seated behind the fire pit). Likely overlaps the **z-plane /
+  box-mask default clip** work — the seated ego's box mask vs. the
+  fire actor's `alwaysZclip` plane. NB: the session-3 z-plane entry
+  claimed the lookout fire occlusion fixed *for the standing/entry pose
+  behind the wall* (ASCII-verified) — this is the **seated fireside**
+  composite, a different pose/position. See
+  [docs/SCUMM-V5-ZPLANE.md](docs/SCUMM-V5-ZPLANE.md) §"Box-mask".
+- **Compositor honours `VAR_CURRENT_LIGHTS`** — a dark room should
+  darken via the lights flag, not only a dark palette. Night rooms
+  already ship a dark palette so the gap may be subtle — check it's even
+  visible first. [docs/SCUMM-V5-LIGHTING.md](docs/SCUMM-V5-LIGHTING.md) §4.
+- **Box-default z-clip validation** — mechanism-proven headlessly but
+  unvalidated in normal play (ego is `neverZclip`, no easy scene); watch
+  the thin/line-box limitation.
+  [docs/SCUMM-V5-ZPLANE.md](docs/SCUMM-V5-ZPLANE.md) §"Box-mask".
+- **`screenEffect` transition animation** — state is modelled; the
+  dissolve/scroll/instant *animation* is deferred (intro is all effect
+  129 = instant, no reachable non-instant scene to validate; mapping
+  lives in gfx.cpp).
+  [docs/SCUMM-V5-SCREEN-EFFECT.md](docs/SCUMM-V5-SCREEN-EFFECT.md).
+- **Smooth `panCameraTo`** — never called in intro-reachable content
+  (only `setCameraAt`/`actorFollowCamera`); no visual target and the
+  pan rate would be a blind guess. Wire it when a scene surfaces.
 
-**Deferred to later phases:** the "Le tre prove" ~5 s hold (sound-gated →
-audio, Phase 10); save/restore (Phase 9). **Carry-overs from session 3:**
-the box-default clip is mechanism-proven but unvalidated in normal play
-(ego is `neverZclip`, so no easy scene; watch the thin-box limitation in
-[docs/SCUMM-V5-ZPLANE.md](docs/SCUMM-V5-ZPLANE.md) §"Box-mask"); and
-`disasm.ts` still drifts past a non-print opcode mis-size on some scripts
-(e.g. global #178 tail) — chase if a future task needs that script.
+**Input / UI**
+
+- **Two-object "Use X with Y" end-to-end** — gather flow + `g110`
+  preposition step proven for single-object; confirm a full A+B commit
+  in a room with a use-with-able object.
+  [docs/SCUMM-V5-INPUT.md](docs/SCUMM-V5-INPUT.md) §5.
+- **Inventory scroll arrows** (verbs 208/209) for >8 items — needs a
+  save with a full inventory to exercise.
+
+**Opcodes still stubbed (cosmetic / peripheral)**
+
+- `roomOps`: `shakeOn`/`shakeOff`, `roomIntensity` /
+  `setRGBRoomIntensity`, `saveString` / `loadString`.
+- `cursorCommand` image sub-ops (0x2C): `setCursorImage` /
+  `setCursorHotspot` / `setCursor`, plus `charsetColor` (0x0E — tie to
+  the talk-text fill/outline model, SCUMM-V5-CHAR §5).
+- `matrixOp` (0x30): box connectivity flags / scale / create-box-matrix.
+- Dialog escape codes still deferred: keep-text `0x02`, var-name `0x06`,
+  sound `0x09`, actor name `0x0A`, mid-string colour `0x0E`.
+
+**Deferred to other phases (not this backlog)**
+
+- "Le tre prove" ~5 s hold — sound-gated → **Phase 10 (audio)**.
+- `disasm.ts` drifts past a non-print opcode mis-size on some scripts
+  (e.g. global #178 tail) — a **tooling** chase, only if a task needs
+  that script.
 
 The costume-anim decoder, pacing model (`docs/SCUMM-V5-TIMING.md`), and
 z-plane model (`docs/SCUMM-V5-ZPLANE.md`) are solid ground to build on.
