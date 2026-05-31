@@ -403,6 +403,22 @@ most lives in the inline known-bug entries above and the linked docs.
 
 **Rendering / animation**
 
+- **Actor scaling (perspective depth) — UNIMPLEMENTED** *(2026-05-31,
+  user-observed)*. In ScummVM, Guybrush **grows as he descends the room-33
+  cliff toward the camera** (small at top → full size at the dock) — and
+  shrinks walking away. SCUMM scales actors by position via walk-box scale
+  data: each box carries a `scaleSlot` (we already parse it,
+  `boxes.ts:170`) indexing the room's **`SCAL`** block (in the catalog but
+  **not parsed** — pairs defining a scale-vs-`y` gradient); the actor's
+  `scale` (0–255) is set from the box it stands in (interpolated by `y`),
+  and the compositor draws the costume frame scaled. Today none of this is
+  wired: `actor.scale` exists but is only saved/restored (never set from
+  boxes), and `compositeActor` has **no scale parameter** (always 100%).
+  NOT a pathfinding side effect — a distinct feature. Three pieces for a
+  future polish phase: (1) parse `SCAL` into per-room scale slots; (2) on
+  actor move, set `actor.scale` from the current box's `scaleSlot`
+  interpolated by `y`; (3) scale the costume blit in `compositeActor` by
+  `scale/255`. See [docs/SCUMM-V5-ZPLANE.md] / pathfinding/boxes.ts.
 - [x] **Head limb didn't track facing — FIXED ✓ user-confirmed
   (2026-05-31).** Guybrush's **head (limb 1)** faced the camera at rest
   regardless of facing, while the body faced correctly. Root cause: only
@@ -419,8 +435,8 @@ most lives in the inline known-bug entries above and the linked docs.
   §"Head re-point". **Also fixed the room 38 entry head-loss** ✓
   user-confirmed — the same re-point→un-stop sequence clears the
   transient where the head limb was left stopped on entry.
-  Follow-up head/facing fixes (2026-05-31, same session — *visual
-  confirmation pending*):
+  Follow-up head/facing fixes (2026-05-31, same session — N/S descent
+  ✓ user-confirmed "descends vertically looking south"):
   - [x] **Turn-in-place re-point** — `faceActor` and `animateActor`
     set-direction changed `facing` without re-posing, so the body **and**
     head kept the old facing (and `animateActor` "stop" missed the head
