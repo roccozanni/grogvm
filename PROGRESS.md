@@ -51,35 +51,38 @@ floor; `g107` (armed) stays 11 throughout. Open *option* (user's call): shell-
 side override to also suppress this highlight for nameless objects so #320 reads
 as fully inert floor, at the cost of a small divergence from the engine.
 
-**Open — pirate close-up mirrors on conversation (track, not yet diagnosed).**
-When the pirate conversation starts (after the player's first line), actor 3
-(cost24) renders horizontally flipped. Hypothesis: the dialog script refaces
-actor 3 toward ego (Guybrush is to the *left* → facing West), and the
-compositor's mirror rule (`mirror = horizontal && (facing==='W') !== mirrorFlag`;
-cost24 mirrorFlag=false) flips the front-view art. cost24 only defines S-facing
-+ init-dir art, so a front-view costume shouldn't mirror on a W/E reface — or
-the close-up shouldn't reface it. Confirm actor 3's facing during the convo
-before fixing. See [COSTUME-ANIM](docs/SCUMM-V5-COSTUME-ANIM.md) mirror notes.
+**Open — intermittent dialog start glitch (next, not yet diagnosed).** When the
+pirate conversation begins it *sometimes* breaks: the first dialog line renders
+**all black** and the verb bar stays black (replies don't activate); other times
+the same line renders **yellow** and everything works. Non-deterministic — not
+pinned to a fixed action sequence, and the user believes it predates the issue-3
+work. Smells like a race/ordering between the dialog-start (colour/charset setup
++ `saveRestoreVerbs` archiving the action verbs) and the reply-verb creation, or
+an uninitialised talk colour on some paths. Investigate the conversation-start
+sequence (verb archiving, talk colour, reply-verb wiring).
 
-**Open — room 28 pirates, issue #3 (queued, diagnosed):**
+**Open — pirate close-up mirrors on conversation (track; recheck).** Earlier the
+close-up showed actor 3 (cost24) horizontally flipped. User now reports
+animations + composition "all fine" after the issue-3 work, so this may be
+resolved (or not re-hit). Hypothesis if it recurs: the dialog refaces actor 3
+toward ego (West) and the compositor's mirror rule flips the front-view art;
+cost24 only defines S/init art, so a front-view costume shouldn't mirror on a
+W/E reface. Re-verify before acting. See [COSTUME-ANIM](docs/SCUMM-V5-COSTUME-ANIM.md).
 
-- **Static (no idle/drink animation).** Actor 3 is placed by room-28 local
-  script #204 (`actorOps init costume=24 … neverZclip`; `animateActor 3 250`).
-  `anim=250` resolves to an out-of-range chore record (~1002 vs numAnim 51) —
-  a no-op (in SCUMM too). The real idle is the costume's **init chore**
-  (records 4–7; record 6 = facing-S = the 3-pirate multi-frame drink loop,
-  verified). Our `setActorCostume` resets to an empty anim state and nothing
-  starts the init chore (Guybrush only animates because walking starts one).
-  cost24 has **no stand chore (3)**, so `applyStandPose` (init→stand) can't be
-  reused — the init chore must start and persist. Fix = start the init chore
-  when a visible in-room actor's costume is set (faithful SCUMM
-  `setActorCostume → startAnimActor(initFrame)`). *(Background bar patrons —
-  obj 330/333/336/357/358 etc. — animate via `drawObject` state-swap scripts
-  206–210; different mechanism, already working.)*
-- **Draws in front of Guybrush.** Compositor sorts actors by **id** (actor 3
-  after actor 1). SCUMM orders by **y-position**. `neverZclip` only governs
-  z-*plane* occlusion, not actor-vs-actor order. Fix = y-sort (confirm it
-  resolves the Guybrush overlap at his talk-to-pirates position first).
+**Fixed — issue #3 (pirate animation + actor layering)** *(user-confirmed)*. Two
+connected bugs, both rooted in the `animateActor` opcode model:
+- The operand is a **chore number** (1=init, 2=walk, 3=stand…; record = chore*4
+  + dir); **244–255 are direction/stop pseudo-anims** (`dir = anim & 3`), and a
+  set/turn-dir pseudo-anim *re-points the running chore* to the new facing
+  rather than switching it. Our old `cmd = anim/4` reading put specials at 8–19
+  and no-opped 244–255 (the game's most-used direction commands).
+- The init chore (chore 1) now starts when a costume is set — the actor's
+  default animation. cost24's init chore (record 6, facing S) is the 3-pirate
+  drink loop; `animateActor 3 250` (set-dir-S) keeps it running. No-op visual
+  for single-frame-init costumes; only the 13 multi-frame ones start animating.
+- Actor draw order is now by **y-position** (tiebreak id), fixing the close-up
+  layering (Guybrush front, pirates behind the table). Semantics →
+  [COSTUME-ANIM](docs/SCUMM-V5-COSTUME-ANIM.md).
 
 **Next:** finish the SCUMM Bar dialogs, gather inventory items, and reach a
 **use-with** puzzle so the two open input items below get exercised with a real

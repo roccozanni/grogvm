@@ -31,7 +31,7 @@ import {
   DEFAULT_TALK_STOP_FRAME,
   type Actor,
 } from '../../actor/actor';
-import { startWalk, startActorChore, applyStandPose, FACING_FROM_OLD } from '../../actor/walk';
+import { startWalk, startActorChore, applyStandPose, reapplyChoreForFacing, FACING_FROM_OLD } from '../../actor/walk';
 import { pickObject } from '../../object/hittest';
 import { evalExpression } from '../expression';
 import { SENTENCE_CLEAR_VERB } from '../sentence';
@@ -1511,22 +1511,28 @@ for (const op of [0x01, 0x21, 0x41, 0x61, 0x81, 0xa1, 0xc1, 0xe1]) {
 }
 
 // ─── 0x11 / 0x91  animateActor ───────────────────────────────────────
-// SCUMM v5 `Actor::animateActor(anim)`. The operand is NOT a raw anim-
-// record index — it's `cmd * 4 + dir`, where `cmd = anim / 4` selects an
-// action and `dir = anim & 3` (an old-style direction) parameterizes the
-// turn cmds. Three cmds are pseudo-anims that move/turn the actor; every
-// other value is a costume chore whose record resolves (in v5's
-// `startAnimActor` → `costumeDecodeData`) to `anim * 4 + dir(facing)`.
+// SCUMM v5 `Actor::animateActor(anim)`. The operand is a **chore number**;
+// the chore plays for the actor's current facing, resolving to anim record
+// `chore*4 + dir(facing)` (so chore 1 = init → records 4-7, chore 2 = walk
+// → 8-11, chore 3 = stand → 12-15, …; see docs/SCUMM-V5-COSTUME-ANIM.md).
 //
-//   cmd 2  → stop walking, drop to the stand pose
-//   cmd 3  → set facing immediately to `dir`
-//   cmd 4  → turn to `dir` (we snap facing; no turn animation)
-//   else   → play chore `anim` (record = anim*4 + dir(facing))
+// The values **244-255 are pseudo-anims** — they carry no frame data, just
+// a direction in the low 2 bits (`dir = anim & 3`):
 //
-// The old code passed `anim` straight through as the record index,
-// skipping the ×4 — so e.g. the Mêlée-island clouds' `animateActor 4`
-// landed on record 4 (a no-draw command) instead of record 16 (the
-// cloud sprite). See docs/SCUMM-V5-COSTUME-ANIM.md "Clouds".
+//   244-247  turn to direction      (we snap; no turn animation)
+//   248-251  set direction now
+//   252-255  stop walking (+ stand)
+//
+// Pseudo-anims that change facing re-point the *currently playing* chore to
+// the new direction (SCUMM re-decodes the active animation for the new
+// facing) — they do NOT switch chores. This is how `animateActor 3 250`
+// (set-dir-S) keeps the pirates' init chore (started at setCostume) running
+// while facing south, i.e. the drink loop (record 6).
+//
+// NB: 244-255 are the game's most-used direction commands; the previous
+// `cmd = anim/4` reading mis-placed the specials at 8-19 and silently
+// no-opped 244-255. The Mêlée clouds (`animateActor 4` → chore 4 → record
+// 18) are unaffected — 4 is a chore in both readings.
 function animateActorHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const id = readVarOrByte(opcode, 1, slot, vm.vars);
   const anim = readVarOrByte(opcode, 2, slot, vm.vars);
@@ -1535,32 +1541,26 @@ function animateActorHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
     vm.annotate(`animateActor actor=${id} anim=${anim} (no actor)`);
     return;
   }
-  const cmd = Math.floor(anim / 4);
-  const dirFacing = FACING_FROM_OLD[anim & 3]!;
-  switch (cmd) {
-    case 2: // stop walking, drop to the stand pose
+  if (anim >= 244) {
+    // Pseudo-anim: direction in the low 2 bits, no frame data.
+    actor.facing = FACING_FROM_OLD[anim & 3]!;
+    if (anim >= 252) {
+      // 252-255: stop walking, then stand facing the requested direction.
       actor.isMoving = false;
       actor.walkTarget = null;
-      applyStandPose(vm, actor); // re-points the directional head, not just stand
-      break;
-    case 3: // set facing immediately
-    case 4: // turn to facing (no turn animation modelled — snap)
-      actor.facing = dirFacing;
-      // Turn in place: re-point the stand pose so the body AND head face
-      // the new direction now (the stand record alone won't re-frame the
-      // head). Only when idle — a walking actor's chore is driven by the
-      // walk loop.
-      if (!actor.isMoving) applyStandPose(vm, actor);
-      break;
-    default:
-      // Play the chore. If the costume isn't loaded yet (id 0 / unknown),
-      // SCUMM scripts often pre-set anim before setCostume — keep the
-      // current playback and just record the intent so a later setCostume
-      // can bind it; startActorChore no-ops without a costume.
-      startActorChore(vm, actor, anim);
-      break;
+      applyStandPose(vm, actor);
+    } else if (!actor.isMoving) {
+      // 244-251: (turn to / set) direction. Re-point the chore that's
+      // already playing to the new facing — don't switch chores. A walking
+      // actor's chore is driven by the walk loop, so leave it be.
+      reapplyChoreForFacing(vm, actor);
+    }
+  } else {
+    // Play chore `anim` for the current facing (record = anim*4 + dir).
+    // startActorChore no-ops without a loaded costume.
+    startActorChore(vm, actor, anim);
   }
-  vm.annotate(`animateActor actor=${id} anim=${anim} (cmd ${cmd})`);
+  vm.annotate(`animateActor actor=${id} anim=${anim}`);
 }
 // actor = bit 0x80, anim = bit 0x40 → variants 0x11/0x51/0x91/0xD1.
 // (0x31 getInventoryCount and 0x71 getActorCostume share low5=0x11 but
@@ -1592,7 +1592,18 @@ function actorOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
       }
       case 0x01: {
         const c = readVarOrByte(sub, 1, slot, vm.vars);
-        if (actor) actorSetCostume(actor, c);
+        if (actor) {
+          actorSetCostume(actor, c);
+          // SCUMM initialises a costumed actor to its init chore (chore 1,
+          // records 4-7) for the current facing — that's the actor's default
+          // animation until a script plays another chore. For most costumes
+          // the init chore is a single-frame stand (visually identical to the
+          // old frame-0 fallback); for the few with a multi-frame init (e.g.
+          // the SCUMM-Bar pirates, cost24) it's an idle loop. Without this a
+          // placed actor that only ever gets a direction pseudo-anim stays
+          // frozen. No-op for costume 0 / no loaded costume.
+          if (c > 0) startActorChore(vm, actor, actor.initFrame);
+        }
         ops.push(`setCostume(${c})`);
         break;
       }

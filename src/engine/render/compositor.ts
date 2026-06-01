@@ -216,8 +216,12 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
   // — at or above the room's plane count — are untouched.
   const actorZPlanes = fgPlanes.length > 0 ? mergeForeground(room, fgPlanes) : room.zPlanes;
 
-  // Render actors in id ascending order for stable layering.
-  const sorted = [...actors].sort((a, b) => a.id - b.id);
+  // Render actors back-to-front by room y (SCUMM's actor sort): an actor
+  // lower on screen (greater y) is nearer the camera, so it paints last and
+  // occludes those behind. Id breaks ties for stable layering. This is what
+  // puts Guybrush (front, greater y) over the seated SCUMM-Bar pirates
+  // (behind the table, lesser y) instead of the id-order reverse.
+  const sorted = [...actors].sort((a, b) => a.y - b.y || a.id - b.id);
   for (const actor of sorted) {
     // Clear last frame's hit-test bounds up front; only a successful
     // composite re-establishes them (so a skipped / undrawn actor reads

@@ -56,6 +56,21 @@ export function startActorChore(vm: Vm, actor: Actor, chore: number): void {
 }
 
 /**
+ * Re-point the chore that's currently playing to the actor's (just-changed)
+ * facing, without switching chores. The active anim record is
+ * `chore * 4 + dir`, so the chore is `animId / 4`; restarting it picks up
+ * the new `dir(facing)`. Used by the `animateActor` set/turn-direction
+ * pseudo-anims (244-251): SCUMM re-decodes the running animation for the new
+ * direction rather than changing what's playing — e.g. the SCUMM-Bar pirates
+ * keep their init/drink chore while turning to face south. No-op without a
+ * loaded costume.
+ */
+export function reapplyChoreForFacing(vm: Vm, actor: Actor): void {
+  if (actor.costume <= 0) return;
+  startActorChore(vm, actor, Math.floor(actor.anim.animId / 4));
+}
+
+/**
  * Drive an actor's costume animation from a chore frame: start the anim
  * record `chore * 4 + dir` for the actor's current facing. Only
  * (re)starts when the target record changes, so a running walk cycle

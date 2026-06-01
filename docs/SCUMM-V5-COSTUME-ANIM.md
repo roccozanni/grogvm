@@ -34,24 +34,48 @@ can be just 2 bytes even if the next offset is 6 bytes later (the gap
 is unused padding or simply where the next anim's data happens to
 begin).
 
-## Anim ids — special ranges per the SCUMM v5 wiki
+## Anim ids — the `animateActor` operand
+
+The `animateActor` operand is a **chore number**, not a raw anim-record
+index. The chore plays for the actor's current facing, resolving to anim
+record `chore*4 + dir(facing)`. The wiki documents the standard chore →
+record-range assignments:
 
 ```
-00-03 unknown
-04-07 init      (4 directions: W, E, S, N)
-08-11 walk
-12-15 stand
-16-19 talk start
-20-23 talk stop
-244-247  turn to new direction          ← pseudo-anims, no frame data
-248-251  change direction immediately    ← pseudo-anims, no frame data
-252-255  stop walking                    ← pseudo-anims, no frame data
+records 04-07  chore 1 = init   (4 directions: W, E, S, N)
+records 08-11  chore 2 = walk
+records 12-15  chore 3 = stand
+records 16-19  chore 4 = talk start
+records 20-23  chore 5 = talk stop
 ```
 
-So `animateActor(actor=1, anim=250)` is a **direction change**, not
-a frame-cycle animation. An actor whose `animId` is 250 will
-correctly show "no active limbs" — there's nothing for the
-compositor to advance.
+i.e. `animateActor X 1` = init, `X 2` = walk, `X 3` = stand, and 6+ are
+the costume's custom chores.
+
+Values **244-255 are pseudo-anims** — no frame data, just a direction in
+the low 2 bits (`dir = anim & 3`):
+
+```
+244-247  turn to direction      (snapped; no turn animation modelled)
+248-251  set direction now
+252-255  stop walking (+ stand)
+```
+
+A set/turn-direction pseudo-anim **re-points the chore that's already
+playing** to the new facing (SCUMM re-decodes the running animation for the
+new direction) — it does NOT switch chores or clear the animation. This is
+the load-bearing detail: `animateActor 3 250` (set-dir-S) on the SCUMM-Bar
+pirates keeps their **init chore** running while facing south. The init
+chore is started when the costume is set (chore 1 is the actor's default
+animation); for cost24 that chore is a multi-frame drink loop (record 6),
+so the pirates animate even though `250` itself carries no frames. An actor
+that only ever gets a direction pseudo-anim therefore still animates — via
+its init chore — which an earlier reading (treating 250 as a no-op with "no
+active limbs") missed.
+
+> Caveat: `cmd = anim/4` (specials at 8-19) was an earlier, incorrect
+> reading. The specials are 244-255; 8-19 are real chores. The handler in
+> `vm/opcodes/index.ts` and this table now agree.
 
 ## Reference implementation
 

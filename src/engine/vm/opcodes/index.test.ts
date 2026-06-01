@@ -1066,10 +1066,10 @@ describe('actor placement + room-transition opcodes (boot→lookout fixes)', () 
   it('animateActor 0xD1 reads both actor and anim as vars', () => {
     const vm = makeVm();
     vm.vars.writeGlobal(10, 3); // actor id
-    // anim 15 = cmd 3 (set direction immediately), dir 3 → facing N. cmd 3
-    // is observable without a loaded costume (it just snaps facing), so it
-    // confirms both operands were dereferenced as vars.
-    vm.vars.writeGlobal(11, 15);
+    // anim 251 = set-direction-immediately pseudo-anim (248-251), dir 3 →
+    // facing N. A pseudo-anim just snaps facing, observable without a loaded
+    // costume, so it confirms both operands were dereferenced as vars.
+    vm.vars.writeGlobal(11, 251);
     vm.actors.get(3).room = 1;
     vm.actors.get(3).facing = 'S';
     // 0xD1 animateActor actor=var10 anim=var11, then stop.
