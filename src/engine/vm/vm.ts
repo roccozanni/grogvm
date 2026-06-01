@@ -762,10 +762,7 @@ export class Vm {
 
     this.currentRoom = roomId;
     this.vars.writeGlobal(VAR_ROOM_INDEX, roomId);
-    // Pseudo-rooms (0xCC) alias one logical id onto another's physical
-    // resources — resolve through the mapper, identity for normal ids.
-    const physicalRoom = this.pseudoRooms.get(roomId) ?? roomId;
-    this.applyRoomResources(physicalRoom);
+    this.applyRoomResources(roomId);
 
     const next = this.loadedRoom;
     if (next?.entryScript && next.entryScript.length > 0) {
@@ -783,22 +780,31 @@ export class Vm {
   }
 
   /**
-   * Decode `physicalRoom` into {@link loadedRoom} and re-apply the
+   * Decode `roomId` into {@link loadedRoom} and re-apply the
    * persistent UI-palette overrides (set by boot palette scripts before
    * any room existed) on top of its freshly decoded CLUT — otherwise the
    * room's placeholder VGA-16 low palette clobbers the verb/credit/
    * sentence colours every room change. Shared by {@link enterRoom} and
    * {@link reloadCurrentRoomResources}; does NOT run entry/exit scripts.
+   *
+   * Pseudo-rooms (0xCC) are a **fallback**: a logical id that doesn't
+   * physically exist (MI1 maps 73–92 → 58, but only 91/92 are absent) aliases
+   * onto another room's resources. A room that DOES exist must load its own
+   * data — the dialog close-ups 73–90 are listed in that same pseudoRoom
+   * table yet each is a distinct scene (room 82 is the pirate close-up, NOT
+   * the shared black stage 58). So we resolve the requested id first and only
+   * consult the alias when the direct load fails. (Applying the alias to
+   * every room is what replaced the pirate close-up with a black screen.)
    */
-  private applyRoomResources(physicalRoom: number): void {
+  private applyRoomResources(roomId: number): void {
     if (this.resolveRoom) {
-      try {
-        this.loadedRoom = this.resolveRoom(physicalRoom);
-        this.lastRoomLoadError = null;
-      } catch (err) {
-        this.loadedRoom = null;
-        this.lastRoomLoadError = err instanceof Error ? err.message : String(err);
+      let room = this.tryResolveRoom(roomId);
+      if (!room) {
+        const alias = this.pseudoRooms.get(roomId);
+        if (alias !== undefined && alias !== roomId) room = this.tryResolveRoom(alias);
       }
+      this.loadedRoom = room;
+      if (room) this.lastRoomLoadError = null;
     } else {
       this.loadedRoom = null;
     }
@@ -841,8 +847,24 @@ export class Vm {
       this.loadedRoom = null;
       return;
     }
-    const physical = this.pseudoRooms.get(this.currentRoom) ?? this.currentRoom;
-    this.applyRoomResources(physical);
+    this.applyRoomResources(this.currentRoom);
+  }
+
+  /**
+   * Resolve a room id to its decoded resources, or `null` if it can't be
+   * loaded (recording the error). Used by {@link applyRoomResources} to try
+   * the requested room before falling back to a pseudo-room alias.
+   */
+  private tryResolveRoom(id: number): LoadedRoom | null {
+    if (!this.resolveRoom) return null;
+    try {
+      const room = this.resolveRoom(id);
+      this.lastRoomLoadError = null;
+      return room;
+    } catch (err) {
+      this.lastRoomLoadError = err instanceof Error ? err.message : String(err);
+      return null;
+    }
   }
 
   /**

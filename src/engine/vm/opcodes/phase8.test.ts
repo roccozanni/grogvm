@@ -59,7 +59,11 @@ describe('phase 8 — pseudoRoom (0xCC)', () => {
     expect(vm.haltInfo).toBeNull();
   });
 
-  it('enterRoom resolves a pseudo id to its physical room', () => {
+  it('enterRoom loads an existing room directly, ignoring its pseudo alias', () => {
+    // A room that physically exists must load its OWN data even when the
+    // pseudoRoom table aliases it (MI1 aliases the close-ups 73–90 → 58, yet
+    // each is its own scene — room 82 is the pirate close-up, not the black
+    // stage 58). The alias is a fallback, not an override.
     const resolved: number[] = [];
     const vm = makeVm((id) => {
       resolved.push(id);
@@ -67,10 +71,25 @@ describe('phase 8 — pseudoRoom (0xCC)', () => {
     });
     vm.pseudoRooms.set(5, 10);
     vm.enterRoom(5);
-    // Resources come from room 10; the logical room stays 5.
-    expect(resolved).toContain(10);
-    expect(vm.loadedRoom?.id).toBe(10);
+    expect(vm.loadedRoom?.id).toBe(5); // its own resources, not 10's
+    expect(resolved).not.toContain(10); // the alias wasn't consulted
     expect(vm.currentRoom).toBe(5);
+  });
+
+  it('enterRoom falls back to the pseudo alias when the room does not exist', () => {
+    // A logical id with no physical room (MI1 91/92 → 58) resolves through the
+    // alias. The resolver throws for the missing id, succeeds for the alias.
+    const resolved: number[] = [];
+    const vm = makeVm((id) => {
+      resolved.push(id);
+      if (id === 91) throw new Error('room 91 not present');
+      return fakeRoom(id);
+    });
+    vm.pseudoRooms.set(91, 58);
+    vm.enterRoom(91);
+    expect(vm.loadedRoom?.id).toBe(58); // fell back to the alias
+    expect(vm.currentRoom).toBe(91); // logical id unchanged
+    expect(vm.haltInfo).toBeNull();
   });
 
   it('enterRoom is identity for an unmapped id', () => {

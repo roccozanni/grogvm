@@ -453,6 +453,12 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
 
     for (const v of vm.verbs.values()) {
       if (v.state === 'deleted' || v.state === 'off') continue;
+      // A verb that's currently saved/archived (saveRestoreVerbs) is not drawn
+      // — SCUMM hides verbs with a non-zero saveid until they're restored.
+      // During a conversation the action verbs AND the sentence line (#100)
+      // are archived this way, leaving only the dialog replies; without this
+      // the sentence line draws across the first reply (overlap).
+      if (vm.savedVerbStates.has(v.id)) continue;
       const x = v.x;
       const y = v.y - VERB_BAR_START_Y;
       if (y < 0 || y >= VERB_BAR_HEIGHT) continue;
@@ -540,6 +546,7 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
     let dimHit: VerbSlot | null = null;
     for (const v of vm.verbs.values()) {
       if (v.state !== 'on' && v.state !== 'dim') continue;
+      if (vm.savedVerbStates.has(v.id)) continue; // archived → not hittable
       const y = v.y - VERB_BAR_START_Y;
       let hit = false;
       if (v.image) {

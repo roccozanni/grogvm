@@ -114,7 +114,7 @@ the un-parsed-beyond-initial `DOBJ` (we seed initial only), and any room-entry
 script gaps. The `scratch/` probes from this session (`probe-door-seq`,
 `probe-hover33`, `probe-dobj`, `probe-room28`, …) are handy templates.
 
-## Open issues (session 9: #1 & #2 confirmed; session 10: #3–#8 fixed & confirmed; session 11: #9 chainScript + drawObject pile-up, #10 getActorMoving, #11 drawObject subop, #12 room-change script stop, #13 drawObject state default; #14 dialog-select OPEN)
+## Open issues (session 9: #1 & #2 confirmed; session 10: #3–#8 fixed & confirmed; session 11: #9 chainScript + drawObject pile-up, #10 getActorMoving, #11 drawObject subop, #12 room-change script stop, #13 drawObject state default, #15 pseudo-room remap, #16 sentence-line overlap; #14 dialog-reply click OPEN)
 
 ### 1. Camera-follow stutter + "two Guybrush" — FIXED & user-confirmed (session 9)
 Ordering bug, as hypothesised. `moveCameraFollow()` ran in `beginTick()` (every
@@ -368,9 +368,38 @@ during the dialog (the `saveRestoreVerbs 0x1` save/hide that #93/#14 perform isn
 honoured), so the verb bar would show action verbs + replies together. **Engine
 correctness (#13) is fixed and unit-proven; this remaining item is the shell+engine
 wiring of the reply click** (route reply clicks as the dialog clickArea with the
-mouse coords #14 expects, and honour saveRestoreVerbs) — its own focused task. The
-"fireflies" are the play-overlay debug crosshair/hover markers, not game content
-(room 58's bg is genuinely all-black by design — a close-up stage).
+mouse coords #14 expects) — its own focused task. The reply *verbs* render and the
+sentence-line overlap is fixed (see #16).
+
+### 15. Pseudo-rooms wrongly remapped EVERY room → close-ups rendered black — FIXED (session 11)
+The pirate-conversation close-up rendered all-black (user: "dark forest with
+fireflies") because we loaded the wrong room. MI1's boot does
+`pseudoRoom 58 [201,202,203] …` aliasing logical rooms **73–92 → 58**, and our
+`enterRoom` resolved **every** id through that map — so `loadRoom 82` (the pirate
+close-up) loaded physical room **58** (an all-black shared stage) instead of 82.
+But rooms **73–90 physically exist** with their own art (room 82 = the orange
+pirate close-up, 46080 non-black px, 221 colors); only **91/92** are absent. In
+SCUMM the pseudo-room map is a **fallback** for ids with no physical room, not an
+override — `loadRoom` loads the requested room directly. **Fix:**
+`applyRoomResources` now resolves the requested id first (`tryResolveRoom`) and only
+consults the pseudo-alias when that fails (91/92 → 58). The close-up now renders its
+real background + pirate (`nonblackPx 0 → 46080`). +2 tests (existing room loads its
+own data ignoring its alias; a missing id falls back to the alias); the old
+"enterRoom always remaps" test was wrong and is replaced. Combined with #13
+(drawObject state=1) the pirate object reveals too.
+
+### 16. Sentence line drew over the dialog replies — FIXED (session 11)
+During a conversation the sentence line (verb #100, at y=145) overlapped the first
+reply verb (#120, also y=145) — the garbled "Vorrei presenta…bere?" line in the
+user's shot. MI1 archives #100 (and the action verbs) via `saveRestoreVerbs` during
+dialog; SCUMM doesn't draw a verb that carries a non-zero saveid (archived). Our
+engine records archived verbs in `vm.savedVerbStates` but a stale re-enable left
+#100 `state=on` while saved, so it still drew. **Fix (shell):** the verb-bar render
+and hit-test skip any verb currently in `vm.savedVerbStates` — archived verbs aren't
+shown or clickable, matching SCUMM — so only the live dialog replies remain. (A
+deeper engine fix would adopt SCUMM's per-verb `saveid` model end-to-end; the
+render-skip is the faithful, low-risk subset.) 775 green, tsc clean. **NEEDS USER
+CONFIRM in-app** (close-up shows the pirate; sentence line gone during dialog).
 
 Why: `renderPlayer` (player.ts, 1714 lines) was a vertically-stacked
 *resource browser*, not a game player — the actual game was wedged inside
