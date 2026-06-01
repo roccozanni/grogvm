@@ -1,6 +1,6 @@
 # Pathfinding — Grid A* over a Walkable Mask
 
-webscumm uses **grid A***, not the original SCUMM box-graph
+GrogVM uses **grid A***, not the original SCUMM box-graph
 pathfinder. This document explains the architecture, the rationale,
 and the trade-offs.
 
@@ -18,7 +18,7 @@ directly reachable from which other boxes. A path is planned as a
 sequence of box transitions (`5 → 7 → 8`), and the in-box trajectory
 is refined per transition.
 
-webscumm uses a different approach: **flatten the union of all
+GrogVM uses a different approach: **flatten the union of all
 visible walk boxes into a binary mask, then A* over that mask**.
 The boxes are still parsed for their flags and SCAL slots (per
 [`SCUMM-V5-WALK-BOXES.md`](SCUMM-V5-WALK-BOXES.md)), but only the

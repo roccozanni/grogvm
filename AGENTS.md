@@ -1,4 +1,4 @@
-# AGENTS.md — webscumm briefing for AI assistants
+# AGENTS.md — GrogVM briefing for AI assistants
 
 You are joining a side project where the user is building a TypeScript
 SCUMM v5 reimplementation from scratch, for fun and learning. This
@@ -19,7 +19,7 @@ sessions.
 
 ## Project intent
 
-webscumm targets MI1 (CD VGA) + MI2 (DOS). **Primary goal is
+GrogVM targets MI1 (CD VGA) + MI2 (DOS). **Primary goal is
 learning**, not shipping a ScummVM alternative. Clarity beats
 performance. Built in phases (0 scaffold → 1 resources → 2 graphics →
 3 costumes → …); each phase ends with something visible and tested.
@@ -47,10 +47,10 @@ if violated:
 
 - **Debug / inspection UI is permanent, not scaffolding.** The
   block-tree dump, the per-strip method bar, the histogram chip list,
-  any future inspection view — these all stay. webscumm doubles as a
+  any future inspection view — these all stay. GrogVM doubles as a
   learning tool, and removing inspection capability degrades that
   goal. Memory note:
-  `~/.claude/projects/-Users-rocco-Developer-webscumm/memory/feedback-keep-debug-ui.md`.
+  `~/.claude/projects/-Users-rocco-Developer-grogvm/memory/feedback-keep-debug-ui.md`.
 - **No judgmental phrasing about other people's work.** Refer to
   reverse-engineering notes neutrally ("long-circulating notes"), not
   as "amateur" or "wrong".

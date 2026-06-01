@@ -1,6 +1,6 @@
 /**
  * Debug panel (ARCHITECTURE.md §7, Q8) — live VM inspection below the Play
- * canvas, driven off the SAME EngineSession. **Always visible**: webscumm is a
+ * canvas, driven off the SAME EngineSession. **Always visible**: GrogVM is a
  * learning tool, so the VM internals are never hidden behind a toggle.
  *
  * Controls (play / pause / step / rate / run-to-idle / warp / reboot) call the

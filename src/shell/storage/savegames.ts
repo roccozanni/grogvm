@@ -3,8 +3,8 @@
  * scoped per game so MI1 and MI2 saves never collide.
  *
  * Layout:
- *   - `webscumm:save:<gameId>:<name>` → the full {@link SaveState} JSON.
- *   - `webscumm:saves:<gameId>`       → a lightweight index (slot metadata)
+ *   - `grogvm:save:<gameId>:<name>` → the full {@link SaveState} JSON.
+ *   - `grogvm:saves:<gameId>`       → a lightweight index (slot metadata)
  *     so the UI can list slots without parsing every full blob.
  *
  * Every entry point is defensive: localStorage can throw (private-mode,
@@ -30,8 +30,8 @@ export class SaveStoreError extends Error {
   }
 }
 
-const slotKey = (gameId: string, name: string): string => `webscumm:save:${gameId}:${name}`;
-const indexKey = (gameId: string): string => `webscumm:saves:${gameId}`;
+const slotKey = (gameId: string, name: string): string => `grogvm:save:${gameId}:${name}`;
+const indexKey = (gameId: string): string => `grogvm:saves:${gameId}`;
 
 function store(): Storage | null {
   try {

@@ -1,6 +1,6 @@
 import type { GameId } from '../install/detect';
 
-const DB_NAME = 'webscumm';
+const DB_NAME = 'grogvm';
 const DB_VERSION = 1;
 const STORE = 'games';
 

@@ -7,7 +7,7 @@
  * background acts as a "punch-out" stencil for everything that moves.
  *
  * When viewing a raw SMAP without object compositing (Phase 2 of
- * webscumm), the transparent index is what shows through in the spots
+ * GrogVM), the transparent index is what shows through in the spots
  * an OBIM would normally cover.
  */
 export function parseTrns(payload: Uint8Array): number {

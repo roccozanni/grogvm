@@ -3,7 +3,7 @@
  *
  * These exercise the whole boot → intro → gameplay path through the
  * actual game scripts — the thing unit tests with synthetic bytecode
- * can't cover. They are **data-gated**: when `games/MI1` isn't present
+ * can't cover. They are **data-gated**: when `games/MI1-IT-CD-DOS-VGA` isn't present
  * (CI, fresh checkout) the whole suite is skipped, so the green-without-
  * data convention holds. They never commit any copyrighted bytes.
  *
@@ -23,8 +23,8 @@ import { bootGame } from './vm/boot';
 import { VAR_CURRENT_LIGHTS, VAR_EGO } from './vm/vars';
 import type { Vm } from './vm/vm';
 
-const INDEX = 'games/MI1/MONKEY.000';
-const RESOURCE = 'games/MI1/MONKEY.001';
+const INDEX = 'games/MI1-IT-CD-DOS-VGA/MONKEY.000';
+const RESOURCE = 'games/MI1-IT-CD-DOS-VGA/MONKEY.001';
 const hasData = existsSync(INDEX) && existsSync(RESOURCE);
 
 /** The first interactive room of the intro (Mêlée lookout path → room 33). */

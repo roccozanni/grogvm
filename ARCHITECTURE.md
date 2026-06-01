@@ -1,4 +1,4 @@
-# webscumm — Architecture
+# GrogVM — Architecture
 
 A from-scratch TypeScript reimplementation of a small slice of [SCUMM]
 running natively in the browser. The goal is **learning by building**, not
@@ -453,7 +453,7 @@ visible; see the project memory note).
 ## 8. Directory layout
 
 ```
-webscumm/
+grogvm/
 ├── ARCHITECTURE.md
 ├── index.html                  # `/`        → library page entry
 ├── explore.html                # `/explore` → explorer page entry (reads ?game=)

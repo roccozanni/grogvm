@@ -54,7 +54,7 @@ LECF                 top-level container
 A single LFLF can contain multiple `COST` blocks; LFLFs that don't ship
 any costumes have none. The index file (`MONKEY.000`) carries a `DCOS`
 directory that maps **costume id → (disk file, byte offset)** so the
-engine can grab any costume by id at runtime. `webscumm`'s engine
+engine can grab any costume by id at runtime. `GrogVM`'s engine
 currently indexes costumes by their position in the block tree (i.e.
 "the 4th `COST` we walked past") rather than by id; resolving DCOS is
 deferred until script-controlled costume loads matter.
@@ -472,7 +472,7 @@ runs.
 
 When the decoder emits a pixel of costume index 0, the compositor
 must skip it — the underlying framebuffer pixel (the room background,
-or another already-drawn actor pixel) is preserved. `webscumm` emits a
+or another already-drawn actor pixel) is preserved. `GrogVM` emits a
 sentinel value (`0xFF`) for index-0 pixels so the compositor has a
 single value to check; costume indices only range 0..31 so a 0xFF
 sentinel is unambiguous in this namespace.
@@ -495,12 +495,12 @@ block in MI2 is therefore 2 bytes too small relative to the post-
 header payload that our parser hands the costume decoder.
 
 The clean fix, recommended by the long-circulating notes and confirmed
-by `webscumm`'s testing, is to **skip the first 2 bytes of an MI2
+by `GrogVM`'s testing, is to **skip the first 2 bytes of an MI2
 costume payload** before parsing, treating those two bytes as part of
 the implicit pre-header. All offsets then resolve correctly against
 the shifted payload.
 
-`webscumm`'s decoder isn't yet wired through with this correction —
+`GrogVM`'s decoder isn't yet wired through with this correction —
 Phase 3 was developed against MI1 data and we haven't smoke-tested
 MI2 costumes end-to-end yet. The fix slots in cleanly as a 2-byte
 slice in `walkCostumes` or `parseCostumeHeader` when the resource

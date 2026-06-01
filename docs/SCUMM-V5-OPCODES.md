@@ -258,7 +258,7 @@ completion.
 
 **Synthetic slots.** Some scripts the engine starts internally —
 the room's `ENCD` (entry script) and `EXCD` (exit script) when
-transitioning rooms — don't have a numeric script id. webscumm
+transitioning rooms — don't have a numeric script id. GrogVM
 attaches a string `label` field (e.g. `ENCD-10`, `EXCD-10`) so they
 show meaningfully in traces. Verb scripts and sentence scripts will
 benefit from the same mechanism.
@@ -322,7 +322,7 @@ The opcode byte carries two additional flags on the high bits:
 that otherwise prevents the same script id from running in two
 slots at once; **freeze-resistant** (bit `0x20`) marks the new
 slot so `freezeScripts` won't pause it. Both matter once verb
-scripts and `freezeScripts` are wired; webscumm currently ignores
+scripts and `freezeScripts` are wired; GrogVM currently ignores
 both and always picks the lowest free slot.
 
 ## 8. Halt as a first-class state

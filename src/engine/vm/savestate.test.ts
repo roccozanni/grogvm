@@ -217,8 +217,8 @@ describe('save-state — synthetic round-trip', () => {
 
 // ── Real-MI1 integration round-trip ─────────────────────────────────
 
-const INDEX = 'games/MI1/MONKEY.000';
-const RESOURCE = 'games/MI1/MONKEY.001';
+const INDEX = 'games/MI1-IT-CD-DOS-VGA/MONKEY.000';
+const RESOURCE = 'games/MI1-IT-CD-DOS-VGA/MONKEY.001';
 const hasData = existsSync(INDEX) && existsSync(RESOURCE);
 
 function bootMi1(): Vm {

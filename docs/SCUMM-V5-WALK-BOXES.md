@@ -11,7 +11,7 @@ A room has two blocks for this:
   points), plus per-box flags and a SCAL slot.
 - **`BOXM`** — *box matrix*. A compressed `N × N` adjacency table
   the original engine uses to plan walks across boxes via a graph
-  search. webscumm doesn't decode it; the included pathfinder
+  search. GrogVM doesn't decode it; the included pathfinder
   works off a rasterized version of `BOXD` directly. See
   [`PATHFINDING.md`](PATHFINDING.md).
 
@@ -125,7 +125,7 @@ sequence of box transitions, then refines the in-box trajectory.
 Compressed format: per box, a list of `(toBox, viaBox)` runs
 terminated by `0xFF`.
 
-webscumm currently doesn't decode BOXM. A grid A* pathfinder over
+GrogVM currently doesn't decode BOXM. A grid A* pathfinder over
 the rasterized mask handles every routing case the original
 box-graph would, with slightly different aesthetics (grid paths
 hug walls; box-graph paths cut diagonally through the middle of

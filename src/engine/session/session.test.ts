@@ -16,8 +16,8 @@ import { createSession } from './session';
 import { ManualClock } from './clock';
 import type { EngineSession, SessionGame } from './types';
 
-const INDEX = 'games/MI1/MONKEY.000';
-const RESOURCE = 'games/MI1/MONKEY.001';
+const INDEX = 'games/MI1-IT-CD-DOS-VGA/MONKEY.000';
+const RESOURCE = 'games/MI1-IT-CD-DOS-VGA/MONKEY.001';
 const hasData = existsSync(INDEX) && existsSync(RESOURCE);
 
 function makeGame(): SessionGame {

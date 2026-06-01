@@ -90,8 +90,8 @@ describe('savegames storage', () => {
 
   it('tolerates a corrupt index / slot payload', () => {
     const ls = globalThis.localStorage;
-    ls.setItem('webscumm:saves:MI1', '{not json');
-    ls.setItem('webscumm:save:MI1:bad', '{not json');
+    ls.setItem('grogvm:saves:MI1', '{not json');
+    ls.setItem('grogvm:save:MI1:bad', '{not json');
     expect(listSaves('MI1')).toEqual([]);
     expect(readSave('MI1', 'bad')).toBeNull();
   });

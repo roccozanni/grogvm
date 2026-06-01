@@ -1,4 +1,4 @@
-# webscumm
+# GrogVM
 
 A from-scratch TypeScript reimplementation of SCUMM v5 running natively
 in the browser. Target: playable *The Secret of Monkey Island* (CD VGA)
@@ -24,7 +24,7 @@ What works right now:
   themselves are never copied).
 - A complete tag-by-tag block-tree dump of `MONKEY.000` (index) and
   `MONKEY.001` (resources), with a one-line description of every block
-  type that webscumm understands.
+  type that GrogVM understands.
 - A room viewer that cycles through every room and decodes its 320×N
   background to Canvas2D at native resolution, with a per-strip SMAP
   compression-method diagnostic bar.
@@ -37,7 +37,7 @@ What works right now:
 - A VM inspector that loads global script #1 (boot), dispatches
   opcodes one at a time or one tick at a time, and surfaces a halt
   panel with bytecode-context hex highlighting the moment it hits an
-  opcode webscumm hasn't implemented. Slots table, hex-addressed
+  opcode GrogVM hasn't implemented. Slots table, hex-addressed
   globals grid, packed bit-vars grid, and a self-describing trace
   ring round out the diagnostic surface.
 
@@ -80,13 +80,13 @@ in-memory implementation for assertion.
 - **[PROGRESS.md](PROGRESS.md)** — what's done, what's planned for the
   active phase, and the one-line summary of every future phase.
 - **`docs/`** — self-contained format references for every binary
-  format webscumm has cracked open:
+  format GrogVM has cracked open:
   [SMAP](docs/SCUMM-V5-SMAP.md) (room backgrounds),
   [COST](docs/SCUMM-V5-COST.md) (costumes),
   [ZPLANE](docs/SCUMM-V5-ZPLANE.md) (occlusion masks),
   [CHAR](docs/SCUMM-V5-CHAR.md) (bitmap fonts),
   [INDEX](docs/SCUMM-V5-INDEX.md) (`.000` directory layout + LOFF).
-  Each documents the corrections webscumm needed to make over the
+  Each documents the corrections GrogVM needed to make over the
   long-circulating reverse-engineering notes.
 
 ## License & legality

@@ -1,5 +1,5 @@
 /**
- * Human-readable descriptions of every SCUMM v5 block tag webscumm knows
+ * Human-readable descriptions of every SCUMM v5 block tag GrogVM knows
  * about. Single source of truth — the UI uses this to annotate the
  * resource tree.
  *

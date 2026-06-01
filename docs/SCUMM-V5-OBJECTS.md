@@ -128,7 +128,7 @@ empty OBNA payloads or none at all.
 The OBCD's `VERB` block holds the **verb scripts** that fire when
 the player performs verb actions on this object. One sub-script per
 supported verb, typically `Look at`, `Open`, `Pick up`, `Use`,
-`Talk to`. webscumm captures the block on parse but verb dispatch
+`Talk to`. GrogVM captures the block on parse but verb dispatch
 is not yet wired.
 
 ## 7. The runtime: state tracking + draw queue

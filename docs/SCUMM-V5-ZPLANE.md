@@ -62,7 +62,7 @@ the `IM00` will contain just the `SMAP`.
 The RMIH count is what the engine *allocates* for, not necessarily
 what carries real data. A room can declare two planes but ship a
 `ZP02` whose strips are all empty (see §6 for what "empty" looks like
-on the wire). `webscumm`'s decoder surfaces both numbers
+on the wire). `GrogVM`'s decoder surfaces both numbers
 (`declaredCount` and the actual `planes.length`); a quick check
 against MI1 data confirms they sometimes diverge — for example MI1
 LFLF #6 declares 2 planes but every strip of its `ZP02` is the
@@ -118,7 +118,7 @@ only a single object in the corner of the room) ship with most of its
 strips as 2 bytes of offset table and no body at all, instead of
 paying for 40 strip bodies of "144 zero bytes" runs.
 
-`webscumm`'s decoder builds a parallel `(number | null)[]` of strip
+`GrogVM`'s decoder builds a parallel `(number | null)[]` of strip
 starts: `null` is the sentinel and we just skip those entries when
 walking. Body lengths are computed by looking ahead for the next
 non-null entry, falling back to `payload.length` for the last one.
@@ -258,7 +258,7 @@ band explicitly. Two compatible readings:
   band 2. Cumulative marking makes the artist's intent obvious from
   the data alone, without inferring it from the inheritance rule.
 - **As tool / engine insurance.** Different parts of the engine pipe
-  the planes through different paths (the `webscumm` compositor walks
+  the planes through different paths (the `GrogVM` compositor walks
   all planes; a hypothetical "is this pixel foreground at depth N?"
   query might check just one plane). Explicit marking keeps both
   consumers happy.

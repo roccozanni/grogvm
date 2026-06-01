@@ -7,7 +7,7 @@ export function renderLibrary(app: App, flash?: string): HTMLElement {
   container.className = 'library';
   container.innerHTML = `
     <header>
-      <h1>webscumm</h1>
+      <h1>GrogVM</h1>
       <p class="subtitle">your installed games</p>
     </header>
     <main></main>

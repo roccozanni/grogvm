@@ -58,7 +58,7 @@ export function withReadPermission(
     const wrap = document.createElement('div');
     wrap.className = 'page-message';
     const p = document.createElement('p');
-    p.textContent = `webscumm needs permission to read “${game.directoryHandle.name}”.`;
+    p.textContent = `GrogVM needs permission to read “${game.directoryHandle.name}”.`;
     const grant = document.createElement('button');
     grant.className = 'primary';
     grant.textContent = 'Grant folder access';

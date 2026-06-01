@@ -55,7 +55,7 @@ A real MI1 game room (id 10, the title screen) contains:
 | Tag    | Bytes | Purpose                                                                  |
 |--------|-------|--------------------------------------------------------------------------|
 | `RMHD` | 14    | Room header — width, height, num-objects. See §3.                        |
-| `CYCL` | 10    | Palette cycle table. Visual polish; webscumm doesn't yet honour it.      |
+| `CYCL` | 10    | Palette cycle table. Visual polish; GrogVM doesn't yet honour it.      |
 | `TRNS` | 10    | Transparent palette index. See §4.                                       |
 | `EPAL` | 264   | EGA palette mirror (back-compat). Ignored by the VGA path.               |
 | `BOXD` | 50    | Walk-box geometry. See [`SCUMM-V5-WALK-BOXES.md`](SCUMM-V5-WALK-BOXES.md). |

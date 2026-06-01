@@ -1,5 +1,5 @@
 {
-  "name": "webscumm",
+  "name": "grogvm",
   "version": "0.0.0",
   "description": "A from-scratch TypeScript reimplementation of SCUMM v5 (Monkey Island 1 & 2) for the browser.",
   "private": true,

@@ -248,7 +248,7 @@ resize(width: number, height: number): void;
 ## 6. Test plan (`engine/session/session.test.ts`)
 
 Gate on real MI1 the same way the other integration tests do:
-`const hasData = existsSync('games/MI1/MONKEY.000') && existsSync('games/MI1/MONKEY.001')`,
+`const hasData = existsSync('games/MI1-IT-CD-DOS-VGA/MONKEY.000') && existsSync('games/MI1-IT-CD-DOS-VGA/MONKEY.001')`,
 then `describe.skipIf(!hasData)`. Build the `SessionGame` from the parsed files.
 
 Assertions (headless — `MemoryRenderer` + `ManualClock`):

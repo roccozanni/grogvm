@@ -8,7 +8,7 @@ function fakeHandle(name: string): FileSystemDirectoryHandle {
 
 async function resetDb(): Promise<void> {
   await new Promise<void>((resolve) => {
-    const req = indexedDB.deleteDatabase('webscumm');
+    const req = indexedDB.deleteDatabase('grogvm');
     req.onsuccess = () => resolve();
     req.onerror = () => resolve();
     req.onblocked = () => resolve();

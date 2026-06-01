@@ -139,7 +139,7 @@ the offset table for MI1 charsets and signals the wrong anchor.
 `numChars` is the *table* length, not the count of usable glyphs.
 MI1's 1-bpp dialog font declares `numChars = 256` but populates only
 ~96 entries (printable ASCII plus a handful of extras); the rest are
-sentinel zeros. `webscumm`'s charset summary reports both numbers
+sentinel zeros. `GrogVM`'s charset summary reports both numbers
 (`"N populated / M slots"`) so the divergence is obvious.
 
 ---
@@ -174,7 +174,7 @@ pixel, knitting outlines together cleanly.
 
 Some character codes (typically ASCII control codes 0x01..0x1F) have
 a valid offset pointing to a 4-byte header where `width = 0` or
-`height = 0` — present but blank. `webscumm`'s decoder returns an
+`height = 0` — present but blank. `GrogVM`'s decoder returns an
 empty pixel buffer for those rather than throwing, so a string
 containing a stray control byte doesn't break rendering.
 
@@ -213,7 +213,7 @@ meaningful entries are indices `1 .. 2^b − 1`:
 
 The "ink color" the runtime uses is whatever the script writes into
 `colorMap[1]` at runtime (the script sets actor talk colors before
-each dialog burst). `webscumm`'s player UI exposes a number input
+each dialog burst). `GrogVM`'s player UI exposes a number input
 that overrides slot 1 live, so we can validate the same charset
 rendering correctly in any chosen color.
 

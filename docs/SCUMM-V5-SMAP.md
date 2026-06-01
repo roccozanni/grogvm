@@ -373,7 +373,7 @@ Island beach, for example). Flipping the sign cleans every such
 artifact and the gradient becomes smooth.
 
 Programmatically, the working dispatch is `color += (d - 4)` for
-`d != 4`, equivalently `color -= (4 - d)`, which is what `webscumm`'s
+`d != 4`, equivalently `color -= (4 - d)`, which is what `GrogVM`'s
 decoder implements.
 
 ### ⚠️ RLE pixel counting
