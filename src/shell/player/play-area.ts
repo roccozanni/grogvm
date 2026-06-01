@@ -500,9 +500,14 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
     // wins the hover (enables Talk-to). Its id feeds the scene-click /
     // sentence the same way an object id does — SCUMM sentences carry
     // actor ids as objectA. Falls back to object hit-testing.
+    //
+    // The ego (the player character) is never a hover target — you can't
+    // "Walk to / Look at" yourself. Skip it and fall through to the object
+    // under the cursor (so an object behind Guybrush is still reachable).
+    const ego = vm.vars.readGlobal(VAR_EGO) || 1;
     const actorHit = vm.actorFromPos(vm.mouseRoomX, vm.mouseRoomY);
     hoveredObject =
-      actorHit !== 0
+      actorHit !== 0 && actorHit !== ego
         ? actorHit
         : pickObject({
             objects: room.objects,
