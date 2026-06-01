@@ -19,8 +19,67 @@ Lean tracker. Three buckets:
 ## Current — natural play through MI1
 
 Playing MI1 from the start and fixing each blocker as it's hit (engine-faithful,
-committed on `main`). **775 tests green, tsc clean.** The intro → room 33 →
+committed on `main`). **779 tests green, tsc clean.** The intro → room 33 →
 SCUMM Bar (room 28) → pirate-conversation close-up is playable end-to-end.
+
+**Recent fixes (room 28 important-looking pirates):**
+
+1. **Garbage box → pirates render.** Costume 24 is MI1's first **32-color
+   costume** (`format == 0x59`); `decodeCostumeFrame` hardcoded the 16-color
+   RLE split. Added a `paletteSize` (16 | 32) param from the costume header so
+   the 32-color split (5 bits colour / 3 bits length) is used; threaded through
+   the compositor + explorer. Migrated to [COST §5](docs/SCUMM-V5-COST.md).
+2. **Hover/sentence name.** The shell's `recomputeHover` preferred any actor
+   under the cursor, so the pirates (drawn by actor 3, hotspot = object 322)
+   read as the nameless "obj #3". Switched to **object-first** hit-test
+   (faithful `findObject` precedence; actor only as fallback). *(Pirates name
+   confirmed live.)*
+3. **Nameless walk-hotspot overlay.** Object #320 (the bar floor connector) is
+   a real object with only a walk-to verb (#11) and no OBNA — `findObject`
+   returns it (it's not Untouchable), so it's a legitimate click-to-walk target,
+   UI-identical to bare floor in the original (just "Vai", no highlight; MI1 has
+   no hover cursor). The shell's hover overlay (crosshair colour **and** box,
+   now driven by one decision) lights only over a *named* target, so #320 reads
+   as floor instead of an interactable thing. The raw id is still in the Input
+   debug panel on click, and the click still routes through the engine.
+
+**Note — obj #320 verb-bar "Esamina" highlight is faithful, not a bug.** MI1's
+#23 poller resolves the hovered object's default verb and recolours it in the
+bar (left-click hint, via the game's own `verbOps`). obj #320's default verb is
+8 (Examine), so Examine highlights — `g182=8` over #320 vs `g182=10` over empty
+floor; `g107` (armed) stays 11 throughout. Open *option* (user's call): shell-
+side override to also suppress this highlight for nameless objects so #320 reads
+as fully inert floor, at the cost of a small divergence from the engine.
+
+**Open — pirate close-up mirrors on conversation (track, not yet diagnosed).**
+When the pirate conversation starts (after the player's first line), actor 3
+(cost24) renders horizontally flipped. Hypothesis: the dialog script refaces
+actor 3 toward ego (Guybrush is to the *left* → facing West), and the
+compositor's mirror rule (`mirror = horizontal && (facing==='W') !== mirrorFlag`;
+cost24 mirrorFlag=false) flips the front-view art. cost24 only defines S-facing
++ init-dir art, so a front-view costume shouldn't mirror on a W/E reface — or
+the close-up shouldn't reface it. Confirm actor 3's facing during the convo
+before fixing. See [COSTUME-ANIM](docs/SCUMM-V5-COSTUME-ANIM.md) mirror notes.
+
+**Open — room 28 pirates, issue #3 (queued, diagnosed):**
+
+- **Static (no idle/drink animation).** Actor 3 is placed by room-28 local
+  script #204 (`actorOps init costume=24 … neverZclip`; `animateActor 3 250`).
+  `anim=250` resolves to an out-of-range chore record (~1002 vs numAnim 51) —
+  a no-op (in SCUMM too). The real idle is the costume's **init chore**
+  (records 4–7; record 6 = facing-S = the 3-pirate multi-frame drink loop,
+  verified). Our `setActorCostume` resets to an empty anim state and nothing
+  starts the init chore (Guybrush only animates because walking starts one).
+  cost24 has **no stand chore (3)**, so `applyStandPose` (init→stand) can't be
+  reused — the init chore must start and persist. Fix = start the init chore
+  when a visible in-room actor's costume is set (faithful SCUMM
+  `setActorCostume → startAnimActor(initFrame)`). *(Background bar patrons —
+  obj 330/333/336/357/358 etc. — animate via `drawObject` state-swap scripts
+  206–210; different mechanism, already working.)*
+- **Draws in front of Guybrush.** Compositor sorts actors by **id** (actor 3
+  after actor 1). SCUMM orders by **y-position**. `neverZclip` only governs
+  z-*plane* occlusion, not actor-vs-actor order. Fix = y-sort (confirm it
+  resolves the Guybrush overlap at his talk-to-pirates position first).
 
 **Next:** finish the SCUMM Bar dialogs, gather inventory items, and reach a
 **use-with** puzzle so the two open input items below get exercised with a real

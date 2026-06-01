@@ -231,30 +231,43 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
     // the cursor so the crosshair stays on top.
     drawDialog(cctx);
 
-    // Hover highlight box around the hovered object — or, when an actor
-    // is hovered, around its last-drawn bounds (Talk-to feedback).
-    if (hoveredObject !== null) {
+    // Hover feedback (highlight box + crosshair colour) marks a *named*
+    // interaction target — something the player can perceive as a "thing".
+    //
+    // `findObject` (and so `hoveredObject`) also returns nameless hotspots:
+    // e.g. room 28's object #320 is a real object with only a walk-to verb
+    // (#11) and no OBNA — a floor connector you click to cross the bar. The
+    // original game treats it like bare floor (sentence shows just the verb,
+    // no highlight — MI1 has no hover cursor at all). So we light the overlay
+    // only when the hover yields a name; the click still routes through the
+    // engine regardless, and the raw object id is in the Input debug panel.
+    const hoverBox = ((): { left: number; top: number; w: number; h: number } | null => {
+      if (hoveredObject === null) return null;
       const obj = vm.loadedRoom?.objects.get(hoveredObject);
-      let box: { left: number; top: number; w: number; h: number } | null = null;
       if (obj) {
-        box = { left: obj.cdhd.x * 8, top: obj.cdhd.y * 8, w: obj.cdhd.width * 8, h: obj.cdhd.height * 8 };
-      } else if (hoveredObject >= 1 && hoveredObject <= vm.actors.capacity) {
+        if (!obj.name) return null; // nameless hotspot → behaves like floor
+        return { left: obj.cdhd.x * 8, top: obj.cdhd.y * 8, w: obj.cdhd.width * 8, h: obj.cdhd.height * 8 };
+      }
+      // Actor fall-back (Talk-to target): box its last-drawn bounds.
+      if (hoveredObject >= 1 && hoveredObject <= vm.actors.capacity) {
         const b = vm.actors.get(hoveredObject).drawBounds;
-        if (b) box = { left: b.left, top: b.top, w: b.right - b.left, h: b.bottom - b.top };
+        if (b) return { left: b.left, top: b.top, w: b.right - b.left, h: b.bottom - b.top };
       }
-      if (box) {
-        cctx.strokeStyle = clutCss(palette, CURSOR_COLOR_HOVER_OBJECT);
-        cctx.lineWidth = 1;
-        cctx.strokeRect(box.left + 0.5, box.top + 0.5, box.w - 1, box.h - 1);
-      }
+      return null;
+    })();
+    if (hoverBox) {
+      cctx.strokeStyle = clutCss(palette, CURSOR_COLOR_HOVER_OBJECT);
+      cctx.lineWidth = 1;
+      cctx.strokeRect(hoverBox.left + 0.5, hoverBox.top + 0.5, hoverBox.w - 1, hoverBox.h - 1);
     }
 
     // Crosshair at the cursor's room position. (Drawn unconditionally for
     // input diagnosis even when the game would hide it; `vm.cursor` truth is
-    // in the Input panel.)
+    // in the Input panel.) Colour matches the hover feedback above so the
+    // crosshair and box agree — both light only over a named target.
     const cx = vm.mouseRoomX;
     const cy = vm.mouseRoomY;
-    const color = hoveredObject !== null ? CURSOR_COLOR_HOVER_OBJECT : CURSOR_COLOR_NORMAL;
+    const color = hoverBox ? CURSOR_COLOR_HOVER_OBJECT : CURSOR_COLOR_NORMAL;
     cctx.fillStyle = clutCss(palette, color);
     // 7×1 horizontal + 1×7 vertical centred at (cx, cy).
     cctx.fillRect(cx - 3, cy, 7, 1);
@@ -502,28 +515,29 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
       hoveredObject = null;
       return;
     }
-    // Actors paint on top of room objects, so an actor under the cursor
-    // wins the hover (enables Talk-to). Its id feeds the scene-click /
-    // sentence the same way an object id does — SCUMM sentences carry
-    // actor ids as objectA. Falls back to object hit-testing.
-    //
-    // The ego (the player character) is never a hover target — you can't
-    // "Walk to / Look at" yourself. Skip it and fall through to the object
-    // under the cursor (so an object behind Guybrush is still reachable).
+    // Faithful to SCUMM's findObject precedence: a room OBJECT under the
+    // cursor wins. The SCUMM-Bar pirates are *drawn* by actor 3 but their
+    // hotspot is object 322 — so object hit-testing must take precedence,
+    // or the nameless actor would mask the named object ("obj #3").
+    const objHit = pickObject({
+      objects: room.objects,
+      drawQueue: vm.objectDrawQueue,
+      x: vm.mouseRoomX,
+      y: vm.mouseRoomY,
+      // Untouchable class (32) → not hoverable (e.g. the not-yet-docked
+      // ship in room 33). Matches the engine's findObject.
+      isUntouchable: (id) => ((vm.objectClasses.get(id) ?? 0) & (1 << 31)) !== 0,
+    });
+    if (objHit !== null) {
+      hoveredObject = objHit;
+      return;
+    }
+    // No object under the cursor — fall back to an actor (enables Talk-to
+    // for actor-only targets). The ego is never a hover target: you can't
+    // act on yourself.
     const ego = vm.vars.readGlobal(VAR_EGO) || 1;
     const actorHit = vm.actorFromPos(vm.mouseRoomX, vm.mouseRoomY);
-    hoveredObject =
-      actorHit !== 0 && actorHit !== ego
-        ? actorHit
-        : pickObject({
-            objects: room.objects,
-            drawQueue: vm.objectDrawQueue,
-            x: vm.mouseRoomX,
-            y: vm.mouseRoomY,
-            // Untouchable class (32) → not hoverable (e.g. the not-yet-docked
-            // ship in room 33). Matches the engine's findObject.
-            isUntouchable: (id) => ((vm.objectClasses.get(id) ?? 0) & (1 << 31)) !== 0,
-          });
+    hoveredObject = actorHit !== 0 && actorHit !== ego ? actorHit : null;
   };
 
   const onPointerMove = (): void => {
@@ -876,9 +890,11 @@ function sentenceText(
   // build), read from verb #11 — not a hardcoded English string.
   const verbName =
     previewVerb?.name || vm.verbs.get(VERB_WALK_TO)?.name || 'Walk to';
-  const objName =
-    hoveredObject !== null
-      ? vm.objectName(hoveredObject) ?? `obj #${hoveredObject}`
-      : '';
+  // A hovered object with no OBNA shows the verb alone — exactly what the
+  // original does over nameless hotspots (e.g. room 28's floor-connector
+  // object #320, a walk target with no name). We deliberately do NOT fall
+  // back to an "obj #N" placeholder here: that's debug noise in the game's
+  // sentence line, and the id is still surfaced in the Input debug panel.
+  const objName = hoveredObject !== null ? vm.objectName(hoveredObject) ?? '' : '';
   return objName ? `${verbName} ${objName}` : verbName;
 }
