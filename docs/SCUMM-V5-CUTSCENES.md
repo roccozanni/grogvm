@@ -55,6 +55,14 @@ So an engine that faithfully runs `#18` / `#19` gets the UI hide/restore
 for free; it does not need special cutscene handling beyond the bracket
 and the `freezeScripts` / `saveRestoreVerbs` opcodes.
 
+**Run the hooks *nested*, in order.** `#18` and `#19` must execute to
+completion synchronously at the point they're invoked (`runScriptNested`,
+see OPCODES §6) — *not* queued as new slots. A door-open handler runs
+`cutscene … endCutscene` in one pass; if the start hook is deferred, its
+`freezeScripts 127` lands *after* `#19` is created and freezes it, so
+`#19` never runs its `freezeScripts 0` / `userput on` and input stays
+dead.
+
 ## 3. `freezeScripts`
 
 **`freezeScripts` (`0x60`)** pauses script execution. It takes a flag:

@@ -225,9 +225,15 @@ remap, talk color, name (NUL-terminated string), width, scale,
 ignore-boxes / follow-boxes, anim speed, shadow mode, etc.
 
 `verbOps`, `roomOps`, and `cursorCommand` are similar but smaller.
-`drawObject` uses a subop *loop* (each subop in a sequence until
-`0xFF`) — semantically more like `0xAC`'s mini-VM than a single
-selector.
+
+**`drawObject` (`0x05`) reads exactly ONE subop byte** — *not* a
+`0xFF`-terminated list. Switch on `sub & 0x1f`: `1` = `SO_AT` (reads
+`x,y`), `2` = `SO_IMAGE` (reads a state), anything else = a bare draw.
+(The bare-animation form happens to use subop `0xFF`, which masks to a
+no-arg draw — which is why a wrong "loop until `0xFF`" parser survived
+room-28's animations but mis-read the `drawObject … at x,y` + `setState`
+sequence in close-up rooms: after the AT coords it kept going and
+consumed the following `setState` opcode as a bogus subop.)
 
 ## 6. Script slots and the cooperative scheduler
 
@@ -261,6 +267,22 @@ benefit from the same mechanism.
 opcodes) converts the most common bug class — a tight loop with
 no `breakHere` — into a clean diagnostic halt instead of a hung
 browser tab.
+
+**`chainScript` (`0x42` / `0xC2`)** kills the running slot and starts
+the named script **in its place**, carrying the dying slot's
+freeze-resistance. Implement it as `slot.kill()` then `startScriptById`:
+killing first frees the slot so the chained script reuses it (lowest
+free index), and the now-dead current slot makes dispatch fall through to
+the fresh one. Background-animation loops chain themselves to re-loop
+(MI1 room-28's pirate fixtures, the move/sentence path), so a missing
+handler doesn't just drop one script — the unknown-opcode halt freezes
+the *whole* VM the instant anything chains.
+
+**`runScriptNested`** runs a script to completion synchronously, in
+order, rather than queuing it as a new slot. The engine needs this for
+the cutscene start/end hooks (see CUTSCENES §2): `#18`'s
+`freezeScripts 127` and `#19`'s `freezeScripts 0` must execute in
+issue-order, which a queued (deferred) start breaks.
 
 ## 7. Script id ranges
 

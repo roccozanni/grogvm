@@ -199,6 +199,26 @@ name of the active verb, object A, the preposition, and object B. So the
 sentence line is not special engine text; it is an ordinary verb whose
 name the scripts keep rewriting.
 
+**Archived verbs are not drawn.** During a conversation MI1 archives the
+sentence line (`#100`) and the action verbs via `saveRestoreVerbs` (a
+non-zero `saveid`) and creates the dialog replies as their own verbs.
+SCUMM does not draw a verb carrying a non-zero saveid, so the verb-bar
+render *and* hit-test must skip any verb currently in
+`vm.savedVerbStates` — otherwise the still-"on" sentence line `#100` (at
+y=145) draws over the first reply verb (`#120`, also y=145). The
+render-skip is the faithful low-risk subset of SCUMM's full per-verb
+saveid model.
+
+**Dialog replies are verbs, selected via the mouse-coord hit-test.** The
+reply lines are created as verbs (MI1 `#120…#124`); the dialog driver
+(global `#93`) parks in a `breakHere` loop polling **`g194`** and branches
+on its value. During a conversation `VAR_VERB_SCRIPT` swaps to script
+**`#14`**, which sets `g194` from a `findObject(VAR_VIRT_MOUSE_X/Y =
+g20/g21)` hit-test against the dialog slot table on **clickArea 2** — *not*
+from the clicked verb id. So selection needs live mouse coords (`g20/g21`,
+which the shell writes on pointer move); a headless click that only sets a
+verb id won't resolve.
+
 ## 7. Inventory is verbs
 
 There is no separate inventory widget. MI1 lays the inventory out across

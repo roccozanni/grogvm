@@ -135,6 +135,17 @@ These slots have `scriptId = 0` (they're not global scripts) and a
 non-empty `label` to distinguish them from numbered global scripts
 in trace output.
 
+**A room change stops the old room's scripts.** SCUMM's `startScene`
+kills every room-local (`WIO_ROOM`) and object/verb (`WIO_FLOBJECT`)
+script before binding the new room; only **globals** (`WIO_GLOBAL`)
+survive. So `enterRoom` must stop slots whose `scriptId ≥ 200` or whose
+label is a `VERB-*` (sparing globals and the scriptId-0 ENCD/EXCD) before
+starting the new ENCD. Without this, the old room's ambient loop bleeds
+into the new room and tries to `startScript` a local that doesn't exist
+there → halt. A global driver (e.g. a dialog script that issues the
+`loadRoom`) deliberately keeps running across the load — that's why the
+rule spares globals.
+
 ## 7. LSCR — local scripts
 
 A `ROOM` can carry an arbitrary number of `LSCR` children, each
@@ -158,6 +169,19 @@ When the engine swaps to a new room, the previous room's LSCR
 bytecode goes out of scope. Any still-running slot referencing it
 should keep a reference to its bytecode buffer until that slot
 finishes.
+
+## 7b. Pseudo-rooms (a `loadRoom` *fallback*, not an override)
+
+The `pseudoRoom` opcode (`0xCC`) builds an alias map — MI1 boot does
+`pseudoRoom 58 [201,202,203] …`, aliasing a span of logical room ids onto
+one physical room (rooms 73–92 → 58, a shared close-up stage). The trap:
+the alias is a **fallback for ids that have no physical room of their
+own**, *not* a blanket override. `loadRoom N` must resolve **N's own
+ROOM first**, and only consult the alias map when N has no physical room.
+Rooms 73–90 physically exist with their own art (room 82 = an orange
+pirate close-up); only the genuinely-absent ids (91/92) fall through to
+58. Remapping *every* id sends `loadRoom 82` to the all-black room 58 and
+the close-up renders blank.
 
 ## 8. CYCL, SCAL — not yet consumed
 
