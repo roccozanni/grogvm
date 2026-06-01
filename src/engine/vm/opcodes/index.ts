@@ -1045,7 +1045,15 @@ function drawObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   // the high bits are the params' var-modes. SO_AT (1) repositions,
   // SO_IMAGE (2) sets the state image; any other value (incl. the bare
   // 0xFF / SO_END) is a plain redraw at the current position/state.
+  // SCUMM's o5_drawObject ALWAYS sets the object's state (`state = 1`
+  // default; SO_IMAGE overrides) — drawObject's job is to make an object
+  // visible in a given image, so a bare / SO_AT draw shows state 1, NOT
+  // "keep current state". This matters for the dialog close-ups (room 58):
+  // the ENCD draws every scenery object then `setState 0` (hidden), and the
+  // conversation reveals a piece with a bare `drawObject` — which must flip
+  // it back to state 1, not leave it hidden.
   const ops: string[] = [];
+  let state = 1;
   const sub = readU8(slot);
   switch (sub & 0x1f) {
     case 0x01: {
@@ -1057,18 +1065,17 @@ function drawObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
       break;
     }
     case 0x02: {
-      const state = readVarOrWord(sub, 1, slot, vm.vars);
-      // setImage(0) = "hide". Anything else sets the state; the
-      // compositor picks IMxx where xx == state.
-      vm.objectStates.set(obj, state);
+      // setImage(0) = "hide"; anything else selects IMxx where xx == state.
+      state = readVarOrWord(sub, 1, slot, vm.vars);
       ops.push(`setImage(${state})`);
       break;
     }
     default:
-      // Bare redraw ("draw") — keep current state/position.
+      // Bare redraw — shows state 1 (set below).
       ops.push('draw');
       break;
   }
+  vm.objectStates.set(obj, state);
   // Queue for the next compose. If the object's state is 0 (or never
   // set), the compositor will skip it; the queue membership matters
   // for "explicit redraw" semantics, not visibility.

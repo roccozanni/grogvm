@@ -114,7 +114,7 @@ the un-parsed-beyond-initial `DOBJ` (we seed initial only), and any room-entry
 script gaps. The `scratch/` probes from this session (`probe-door-seq`,
 `probe-hover33`, `probe-dobj`, `probe-room28`, …) are handy templates.
 
-## Open issues (session 9: #1 & #2 confirmed; session 10: #3–#8 fixed & confirmed; session 11: #9 chainScript + drawObject pile-up, #10 getActorMoving, #11 drawObject subop, #12 room-change script stop)
+## Open issues (session 9: #1 & #2 confirmed; session 10: #3–#8 fixed & confirmed; session 11: #9 chainScript + drawObject pile-up, #10 getActorMoving, #11 drawObject subop, #12 room-change script stop, #13 drawObject state default; #14 dialog-select OPEN)
 
 ### 1. Camera-follow stutter + "two Guybrush" — FIXED & user-confirmed (session 9)
 Ordering bug, as hypothesised. `moveCameraFollow()` ran in `beginTick()` (every
@@ -336,8 +336,41 @@ with `scriptId ≥ LSCR_THRESHOLD` or a `VERB-*` label; spares globals and the
 scriptId-0 ENCD/EXCD), called from `enterRoom` before the new ENCD. Verified the
 full flow end-to-end: enter SCUMM Bar → talk to a pirate → close-up (room 82/58)
 with **no room-28 zombies** and no halt. +1 test (room-local + verb scripts die on
-`enterRoom`, global survives). **773 green**, tsc clean. **NEEDS USER CONFIRM
-in-app** (the pirate conversation should open without halting).
+`enterRoom`, global survives). **773 green**, tsc clean. ✓ user-confirmed (the
+pirate conversation opens without halting; surfaced #13 + the dialog-input gap).
+
+### 13. drawObject didn't default the state to 1 (close-up reveals stayed hidden) — FIXED (session 11)
+SCUMM's `o5_drawObject` **always** sets the object's state — `state = 1` by
+default, overridden only by `SO_IMAGE` — because drawObject's whole job is to make
+an object visible in a given image. Ours only set the state on `SO_IMAGE`; a bare
+or `SO_AT` draw left the state untouched. The dialog close-up (room 58) hides every
+scenery object at ENCD (`drawObject … at x,y` then `setState 0`) and later reveals
+a piece with a **bare** `drawObject`, expecting it to flip to state 1 — our engine
+left it at 0, so the close-up scene stayed black. **Fix:** default `state = 1` in
+`drawObjectHandler` and always `objectStates.set(obj, state)` (SO_IMAGE overrides
+the value). Room-28 fixtures (state-1 only) are unaffected; ENCD hide-then-reveal
+now works. +1 test (a bare draw reveals a state-0 object). **774 green**, tsc clean.
+
+### 14. Dialog-response selection not wired through the shell — OPEN (diagnosed session 11)
+The pirate conversation reaches its black-bg close-up stage (room 58) and **works
+up to the point of picking a reply**: the response lines are created as **verbs**
+(#120 "Ol, a te.", #121 "Che bel cappello.", #122 "Allora, parlami di LOOM.",
+#124 "E' stato bello parlare con te."), and the dialog driver (global #93) parks in
+a `breakHere` loop polling **`g194`** (the chosen reply), branching on
+`g194 == 120/121/122/124`. The verb-input script during the conversation is **#14**
+(`VAR_VERB_SCRIPT` swaps to 14), which sets `g194` — but **not** from the clicked
+verb id. It hit-tests `findObject(VAR_VIRT_MOUSE_X/Y = g20/g21)` against a dialog
+slot table (`g250[]`) gated on **clickArea 2** (the sentence/dialog band), then
+`g194 = 120 + slot`. Our shell routes a verb click as **clickArea 1 by verb id**
+(`handleVerbClick`), which #14's reply path ignores, so `g194` never gets set and
+the conversation can't advance. **Also:** the normal action verbs aren't hidden
+during the dialog (the `saveRestoreVerbs 0x1` save/hide that #93/#14 perform isn't
+honoured), so the verb bar would show action verbs + replies together. **Engine
+correctness (#13) is fixed and unit-proven; this remaining item is the shell+engine
+wiring of the reply click** (route reply clicks as the dialog clickArea with the
+mouse coords #14 expects, and honour saveRestoreVerbs) — its own focused task. The
+"fireflies" are the play-overlay debug crosshair/hover markers, not game content
+(room 58's bg is genuinely all-black by design — a close-up stage).
 
 Why: `renderPlayer` (player.ts, 1714 lines) was a vertically-stacked
 *resource browser*, not a game player — the actual game was wedged inside

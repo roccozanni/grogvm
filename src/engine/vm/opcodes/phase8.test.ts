@@ -309,6 +309,19 @@ describe('drawObject (0x05) — animated background fixtures', () => {
     expect([...vm.objectDrawQueue].sort((a, b) => a - b)).toEqual([357, 400]);
   });
 
+  it('a bare draw reveals a hidden object (sets state to 1, SCUMM default)', () => {
+    // Dialog close-ups (room 58) hide every scenery object via setState 0 at
+    // ENCD, then reveal a piece with a bare drawObject — which must flip it
+    // back to state 1, not leave it hidden.
+    const vm = makeVm();
+    const room = fakeRoom(1);
+    (room.objects as Map<number, LoadedObject>).set(674, objAt(674, 100, 0, 8, 8));
+    vm.loadedRoom = room;
+    vm.objectStates.set(674, 0); // hidden by the room's ENCD
+    run(vm, bytes(0x05, 0xa2, 0x02, 0xff)); // bare drawObject 674 (0x02A2)
+    expect(vm.objectStates.get(674)).toBe(1); // revealed
+  });
+
   it('SO_AT (subop 1) consumes exactly x,y — not the following opcode', () => {
     // v5 drawObject has ONE subop, not a 0xFF-terminated list. A `… at x,y`
     // followed by setState (room 58 ENCD) must read the two coords and stop,
