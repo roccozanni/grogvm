@@ -190,7 +190,7 @@ describe('Vm — startVerbScript', () => {
 });
 
 describe('Vm — talk timer + dialog clearing', () => {
-  const dialog = (actorId: number) => ({
+  const dialog = (actorId: number, keepText = false) => ({
     actorId,
     text: 'hi',
     x: null,
@@ -199,6 +199,7 @@ describe('Vm — talk timer + dialog clearing', () => {
     center: false,
     overhead: false,
     clipped: null,
+    keepText,
   });
 
   it('clears actor speech when the message finishes', () => {
@@ -210,23 +211,31 @@ describe('Vm — talk timer + dialog clearing', () => {
     expect(vm.vars.readGlobal(Vm.VAR_HAVE_MSG)).toBe(0);
   });
 
-  it('keeps systemText after the talk timer drains', () => {
+  it('keeps a keepText systemText after the talk timer drains', () => {
     const vm = makeVm();
-    vm.systemText = dialog(255);
+    vm.systemText = dialog(255, true); // a sign/credit: persists
     vm.beginTalk('hi');
     for (let i = 0; i < 200; i++) vm.beginTick();
-    expect(vm.systemText).not.toBeNull(); // persistent — never auto-cleared
+    expect(vm.systemText).not.toBeNull(); // keepText — never auto-cleared
   });
 
-  it('actor speech and systemText coexist; draining speech leaves systemText', () => {
+  it('drops a non-keepText systemText when the talk timer drains (the cook shout)', () => {
     const vm = makeVm();
-    // Persistent sign (system) + transient actor speech share the screen.
-    vm.systemText = dialog(254);
+    vm.systemText = dialog(255, false); // one-shot system line, no keepText
+    vm.beginTalk('hi');
+    for (let i = 0; i < 200; i++) vm.beginTick();
+    expect(vm.systemText).toBeNull(); // cleared like actor speech
+  });
+
+  it('actor speech and a keepText sign coexist; draining speech leaves the sign', () => {
+    const vm = makeVm();
+    // Persistent sign (system, keepText) + transient actor speech share the screen.
+    vm.systemText = dialog(254, true);
     vm.activeDialog = dialog(1);
     vm.beginTalk('hi');
     for (let i = 0; i < 200 && vm.activeDialog; i++) vm.beginTick();
     expect(vm.activeDialog).toBeNull(); // speech finished + cleared
-    expect(vm.systemText).not.toBeNull(); // the sign is still up
+    expect(vm.systemText).not.toBeNull(); // the keepText sign is still up
   });
 
   it('blasts distinct-position system lines side by side (the "Le tre prove" card)', () => {

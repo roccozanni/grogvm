@@ -131,6 +131,17 @@ export interface ActiveDialog {
   readonly overhead: boolean;
   /** Max x bound from SO_CLIPPED (informational; no wrap yet). */
   readonly clipped: number | null;
+  /**
+   * The message carried a `keepText` code (`0xFF 0x02`). Such messages
+   * persist on screen until an explicit clear (an empty/space `print` at the
+   * same spot) or overwrite — they are NOT removed when the talk timer
+   * drains. SCUMM's signs, credits, and the layered "Le tre prove!" title
+   * use it; the credit script (#152) prints a credit with keepText, holds it
+   * with its own `delay`, then clears it with `print " "`. Without keepText a
+   * message clears when its timer ends (the cook's "Non puoi venire di qui!"
+   * shout). Absent ⇒ false. Only meaningful for system text (no speaker).
+   */
+  readonly keepText?: boolean;
 }
 
 /**
@@ -1443,8 +1454,15 @@ export class Vm {
     } else {
       this.vars.writeGlobal(Vm.VAR_HAVE_MSG, 0);
       const d = this.activeDialog;
-      if (d && d.actorId >= 1 && d.actorId <= this.actors.capacity) {
+      if (d && d.actorId >= 1 && d.actorId <= this.actors.capacity && !d.keepText) {
         this.activeDialog = null;
+      }
+      // Drop finished system text. Only keepText messages (signs, credits, the
+      // "Le tre prove!" title) persist past the timer — they clear on an
+      // explicit empty `print` or overwrite. Without this the cook's one-shot
+      // "Non puoi venire di qui!" stayed up forever.
+      if (this.systemTexts.some((s) => !s.keepText)) {
+        this.systemTexts = this.systemTexts.filter((s) => s.keepText);
       }
     }
   }

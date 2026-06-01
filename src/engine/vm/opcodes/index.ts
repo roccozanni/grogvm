@@ -699,7 +699,9 @@ function printHandler(actor: number, vm: Vm, slot: ScriptSlot): void {
         const buf = readScummString(slot);
         // Split into sentence pages at \xff\x03; the first shows now, the
         // rest are queued and advanced by the talk timer (see queueTalkPages).
-        const pages = decodeScummStringPages(buf, vm, slot);
+        // keepText (\xff\x02) flags a sign/credit that must persist past the
+        // talk timer rather than auto-clear.
+        const { pages, keepText } = decodeScummStringPages(buf, vm, slot);
         const text = pages[0] ?? '';
         const preview = Array.from(buf)
           .map((b) => (b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : `\\x${b.toString(16).padStart(2, '0')}`))
@@ -753,6 +755,7 @@ function printHandler(actor: number, vm: Vm, slot: ScriptSlot): void {
             center: center || isTalk,
             overhead: overhead || isTalk,
             clipped,
+            keepText,
           };
           if (isSystem) vm.addSystemText(dlg);
           else vm.activeDialog = dlg;
@@ -2095,24 +2098,32 @@ function expandSubstitution(
  * newline; other control codes stripped). Empty pages are dropped.
  * A string with no `\xff\x03` yields a single page == decodeScummString.
  */
-function decodeScummStringPages(payload: Uint8Array, vm?: Vm, slot?: ScriptSlot): string[] {
+function decodeScummStringPages(
+  payload: Uint8Array,
+  vm?: Vm,
+  slot?: ScriptSlot,
+): { pages: string[]; keepText: boolean } {
   const pages: number[][] = [[]];
+  let keepText = false;
   let i = 0;
   while (i < payload.length) {
     const b = payload[i]!;
     if (b === 0xff) {
       const code = payload[i + 1] ?? 0;
       if (code === 0x01) pages[pages.length - 1]!.push(0x0a); // newline
+      else if (code === 0x02) keepText = true; // keep-text: persist past the talk timer
       else if (code === 0x03) pages.push([]); // wait → start a new page
       else if (code >= 0x04) expandSubstitution(code, payload, i, vm, slot, pages[pages.length - 1]!);
-      // 0x02 (keep-text) is consumed + dropped.
       i += code >= 0x04 ? 4 : 2;
       continue;
     }
     pages[pages.length - 1]!.push(b);
     i++;
   }
-  return pages.map((p) => String.fromCharCode(...p)).filter((p) => p.length > 0);
+  return {
+    pages: pages.map((p) => String.fromCharCode(...p)).filter((p) => p.length > 0),
+    keepText,
+  };
 }
 
 // ─── 0xCC  pseudoRoom ────────────────────────────────────────────────
