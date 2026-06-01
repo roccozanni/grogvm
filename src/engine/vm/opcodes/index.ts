@@ -511,20 +511,29 @@ register(0xe2, stopScriptHandler);
 // ─── 0x30  matrixOp ──────────────────────────────────────────────────
 // `opcode sub-opcode [box[p8] val[p8]]` — manipulate walk-box flags /
 // scale / rebuild the box matrix. Sub-opcodes: $01 setBoxFlags,
-// $02/$03 setBoxScale, $04 createBoxMatrix (no args). We use grid A*
-// over the walkable mask rather than the box matrix, and don't apply
-// per-box flags yet, so this consumes operands and no-ops. Note: box
-// flags (locked/invisible boxes) aren't honoured until the pathfinder
-// reads them.
+// $02/$03 setBoxScale, $04 createBoxMatrix (no args). We pathfind with grid
+// A* over the walkable mask, so:
+//   - setBoxFlags applies (bit 0x80 locks the box → dropped from the mask;
+//     this is how a closed door seals its corridor). See vm.setBoxFlags.
+//   - setBoxScale stays a no-op (per-box scale is read from the SCAL/box
+//     scale slots at load, not retuned at runtime here).
+//   - createBoxMatrix is a no-op: we rebuild the mask on each setBoxFlags, so
+//     there's no separate matrix to recompute.
 function matrixOpHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
   const sub = readU8(slot);
   if (sub === 0x04) {
-    vm.annotate('matrixOp createBoxMatrix (stub)');
+    vm.annotate('matrixOp createBoxMatrix (no-op — mask rebuilt on setBoxFlags)');
     return;
   }
   const box = readVarOrByte(sub, 1, slot, vm.vars);
   const val = readVarOrByte(sub, 2, slot, vm.vars);
-  vm.annotate(`matrixOp sub=0x${sub.toString(16)} box=${box} val=${val} (stub)`);
+  const action = sub & 0x1f;
+  if (action === 0x01) {
+    vm.setBoxFlags(box, val);
+    vm.annotate(`matrixOp setBoxFlags box=${box} flags=0x${val.toString(16)}`);
+    return;
+  }
+  vm.annotate(`matrixOp setBoxScale box=${box} val=${val} (stub)`);
 }
 register(0x30, matrixOpHandler);
 register(0x02, makeSoundOp('startMusic'));
@@ -1465,7 +1474,14 @@ function startObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const objId = readVarOrWord(opcode, 1, slot, vm.vars);
   const verbId = readVarOrByte(opcode, 2, slot, vm.vars);
   const args = readWordVararg(slot, vm.vars);
-  vm.startVerbScript(objId, verbId, args);
+  // Like `startScript`, SCUMM's `startObject` runs the object verb script
+  // NESTED (runObjectScript → runScriptNested), to its first breakHere/stop
+  // before the caller's next opcode. The inventory script (#9) relies on this:
+  // per slot it does `startObject item 91; L4 = g376` where the item's verb-91
+  // sets g376 to that item's inventory-icon object. Deferred, every slot reads
+  // the same stale g376 — so all items drew one identical icon.
+  const child = vm.startVerbScript(objId, verbId, args);
+  if (child) vm.runScriptNested(child);
   vm.annotate(`startObject obj=${objId} script=${verbId} args=[${args.join(',')}]`);
 }
 for (const op of [0x37, 0x77, 0xb7, 0xf7]) register(op, startObjectHandler);

@@ -106,6 +106,13 @@ export interface SaveState {
 
   // ── Room / camera ───────────────────────────────────────────────
   readonly currentRoom: number;
+  /**
+   * Current room's walk-box flag overrides (box id → flags), set at runtime
+   * via matrixOp setBoxFlags. Optional: a save without it (older) restores
+   * with the room's disk flags. Re-applied to the mask after the room
+   * reloads, since restore does not re-run the entry script that sets them.
+   */
+  readonly boxFlags?: ReadonlyArray<[number, number]>;
   readonly pseudoRooms: ReadonlyArray<[number, number]>;
   readonly uiPaletteOverrides: ReadonlyArray<[number, [number, number, number]]>;
   readonly camera: { x: number };
@@ -262,6 +269,7 @@ export function snapshotVm(vm: Vm, meta?: { game?: string; label?: string; saved
     objectDrawQueue: [...vm.objectDrawQueue],
 
     currentRoom: vm.currentRoom,
+    boxFlags: [...vm.boxFlagOverrides],
     pseudoRooms: [...vm.pseudoRooms],
     uiPaletteOverrides: [...vm.uiPaletteOverrides].map(([i, rgb]) => [i, [rgb[0], rgb[1], rgb[2]]]),
     camera: { x: vm.camera.x },
@@ -341,9 +349,12 @@ export function restoreVm(vm: Vm, state: SaveState): void {
   for (const [id, v] of state.objectClasses) vm.objectClasses.set(id, v);
   for (const id of state.objectDrawQueue) vm.objectDrawQueue.add(id);
 
-  // Room / camera. Set currentRoom + pseudoRooms + UI overrides BEFORE
-  // reloading room resources so the overrides re-apply over the CLUT.
+  // Room / camera. Set currentRoom + pseudoRooms + UI overrides + box flags
+  // BEFORE reloading room resources so the overrides re-apply over the CLUT
+  // and the freshly-decoded walkable mask (reloadCurrentRoomResources →
+  // applyRoomResources → rebuildWalkableMask reads boxFlagOverrides).
   vm.currentRoom = state.currentRoom;
+  for (const [box, flags] of state.boxFlags ?? []) vm.boxFlagOverrides.set(box, flags);
   for (const [k, v] of state.pseudoRooms) vm.pseudoRooms.set(k, v);
   for (const [i, rgb] of state.uiPaletteOverrides) vm.uiPaletteOverrides.set(i, [rgb[0], rgb[1], rgb[2]]);
   vm.camera.x = state.camera.x;

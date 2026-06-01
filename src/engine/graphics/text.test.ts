@@ -98,6 +98,17 @@ describe('measureText', () => {
     // 'X' is missing; should be skipped → 'A' alone.
     expect(measureText(payload, header, 'AX')).toEqual({ width: 4, height: 8 });
   });
+
+  it("skips the '@' name-padding char even when the font carries a glyph for it", () => {
+    // MI1's sentence/dialogue charsets (id 1, 2) ship a real '@' glyph, so we
+    // can't lean on a missing glyph — '@' must be skipped unconditionally.
+    const { payload, header } = makeAsciiCharset(8, 4, {
+      A: [0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01],
+      '@': [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
+    });
+    // "A@@@" → padding contributes no width: same as "A" alone.
+    expect(measureText(payload, header, 'A@@@')).toEqual({ width: 4, height: 8 });
+  });
 });
 
 describe('renderText', () => {

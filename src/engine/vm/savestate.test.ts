@@ -49,6 +49,8 @@ function loadUpState(vm: Vm): void {
 
   // Room / camera.
   vm.currentRoom = 33;
+  vm.boxFlagOverrides.set(4, 0x80);
+  vm.boxFlagOverrides.set(5, 0x00);
   vm.pseudoRooms.set(0x81, 33);
   vm.uiPaletteOverrides.set(6, [127, 47, 127]);
   vm.uiPaletteOverrides.set(3, [223, 83, 223]);

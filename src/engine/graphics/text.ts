@@ -22,6 +22,18 @@ import {
   glyphPayloadOffset,
 } from './charset';
 
+/**
+ * `@` (0x40) is SCUMM's name-padding filler, not a printable character.
+ * Object names live in fixed-size OBNA buffers padded with `@` so a later
+ * `setObjectName` can overwrite them in place with a longer string (e.g. obj
+ * 488's verb-91 rewrites "@@@@@ pezzi da otto@@@@" → "500 pezzi da otto").
+ * The original's charset printer skips `@` outright — and it must, because the
+ * sentence/dialogue fonts (charset id 1 and 2) *do* carry a visible `@` glyph,
+ * yet the game never shows padding clutter. So we skip it here rather than
+ * relying on a font happening to lack the glyph.
+ */
+const SCUMM_NAME_PAD = 0x40;
+
 export interface MeasuredText {
   /** Bounding-box width in pixels. */
   readonly width: number;
@@ -62,6 +74,7 @@ export function measureText(
       continue;
     }
     const code = ch.charCodeAt(0);
+    if (code === SCUMM_NAME_PAD) continue; // padding char — not printed (see below)
     const off = glyphPayloadOffset(header, code);
     if (off === null) continue; // unknown character — silently skipped
     const g = decodeGlyph(payload, off, header.bpp, header.reversedBits);
@@ -153,6 +166,7 @@ export function renderText(
       continue;
     }
     const code = ch.charCodeAt(0);
+    if (code === SCUMM_NAME_PAD) continue;
     const off = glyphPayloadOffset(header, code);
     if (off === null) continue;
     const g = decodeGlyph(payload, off, header.bpp, header.reversedBits);

@@ -67,6 +67,25 @@ describe('seed opcodes — flow', () => {
     expect(vm.slots.some((s) => s.status !== 'dead' && s.scriptId === 9)).toBe(true);
   });
 
+  it('0xB7 startObject runs the verb script NESTED (sets g before the caller reads it)', () => {
+    const vm = makeVm();
+    // Verb-11 body: `move g100 = 777` then stopObjectCode. This stands in for
+    // an inventory item's verb-91, which sets g376 to its icon object.
+    const verb11 = bytes(0x1a, 0x64, 0x00, 0x09, 0x03, 0x00);
+    vm.loadedRoom = {
+      id: 7,
+      objects: new Map([[42, { objId: 42, verbs: new Map([[11, verb11]]) }]]),
+      localScripts: new Map(),
+    } as never;
+    // Caller: startObject(obj=42, script=11, no args). 0x37 = literal obj +
+    // literal script; bytes obj16=42, script8=11, args terminator 0xFF.
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x37, 0x2a, 0x00, 0x0b, 0xff, 0x00) });
+    vm.step(); // run ONLY the startObject opcode
+    // Nested: the verb body has already run to its stop, so g100 is set now —
+    // not on some later scheduler tick. (Deferred, this would still be 0.)
+    expect(vm.vars.readGlobal(100)).toBe(777);
+  });
+
   it('0x18 jumpRelative applies a signed offset', () => {
     const vm = makeVm();
     // jump +4 over the next four bytes, land on stopObjectCode.

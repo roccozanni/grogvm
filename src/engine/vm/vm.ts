@@ -35,6 +35,7 @@ import { ActorTable, DEFAULT_ACTOR_COUNT } from '../actor/actor';
 import { startWalk, stepAllActorWalks } from '../actor/walk';
 import { stepAnim } from '../graphics/costume-anim';
 import { findVerbScript } from '../object/verbs';
+import { buildWalkableMask } from '../pathfinding/mask';
 import type { LoadedCostume } from '../graphics/costume-loader';
 import type { CharsetHeader } from '../graphics/charset';
 import type { LoadedRoom } from '../room/loader';
@@ -305,6 +306,20 @@ export class Vm {
    * 31 Player, 32 Untouchable.
    */
   readonly objectClasses = new Map<number, number>();
+  /**
+   * Per-box walk-flag overrides for the CURRENT room, keyed by box id —
+   * set by `matrixOp setBoxFlags` (0x30 sub 0x01). SCUMM stores walk-box
+   * flags in the in-memory room and scripts toggle bit 0x80 to lock/unlock
+   * a box (a closed door seals its corridor by locking the boxes behind it).
+   * Our {@link LoadedRoom} is parsed fresh from disk on every entry (so its
+   * `walkBoxes` carry the disk flags), and the flags are runtime state, so we
+   * layer the changes here instead of mutating the room. Reset on a real room
+   * change ({@link enterRoom}) — SCUMM resets box flags on reload and the
+   * entry script re-applies them — and applied into {@link LoadedRoom.walkableMask}
+   * by {@link rebuildWalkableMask}. Saved so a restore (which does NOT re-run
+   * the entry script) reproduces the locked passages.
+   */
+  readonly boxFlagOverrides = new Map<number, number>();
   /**
    * Object draw queue — set of object ids the compositor should
    * include in the next frame. Populated by the `drawObject` opcode
@@ -773,6 +788,11 @@ export class Vm {
     // script #17), so it keeps running across the load.
     this.stopRoomLocalScripts();
 
+    // Box walk-flags are per-room and reset to the room's disk values on a
+    // room change; the new room's entry script (ENCD) re-applies any door
+    // locks below. Clear before applyRoomResources so the fresh mask starts
+    // from the disk flags.
+    this.boxFlagOverrides.clear();
     this.currentRoom = roomId;
     this.vars.writeGlobal(VAR_ROOM_INDEX, roomId);
     this.applyRoomResources(roomId);
@@ -845,6 +865,42 @@ export class Vm {
         if (st > 0 && obj.images.has(st)) this.objectDrawQueue.add(id);
       }
     }
+
+    // Re-apply any box-flag overrides onto the freshly-decoded mask. No-op on
+    // a normal room change (enterRoom cleared them; ENCD repopulates after);
+    // on a reload/restore the room is parsed fresh from disk so the locks must
+    // be layered back on.
+    this.rebuildWalkableMask();
+  }
+
+  /**
+   * Set walk-box `boxId`'s flags (matrixOp setBoxFlags) and recompute the
+   * current room's walkable mask. Bit 0x80 locks the box — the pathfinder's
+   * mask excludes it, so a closed door's corridor becomes impassable. No-op
+   * with no room loaded.
+   */
+  setBoxFlags(boxId: number, flags: number): void {
+    this.boxFlagOverrides.set(boxId, flags);
+    this.rebuildWalkableMask();
+  }
+
+  /**
+   * Rebuild {@link LoadedRoom.walkableMask} in place from the room's walk
+   * boxes with {@link boxFlagOverrides} layered on. Mutates the mask's bytes
+   * (its length is fixed at width×height) rather than reassigning the readonly
+   * field. No-op when the room has no boxes (the empty mask means "walk
+   * anywhere" — see the loader).
+   */
+  private rebuildWalkableMask(): void {
+    const room = this.loadedRoom;
+    if (!room || room.walkBoxes.length === 0 || room.walkableMask.length === 0) return;
+    const boxes =
+      this.boxFlagOverrides.size === 0
+        ? room.walkBoxes
+        : room.walkBoxes.map((b) =>
+            this.boxFlagOverrides.has(b.id) ? { ...b, flags: this.boxFlagOverrides.get(b.id)! } : b,
+          );
+    room.walkableMask.set(buildWalkableMask(boxes, room.width, room.height));
   }
 
   /**
@@ -1729,6 +1785,7 @@ export class Vm {
     this.objectOwners.clear();
     this.inventoryNames.clear();
     this.objectClasses.clear();
+    this.boxFlagOverrides.clear();
     this.objectDrawQueue.clear();
     this.currentRoom = 0;
     this.frameAccumulator = 0;
