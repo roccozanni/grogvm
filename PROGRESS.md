@@ -19,22 +19,33 @@ Lean tracker. Three buckets:
 ## Current — natural play through MI1
 
 Playing MI1 from the start and fixing each blocker as it's hit (engine-faithful,
-committed on `main`). **779 tests green, tsc clean.** The intro → room 33 →
+committed on `main`). **785 tests green, tsc clean.** The intro → room 33 →
 SCUMM Bar (room 28) → pirate-conversation close-up is playable end-to-end.
 
-**Last worked on — the room-28 important pirates (actor 3 / cost24), fully
-resolved** *(all user-confirmed; 6 commits, see `git log`)*. One custom actor
-surfaced a chain of bugs; durable semantics migrated to docs:
+**Last worked on — inventory + SCUMM-Bar polish, driven by two real
+inventory saves** *(2026-06-01; commits `13a6948`, `030bbbf`; all user-
+confirmed)*. Four fixes, durable semantics in docs:
 
-- **32-colour costume decode** (cost24, `format 0x59`) → [COST §5](docs/SCUMM-V5-COST.md).
-- **`animateActor` chore/pseudo-anim model** (operand is a chore; 244–255 =
-  direction/stop pseudo-anims), **init chore starts on costume-set**, **actor
-  draw order by y** → [COSTUME-ANIM](docs/SCUMM-V5-COSTUME-ANIM.md).
-- **Object-first hover** hit-test; nameless walk-hotspots (obj #320) read as
-  floor in the overlay. **Dialog talk-colour live-read**, faithful
-  **`SO_VERB_NEW`** (create off, keep name), and **`startScript` runs nested**
-  (the verb-bar reply-menu race) → [OPCODES §6](docs/SCUMM-V5-OPCODES.md) +
-  [INPUT §6](docs/SCUMM-V5-INPUT.md).
+- **Inventory icons** — `startObject` (0xB7) now runs the verb script
+  **nested** (like `startScript`). The inventory script #9 does
+  `startObject item 91; L4 = g376`, where each item's verb-91 sets `g376` to
+  its icon object; deferred, every slot read a stale `g376` and all items drew
+  one identical icon. [OPCODES §6](docs/SCUMM-V5-OPCODES.md).
+- **`@` (0x40) name-padding skipped at render** — OBNA names are `@`-padded
+  for in-place `setObjectName` rewrites; SCUMM's printer skips `@` even though
+  the sentence/dialogue fonts carry a glyph for it. Fixed "il pezzo di
+  carne@@@@…". [CHAR](docs/SCUMM-V5-CHAR.md).
+- **Closed-door box locking** — `matrixOp setBoxFlags` (was a stub) now writes
+  a per-room box-flag override and rebuilds the walkable mask (bit 0x80 =
+  locked). Overrides reset on room change (ENCD re-applies) and are saved.
+  Room 41's door 564 now seals its corridor. [PATHFINDING §10](docs/PATHFINDING.md).
+- **System text auto-clear** — a non-keepText `print a=255` now clears when
+  its talk timer drains (the cook's "Non puoi venire di qui!" lingered).
+  keepText (`\xff\x02`) signs/credits/titles still persist. [CHAR](docs/SCUMM-V5-CHAR.md).
+
+**Tabled this session:** the room-28 cook is sliced by the table z-plane while
+walking — a grid-A* vs box-graph **pathfinding route** divergence, not a clip/
+z-plane bug. [PATHFINDING §8](docs/PATHFINDING.md) + backlog below.
 
 **Open (low priority, none blocking):**
 
@@ -85,6 +96,14 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
   [SCREEN-EFFECT](docs/SCUMM-V5-SCREEN-EFFECT.md).
 - **Smooth `panCameraTo`** — snaps today; no intro-reachable scene uses it, so
   the pan rate has no validation target. Wire it when a scene surfaces.
+
+**Pathfinding**
+
+- **Box-graph routing (vs our grid-A*-over-mask)** — the two pick different
+  routes through the same geometry. Room 28's cook walks the bottom edge
+  (y=140, a degenerate line box) and gets sliced by the table z-plane;
+  ScummVM routes it higher where it clears the band. Clip + z-plane are
+  faithful, only the route differs. Tabled. [PATHFINDING §8](docs/PATHFINDING.md).
 
 **Stubbed opcodes (cosmetic / peripheral)**
 

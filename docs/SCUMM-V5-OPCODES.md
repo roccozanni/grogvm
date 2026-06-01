@@ -294,6 +294,16 @@ cutscene start/end hooks (CUTSCENES §2): `#18`'s `freezeScripts 127` and
 `startScript` opcode handler allocates the slot then calls
 `vm.runScriptNested(child)`. (`chainScript` above is the in-place variant.)
 
+**`startObject` (0x37/0x77/0xB7/0xF7) runs nested too** — same `runScript`
+mechanism, so a started object-verb script finishes (to its first
+`breakHere`/stop) before the caller's next opcode. This is load-bearing for
+the **inventory icons**: the inventory script (`#9`) loops the owner's items
+doing `startObject item 91; L4 = g376`, where each item's **verb-91** sets
+`g376` to the object whose sprite that slot should draw. Deferred, the loop
+read a stale `g376` for every slot and every item drew one identical icon;
+nested, each slot reads its own freshly-set `g376`. Handler:
+`vm.startVerbScript(...)` then `vm.runScriptNested(child)`.
+
 ## 7. Script id ranges
 
 | Range       | Scope                    | Resolved via                            |

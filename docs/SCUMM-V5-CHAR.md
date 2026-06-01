@@ -303,6 +303,30 @@ string. Phase 4 ignores them — strings containing `0xFF` bytes will
 attempt to look up character `0xFF` in the glyph table and render or
 skip per the result.
 
+### `@` (0x40) is name padding, not a glyph
+
+Object names live in fixed-size OBNA buffers padded with `@` (0x40) so a
+later `setObjectName` can overwrite them in place with a longer string (obj
+488's verb-91 rewrites `"@@@@@ pezzi da otto@@@@"` → `"500 pezzi da otto"`).
+SCUMM's printer **skips `@` outright** — and must, because the sentence and
+dialogue fonts (charset id 1 and 2) *do* carry a visible `@` glyph yet the
+game never shows padding clutter. So `measureText`/`renderText` skip code
+0x40 unconditionally rather than leaning on a font that happens to lack the
+glyph. Symptom before the fix: "il pezzo di carne@@@@…" in the sentence line.
+
+### keepText (`\xff\x02`) vs. the talk timer
+
+When the talk timer (`VAR_HAVE_MSG`/`talkDelay`, paced by `VAR_CHARINC` ×
+length) drains, a message clears — **for system text too**, not just actor
+speech. The exception is a message flagged **keepText** (`\xff\x02`), which
+persists until an explicit clear (an empty/space `print` at the same anchor)
+or overwrite. Signs, credits, and the layered "Le tre prove!" title use it:
+the credit script (`#152`) prints a credit with `\xff\x02`, holds it with its
+own `delay`, then clears it with `print " "`. Modelling *all* system text as
+permanent left one-shot lines stuck on screen — e.g. the room-28 cook's
+`print a=255 "Non puoi venire di qui!"` (no keepText). `decodeScummStringPages`
+surfaces the flag; `advanceOrEndTalk` drops finished non-keepText system text.
+
 ---
 
 ## 7. End-to-end — rendering "GUYBRUSH"

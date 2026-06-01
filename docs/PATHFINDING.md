@@ -189,6 +189,22 @@ The existing walk-box parser already extracts everything else
 (corners, flags, scale slots), so a box-graph pathfinder is mostly
 a routing layer on top of it.
 
+### Known divergence this would fix (deferred)
+
+Grid-A*-over-mask and SCUMM's box-graph pick **different routes** through
+the same geometry, and the difference is visible. In **room 28** (the SCUMM
+Bar) the cook (actor 6, `alwaysZclip=1`) walks across the bar; between
+x≈367–466 the only walk box is **box 6, a degenerate line at y=140** (its
+four corners all share y=140). Our mask therefore has walkable pixels *only*
+at y=140 there, so A* routes the cook along that bottom edge. At y=140 the
+room's foreground z-plane — a horizontal band at the table top (y≈102–122) —
+slices the cook's torso out (head above the band, legs below, middle hidden).
+ScummVM's box-graph routes the same walk box-to-box (nearer the box "centre"
+line), keeping the actor higher where it clears the band. The clip and the
+z-plane are both faithful; only the **route** differs. Confirmed by comparing
+our path to ScummVM's on the same save. Tabled until/unless we add the
+box-graph router above.
+
 ## 9. Reference implementation
 
 - [`src/engine/pathfinding/grid.ts`](../src/engine/pathfinding/grid.ts)
@@ -207,3 +223,32 @@ a routing layer on top of it.
   fixtures covering open rooms, single-obstacle routing, disjoint
   regions, snap-to-walkable, single-pixel islands, mask-bounds
   clipping, path-following with multi-waypoint paths.
+
+## 10. Runtime box locking (`matrixOp setBoxFlags`)
+
+Walk-box flags are **runtime state**, not just disk data: a script locks a
+box (flag bit `0x80`) to seal a corridor when a door is shut, and unlocks it
+when the door opens. SCUMM stores box flags in the in-memory room, resets
+them to disk values on every room load, and the entry script (ENCD)
+re-applies the door-state locks.
+
+We mirror that:
+- The room re-parses fresh from disk on every entry (no VM room cache), so
+  `LoadedRoom.walkBoxes` always carry the disk flags. Runtime changes layer
+  on top as **per-box overrides** in `vm.boxFlagOverrides` (box id → flags) —
+  the same pattern as `objectStates`/`objectOwners`, *not* a mutation of the
+  readonly room.
+- `vm.setBoxFlags(boxId, flags)` (called by the `matrixOp` opcode, 0x30 sub
+  0x01) records the override and rebuilds `LoadedRoom.walkableMask` in place
+  via `buildWalkableMask` with the overrides applied (`maskFromBox`/§2 already
+  drop `0x80` boxes, so the pathfinder needs no change).
+- Overrides **reset on a real room change** (`enterRoom` clears them; ENCD
+  re-applies) and are **saved** (`SaveState.boxFlags`), because restore
+  reloads the room fresh but does *not* re-run ENCD.
+
+Example: room 41's door 564 — its ENCD locks boxes 4/5 (`setBoxFlags 4,128`)
+when the door's state is closed, sealing the corridor behind it; opening it
+unlocks them. Before this landed, `matrixOp` was a no-op and you could walk
+through closed doors. `setBoxScale` (sub 0x02/0x03) and `createBoxMatrix`
+(sub 0x04) remain no-ops — scale is read from SCAL at load, and the mask is
+already rebuilt per `setBoxFlags`.
