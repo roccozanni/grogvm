@@ -887,14 +887,17 @@ register(0x16, getRandomNrHandler);
 register(0x96, getRandomNrHandler);
 
 // ─── 0x07 / 0x47 / 0x87 / 0xC7  setState ─────────────────────────────
-// Set an object's state byte. State drives which OBIM image variant
-// gets composited (open/closed door, etc.) and is consulted by
-// `ifState`. We track it in `vm.objectStates`; the renderer will read
-// it once we have the object compositor.
+// Set an object's state byte. State drives which OBIM image variant gets
+// composited (open/closed door, etc.) and is consulted by `ifState`. SCUMM's
+// setObjectState also marks the object dirty so it redraws in its new state —
+// we mirror that by queuing a current-room object for drawing, so e.g. opening
+// the SCUMM Bar door (state 1) actually renders the open doorway. State 0 stays
+// queued but the compositor skips it (the closed door lives in the room bg).
 function setStateHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const obj = readVarOrWord(opcode, 1, slot, vm.vars);
   const state = readVarOrByte(opcode, 2, slot, vm.vars);
   vm.objectStates.set(obj, state);
+  if (vm.loadedRoom?.objects.has(obj)) vm.objectDrawQueue.add(obj);
   vm.annotate(`setState obj=${obj} state=${state}`);
 }
 register(0x07, setStateHandler);
@@ -2463,6 +2466,18 @@ register(0x2e, (vm, slot) => {
   slot.delayRemaining = ticks;
   slot.yield_();
   vm.annotate(`delay ${ticks}`);
+});
+
+// ─── 0x2B  delayVariable ─────────────────────────────────────────────
+// Like delay (0x2E) but the tick count comes from a variable reference,
+// not a 3-byte immediate. SCUMM's o5_delayVariable. Room 28's ambient
+// loop (#210) uses it: drawObject a random fixture, `delayVariable` a
+// randomized hold, repeat — so a closed bar still has flickering life.
+register(0x2b, (vm, slot) => {
+  const ticks = readVarRef(slot, vm.vars);
+  slot.delayRemaining = ticks;
+  slot.yield_();
+  vm.annotate(`delayVariable ${ticks}`);
 });
 
 export const SEED_OPCODES: ReadonlyMap<number, OpcodeHandler> = handlers;

@@ -1062,6 +1062,50 @@ describe('intro-cutscene opcodes', () => {
     expect(vm.vars.readGlobal(0)).toBe(5);
   });
 
+  it('setState queues a current-room object for redraw (so an opened door renders)', () => {
+    const vm = makeVm();
+    // A loaded room with object 42 (has a state-1 image).
+    vm.loadedRoom = {
+      id: 1, width: 0, height: 0, numObjects: 1, palette: new Uint8Array(768),
+      transparentIndex: null, indexed: new Uint8Array(0), stripMethods: [],
+      zPlanes: [], entryScript: null, exitScript: null, localScripts: new Map(),
+      objects: new Map([[42, { objId: 42, images: new Map([[1, {}]]) }]]),
+      walkBoxes: [], walkableMask: new Uint8Array(0), scaleSlots: [],
+    } as never;
+    expect(vm.objectDrawQueue.has(42)).toBe(false);
+    // setState obj=42 state=1 (0x07 = both direct: obj word, state byte), stop.
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x07, 0x2a, 0x00, 0x01, 0xa0) });
+    while (vm.slots.find((s) => s.scriptId === 1 && s.runnable)) vm.step();
+    expect(vm.objectStates.get(42)).toBe(1);
+    expect(vm.objectDrawQueue.has(42)).toBe(true); // SCUMM marks it dirty → redraws
+    // An object not in the room is tracked but not queued (can't be drawn).
+    vm.startScript({ scriptId: 2, bytecode: bytes(0x07, 0x63, 0x00, 0x01, 0xa0) });
+    while (vm.slots.find((s) => s.scriptId === 2 && s.runnable)) vm.step();
+    expect(vm.objectStates.get(99)).toBe(1);
+    expect(vm.objectDrawQueue.has(99)).toBe(false);
+  });
+
+  it('entering a room queues objects already in a drawable state (door stays open)', () => {
+    // A room whose object 42 carries a state-1 image.
+    const room = {
+      id: 7, width: 0, height: 0, numObjects: 1, palette: new Uint8Array(768),
+      transparentIndex: null, indexed: new Uint8Array(0), stripMethods: [],
+      zPlanes: [], entryScript: null, exitScript: null, localScripts: new Map(),
+      objects: new Map([[42, { objId: 42, images: new Map([[1, {}]]) }]]),
+      walkBoxes: [], walkableMask: new Uint8Array(0), scaleSlots: [],
+    };
+    const vm = new Vm({
+      numVariables: 800, numBitVariables: 2048, handlers: SEED_OPCODES,
+      resolveRoom: () => room as never,
+    });
+    // Object 42 left in state 1 (e.g. an opened door) from earlier play.
+    vm.objectStates.set(42, 1);
+    vm.enterRoom(7);
+    // Auto-queued from its persisted state, so it renders on (re-)entry —
+    // even though enterRoom clears the queue first.
+    expect(vm.objectDrawQueue.has(42)).toBe(true);
+  });
+
   it('faceActor turns the actor toward a target actor (east)', () => {
     const vm = makeVm();
     const a = vm.actors.get(1);

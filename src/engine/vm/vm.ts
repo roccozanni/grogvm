@@ -802,6 +802,19 @@ export class Vm {
         }
       }
     }
+
+    // Draw every object already in a non-zero, image-backed state. SCUMM draws
+    // room objects in their current state at room init, so a door left open
+    // stays rendered open when you re-enter (its state persists in
+    // objectStates) and a restored save shows the right object states. First
+    // entry to a room has all states 0 (no DOBJ parse yet) → nothing queued,
+    // so this is purely additive; state-0 / image-less objects are the bg.
+    if (this.loadedRoom) {
+      for (const [id, obj] of this.loadedRoom.objects) {
+        const st = this.objectStates.get(id) ?? 0;
+        if (st > 0 && obj.images.has(st)) this.objectDrawQueue.add(id);
+      }
+    }
   }
 
   /**

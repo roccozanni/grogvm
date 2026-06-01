@@ -156,8 +156,28 @@ arrivarci." and then walk input froze. **Three independent engine bugs stacked:*
    input dead. Fix: `vm.runScriptNested` runs the cutscene start/end scripts to
    completion in order; `step()` refactored to share `dispatchSlot`.
 Verified end-to-end (probe `probe-door-seq.ts`): Apri → door opens (state 1),
-input stays live; Vai → **room 28** (SCUMM Bar interior). +6 tests (761 total),
-tsc clean. **NEEDS in-app confirm** (open the SCUMM Bar door, walk in).
+input stays live; Vai → **room 28** (SCUMM Bar interior). +6 tests, tsc clean.
+✓ user-confirmed (Vai alone no longer enters; Apri unlocks). Follow-ons in #5.
+
+### 5. Natural-play: room-28 halt + door doesn't render open — FIXED (session 10)
+Found on entering the SCUMM Bar (room 28). Two engine gaps:
+1. **`delayVariable` (0x2b) unimplemented → hard halt.** Room 28's ambient loop
+   (#210) does `drawObject` a random fixture → `delayVariable <var>` (a
+   randomized hold) → repeat. We only had `delay` (0x2E, 3-byte immediate);
+   added 0x2b (reads the tick count from a var ref, else identical). Entering
+   room 28 no longer halts.
+2. **`setState` didn't render the new state.** Opening the door set its state
+   byte but never drew the open-door image, so it stayed visually shut. The
+   compositor only draws objects in `objectDrawQueue`; `setState` didn't add to
+   it. SCUMM's setObjectState marks the object dirty → redraws in its new state.
+   Fix: `setState` queues a current-room object; **`applyRoomResources`** also
+   queues every object already in a non-zero, image-backed state at room (re)entry
+   (SCUMM draws objects in their state at init). So Apri now draws the open
+   doorway (image[1] over the bg's closed door; 1056 px change, probe
+   `probe-doorrender.ts`) and the door stays open when you leave/return (and
+   across save/restore). First entry has all states 0 (no `DOBJ` parse) → nothing
+   auto-queued → purely additive. +3 tests (763 total), tsc clean.
+   **NEEDS in-app confirm** (Apri renders the open doorway; it persists on re-entry).
 
 Why: `renderPlayer` (player.ts, 1714 lines) was a vertically-stacked
 *resource browser*, not a game player — the actual game was wedged inside
