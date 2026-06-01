@@ -4,6 +4,7 @@ import type { CostumeHeader } from '../graphics/costume';
 import type { LoadedCostume } from '../graphics/costume-loader';
 import type { LoadedRoom } from '../room/loader';
 import type { LoadedObject } from '../object/loader';
+import type { WalkBox } from '../pathfinding/boxes';
 import { ComposeError, composeFrame } from './compositor';
 
 function makeRoom(width: number, height: number, fill: number): LoadedRoom {
@@ -561,19 +562,19 @@ describe('composeFrame — actor z-clip (forceClip)', () => {
     for (let i = 0; i < fb.length; i++) expect(fb[i]).toBe(0x10);
   });
 
-  it('neverZclip (forceClip 0) draws in front of the same z-plane', () => {
+  it('neverZclip (forceClip 0) with no walk boxes draws in front', () => {
     const room = roomWithFullPlane(8, 4, 0x10);
     const fb = new Uint8Array(8 * 4);
     const a = makeActorAt(1, 1, 1, 1);
     a.anim = activeLimb0Anim();
-    a.forceClip = 0; // actorZ = zPlanes.length → never occluded
+    a.forceClip = 0; // "not forced"; no box → box-default front (planeCount)
     composeFrame({ room, framebuffer: fb, actors: [a], getCostume: cost });
     // The 2×2 frame at (1,1) painted CLUT 0x99 over the plane.
     expect(fb[1 * 8 + 1]).toBe(0x99);
     expect(fb[2 * 8 + 2]).toBe(0x99);
   });
 
-  it('default (unset, forceClip -1) draws in front (current behaviour)', () => {
+  it('default (unset, forceClip -1) with no walk boxes draws in front', () => {
     const room = roomWithFullPlane(8, 4, 0x10);
     const fb = new Uint8Array(8 * 4);
     const a = makeActorAt(1, 1, 1, 1);
@@ -581,6 +582,51 @@ describe('composeFrame — actor z-clip (forceClip)', () => {
     expect(a.forceClip).toBe(-1); // createActor default
     composeFrame({ room, framebuffer: fb, actors: [a], getCostume: cost });
     expect(fb[1 * 8 + 1]).toBe(0x99);
+  });
+
+  // A mask-1 walk box under a "not forced" actor (the room-33 ego case):
+  // forceClip 0 is NOT an unconditional front — the box mask drives the
+  // clip, so a covering plane occludes the actor.
+  function fullBox(mask: number): WalkBox {
+    return {
+      id: 0, ulx: 0, uly: 0, urx: 7, ury: 0, lrx: 7, lry: 3, llx: 0, lly: 3,
+      mask, flags: 0, scale: 0,
+    };
+  }
+
+  it('neverZclip (forceClip 0) standing in a mask-1 box IS occluded by plane 1', () => {
+    const room = { ...roomWithFullPlane(8, 4, 0x10), walkBoxes: [fullBox(1)] };
+    const fb = new Uint8Array(8 * 4);
+    const a = makeActorAt(1, 1, 1, 1);
+    a.anim = activeLimb0Anim();
+    a.forceClip = 0; // mask-1 box → actorZ 0 → plane 1 hides every pixel
+    composeFrame({ room, framebuffer: fb, actors: [a], getCostume: cost });
+    for (let i = 0; i < fb.length; i++) expect(fb[i]).toBe(0x10);
+  });
+
+  it('a mask-1 box does not occlude an explicit alwaysZclip-2 actor', () => {
+    // forceClip > 0 wins over the box mask: alwaysZclip 2 → actorZ 1, and the
+    // single plane (index 1) is ≤ actorZ, so it does not hide the actor.
+    const room = { ...roomWithFullPlane(8, 4, 0x10), walkBoxes: [fullBox(1)] };
+    const fb = new Uint8Array(8 * 4);
+    const a = makeActorAt(1, 1, 1, 1);
+    a.anim = activeLimb0Anim();
+    a.forceClip = 2;
+    composeFrame({ room, framebuffer: fb, actors: [a], getCostume: cost });
+    expect(fb[1 * 8 + 1]).toBe(0x99);
+  });
+
+  it('NeverClip class keeps a mask-1-box actor in front of plane 1', () => {
+    const room = { ...roomWithFullPlane(8, 4, 0x10), walkBoxes: [fullBox(1)] };
+    const fb = new Uint8Array(8 * 4);
+    const a = makeActorAt(7, 1, 1, 1); // actor id 7
+    a.anim = activeLimb0Anim();
+    a.forceClip = 0;
+    composeFrame({
+      room, framebuffer: fb, actors: [a], getCostume: cost,
+      isNeverClip: (id) => id === 7,
+    });
+    expect(fb[1 * 8 + 1]).toBe(0x99); // class → front despite mask-1 box
   });
 });
 

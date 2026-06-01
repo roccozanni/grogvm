@@ -55,11 +55,13 @@ export interface Actor {
   ignoreBoxes: boolean;
   /**
    * Z-plane clip control, from `actorOps` `neverZclip` (0x12) /
-   * `alwaysZclip` (0x13):
-   *   - `-1` = unset (compositor's default depth — in front of every plane)
-   *   - `0`  = `neverZclip` — always in front, never occluded
-   *   - `k>0`= `alwaysZclip k` — clipped behind z-plane `k` (and above)
-   * Mirrors SCUMM's `_forceClip`. The compositor maps this to `actorZ`.
+   * `alwaysZclip` (0x13). Mirrors SCUMM's `_forceClip`:
+   *   - `k>0` = `alwaysZclip k` — clipped behind z-plane `k` (and above).
+   *   - `0`   = `neverZclip` — *clears* the forced clip ("not forced").
+   *   - `-1`  = never set (also "not forced"; our extra sentinel).
+   * `0` and `-1` are equivalent: the compositor derives the depth from the
+   * NeverClip class (→ front) or the walk-box mask. Only `k>0` forces a
+   * fixed plane. See resolveActorZ in render/compositor.ts.
    */
   forceClip: number;
   /** Pixels per engine tick during a walk. */

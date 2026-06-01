@@ -188,6 +188,8 @@ export function createSession(
       getCostume: (id) => vm.getCostume(id),
       objectDrawQueue: vm.objectDrawQueue,
       getObjectState: (id) => vm.objectStates.get(id) ?? 1,
+      // NeverClip class (20, bit 19) → actor always in front of z-planes.
+      isNeverClip: (id) => ((vm.objectClasses.get(id) ?? 0) & (1 << 19)) !== 0,
     });
 
     // Extract the camera slice. When the viewport spans the whole room (the

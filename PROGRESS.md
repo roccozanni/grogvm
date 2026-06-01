@@ -82,7 +82,7 @@ engine-side fixes (all separate from the rebuild; 753 tests green, tsc clean):
   paused/stepping (was every frame, then a 10 Hz throttle). Good hygiene, but
   **did NOT fix the stutter** → the stutter is not the debug panel.
 
-## Open issues (session 9: #1 & #2 fixed+confirmed; #3 still open)
+## Open issues (session 9: #1 & #2 fixed+confirmed; session 10: #3 fixed, PENDING in-app confirm)
 
 ### 1. Camera-follow stutter + "two Guybrush" — FIXED & user-confirmed (session 9)
 Ordering bug, as hypothesised. `moveCameraFollow()` ran in `beginTick()` (every
@@ -109,12 +109,27 @@ neighbours) — low priority, revisit if it looks off in-app.
 Code: `play-area.ts` `paintVerbBar`/`drawVerbImage`/`drawText`; `opcodes/index.ts`
 0x0E; `vm.charsetColorMap`.
 
-### 3. Ego z-occlusion (deferred, pre-existing, NOT a regression)
-Room-33 Guybrush is `neverZclip` (forceClip=0, engine-set) → always drawn in
-front of the house. The z-occlusion code is git-verified unchanged; it's the
-long-standing "ego neverZclip" limitation, just more visible now that he's
-correctly sized. "Behind the house/wall" needs box-mask z-clip honoured for the
-ego. See the post-save/load backlog "Box-default z-clip validation".
+### 3. Ego z-occlusion — FIXED (session 10), PENDING in-app confirm
+**Root cause was a wrong semantic, not the unchanged z-plane code.** We treated
+`forceClip == 0` (what the `neverZclip` opcode sets) as "always in front." In
+SCUMM, `_forceClip == 0` is the *not-forced* sentinel, not a front flag:
+`zbuf = _forceClip ? _forceClip : (neverClipClass ? front : maskFromBox(_walkbox))`.
+So a `forceClip == 0` actor's depth comes from the **NeverClip object class**
+(→ front) or, failing that, the **walk-box mask** — exactly like the unset
+`-1` default. What keeps the Mêlée *sparkles* in front is the NeverClip class;
+the *clouds* use an explicit `alwaysZclip 1` (forceClip > 0, untouched). The ego
+is left `forceClip == 0` in every room, so its occlusion is now box-driven:
+room 33 (mask-1 dock boxes) → passes behind the houses; room 38 (mask-0 box) →
+stays in front of the wall. Empirically both confirmed (probes
+`probe-ego-zclip33.ts`, `probe-render33.ts`): behind a building the ego draws 2
+edge px (occluded by ZP01); in the open it draws full (overZP 0).
+**Fix:** `resolveActorZ` (render/compositor.ts) — `forceClip > 0` still wins;
+otherwise NeverClip class → front, else box mask via **`findBoxAtOrNearest`**
+(the room-33 ego stands on box 4, a diagonal *line* box that strictly contains
+no point — strict `findBoxAt` returned none → front, the old gap). Added an
+`isNeverClip` callback to `composeFrame` (wired in session.ts from
+`vm.objectClasses` class 20 / bit 19). 756 tests green (4 new z-clip cases),
+tsc clean. **NEEDS in-app confirm** in room 33 (walk Guybrush behind a building).
 
 Why: `renderPlayer` (player.ts, 1714 lines) was a vertically-stacked
 *resource browser*, not a game player — the actual game was wedged inside

@@ -1665,7 +1665,11 @@ function actorOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
         break;
       }
       case 0x12:
-        // neverZclip — actor always draws in front of every z-plane.
+        // neverZclip — CLEARS the forced clip (sets _forceClip = 0, SCUMM's
+        // "not forced" sentinel). The actor's depth then falls through to the
+        // NeverClip class / walk-box mask (see resolveActorZ); it is NOT an
+        // unconditional "always in front". The ego is left like this in most
+        // rooms, so its occlusion is box-driven.
         if (actor) actor.forceClip = 0;
         ops.push('setNeverZClip');
         break;

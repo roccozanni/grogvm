@@ -50,7 +50,7 @@ import { decodeCostumeFrame } from '../graphics/costume-frame';
 import type { LoadedObject } from '../object/loader';
 import type { LoadedRoom } from '../room/loader';
 import type { DecodedZPlane } from '../graphics/zplane';
-import { findBoxAt, type WalkBox } from '../pathfinding/boxes';
+import { findBoxAtOrNearest, type WalkBox } from '../pathfinding/boxes';
 
 export class ComposeError extends Error {
   constructor(detail: string) {
@@ -99,6 +99,17 @@ export interface ComposeFrameInput {
    * track state explicitly still see something drawn.
    */
   readonly getObjectState?: (objectId: number) => number;
+  /**
+   * Whether an actor is in SCUMM's **NeverClip** object class (class 20,
+   * bit 19) — set by `setClass`. Such actors always draw in front of every
+   * z-plane regardless of the walk box they stand in, matching SCUMM's
+   * `zbuf = _forceClip ? _forceClip : (neverClip ? 0 : maskFromBox(_walkbox))`
+   * precedence. Only consulted for the box-default path (forceClip ≤ 0);
+   * an explicit `alwaysZclip` (forceClip > 0) still wins. Typically:
+   *   `isNeverClip: (id) => ((vm.objectClasses.get(id) ?? 0) & (1 << 19)) !== 0`
+   * Defaults to "no actor is NeverClip".
+   */
+  readonly isNeverClip?: (actorId: number) => boolean;
 }
 
 /** Reason an entire actor didn't draw — surfaced for diagnostics. */
@@ -127,7 +138,7 @@ export interface ComposeFrameResult {
 }
 
 export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
-  const { room, framebuffer, actors, getCostume, objectDrawQueue, getObjectState } = input;
+  const { room, framebuffer, actors, getCostume, objectDrawQueue, getObjectState, isNeverClip } = input;
   const skippedActors: SkippedActor[] = [];
   const skippedLimbs: SkippedLimb[] = [];
   const skippedObjects: SkippedObject[] = [];
@@ -322,14 +333,22 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
           //     so actorZ = k-1 (the "plane index > actorZ hides" rule
           //     then masks the actor where plane k is set). E.g. the
           //     Mêlée clouds (alwaysZclip 1) draw behind the mountain.
-          //   - neverZclip (forceClip 0) → in front of every plane (the
-          //     topmost layer above the bg).
-          //   - the unset default (forceClip < 0) derives its clip from
-          //     the walk box the actor stands in — see resolveActorZ.
+          //   - neverZclip (forceClip 0) and the unset default
+          //     (forceClip < 0) are both "not forced": the depth comes
+          //     from the NeverClip class (→ front) or, failing that, the
+          //     walk box the actor stands in — see resolveActorZ. This is
+          //     why the room-33 ego (forceClip 0, mask-1 dock box) passes
+          //     behind the houses while the room-38 ego (forceClip 0,
+          //     mask-0 box) stays in front of the wall.
           // "In front" = the effective plane count, so a merged drawn-
           // object foreground (which lands at plane index 1) never
           // occludes an "in front" actor — only z-clipped ones.
-          actorZ: resolveActorZ(actor, room.walkBoxes, actorZPlanes.length),
+          actorZ: resolveActorZ(
+            actor,
+            room.walkBoxes,
+            actorZPlanes.length,
+            isNeverClip ? isNeverClip(actor.id) : false,
+          ),
           zPlanes: actorZPlanes,
           // Actor scale (0..255, 255 = full). SCUMM scales actors by depth;
           // the value is set by scripts (actorOps setScale) and, later, by
@@ -383,16 +402,29 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
  */
 /**
  * Resolve an actor's z-clip depth (the `actorZ` the "any plane > actorZ
- * hides" rule consumes). SCUMM's `_forceClip` precedence:
+ * hides" rule consumes). Mirrors SCUMM's resolution order
+ * `zbuf = _forceClip ? _forceClip : (neverClipClass ? 0 : maskFromBox(_walkbox))`:
  *
  *   - `alwaysZclip k` (forceClip > 0) → behind plane k and above, so
- *     actorZ = k − 1.
- *   - `neverZclip` (forceClip == 0) → in front of every plane.
- *   - unset (forceClip < 0) → the *default* clip, taken from the `mask`
- *     of the walk box the actor's feet stand in: mask 0 = in front,
- *     mask N (>0) = behind plane N (same mapping as alwaysZclip). An
- *     actor not standing in any box (or a room with no boxes) defaults
- *     to in front, matching the prior behaviour.
+ *     actorZ = k − 1. An explicit script-set clip always wins.
+ *   - **not forced** — `neverZclip` (forceClip == 0, the opcode that
+ *     *clears* the forced clip) or unset (forceClip < 0):
+ *       · NeverClip class → in front of every plane.
+ *       · otherwise → the *default* clip from the `mask` of the walk box
+ *         the actor's feet stand in: mask 0 = in front, mask N (>0) =
+ *         behind plane N (same mapping as alwaysZclip). An actor not
+ *         standing in/near any box (or a room with no boxes) defaults to
+ *         in front.
+ *
+ * NB: `forceClip == 0` is NOT "always in front" — it's SCUMM's *unset*
+ * sentinel, so neverZclip and the never-set default behave identically
+ * (front-via-class or via box mask). What keeps the Mêlée sparkles in
+ * front is the NeverClip *class*, not forceClip; the clouds use an
+ * explicit `alwaysZclip 1` (forceClip > 0). The box is resolved with the
+ * nearest-box fallback (`findBoxAtOrNearest`) so MI1's thin dock/cliff
+ * line boxes — which strictly contain no interior point — still yield the
+ * mask the actor walks on (the room-33 ego stands on box 4, a diagonal
+ * line). This matches the per-frame box the scale system already uses.
  *
  * "In front of every plane" = the effective plane count, so a merged
  * drawn-object foreground (which lands at plane index 1) never occludes
@@ -403,10 +435,11 @@ function resolveActorZ(
   actor: Actor,
   walkBoxes: ReadonlyArray<WalkBox>,
   planeCount: number,
+  neverClipClass: boolean,
 ): number {
   if (actor.forceClip > 0) return actor.forceClip - 1;
-  if (actor.forceClip === 0) return planeCount;
-  const box = findBoxAt(walkBoxes, actor.x, actor.y);
+  if (neverClipClass) return planeCount;
+  const box = findBoxAtOrNearest(walkBoxes, actor.x, actor.y);
   const mask = box ? box.mask : 0;
   return mask > 0 ? mask - 1 : planeCount;
 }
