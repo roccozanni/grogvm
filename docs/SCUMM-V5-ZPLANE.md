@@ -351,42 +351,76 @@ overlay toggle.
 ## Actor z-depth — `forceClip` (actorOps neverZclip / alwaysZclip)
 
 `compositeActor`'s rule is "any plane whose 1-based index > `actorZ` hides
-the pixel." The per-actor `actorZ` comes from the actor's **`forceClip`**,
-which SCUMM scripts set via `actorOps`:
+the pixel." The per-actor `actorZ` comes from the actor's **`forceClip`**
+combined with the **NeverClip class** and the **walk-box mask**. SCUMM's
+resolution order (and ours, in `resolveActorZ`) is:
 
-| actorOps sub-op        | `actor.forceClip` | `actorZ`            | effect                              |
-|------------------------|-------------------|---------------------|-------------------------------------|
-| `neverZclip` (0x12)    | `0`               | `zPlanes.length`    | always in front (no plane occludes) |
-| `alwaysZclip k` (0x13) | `k` (>0)          | `k − 1`             | behind plane `k` and above          |
-| *(unset)*              | `-1`              | `zPlanes.length`    | in front (compositor default)       |
+```
+zbuf = _forceClip != 0 ? _forceClip
+     : neverClipClass  ? front           // NeverClip object class (20)
+     :                   maskFromBox(_walkbox)
+```
+
+| condition                              | `actorZ`         | effect                              |
+|----------------------------------------|------------------|-------------------------------------|
+| `alwaysZclip k` (0x13) → `forceClip k` | `k − 1`          | behind plane `k` and above          |
+| NeverClip class, `forceClip ≤ 0`       | `planeCount`     | always in front (no plane occludes) |
+| else (`forceClip ≤ 0`)                 | box-mask derived | see "Box-mask" below                |
+
+> ⚠️ **`forceClip == 0` is NOT "always in front".** The `neverZclip`
+> (0x12) opcode sets `forceClip = 0`, which is SCUMM's *not-forced*
+> sentinel — it merely **clears** a previously-forced clip. A
+> `forceClip == 0` actor behaves identically to the never-set `-1`
+> default: its depth falls through to the NeverClip class or the walk-box
+> mask. We previously read `0` as a front flag, which wrongly kept the ego
+> drawn over every building (the ego is left `forceClip == 0` in every
+> room). What actually keeps a decorative actor unconditionally in front
+> is the **NeverClip class**, not `forceClip`.
 
 `alwaysZclip k` → `actorZ = k − 1` so that "plane index > actorZ" makes
 plane `k` (and higher) occlude the actor while planes below `k` don't.
-The **Mêlée-island clouds** (room 10, costume 59) set `alwaysZclip 1`, so
-`actorZ = 0` and the single mountain z-plane (ZP01) draws over them — the
-clouds pass *behind* the mountain. The LucasArts sparkles set
-`neverZclip` and stay in front. Verified headlessly
+The **Mêlée-island clouds** (room 10, costume 59) set `alwaysZclip 1`
+(explicit, `forceClip = 1`), so `actorZ = 0` and the single mountain
+z-plane (ZP01) draws over them — the clouds pass *behind* the mountain.
+The LucasArts sparkles stay in front via the NeverClip **class** (their
+`neverZclip` opcode only clears the clip). Verified headlessly
 (`scratch/occlusion-check.ts`): a cloud parked over the mountain peak
 draws 0 pixels where ZP01's mask is set.
 
 ### Box-mask — the position-derived default clip
 
-An actor with **no explicit `forceClip`** (the `-1` "unset" default)
-derives its clip band from the **`mask` byte of the walk box its feet
-stand in**:
+An actor that is **not forced** (`forceClip ≤ 0`: the never-set `-1`
+default *or* `forceClip == 0` from `neverZclip`) and is **not in the
+NeverClip class** derives its clip band from the **`mask` byte of the
+walk box its feet stand in**:
 
 | box `mask` | `actorZ`         | effect                              |
 |------------|------------------|-------------------------------------|
 | `0`        | `planeCount`     | in front of every plane             |
 | `N` (>0)   | `N − 1`          | behind plane `N` and above          |
 
-i.e. the *same* mapping as `alwaysZclip k`. Explicit `forceClip`
-(neverZclip / alwaysZclip) always wins; the box default only applies
-when `forceClip < 0`. Verified empirically: room 38's behind-wall
+i.e. the *same* mapping as `alwaysZclip k`. An explicit `alwaysZclip`
+(`forceClip > 0`) always wins. Verified empirically: room 38's behind-wall
 sentries set `alwaysZclip 1` *explicitly* even though they stand in a
 mask-0 box — so the engine's precedence (script flag over box default)
-is real, and box defaults only drive actors the script leaves alone.
-Box masks seen in MI1: `0`/`1`/`2` (rooms 10/38/33).
+is real. The **ego** is the box-default case in practice: it carries
+`forceClip == 0` everywhere, so its occlusion is entirely box-driven —
+mask-1 dock boxes in **room 33** put it behind the houses, while its
+mask-0 box in **room 38** keeps it in front of the wall. Box masks seen
+in MI1: `0`/`1`/`2` (rooms 10/38/33).
+
+The box is resolved with **`findBoxAtOrNearest`**, not a strict
+point-in-box test: MI1's room-33 dock is built from thin *diagonal line*
+boxes (e.g. box 4, UL==UR and LR==LL) that strictly contain no interior
+point, so a strict lookup returned `null` → front (the old occlusion
+gap). The nearest-box fallback yields the box the actor walks on — the
+same per-frame box the actor-scale system already uses, so scale and
+z-clip stay consistent. (Faithfulness caveat: SCUMM tracks the actor's
+assigned `_walkbox`; geometric-nearest can differ from it for an actor
+standing off all boxes — e.g. a sky-placed `forceClip == 0` actor would
+resolve to the nearest *floor* box rather than "none → front". No MI1
+intro actor hits this — decorative actors are either `alwaysZclip` or in
+the NeverClip class — but track `_walkbox` if a real scene shows it.)
 
 The compositor calls `findBoxAt(room.walkBoxes, actor.x, actor.y)` and
 `resolveActorZ` maps the resulting `mask` → `actorZ`. Validated
