@@ -464,13 +464,14 @@ describe('seed opcodes — cursorCommand state wiring', () => {
 });
 
 describe('seed opcodes — verbOps state wiring', () => {
-  it('subop 0x09 "new" creates an on slot with defaults', () => {
+  it('subop 0x09 "new" creates an OFF slot (curmode 0)', () => {
     const vm = makeVm();
     vm.startScript({ scriptId: 1, bytecode: bytes(0x7a, 0x05, 0x09, 0xff, 0x00) });
     vm.step();
     const v = vm.verbs.get(5);
     expect(v).toBeDefined();
-    expect(v!.state).toBe('on');
+    // SO_VERB_NEW sets curmode 0 → off; a later SO_VERB_ON makes it visible.
+    expect(v!.state).toBe('off');
     expect(v!.name).toBe('');
     expect(v!.x).toBe(0);
   });
@@ -512,6 +513,7 @@ describe('seed opcodes — verbOps state wiring', () => {
         0x10, 0x08,                            // setDimColor 8
         0x12, 0x4c,                            // setKey 76 (L)
         0x13,                                  // setCenter
+        0x06,                                  // on (new starts off; flip on)
         0xff,
         0x00,
       ),
@@ -542,7 +544,7 @@ describe('seed opcodes — verbOps state wiring', () => {
       ),
     });
     vm.step();
-    expect(vm.verbs.get(3)!.state).toBe('on');
+    expect(vm.verbs.get(3)!.state).toBe('off'); // new → curmode 0 (off)
     vm.step();
     expect(vm.verbs.get(3)!.state).toBe('dim');
     vm.step();

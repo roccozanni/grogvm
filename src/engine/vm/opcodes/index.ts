@@ -1873,27 +1873,36 @@ function verbOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
         vm.verbs.delete(verbId);
         subops.push('delete');
         break;
-      case 0x09:
-        // `new` creates a fresh slot in the 'on' state. If the slot
-        // exists it's reset to defaults (matches v5 semantics — scripts
-        // call `new` before re-configuring).
+      case 0x09: {
+        // SO_VERB_NEW. Two things we're sure of from the v5 engine:
+        //   - the new verb is **off** (curmode 0), NOT on — a script turns it
+        //     on later with an explicit SO_VERB_ON. Creating it `on` made the
+        //     dialog reply verbs flicker on (blank) during setup.
+        //   - the NAME and POSITION are NOT reset (the engine rewrites verbid,
+        //     colours, key, center, image — not name/x/y).
+        // It also resets the colours to specific CLUT indices, but those values
+        // aren't understood here and the reply verbs set their own colour right
+        // after `new`, so we leave colours at our 0 = "use default" sentinel
+        // rather than hardcode magic numbers. An existing slot is reused.
+        const existing = vm.verbs.get(verbId);
         vm.verbs.set(verbId, {
           id: verbId,
-          name: '',
+          name: existing?.name ?? '', // untouched by SO_VERB_NEW
           color: 0,
           hiColor: 0,
           dimColor: 0,
-          backColor: 0,
-          x: 0,
-          y: 0,
+          backColor: existing?.backColor ?? 0, // untouched
+          x: existing?.x ?? 0, // untouched
+          y: existing?.y ?? 0,
           key: 0,
           charset: vm.currentCharset,
           centered: false,
           image: null,
-          state: 'on',
+          state: 'off', // curmode 0
         });
         subops.push('new');
         break;
+      }
       case 0x10: {
         const c = readVarOrByte(sub, 1, slot, vm.vars);
         getOrCreateVerb(vm, verbId).dimColor = c;
