@@ -22,80 +22,30 @@ Playing MI1 from the start and fixing each blocker as it's hit (engine-faithful,
 committed on `main`). **779 tests green, tsc clean.** The intro → room 33 →
 SCUMM Bar (room 28) → pirate-conversation close-up is playable end-to-end.
 
-**Recent fixes (room 28 important-looking pirates):**
+**Last worked on — the room-28 important pirates (actor 3 / cost24), fully
+resolved** *(all user-confirmed; 6 commits, see `git log`)*. One custom actor
+surfaced a chain of bugs; durable semantics migrated to docs:
 
-1. **Garbage box → pirates render.** Costume 24 is MI1's first **32-color
-   costume** (`format == 0x59`); `decodeCostumeFrame` hardcoded the 16-color
-   RLE split. Added a `paletteSize` (16 | 32) param from the costume header so
-   the 32-color split (5 bits colour / 3 bits length) is used; threaded through
-   the compositor + explorer. Migrated to [COST §5](docs/SCUMM-V5-COST.md).
-2. **Hover/sentence name.** The shell's `recomputeHover` preferred any actor
-   under the cursor, so the pirates (drawn by actor 3, hotspot = object 322)
-   read as the nameless "obj #3". Switched to **object-first** hit-test
-   (faithful `findObject` precedence; actor only as fallback). *(Pirates name
-   confirmed live.)*
-3. **Nameless walk-hotspot overlay.** Object #320 (the bar floor connector) is
-   a real object with only a walk-to verb (#11) and no OBNA — `findObject`
-   returns it (it's not Untouchable), so it's a legitimate click-to-walk target,
-   UI-identical to bare floor in the original (just "Vai", no highlight; MI1 has
-   no hover cursor). The shell's hover overlay (crosshair colour **and** box,
-   now driven by one decision) lights only over a *named* target, so #320 reads
-   as floor instead of an interactable thing. The raw id is still in the Input
-   debug panel on click, and the click still routes through the engine.
+- **32-colour costume decode** (cost24, `format 0x59`) → [COST §5](docs/SCUMM-V5-COST.md).
+- **`animateActor` chore/pseudo-anim model** (operand is a chore; 244–255 =
+  direction/stop pseudo-anims), **init chore starts on costume-set**, **actor
+  draw order by y** → [COSTUME-ANIM](docs/SCUMM-V5-COSTUME-ANIM.md).
+- **Object-first hover** hit-test; nameless walk-hotspots (obj #320) read as
+  floor in the overlay. **Dialog talk-colour live-read**, faithful
+  **`SO_VERB_NEW`** (create off, keep name), and **`startScript` runs nested**
+  (the verb-bar reply-menu race) → [OPCODES §6](docs/SCUMM-V5-OPCODES.md) +
+  [INPUT §6](docs/SCUMM-V5-INPUT.md).
 
-**Note — obj #320 verb-bar "Esamina" highlight is faithful, not a bug.** MI1's
-#23 poller resolves the hovered object's default verb and recolours it in the
-bar (left-click hint, via the game's own `verbOps`). obj #320's default verb is
-8 (Examine), so Examine highlights — `g182=8` over #320 vs `g182=10` over empty
-floor; `g107` (armed) stays 11 throughout. Open *option* (user's call): shell-
-side override to also suppress this highlight for nameless objects so #320 reads
-as fully inert floor, at the cost of a small divergence from the engine.
+**Open (low priority, none blocking):**
 
-**Fixed — dialog first-line colour** *(user-confirmed)*. The line was sometimes
-black, sometimes yellow. We snapshotted the talk colour at `print`-execution
-time, but the pirate dialog does `startScript 221 [7]` (non-recursive → runs
-*after*) which sets `actorOps a=3 talkColor=14`; SCUMM reads a talking actor's
-colour **live each frame**, so by render it's yellow. Fix: `ActiveDialog`
-carries `colorFromActor` (set when an actor talks with no explicit SO_COLOR) and
-the shell resolves the ink from the speaker's *current* `talkColor` at render,
-not the snapshot. (Also noted: our `actorOps init` doesn't reset talkColor to
-SCUMM's default 15 — secondary, left as-is.)
-
-**Fixed — verb bar dead on dialog start** *(user-confirmed)*. The reply options
-intermittently didn't appear (black/empty bar). **Root cause: `startScript` was
-deferred, but SCUMM runs it nested.** SCUMM's `runScript` → `runScriptNested`
-executes the new script to its first `breakHere`/stop *before* the caller's next
-opcode. The pirate dialog (#220) does `startScript 32; <fill menu>` and relies on
-the menu-reset (#32: clear reply slots, set reply-Y base `g229`) running first;
-deferred, #220 filled the replies first and #32 then wiped them → black bar. Fix:
-the `startScript` opcode now runs the child nested (`vm.runScriptNested`) — we
-already did this for cutscene #18/#19; this generalises it. Reply menu now
-`on`+named across all trigger timings. Two precursor fixes landed alongside: the
-talk-colour live-read (dialog first line) and faithful `SO_VERB_NEW` (create OFF,
-preserve name) — both correct on their own but neither was the race.
-
-**Open — pirate close-up mirrors on conversation (track; recheck).** Earlier the
-close-up showed actor 3 (cost24) horizontally flipped. User now reports
-animations + composition "all fine" after the issue-3 work, so this may be
-resolved (or not re-hit). Hypothesis if it recurs: the dialog refaces actor 3
-toward ego (West) and the compositor's mirror rule flips the front-view art;
-cost24 only defines S/init art, so a front-view costume shouldn't mirror on a
-W/E reface. Re-verify before acting. See [COSTUME-ANIM](docs/SCUMM-V5-COSTUME-ANIM.md).
-
-**Fixed — issue #3 (pirate animation + actor layering)** *(user-confirmed)*. Two
-connected bugs, both rooted in the `animateActor` opcode model:
-- The operand is a **chore number** (1=init, 2=walk, 3=stand…; record = chore*4
-  + dir); **244–255 are direction/stop pseudo-anims** (`dir = anim & 3`), and a
-  set/turn-dir pseudo-anim *re-points the running chore* to the new facing
-  rather than switching it. Our old `cmd = anim/4` reading put specials at 8–19
-  and no-opped 244–255 (the game's most-used direction commands).
-- The init chore (chore 1) now starts when a costume is set — the actor's
-  default animation. cost24's init chore (record 6, facing S) is the 3-pirate
-  drink loop; `animateActor 3 250` (set-dir-S) keeps it running. No-op visual
-  for single-frame-init costumes; only the 13 multi-frame ones start animating.
-- Actor draw order is now by **y-position** (tiebreak id), fixing the close-up
-  layering (Guybrush front, pirates behind the table). Semantics →
-  [COSTUME-ANIM](docs/SCUMM-V5-COSTUME-ANIM.md).
+- **Pirate close-up mirror — recheck only.** Earlier the close-up showed actor 3
+  flipped; user reports composition fine after the above, so likely resolved. If
+  it recurs: the dialog refaces actor 3 West and the compositor mirror flips
+  cost24's front-view art (it has only S/init art). [COSTUME-ANIM](docs/SCUMM-V5-COSTUME-ANIM.md).
+- **obj #320 verb highlight (deferred, user's call).** Hovering the nameless
+  floor-connector highlights "Esamina" — confirmed faithful (engine default-verb
+  hint; ScummVM matches). Could shell-side suppress for nameless objects, at a
+  small divergence. No action unless requested.
 
 **Next:** finish the SCUMM Bar dialogs, gather inventory items, and reach a
 **use-with** puzzle so the two open input items below get exercised with a real

@@ -278,11 +278,21 @@ the fresh one. Background-animation loops chain themselves to re-loop
 handler doesn't just drop one script — the unknown-opcode halt freezes
 the *whole* VM the instant anything chains.
 
-**`runScriptNested`** runs a script to completion synchronously, in
-order, rather than queuing it as a new slot. The engine needs this for
-the cutscene start/end hooks (see CUTSCENES §2): `#18`'s
-`freezeScripts 127` and `#19`'s `freezeScripts 0` must execute in
-issue-order, which a queued (deferred) start breaks.
+**`startScript` runs the new script *nested*, not deferred.** SCUMM's
+`runScript` → `runScriptNested` executes the started script immediately —
+to its first `breakHere`/stop — **before the caller's next opcode**, then
+returns to the caller (the child's slot stays alive and resumes normally on
+later ticks if it yielded). It is NOT queued behind the caller. This is
+load-bearing: scripts assume a script they start has already run by their
+next statement. E.g. the room-28 pirate dialog (`#220`) does `startScript
+32; <fill reply menu>` and relies on `#32` (clear the reply slots + set the
+reply-Y base `g229`) running *first*; queuing `#32` let `#220` fill the
+replies first and `#32` then wiped them — an intermittent black/empty answer
+bar whose outcome depended on slot-allocation order. The same applies to the
+cutscene start/end hooks (CUTSCENES §2): `#18`'s `freezeScripts 127` and
+`#19`'s `freezeScripts 0` must execute in issue-order. Implementation: the
+`startScript` opcode handler allocates the slot then calls
+`vm.runScriptNested(child)`. (`chainScript` above is the in-place variant.)
 
 ## 7. Script id ranges
 

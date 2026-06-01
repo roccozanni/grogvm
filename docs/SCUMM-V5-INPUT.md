@@ -219,6 +219,24 @@ from the clicked verb id. So selection needs live mouse coords (`g20/g21`,
 which the shell writes on pointer move); a headless click that only sets a
 verb id won't resolve.
 
+**Building the reply menu is ordering-sensitive.** Each round, the dialog
+script (room-28 `#220`/`#59`) does roughly: framework `startScript 17[5]`
+(create the 9 reply slots), then `startScript 32` (reset: clear the slots +
+set the reply-Y base `g229` + re-enable input), then fills the active
+replies with `verbOps setName … on`. This *only* works because `startScript`
+runs **nested** (OPCODES §6) — the framework/reset run before the fill. If
+`startScript` were deferred, the fill ran first and the reset wiped it
+(intermittent black/empty answer bar). Two related verb/dialog facts:
+- **`SO_VERB_NEW` creates the slot `off` (curmode 0), and does not touch the
+  name/position** — a later `SO_VERB_ON` makes it visible. Creating it `on`
+  or blanking the name corrupts the reply slots mid-build.
+- **Actor-talk ink is the speaker's *live* `talkColor`, read at render time**
+  (SCUMM reads it every frame the line is up). A colour set by a helper the
+  dialog `startScript`s right before the `print` (e.g. `#221` → `talkColor=14`
+  for the pirates) therefore still tints the line. The shell flags such lines
+  (`ActiveDialog.colorFromActor`) and resolves the ink live; system text /
+  explicit `SO_COLOR` keep their print-time value.
+
 ## 7. Inventory is verbs
 
 There is no separate inventory widget. MI1 lays the inventory out across
