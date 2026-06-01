@@ -2295,6 +2295,15 @@ function startScriptHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   // Resolution (global DSCR vs room-local LSCR) lives in startScriptById.
   const freezeResistant = (opcode & 0x20) !== 0;
   const child = vm.startScriptById(scriptId, { args, freezeResistant });
+  // SCUMM's `startScript` runs the new script NESTED: `runScript` →
+  // `runScriptNested`, executing it to its first breakHere/stop before the
+  // caller's next opcode — it is NOT queued behind the caller. Scripts rely on
+  // this ordering: the pirate dialog (#220) does `startScript 32; <fill menu>`
+  // expecting the menu-reset (#32: clear reply slots, set the reply-Y base)
+  // to run *before* it fills the replies. Queuing #32 let #220 fill first and
+  // #32 then wiped it — the intermittent black/empty answer bar. (We already
+  // ran #18/#19 nested for the same reason; this generalises it.)
+  vm.runScriptNested(child);
   vm.annotate(`startScript #${scriptId} slot=${child.slotIndex} args=[${args.join(',')}]`);
 }
 

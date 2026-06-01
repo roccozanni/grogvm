@@ -61,18 +61,18 @@ the shell resolves the ink from the speaker's *current* `talkColor` at render,
 not the snapshot. (Also noted: our `actorOps init` doesn't reset talkColor to
 SCUMM's default 15 — secondary, left as-is.)
 
-**Open — verb bar dead on dialog start (diagnosed; race, NOT yet fixed).** The
-reply options sometimes don't appear. Root cause: the reply verbs (120-128) are
-set up by racing scripts — **17[5]** does `verbOps new` (our impl resets the slot
-to a **blank name**), **220** does `setName` with the reply text, **32** turns
-them off. Depending on cooperative-scheduler interleaving (timing-sensitive, so
-non-deterministic with click timing) the verbs end up `on`+named (works),
-`on`+blank (empty bar — `new` ran after `setName` and wiped it), or `off`. Two
-candidate root issues: (a) our `verbOps new` (SO_VERB_NEW) clears the name where
-SCUMM may only reset colour/mode — need wiki prose on SO_VERB_NEW; (b) our
-script scheduling order diverges from SCUMM's slot order. Predates the
-animation/colour work. Probes: `scratch/probe-reply-names.ts`,
-`probe-verbops-seq.ts` (DBG_VERB env reveals the op sequence — logging reverted).
+**Fixed — verb bar dead on dialog start** *(user-confirmed)*. The reply options
+intermittently didn't appear (black/empty bar). **Root cause: `startScript` was
+deferred, but SCUMM runs it nested.** SCUMM's `runScript` → `runScriptNested`
+executes the new script to its first `breakHere`/stop *before* the caller's next
+opcode. The pirate dialog (#220) does `startScript 32; <fill menu>` and relies on
+the menu-reset (#32: clear reply slots, set reply-Y base `g229`) running first;
+deferred, #220 filled the replies first and #32 then wiped them → black bar. Fix:
+the `startScript` opcode now runs the child nested (`vm.runScriptNested`) — we
+already did this for cutscene #18/#19; this generalises it. Reply menu now
+`on`+named across all trigger timings. Two precursor fixes landed alongside: the
+talk-colour live-read (dialog first line) and faithful `SO_VERB_NEW` (create OFF,
+preserve name) — both correct on their own but neither was the race.
 
 **Open — pirate close-up mirrors on conversation (track; recheck).** Earlier the
 close-up showed actor 3 (cost24) horizontally flipped. User now reports

@@ -332,8 +332,10 @@ describe('seed opcodes — lights (0x70)', () => {
 describe('seed opcodes — startScript LSCR routing', () => {
   it('routes script ids >= 200 to the current room\'s localScripts', () => {
     const vm = makeVm();
-    // Stub the current room with one LSCR (id 201) that just returns.
-    const localBytecode = bytes(0xa0); // stopObjectCode
+    // Stub the current room with one LSCR (id 201). A breakHere keeps the
+    // slot alive after the (now nested) startScript yields, so the routing
+    // it landed on stays observable; stopObjectCode follows.
+    const localBytecode = bytes(0x80, 0xa0); // breakHere; stopObjectCode
     (vm as unknown as { loadedRoom: object }).loadedRoom = {
       id: 5,
       width: 320,
