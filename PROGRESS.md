@@ -82,7 +82,7 @@ engine-side fixes (all separate from the rebuild; 753 tests green, tsc clean):
   paused/stepping (was every frame, then a 10 Hz throttle). Good hygiene, but
   **did NOT fix the stutter** → the stutter is not the debug panel.
 
-## Open issues (session 9: #1 & #2 fixed+confirmed; session 10: #3 fixed, PENDING in-app confirm)
+## Open issues (session 9: #1 & #2 fixed+confirmed; session 10: #3 fixed+confirmed)
 
 ### 1. Camera-follow stutter + "two Guybrush" — FIXED & user-confirmed (session 9)
 Ordering bug, as hypothesised. `moveCameraFollow()` ran in `beginTick()` (every
@@ -109,7 +109,7 @@ neighbours) — low priority, revisit if it looks off in-app.
 Code: `play-area.ts` `paintVerbBar`/`drawVerbImage`/`drawText`; `opcodes/index.ts`
 0x0E; `vm.charsetColorMap`.
 
-### 3. Ego z-occlusion — FIXED (session 10), PENDING in-app confirm
+### 3. Ego z-occlusion — FIXED & user-confirmed (session 10)
 **Root cause was a wrong semantic, not the unchanged z-plane code.** We treated
 `forceClip == 0` (what the `neverZclip` opcode sets) as "always in front." In
 SCUMM, `_forceClip == 0` is the *not-forced* sentinel, not a front flag:
@@ -851,9 +851,12 @@ most lives in the inline known-bug entries above and the linked docs.
   darken via the lights flag, not only a dark palette. Night rooms
   already ship a dark palette so the gap may be subtle — check it's even
   visible first. [docs/SCUMM-V5-LIGHTING.md](docs/SCUMM-V5-LIGHTING.md) §4.
-- **Box-default z-clip validation** — mechanism-proven headlessly but
-  unvalidated in normal play (ego is `neverZclip`, no easy scene); watch
-  the thin/line-box limitation.
+- [x] **Box-default z-clip validation — DONE & user-confirmed (session 10).**
+  This was the ego z-occlusion fix (open issue #3): `forceClip == 0` is SCUMM's
+  *not-forced* sentinel, so the ego's depth is box-mask-driven everywhere. The
+  thin/line-box limitation was hit (room-33 dock box 4 is a diagonal line) and
+  closed by switching the z-clip lookup to `findBoxAtOrNearest`. Room 33 ego now
+  passes behind the houses; room 38 ego (mask-0 box) stays in front of the wall.
   [docs/SCUMM-V5-ZPLANE.md](docs/SCUMM-V5-ZPLANE.md) §"Box-mask".
 - **`screenEffect` transition animation** — state is modelled; the
   dissolve/scroll/instant *animation* is deferred (intro is all effect
