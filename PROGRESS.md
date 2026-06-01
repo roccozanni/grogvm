@@ -51,15 +51,28 @@ floor; `g107` (armed) stays 11 throughout. Open *option* (user's call): shell-
 side override to also suppress this highlight for nameless objects so #320 reads
 as fully inert floor, at the cost of a small divergence from the engine.
 
-**Open — intermittent dialog start glitch (next, not yet diagnosed).** When the
-pirate conversation begins it *sometimes* breaks: the first dialog line renders
-**all black** and the verb bar stays black (replies don't activate); other times
-the same line renders **yellow** and everything works. Non-deterministic — not
-pinned to a fixed action sequence, and the user believes it predates the issue-3
-work. Smells like a race/ordering between the dialog-start (colour/charset setup
-+ `saveRestoreVerbs` archiving the action verbs) and the reply-verb creation, or
-an uninitialised talk colour on some paths. Investigate the conversation-start
-sequence (verb archiving, talk colour, reply-verb wiring).
+**Fixed — dialog first-line colour** *(user-confirmed)*. The line was sometimes
+black, sometimes yellow. We snapshotted the talk colour at `print`-execution
+time, but the pirate dialog does `startScript 221 [7]` (non-recursive → runs
+*after*) which sets `actorOps a=3 talkColor=14`; SCUMM reads a talking actor's
+colour **live each frame**, so by render it's yellow. Fix: `ActiveDialog`
+carries `colorFromActor` (set when an actor talks with no explicit SO_COLOR) and
+the shell resolves the ink from the speaker's *current* `talkColor` at render,
+not the snapshot. (Also noted: our `actorOps init` doesn't reset talkColor to
+SCUMM's default 15 — secondary, left as-is.)
+
+**Open — verb bar dead on dialog start (diagnosed; race, NOT yet fixed).** The
+reply options sometimes don't appear. Root cause: the reply verbs (120-128) are
+set up by racing scripts — **17[5]** does `verbOps new` (our impl resets the slot
+to a **blank name**), **220** does `setName` with the reply text, **32** turns
+them off. Depending on cooperative-scheduler interleaving (timing-sensitive, so
+non-deterministic with click timing) the verbs end up `on`+named (works),
+`on`+blank (empty bar — `new` ran after `setName` and wiped it), or `off`. Two
+candidate root issues: (a) our `verbOps new` (SO_VERB_NEW) clears the name where
+SCUMM may only reset colour/mode — need wiki prose on SO_VERB_NEW; (b) our
+script scheduling order diverges from SCUMM's slot order. Predates the
+animation/colour work. Probes: `scratch/probe-reply-names.ts`,
+`probe-verbops-seq.ts` (DBG_VERB env reveals the op sequence — logging reverted).
 
 **Open — pirate close-up mirrors on conversation (track; recheck).** Earlier the
 close-up showed actor 3 (cost24) horizontally flipped. User now reports

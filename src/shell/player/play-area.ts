@@ -358,7 +358,17 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
       if (lo <= hi) dx = Math.max(lo, Math.min(hi, dx));
     }
     dy = Math.max(vm.screen.top, dy);
-    drawText(ctx, charset, text, dx, dy, palette, d.color, d.center);
+    // Actor-talk ink is read LIVE from the speaker's current talkColor (SCUMM
+    // reads it every frame the line is up) — so a colour set by a helper
+    // script that ran *after* the print still tints the line. This is what
+    // makes the SCUMM-Bar pirates reliably yellow: script 220 prints the line
+    // before its `startScript 221` helper runs `actorOps a=3 talkColor=14`.
+    // System text / explicit SO_COLOR lines keep their print-time snapshot.
+    const ink =
+      d.colorFromActor && d.actorId >= 1 && d.actorId <= vm.actors.capacity
+        ? vm.actors.get(d.actorId).talkColor
+        : d.color;
+    drawText(ctx, charset, text, dx, dy, palette, ink, d.center);
   };
 
   // ─── image verbs (inventory slots) ───

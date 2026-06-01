@@ -729,12 +729,18 @@ function printHandler(actor: number, vm: Vm, slot: ScriptSlot): void {
           // system messages (actor 255 → no speaker) keep their values
           // and the bottom-centre fallback.
           const isTalk = speaker !== null && atX === null;
+          // An actor talking with no explicit SO_COLOR takes its ink from the
+          // actor's talkColor — resolved LIVE at render time (see
+          // ActiveDialog.colorFromActor), so a colour set by a helper script
+          // that runs after this print still applies.
+          const colorFromActor = !colorSet && speaker !== null;
           const dlg = {
             actorId: speakerId,
             text,
             x: atX,
             y: atY,
             color: colorSet ? color : (speaker?.talkColor ?? color),
+            colorFromActor,
             center: center || isTalk,
             overhead: overhead || isTalk,
             clipped,

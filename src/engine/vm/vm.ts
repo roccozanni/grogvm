@@ -111,6 +111,19 @@ export interface ActiveDialog {
   readonly y: number | null;
   /** CLUT index for the ink. Defaults to white if no SO_COLOR subop. */
   readonly color: number;
+  /**
+   * When true, this is an actor talking with no explicit `SO_COLOR`, so the
+   * ink is the speaker's `talkColor` and must be re-read LIVE at render time
+   * — not treated as the print-time snapshot in {@link color}. SCUMM reads a
+   * talking actor's colour every frame the text is up, so a script that sets
+   * the colour *after* the `print` (commonly via a just-`startScript`ed
+   * helper that runs a frame later) still tints the line. Without live read
+   * the line freezes at the actor's residual colour and a raced colour-setter
+   * is missed (the SCUMM-Bar pirates: black instead of yellow). `color` holds
+   * the print-time value as a fallback (e.g. the actor no longer exists).
+   * Absent is treated as `false` (use the {@link color} snapshot).
+   */
+  readonly colorFromActor?: boolean;
   /** Centre text around `x` rather than left-anchor. */
   readonly center: boolean;
   /** Position above the speaking actor's head. */
