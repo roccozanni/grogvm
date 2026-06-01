@@ -145,4 +145,49 @@ describe('decodeCostumeFrame', () => {
     const payload = new Uint8Array(8);
     expect(() => decodeCostumeFrame(payload, 4)).toThrow(/cannot fit a 12-byte header/);
   });
+
+  // 32-color costumes (format bit 0 set, e.g. MI1 costume 24 — the
+  // SCUMM-Bar important pirates) pack the run byte 5 bits colour / 3 bits
+  // length instead of 4/4. Decoding one as 16-color splits the nibbles on
+  // the wrong boundary and renders vertical-streak garbage.
+  describe('32-color mode (paletteSize: 32)', () => {
+    it('splits the run byte 5 bits colour / 3 bits length', () => {
+      // 2×2, all colour 1. Length 4. byte = (1 << 3) | 4 = 0x0c.
+      const { payload, framePtr } = frame(2, 2, 0, 0, [0x0c]);
+      const f = decodeCostumeFrame(payload, framePtr, { paletteSize: 32 });
+      expect(Array.from(f.pixels)).toEqual([1, 1, 1, 1]);
+      expect(f.rleByteCount).toBe(1);
+    });
+
+    it('reaches colour indices above 15 (impossible in 16-color)', () => {
+      // 1×1 of colour 17, length 1. byte = (17 << 3) | 1 = 0x89.
+      const { payload, framePtr } = frame(1, 1, 0, 0, [0x89]);
+      const f32 = decodeCostumeFrame(payload, framePtr, { paletteSize: 32 });
+      expect(Array.from(f32.pixels)).toEqual([17]);
+      // The same byte decoded as 16-color lands on the wrong boundary:
+      // colour 8 (0x89 >> 4), length 9 — i.e. garbage. Documents why the
+      // mode must match the costume's format byte.
+      const f16 = decodeCostumeFrame(payload, framePtr, { paletteSize: 16 });
+      expect(f16.pixels[0]).toBe(8);
+    });
+
+    it('reads an extended length byte when the 3-bit length is 0', () => {
+      // 1×20 of colour 2. byte = (2 << 3) | 0 = 0x10, then length 0x14 (20).
+      const { payload, framePtr } = frame(1, 20, 0, 0, [0x10, 0x14]);
+      const f = decodeCostumeFrame(payload, framePtr, { paletteSize: 32 });
+      expect(f.pixels).toHaveLength(20);
+      expect(Array.from(f.pixels).every((v) => v === 2)).toBe(true);
+      expect(f.rleByteCount).toBe(2);
+    });
+
+    it('still treats colour index 0 as transparent', () => {
+      // 2×1 of colour 0, length 2. byte = (0 << 3) | 2 = 0x02.
+      const { payload, framePtr } = frame(2, 1, 0, 0, [0x02]);
+      const f = decodeCostumeFrame(payload, framePtr, { paletteSize: 32 });
+      expect(Array.from(f.pixels)).toEqual([
+        COSTUME_FRAME_TRANSPARENT,
+        COSTUME_FRAME_TRANSPARENT,
+      ]);
+    });
+  });
 });

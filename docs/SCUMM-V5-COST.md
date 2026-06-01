@@ -158,8 +158,13 @@ format & 0x7F == 0x59  →  32-color costume (palette has 32 entries)
 format & 0x80          →  "different alignment" (semantics TBD)
 ```
 
-Every costume we've inspected in MI1 and MI2 has `format == 0x58` —
-16-color, mirror flag clear. The mirror flag's effect on rendering
+Most MI1/MI2 costumes are `format == 0x58` (16-color), but **not all**:
+MI1 costume 24 — the three important-looking pirates in the SCUMM Bar
+(room 28, actor 3) — is `format == 0x59`, 32-color. Decoding it with the
+16-color RLE split renders vertical-streak garbage where the pirates
+should be (the run byte's colour/length boundary is off by one bit; see
+§5). `decodeCostumeFrame` takes a `paletteSize` (16 | 32) from the header
+so the split matches. The mirror flag's effect on rendering
 isn't yet pinned down empirically; long-circulating notes describe it
 as a "different alignment" rule, possibly affecting whether frames are
 auto-mirrored along the actor's facing axis. Implementations should
@@ -645,9 +650,11 @@ Currently **deferred** until a later phase needs them:
   caller flag, not a stored field), and a known limitation against
   MI1 Guybrush where some `frameIndex` values appear out-of-range
   for reasons not fully decoded.
-- **32-color RLE.** Every MI1/MI2 costume we've inspected uses 16-color
-  mode (`format == 0x58`). The 32-color path (`format == 0x59`) is
-  understood format-wise but has no live decoder.
+- **32-color RLE.** ✅ Implemented. `decodeCostumeFrame` takes a
+  `paletteSize` (16 | 32, from the header's `format` bit 0) and splits
+  the run byte accordingly (4/4 vs 5/3). MI1 costume 24 (the SCUMM-Bar
+  important pirates, room 28) is the first `format == 0x59` costume we
+  hit; before this it rendered as vertical-streak garbage.
 - **MI2's 2-byte offset shift.** Documented; not yet patched into the
   decoder. Needed before MI2 smoke-tests pass.
 - **Mirror flag semantics.** Bit 7 of the format byte is parsed and

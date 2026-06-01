@@ -27,9 +27,15 @@
  * top-to-bottom, then column 1, etc. Runs may straddle column
  * boundaries.
  *
- * 32-color mode (format & 0x7f == 0x59) uses 5 bits color / 3 bits
- * length with the same length-0 extension rule. Not implemented here
- * yet — every MI1/MI2 costume observed so far is 16-color.
+ * 32-color mode (format & 0x7f == 0x59) packs the run byte as 5 bits
+ * colour / 3 bits length with the same length-0 extension rule:
+ *
+ *   byte = (color << 3) | length      // length in low 3 bits (0..7)
+ *   if length == 0: read one more byte as the actual length (u8, 1..255)
+ *
+ * The caller passes `paletteSize` (16 or 32, from the costume header's
+ * format bit 0) so the decoder picks the right shift/mask. Costume 24
+ * (the SCUMM-Bar important pirates) is MI1's first 32-color costume.
  *
  * Costume palette index 0 is the transparent slot: we emit a sentinel
  * (`0xFF`) the compositor recognises and skips. Costume indices only
@@ -67,6 +73,14 @@ export interface DecodeCostumeFrameOptions {
    * raw 0 — useful when debugging the RLE stream directly.
    */
   readonly transparentIsZero?: boolean;
+  /**
+   * Costume colour depth, from the header's `format` bit 0: 16 (default)
+   * splits each run byte 4-bits colour / 4-bits length; 32 splits it
+   * 5-bits colour / 3-bits length. Mismatching this against the costume
+   * produces garbage pixels (the RLE nibbles land on the wrong bit
+   * boundaries) — pass `costume.header.paletteSize`.
+   */
+  readonly paletteSize?: 16 | 32;
 }
 
 export function decodeCostumeFrame(
@@ -75,6 +89,12 @@ export function decodeCostumeFrame(
   options: DecodeCostumeFrameOptions = {},
 ): DecodedCostumeFrame {
   const transparentIsZero = options.transparentIsZero ?? true;
+  const paletteSize = options.paletteSize ?? 16;
+  // Run-byte split: 16-color → 4 bits colour / 4 bits length;
+  // 32-color → 5 bits colour / 3 bits length.
+  const lenShift = paletteSize === 32 ? 3 : 4;
+  const lenMask = paletteSize === 32 ? 0x07 : 0x0f;
+  const colorMask = paletteSize - 1; // 0x0f or 0x1f
   const headerStart = framePtr - 6;
   if (headerStart < 0 || framePtr + 6 > payload.length) {
     throw new Error(
@@ -116,11 +136,11 @@ export function decodeCostumeFrame(
       );
     }
     const byte = payload[rlePos++]!;
-    const color = (byte >>> 4) & 0x0f;
-    let len = byte & 0x0f;
+    const color = (byte >>> lenShift) & colorMask;
+    let len = byte & lenMask;
     if (len === 0) {
-      // 16-color mode: length nibble 0 means the next byte is the
-      // actual length (u8, 1..255).
+      // length field 0 means the next byte is the actual length
+      // (u8, 1..255) — same extension rule in both colour depths.
       if (rlePos >= payload.length) {
         throw new Error(
           `decodeCostumeFrame: truncated extended-length byte at 0x${(rlePos - 1).toString(16)}.`,

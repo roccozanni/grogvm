@@ -1382,8 +1382,11 @@ function renderFramePointerDetail(
   }
 
   // Attempt to decode and render the frame with our chosen layout (C).
+  // Colour depth comes from the costume header's format bit 0 (byte 1):
+  // clear = 16 colours, set = 32 — drives the RLE run-byte split.
+  const paletteSize: 16 | 32 = (payload[1]! & 0x01) === 0 ? 16 : 32;
   try {
-    const decoded = decodeCostumeFrame(payload, framePtr);
+    const decoded = decodeCostumeFrame(payload, framePtr, { paletteSize });
     const info = document.createElement('p');
     info.className = 'frame-candidate';
     info.textContent =

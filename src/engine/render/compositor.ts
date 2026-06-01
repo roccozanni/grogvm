@@ -317,7 +317,9 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
         continue;
       }
       try {
-        const frame = decodeCostumeFrame(costume.payload, framePtr);
+        const frame = decodeCostumeFrame(costume.payload, framePtr, {
+          paletteSize: costume.header.paletteSize,
+        });
         compositeActor({
           framebuffer,
           fbWidth: room.width,
