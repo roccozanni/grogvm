@@ -16,11 +16,16 @@
  * tiebreaker (those don't paint, but they remain interactable per the
  * v5 convention — e.g. hotspots without an image).
  *
- * # The untouchable flag
+ * # The untouchable flag / class
  *
- * CDHD `flags & 0x80` marks an object as untouchable — invisible to
- * hit-testing even if it has an image. The plan calls this out per
- * the wiki; we honour it here.
+ * Two things hide an object from hit-testing:
+ *   - CDHD `flags & 0x80` — a static "untouchable" bit baked into the
+ *     object header.
+ *   - The runtime **Untouchable class** (class 32 → bit 31), set from the
+ *     index `DOBJ` class table at boot and toggled by `setClass`. This is
+ *     how SCUMM keeps not-yet-active objects out of `findObject` — e.g.
+ *     room 33's ship sprite (#430), Untouchable until it docks. The caller
+ *     supplies this via `isUntouchable` (the VM owns the class map).
  *
  * # Coordinates
  *
@@ -52,16 +57,24 @@ export interface PickObjectArgs {
   readonly x: number;
   /** Pixel y in room coords. */
   readonly y: number;
+  /**
+   * True if the object is in the runtime Untouchable class (class 32) and
+   * should be skipped — typically
+   * `(id) => ((vm.objectClasses.get(id) ?? 0) & (1 << 31)) !== 0`.
+   */
+  readonly isUntouchable?: (objId: number) => boolean;
 }
 
 export function pickObject(args: PickObjectArgs): number | null {
-  const { objects, drawQueue, x, y } = args;
+  const { objects, drawQueue, x, y, isUntouchable } = args;
+  const untouchable = (id: number): boolean => (isUntouchable ? isUntouchable(id) : false);
 
   // 1. Drawn objects, reverse insertion order = topmost first.
   const drawn = [...drawQueue].reverse();
   for (const id of drawn) {
     const obj = objects.get(id);
     if (!obj) continue;
+    if (untouchable(id)) continue;
     if (containsPoint(obj, x, y)) return id;
   }
 
@@ -70,6 +83,7 @@ export function pickObject(args: PickObjectArgs): number | null {
   //    we already checked).
   for (const obj of objects.values()) {
     if (drawQueue.has(obj.objId)) continue;
+    if (untouchable(obj.objId)) continue;
     if (containsPoint(obj, x, y)) return obj.objId;
   }
 

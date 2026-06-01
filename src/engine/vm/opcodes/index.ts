@@ -1136,6 +1136,8 @@ function findObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
       drawQueue: vm.objectDrawQueue,
       x,
       y,
+      // Untouchable class (32, bit 31) → not hit-testable (SCUMM findObject).
+      isUntouchable: (id) => ((vm.objectClasses.get(id) ?? 0) & (1 << 31)) !== 0,
     });
     if (hit !== null) objId = hit;
   }

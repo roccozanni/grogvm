@@ -89,6 +89,24 @@ export interface ResourceDirectoryEntry {
   readonly offset: number;
 }
 
+/**
+ * Initial per-object owner / state / class, from the index `DOBJ`
+ * directory (one row per global object id). SCUMM seeds these before any
+ * script runs — crucially the **class** bits, which include
+ * `Untouchable` (32 → bit 31): roughly half of MI1's objects start
+ * Untouchable and only become interactive when a script clears the flag
+ * (e.g. the ship that docks in room 33 later). Without seeding them every
+ * such object is wrongly hoverable.
+ */
+export interface ObjectInit {
+  /** 0..15. 15 = `OF_OWNER_ROOM` (in the room); an actor id = inventory; 0 = removed. */
+  readonly owner: number;
+  /** Initial object state (0..15) — which OBIM image variant / open-closed etc. */
+  readonly state: number;
+  /** 32-bit class mask (class N → bit N-1). */
+  readonly classMask: number;
+}
+
 export interface IndexFile {
   readonly maxs: Maxs;
   readonly rooms: ReadonlyArray<RoomDirectoryEntry>;
@@ -96,6 +114,8 @@ export interface IndexFile {
   readonly sounds: ReadonlyArray<ResourceDirectoryEntry>;
   readonly costumes: ReadonlyArray<ResourceDirectoryEntry>;
   readonly charsets: ReadonlyArray<ResourceDirectoryEntry>;
+  /** Initial object owner/state/class, indexed by global object id (`DOBJ`). */
+  readonly objects: ReadonlyArray<ObjectInit>;
 }
 
 export class IndexParseError extends Error {
@@ -111,6 +131,7 @@ export function parseIndexFile(file: ResourceFile): IndexFile {
   const dsou = parseLaneDirectory(blockPayload(file, 'DSOU'), 'DSOU');
   const dcos = parseLaneDirectory(blockPayload(file, 'DCOS'), 'DCOS');
   const dchr = parseLaneDirectory(blockPayload(file, 'DCHR'), 'DCHR');
+  const dobjBlock = file.tree.find((b) => b.tag === 'DOBJ');
   return {
     maxs: parseMaxs(blockPayload(file, 'MAXS')),
     rooms: droo.map(({ a, b }) => ({ disk: a, offset: b })),
@@ -118,7 +139,31 @@ export function parseIndexFile(file: ResourceFile): IndexFile {
     sounds: dsou.map(({ a, b }) => ({ room: a, offset: b })),
     costumes: dcos.map(({ a, b }) => ({ room: a, offset: b })),
     charsets: dchr.map(({ a, b }) => ({ room: a, offset: b })),
+    objects: dobjBlock ? parseDobj(payloadOf(file, dobjBlock)) : [],
   };
+}
+
+/**
+ * Parse `DOBJ` (v5): a u16 count, then one owner/state byte per object
+ * (`owner = b & 0x0F`, `state = b >> 4`), then one u32 LE class mask per
+ * object. Indexed by global object id.
+ */
+export function parseDobj(payload: Uint8Array): ObjectInit[] {
+  const num = payload.length >= 2 ? readU16LE(payload, 0) : 0;
+  const classOff = 2 + num;
+  const out: ObjectInit[] = new Array(num);
+  for (let i = 0; i < num; i++) {
+    const b = payload[2 + i] ?? 0;
+    const o = classOff + i * 4;
+    const classMask =
+      ((payload[o] ?? 0) |
+        ((payload[o + 1] ?? 0) << 8) |
+        ((payload[o + 2] ?? 0) << 16) |
+        ((payload[o + 3] ?? 0) << 24)) >>>
+      0;
+    out[i] = { owner: b & 0x0f, state: b >> 4, classMask };
+  }
+  return out;
 }
 
 export function parseMaxs(payload: Uint8Array): Maxs {

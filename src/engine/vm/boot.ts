@@ -78,6 +78,7 @@ export function bootGame(
   });
 
   seedEngineVariables(vm, gameId);
+  seedObjectTable(vm, index);
 
   const boot = loadGlobalScript(resourceFile, index, loff, 1);
   vm.startScript({
@@ -87,6 +88,26 @@ export function bootGame(
     args: [bootParam],
   });
   return { vm, bootScriptId: boot.id, bytecodeLength: boot.bytecode.length };
+}
+
+/**
+ * Seed initial per-object owner / state / class from the index `DOBJ`
+ * directory — SCUMM applies these before any script runs. Only
+ * non-default rows are stored so the maps stay small (and saves
+ * stay lean): owner ≠ 15 (the room default {@link Vm.getObjectOwner}
+ * already supplies), state ≠ 0, class ≠ 0. The class bits are the
+ * important part — `Untouchable` (bit 31) keeps not-yet-active objects
+ * (e.g. the ship that docks in room 33 later) out of the hover hit-test
+ * (`findObject`). Without this, ~half of MI1's objects are wrongly
+ * interactive everywhere.
+ */
+export function seedObjectTable(vm: Vm, index: IndexFile): void {
+  for (let id = 0; id < index.objects.length; id++) {
+    const o = index.objects[id]!;
+    if (o.classMask !== 0) vm.objectClasses.set(id, o.classMask);
+    if (o.state !== 0) vm.objectStates.set(id, o.state);
+    if (o.owner !== 15) vm.objectOwners.set(id, o.owner);
+  }
 }
 
 /**

@@ -509,6 +509,9 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
             drawQueue: vm.objectDrawQueue,
             x: vm.mouseRoomX,
             y: vm.mouseRoomY,
+            // Untouchable class (32) → not hoverable (e.g. the not-yet-docked
+            // ship in room 33). Matches the engine's findObject.
+            isUntouchable: (id) => ((vm.objectClasses.get(id) ?? 0) & (1 << 31)) !== 0,
           });
   };
 

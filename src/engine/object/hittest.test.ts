@@ -112,4 +112,22 @@ describe('pickObject', () => {
       pickObject({ objects: objs, drawQueue: new Set([999]), x: 5, y: 5 }),
     ).toBe(1);
   });
+
+  it('skips objects the isUntouchable predicate rejects (Untouchable class)', () => {
+    // Two overlapping objects; the topmost (drawn) one is Untouchable, so the
+    // hit falls through to the one below — mirroring SCUMM's findObject hiding
+    // the not-yet-docked ship (#430) in room 33.
+    const objs = objects(
+      makeObj(1, { x: 0, y: 0, width: 4, height: 4 }, 'rock'),
+      makeObj(2, { x: 0, y: 0, width: 4, height: 4 }, 'ship'),
+    );
+    const drawQueue = new Set([1, 2]); // 2 painted last = topmost
+    const isUntouchable = (id: number): boolean => id === 2;
+    expect(pickObject({ objects: objs, drawQueue, x: 1, y: 1, isUntouchable })).toBe(1);
+    // With nothing else under it, an Untouchable object returns null (hidden).
+    const onlyShip = objects(makeObj(2, { x: 0, y: 0, width: 4, height: 4 }, 'ship'));
+    expect(
+      pickObject({ objects: onlyShip, drawQueue: new Set(), x: 1, y: 1, isUntouchable }),
+    ).toBeNull();
+  });
 });

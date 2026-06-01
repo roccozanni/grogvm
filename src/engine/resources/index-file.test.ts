@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   IndexParseError,
+  parseDobj,
   parseIndexFile,
   parseLaneDirectory,
   parseMaxs,
@@ -54,6 +55,30 @@ function u16LE(values: ReadonlyArray<number>): Uint8Array {
   }
   return out;
 }
+
+describe('parseDobj', () => {
+  it('decodes owner (low nibble), state (high nibble) and the u32 class mask', () => {
+    // 3 objects. owner/state bytes: 0x0f (owner15,state0), 0x12 (owner2,state1),
+    // 0x00 (owner0,state0). Then 3 u32 LE class masks.
+    const payload = new Uint8Array([
+      0x03, 0x00, // count = 3
+      0x0f, 0x12, 0x00, // owner/state per object
+      0x00, 0x00, 0x00, 0x80, // obj0 class = 0x80000000 (Untouchable, bit 31)
+      0x00, 0x10, 0x00, 0x00, // obj1 class = 0x1000
+      0x00, 0x00, 0x00, 0x00, // obj2 class = 0
+    ]);
+    const objs = parseDobj(payload);
+    expect(objs).toHaveLength(3);
+    expect(objs[0]).toEqual({ owner: 15, state: 0, classMask: 0x80000000 });
+    expect(objs[1]).toEqual({ owner: 2, state: 1, classMask: 0x1000 });
+    expect(objs[2]).toEqual({ owner: 0, state: 0, classMask: 0 });
+  });
+
+  it('returns [] for an empty / too-short payload', () => {
+    expect(parseDobj(new Uint8Array(0))).toEqual([]);
+    expect(parseDobj(new Uint8Array([0x00, 0x00]))).toEqual([]);
+  });
+});
 
 describe('parseMaxs', () => {
   it('extracts named fields from a 9-u16 MI1-shaped payload', () => {

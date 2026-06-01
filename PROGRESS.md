@@ -176,8 +176,30 @@ Found on entering the SCUMM Bar (room 28). Two engine gaps:
    doorway (image[1] over the bg's closed door; 1056 px change, probe
    `probe-doorrender.ts`) and the door stays open when you leave/return (and
    across save/restore). First entry has all states 0 (no `DOBJ` parse) → nothing
-   auto-queued → purely additive. +3 tests (763 total), tsc clean.
-   **NEEDS in-app confirm** (Apri renders the open doorway; it persists on re-entry).
+   auto-queued → purely additive. +3 tests, tsc clean. ✓ user-confirmed (door
+   renders open; opening now required to enter).
+
+### 6. Natural-play: stray interactive objects (the not-yet-docked ship) — FIXED (session 10)
+User saw hoverable "obj #" in room 33 where game-later objects sit (a ship docks
+later in the sea; that spot showed an `obj #`), worse after restore. **Root cause:
+we never parsed the index `DOBJ` directory**, which seeds each object's initial
+**owner / state / class** before any script runs. The key field is the **class**:
+room 33's ship sprite (#430, a solid 96×32 image in the sea) ships with class
+`0x80000000` = **Untouchable** (class 32). SCUMM's `findObject` skips Untouchable
+objects; we didn't, so #430 (and ~510 other initially-Untouchable MI1 objects)
+were wrongly hoverable everywhere. **Fix:**
+- `parseDobj` (resources/index-file.ts) decodes `DOBJ` → `{owner,state,classMask}`
+  per global object id; `bootGame` `seedObjectTable` seeds non-default rows into
+  `vm.objectClasses/States/Owners` (owner≠15 / state≠0 / class≠0 — 16 / 1 / 696
+  rows in MI1).
+- `pickObject` gains an `isUntouchable` predicate; the engine's `findObject` AND
+  the play-area hover pass `class & (1<<31)`, so Untouchable objects aren't hit-
+  tested (the ship is invisible *and* non-interactive until a script clears the
+  flag when it docks). Verified: #430 `pickObject@center → null`; the rock/arch/
+  door/poster still hit. Save round-trip preserves the 696 classes (snapshot
+  captures the seeded map; restore re-applies). +5 tests (766 total), tsc clean.
+  **NEEDS in-app confirm** (no stray `obj #` in the room-33 sea; make a *fresh*
+  save — the old quicksave predates `DOBJ` seeding so it restores stale classes).
 
 Why: `renderPlayer` (player.ts, 1714 lines) was a vertically-stacked
 *resource browser*, not a game player — the actual game was wedged inside

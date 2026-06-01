@@ -110,6 +110,7 @@ function makeIndex(
     sounds: [],
     costumes: [],
     charsets: [],
+    objects: [],
   };
 }
 
