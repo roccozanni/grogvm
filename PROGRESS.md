@@ -106,15 +106,50 @@ numbered open-issues below — #3–#8, all ✓ user-confirmed):
 - **Quick-load (#7)** + **ego self-hover (#8)** — Play overlays/input re-bind
   when the session swaps VM on restore; the ego can't hover-target itself.
 
-**Next session:** keep playing into the SCUMM Bar (room 28) and beyond —
-gather inventory items + reach a use-with puzzle so the **two-object "Use X with
-Y"** and **inventory scroll arrows** backlog items can be exercised with a real
-save. Watch for: more unimplemented opcodes (halts), missing object states from
-the un-parsed-beyond-initial `DOBJ` (we seed initial only), and any room-entry
-script gaps. The `scratch/` probes from this session (`probe-door-seq`,
-`probe-hover33`, `probe-dobj`, `probe-room28`, …) are handy templates.
+**Natural-play pass 2 — SCUMM Bar interior + pirate conversation (2026-06-01,
+session 11).** Kept playing into room 28 and the pirate dialogs; fixed every
+blocker hit, all engine-faithful, all on `main`. **775 tests green, tsc clean.**
+Three commits: `a996ac4` (5 opcode/semantic fixes), `b650433` (drawObject state),
+`26a5a56` (close-up + sentence line). Headline fixes (details in open-issues
+#9–#16, all ✓ user-confirmed in-app):
+- **chainScript (#9)** — opcode `0x42/0xC2` was unimplemented → unknown-opcode
+  halt froze the whole VM the moment any script chained (room-28 loops, the
+  move/sentence path). Faithful `o5_chainScript` (kill the slot, run the new
+  script in its place).
+- **drawObject animation pile-up (#9) + subop parse (#11) + state default (#13)** —
+  (a) animated fixtures (the chandelier pirate, 357/358 etc.) are single-frame
+  objects sharing one box, cycled by bare `drawObject`; the retained draw queue
+  piled them up → froze after one cycle; now a same-box draw evicts the prior
+  frame. (b) v5 `drawObject` has ONE subop byte, not a 0xFF list (room-58 `… at
+  x,y`+setState halted). (c) `drawObject` always sets state (1 default) so a bare
+  draw reveals a hidden object.
+- **getActorMoving (#10)** — `0x56/0xD6` registered (was disasm-only); right-click
+  a pirate no longer halts.
+- **Room-change script stop (#12)** — `enterRoom` now stops the old room's
+  local/object scripts (SCUMM `startScene`); room-28's #210 no longer bleeds into
+  a close-up and halts on the absent local #209.
+- **Pseudo-room remap (#15)** — the big one: MI1 aliases logical rooms 73–92 → 58,
+  and `enterRoom` wrongly remapped **every** room, so the pirate close-up
+  (`loadRoom 82`) loaded the all-black stage 58 instead of room 82's own art. The
+  alias is a **fallback** for absent ids (91/92) only; resolve the requested room
+  first. Close-up now renders (orange bg + pirate).
+- **Sentence-line overlap (#16)** — archived verbs (`saveRestoreVerbs`) aren't
+  drawn in SCUMM; the verb-bar render/hit-test now skip verbs in
+  `vm.savedVerbStates`, so the sentence line (#100) stops drawing over the replies.
+- **Dialog selection (#14)** — works in-app (the live shell writes the mouse-coord
+  vars #14 hit-tests; a headless probe couldn't, which only *looked* like a gap).
 
-## Open issues (session 9: #1 & #2 confirmed; session 10: #3–#8 fixed & confirmed; session 11: #9 chainScript + drawObject pile-up, #10 getActorMoving, #11 drawObject subop, #12 room-change script stop, #13 drawObject state default, #15 pseudo-room remap, #16 sentence-line overlap; #14 dialog-reply click OPEN)
+**Next session:** the pirate conversation is playable end-to-end. Keep going —
+finish the SCUMM Bar dialogs, gather inventory items, reach a **use-with** puzzle
+so the **two-object "Use X with Y"** + **inventory scroll arrows** backlog items
+get exercised with a real save. Watch for: more unimplemented opcodes (halts) in
+newly-reached scripts; object states from the un-parsed-beyond-initial `DOBJ`; the
+`saveRestoreVerbs` per-verb `saveid` model (we use a render-skip subset — fine so
+far, revisit if a scene re-creates a saved verb id). Probe templates from this
+session were cleaned up; `scratch/dis.ts` (+ `SCAN grep=`) and the older
+`probe-room28`/`probe-door-seq` remain handy.
+
+## Open issues (session 9: #1 & #2 confirmed; session 10: #3–#8 fixed & confirmed; session 11: #9 chainScript + drawObject pile-up, #10 getActorMoving, #11 drawObject subop, #12 room-change script stop, #13 drawObject state default, #15 pseudo-room remap, #16 sentence-line overlap, #14 dialog-reply works in-app — all confirmed)
 
 ### 1. Camera-follow stutter + "two Guybrush" — FIXED & user-confirmed (session 9)
 Ordering bug, as hypothesised. `moveCameraFollow()` ran in `beginTick()` (every
@@ -350,26 +385,23 @@ left it at 0, so the close-up scene stayed black. **Fix:** default `state = 1` i
 `drawObjectHandler` and always `objectStates.set(obj, state)` (SO_IMAGE overrides
 the value). Room-28 fixtures (state-1 only) are unaffected; ENCD hide-then-reveal
 now works. +1 test (a bare draw reveals a state-0 object). **774 green**, tsc clean.
+✓ user-confirmed (close-up renders the pirate; conversation playable).
 
-### 14. Dialog-response selection not wired through the shell — OPEN (diagnosed session 11)
-The pirate conversation reaches its black-bg close-up stage (room 58) and **works
-up to the point of picking a reply**: the response lines are created as **verbs**
-(#120 "Ol, a te.", #121 "Che bel cappello.", #122 "Allora, parlami di LOOM.",
-#124 "E' stato bello parlare con te."), and the dialog driver (global #93) parks in
-a `breakHere` loop polling **`g194`** (the chosen reply), branching on
-`g194 == 120/121/122/124`. The verb-input script during the conversation is **#14**
-(`VAR_VERB_SCRIPT` swaps to 14), which sets `g194` — but **not** from the clicked
-verb id. It hit-tests `findObject(VAR_VIRT_MOUSE_X/Y = g20/g21)` against a dialog
-slot table (`g250[]`) gated on **clickArea 2** (the sentence/dialog band), then
-`g194 = 120 + slot`. Our shell routes a verb click as **clickArea 1 by verb id**
-(`handleVerbClick`), which #14's reply path ignores, so `g194` never gets set and
-the conversation can't advance. **Also:** the normal action verbs aren't hidden
-during the dialog (the `saveRestoreVerbs 0x1` save/hide that #93/#14 perform isn't
-honoured), so the verb bar would show action verbs + replies together. **Engine
-correctness (#13) is fixed and unit-proven; this remaining item is the shell+engine
-wiring of the reply click** (route reply clicks as the dialog clickArea with the
-mouse coords #14 expects) — its own focused task. The reply *verbs* render and the
-sentence-line overlap is fixed (see #16).
+### 14. Dialog-response selection — WORKS IN-APP (confirmed session 11)
+The pirate conversation's replies are created as **verbs** (#120 "Ol, a te.", #121
+"Che bel cappello.", #122 "Allora, parlami di LOOM.", #124 "E' stato bello parlare
+con te."); the dialog driver (global #93) parks in a `breakHere` loop polling
+**`g194`** (the chosen reply), branching on `g194 == 120/121/122/124`. The
+verb-input script during the conversation is **#14** (`VAR_VERB_SCRIPT` swaps to
+14), which sets `g194` from a `findObject(VAR_VIRT_MOUSE_X/Y = g20/g21)` hit-test
+against the dialog slot table (`g250[]`) on **clickArea 2**, NOT from the clicked
+verb id. A **headless** probe (no real mouse) couldn't drive this, which is why the
+diagnosis looked like a gap — but **in the live app the shell writes g20/g21 on
+pointer move**, so a real reply click resolves and the conversation advances. ✓
+user-confirmed (carried the conversation through in-app). The reply verbs render
+(only live replies — see #16) and the close-up shows the pirate (#15). If a future
+scene reveals a reply path the live mouse can't satisfy, revisit routing the click
+through #14's clickArea-2 hit-test explicitly.
 
 ### 15. Pseudo-rooms wrongly remapped EVERY room → close-ups rendered black — FIXED (session 11)
 The pirate-conversation close-up rendered all-black (user: "dark forest with
@@ -398,8 +430,8 @@ engine records archived verbs in `vm.savedVerbStates` but a stale re-enable left
 and hit-test skip any verb currently in `vm.savedVerbStates` — archived verbs aren't
 shown or clickable, matching SCUMM — so only the live dialog replies remain. (A
 deeper engine fix would adopt SCUMM's per-verb `saveid` model end-to-end; the
-render-skip is the faithful, low-risk subset.) 775 green, tsc clean. **NEEDS USER
-CONFIRM in-app** (close-up shows the pirate; sentence line gone during dialog).
+render-skip is the faithful, low-risk subset.) 775 green, tsc clean. ✓ user-confirmed
+(close-up shows the pirate; sentence line gone during dialog; conversation playable).
 
 Why: `renderPlayer` (player.ts, 1714 lines) was a vertically-stacked
 *resource browser*, not a game player — the actual game was wedged inside
