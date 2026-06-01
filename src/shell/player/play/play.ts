@@ -58,8 +58,19 @@ async function mountGame(game: StoredGame, main: HTMLElement, onBack: () => void
   // always visible — it's a learning tool).
   const debug = mountDebugPanel(session, game.gameId);
 
-  // Overlays are re-mounted on a dimension change (frame canvas is reused).
-  let mounted: { width: number; height: number; play: PlayAreaHandles; disposeInput: () => void } | null = null;
+  // Overlays are re-mounted on a dimension change OR when the session swaps in
+  // a new VM (quick-load / reboot adopt a fresh VM). The overlays + input
+  // capture a VM reference at mount; without re-binding they keep reading the
+  // discarded VM after a restore — stale camera (offset object highlights) and
+  // dead clicks (writes land on the old VM). Tracking the VM identity here
+  // re-binds them even when the room dimensions are unchanged.
+  let mounted: {
+    width: number;
+    height: number;
+    vm: typeof session.vm;
+    play: PlayAreaHandles;
+    disposeInput: () => void;
+  } | null = null;
 
   const remount = (frame: FrameInfo): void => {
     mounted?.disposeInput();
@@ -94,11 +105,18 @@ async function mountGame(game: StoredGame, main: HTMLElement, onBack: () => void
       onSkipLine: () => session.sendInput({ type: 'key', key: '.' }),
     });
     gameArea.replaceChildren(stack, play.verbBar);
-    mounted = { width: frame.width, height: frame.height, play, disposeInput: input.dispose };
+    mounted = { width: frame.width, height: frame.height, vm: session.vm, play, disposeInput: input.dispose };
   };
 
   session.onFrame((frame) => {
-    if (!mounted || mounted.width !== frame.width || mounted.height !== frame.height) remount(frame);
+    if (
+      !mounted ||
+      mounted.width !== frame.width ||
+      mounted.height !== frame.height ||
+      mounted.vm !== session.vm
+    ) {
+      remount(frame);
+    }
     mounted!.play.redraw();
   });
 

@@ -198,8 +198,23 @@ were wrongly hoverable everywhere. **Fix:**
   flag when it docks). Verified: #430 `pickObject@center → null`; the rock/arch/
   door/poster still hit. Save round-trip preserves the 696 classes (snapshot
   captures the seeded map; restore re-applies). +5 tests (766 total), tsc clean.
-  **NEEDS in-app confirm** (no stray `obj #` in the room-33 sea; make a *fresh*
-  save — the old quicksave predates `DOBJ` seeding so it restores stale classes).
+  ✓ user-confirmed (stray objects gone). Surfaced #7 (see below).
+
+### 7. Play overlays/input went stale after quick-load — FIXED (session 10)
+After restoring a fresh save: object highlights were offset (the poster's box
+drawn on the door) and walk clicks were ignored. **Root cause:** `session.restore`
+(and `reboot`) **adopt a fresh VM** (`session.vm` is a live getter pointing at
+it), but the Play surface mounts its overlays (`mountPlayArea`) and input
+(`mountVmFrameInput`) with the VM **captured at mount time**, and only re-mounts on
+a *room-dimension* change. Restoring into the same room (33 → 33, 320×144) skipped
+the re-mount, so the hover/input kept reading the **discarded** VM: stale camera →
+offset highlights/hit-test; clicks written to the dead VM → no walk. The session's
+own `sendInput`/render use the live VM, which is why rendering looked fine. **Fix:**
+`play.ts` tracks the mounted VM identity and re-mounts when `session.vm` changes
+(not only on dimension change); `restore`'s `composeAndPresent` fires `onFrame`
+so it re-binds immediately. The Debug panel already reads `session.vm` live each
+frame, so it was unaffected. tsc clean, 766 green. **NEEDS in-app confirm**
+(quick-load: highlights aligned, walking works).
 
 Why: `renderPlayer` (player.ts, 1714 lines) was a vertically-stacked
 *resource browser*, not a game player — the actual game was wedged inside
