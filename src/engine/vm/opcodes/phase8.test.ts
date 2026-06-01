@@ -267,3 +267,82 @@ describe('phase 8 — dialog escape codes (substitutions)', () => {
     expect(vm.systemText?.text).toBe('A\nB');
   });
 });
+
+describe('drawObject (0x05) — animated background fixtures', () => {
+  // Two single-frame objects sharing one bounding box — MI1's idiom for an
+  // animation frame pair (e.g. the SCUMM Bar chandelier pirate, objs 357/358).
+  function objAt(objId: number, x: number, y: number, w: number, h: number): LoadedObject {
+    return {
+      objId,
+      cdhd: {} as never,
+      imhd: { objId, x, y, width: w, height: h } as never,
+      images: new Map(),
+      name: '',
+      verbs: [],
+    } as unknown as LoadedObject;
+  }
+
+  it('cycling two same-box objects keeps only the latest queued (no pile-up)', () => {
+    const vm = makeVm();
+    const room = fakeRoom(1);
+    (room.objects as Map<number, LoadedObject>).set(357, objAt(357, 32, 120, 40, 24));
+    (room.objects as Map<number, LoadedObject>).set(358, objAt(358, 32, 120, 40, 24));
+    vm.loadedRoom = room;
+
+    run(vm, bytes(0x05, 0x66, 0x01, 0xff)); // drawObject 358 (0x0166)
+    expect([...vm.objectDrawQueue]).toEqual([358]);
+    run(vm, bytes(0x05, 0x65, 0x01, 0xff)); // drawObject 357 — evicts 358
+    expect([...vm.objectDrawQueue]).toEqual([357]);
+    run(vm, bytes(0x05, 0x66, 0x01, 0xff)); // back to 358 — evicts 357
+    expect([...vm.objectDrawQueue]).toEqual([358]);
+  });
+
+  it('does not evict a distinct object at a different box', () => {
+    const vm = makeVm();
+    const room = fakeRoom(1);
+    (room.objects as Map<number, LoadedObject>).set(357, objAt(357, 32, 120, 40, 24));
+    (room.objects as Map<number, LoadedObject>).set(400, objAt(400, 200, 50, 16, 16));
+    vm.loadedRoom = room;
+
+    run(vm, bytes(0x05, 0x65, 0x01, 0xff)); // drawObject 357
+    run(vm, bytes(0x05, 0x90, 0x01, 0xff)); // drawObject 400 (0x0190) — different box
+    expect([...vm.objectDrawQueue].sort((a, b) => a - b)).toEqual([357, 400]);
+  });
+
+  it('SO_AT (subop 1) consumes exactly x,y — not the following opcode', () => {
+    // v5 drawObject has ONE subop, not a 0xFF-terminated list. A `… at x,y`
+    // followed by setState (room 58 ENCD) must read the two coords and stop,
+    // so the next opcode (setState 0x07) decodes cleanly. The old loop ran on
+    // and mis-read 0x07 as a bogus drawObject subop → halt.
+    const vm = makeVm();
+    const room = fakeRoom(1);
+    (room.objects as Map<number, LoadedObject>).set(674, objAt(674, 100, 0, 8, 8));
+    vm.loadedRoom = room;
+    // drawObject 674 (0x02A2) at x=100 y=0 ; setState 674 state=0 ; stop.
+    run(
+      vm,
+      bytes(0x05, 0xa2, 0x02, 0x01, 0x64, 0x00, 0x00, 0x00, 0x07, 0xa2, 0x02, 0x00),
+    );
+    expect(vm.haltInfo).toBeNull();
+    expect([...vm.objectDrawQueue]).toContain(674);
+    expect(vm.objectStates.get(674)).toBe(0); // setState ran, wasn't swallowed
+  });
+});
+
+describe('enterRoom — room-local scripts stop on room change', () => {
+  it('kills room-local + verb scripts, spares globals and ENCD/EXCD', () => {
+    const vm = makeVm((id) => fakeRoom(id));
+    // breakHere then jump back to it — a yielded ambient loop.
+    const loop = bytes(0x80, 0x18, 0xfd, 0xff);
+    const local = vm.startScript({ scriptId: 210, bytecode: loop, room: 28 });
+    const verb = vm.startScript({ scriptId: 333, bytecode: loop, room: 28, label: 'VERB-333-8' });
+    const glob = vm.startScript({ scriptId: 17, bytecode: loop, room: 0 });
+    vm.step(); // let them yield at breakHere
+
+    vm.enterRoom(82);
+
+    expect(local.status).toBe('dead'); // room-local #210 stopped
+    expect(verb.status).toBe('dead'); // object/verb script stopped
+    expect(glob.status).not.toBe('dead'); // global survives the room change
+  });
+});

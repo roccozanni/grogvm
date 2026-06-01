@@ -29,6 +29,44 @@ describe('seed opcodes — flow', () => {
     expect(slot.status).toBe('yielded');
   });
 
+  it('0x42 chainScript kills the current slot and starts the new script', () => {
+    // A global resolver returns a trivial body (just breakHere) for #7.
+    const chained = bytes(0x80); // breakHere → yields, stays alive
+    const vm = new Vm({
+      numVariables: 800,
+      numBitVariables: 2048,
+      handlers: SEED_OPCODES,
+      resolveGlobalScript: () => ({ bytecode: chained, room: 0 }),
+    });
+    // chainScript #7 (no args → immediate 0xFF terminator).
+    const slot = vm.startScript({ scriptId: 1, bytecode: bytes(0x42, 0x07, 0xff) });
+    const original = slot.slotIndex;
+    expect(slot.scriptId).toBe(1);
+    vm.step(); // run chainScript
+    // The original script (#1) is gone — it was killed and the freed slot
+    // is reused by the chained #7 (SCUMM runs it in the dying slot's place).
+    expect(vm.slots.some((s) => s.status !== 'dead' && s.scriptId === 1)).toBe(false);
+    const live = vm.slots.find((s) => s.status !== 'dead' && s.scriptId === 7);
+    expect(live).toBeDefined();
+    expect(live!.slotIndex).toBe(original);
+  });
+
+  it('0xC2 chainScript reads the script id from a var', () => {
+    const chained = bytes(0x80);
+    const vm = new Vm({
+      numVariables: 800,
+      numBitVariables: 2048,
+      handlers: SEED_OPCODES,
+      resolveGlobalScript: () => ({ bytecode: chained, room: 0 }),
+    });
+    vm.vars.writeGlobal(5, 9); // var 5 = script id 9
+    // chainScript (var 5) : 0xC2, var ref 0x0005 (LE), then 0xFF args term.
+    vm.startScript({ scriptId: 1, bytecode: bytes(0xc2, 0x05, 0x00, 0xff) });
+    vm.step();
+    expect(vm.slots.some((s) => s.status !== 'dead' && s.scriptId === 1)).toBe(false);
+    expect(vm.slots.some((s) => s.status !== 'dead' && s.scriptId === 9)).toBe(true);
+  });
+
   it('0x18 jumpRelative applies a signed offset', () => {
     const vm = makeVm();
     // jump +4 over the next four bytes, land on stopObjectCode.
@@ -998,6 +1036,22 @@ describe('actor placement + room-transition opcodes (boot→lookout fixes)', () 
     expect(vm.actors.get(3).room).toBe(38); // kept, not clobbered to 0
     expect(vm.actors.get(3).x).toBe(10);
     expect(vm.actors.get(3).y).toBe(20);
+  });
+
+  it('getActorMoving (0x56) writes 1 while walking, 0 at rest — no halt', () => {
+    const vm = makeVm();
+    const a = vm.actors.get(3);
+    // 0x56 getActorMoving dest=g100 (var ref 0x0064 LE) actor=3, then stop.
+    a.isMoving = true;
+    const s1 = vm.startScript({ scriptId: 1, bytecode: bytes(0x56, 0x64, 0x00, 0x03, 0xa0) });
+    while (s1.status === 'running') vm.step();
+    expect(vm.vars.readGlobal(100)).toBe(1);
+
+    a.isMoving = false;
+    const s2 = vm.startScript({ scriptId: 2, bytecode: bytes(0x56, 0x64, 0x00, 0x03, 0xa0) });
+    while (s2.status === 'running') vm.step();
+    expect(vm.vars.readGlobal(100)).toBe(0);
+    expect(vm.haltInfo).toBeNull();
   });
 
   it('actorFollowCamera (0x52) loads the followed actor room when it differs', () => {

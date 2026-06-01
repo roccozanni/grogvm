@@ -1037,43 +1037,67 @@ register(0xdd, actorSetClassHandler);
 // shape and update object state on `setImage`.
 function drawObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const obj = readVarOrWord(opcode, 1, slot, vm.vars);
+  // v5 drawObject carries exactly ONE sub-operation byte (NOT a
+  // 0xFF-terminated list — that was a verbOps/actorOps-shaped misread that
+  // happened to survive room 28's bare form, whose subop is 0xFF, but ran
+  // off the end of room 58's `drawObject … at x,y` and mis-decoded the
+  // following setState as a bogus subop). Low 5 bits select the action,
+  // the high bits are the params' var-modes. SO_AT (1) repositions,
+  // SO_IMAGE (2) sets the state image; any other value (incl. the bare
+  // 0xFF / SO_END) is a plain redraw at the current position/state.
   const ops: string[] = [];
-  while (true) {
-    const sub = readU8(slot);
-    if (sub === 0xff) break;
-    const action = sub & 0x1f;
-    switch (action) {
-      case 0x00:
-        // "use defaults" — silent no-op; just keep the object's
-        // current state and enqueue it for drawing below.
-        ops.push('default');
-        break;
-      case 0x01: {
-        const x = readVarOrWord(sub, 1, slot, vm.vars);
-        const y = readVarOrWord(sub, 2, slot, vm.vars);
-        // Phase 6 doesn't support object reposition yet — we draw at
-        // the IMHD-recorded position. Recording the args here so the
-        // trace is useful; ignored at composite time.
-        ops.push(`at(${x},${y})`);
-        break;
-      }
-      case 0x02: {
-        const state = readVarOrWord(sub, 1, slot, vm.vars);
-        // setImage(0) = "hide". Anything else sets the state; the
-        // compositor picks IMxx where xx == state.
-        vm.objectStates.set(obj, state);
-        ops.push(`setImage(${state})`);
-        break;
-      }
-      default:
-        throw new Error(
-          `drawObject: unknown subop 0x${action.toString(16).padStart(2, '0')} (raw=0x${sub.toString(16)})`,
-        );
+  const sub = readU8(slot);
+  switch (sub & 0x1f) {
+    case 0x01: {
+      const x = readVarOrWord(sub, 1, slot, vm.vars);
+      const y = readVarOrWord(sub, 2, slot, vm.vars);
+      // Object reposition isn't honoured yet — we draw at the
+      // IMHD-recorded position. Recorded here for a useful trace only.
+      ops.push(`at(${x},${y})`);
+      break;
     }
+    case 0x02: {
+      const state = readVarOrWord(sub, 1, slot, vm.vars);
+      // setImage(0) = "hide". Anything else sets the state; the
+      // compositor picks IMxx where xx == state.
+      vm.objectStates.set(obj, state);
+      ops.push(`setImage(${state})`);
+      break;
+    }
+    default:
+      // Bare redraw ("draw") — keep current state/position.
+      ops.push('draw');
+      break;
   }
   // Queue for the next compose. If the object's state is 0 (or never
   // set), the compositor will skip it; the queue membership matters
   // for "explicit redraw" semantics, not visibility.
+  //
+  // SCUMM redraws an object by restoring the background strips under its
+  // bounding box and blitting the new image — which ERASES any object
+  // previously drawn at the same spot. MI1 animates background fixtures
+  // (the swinging chandelier pirate = objs 357/358, the dog, etc.) as
+  // several single-frame objects that share one bounding box, cycled by a
+  // loop script's bare `drawObject`. Our compositor is retained-mode (it
+  // redraws every queued object each frame), so without eviction all the
+  // frames pile up and the animation freezes after a single cycle. Evict
+  // any already-queued object covering the exact same box before queueing
+  // this one, so only the most-recently-drawn frame shows — matching the
+  // strip overwrite. Exact-box match (not overlap) keeps a legitimately
+  // distinct object — an item resting over a larger fixture — untouched.
+  const drawn = vm.loadedRoom?.objects.get(obj);
+  if (drawn) {
+    const { x, y, width, height } = drawn.imhd;
+    for (const otherId of [...vm.objectDrawQueue]) {
+      if (otherId === obj) continue;
+      const o = vm.loadedRoom?.objects.get(otherId)?.imhd;
+      if (o && o.x === x && o.y === y && o.width === width && o.height === height) {
+        vm.objectDrawQueue.delete(otherId);
+      }
+    }
+  }
+  // Re-insert at the end so the freshest frame draws last (on top).
+  vm.objectDrawQueue.delete(obj);
   vm.objectDrawQueue.add(obj);
   vm.annotate(`drawObject obj=${obj} [${ops.join(',')}]`);
 }
@@ -1286,6 +1310,17 @@ register(0xc3, makeActorReadOp('getActorX', (a) => a.x, true));
 // scripts query it. p8 actor.
 register(0x7b, makeActorReadOp('getActorWalkBox', () => 0));
 register(0xfb, makeActorReadOp('getActorWalkBox', () => 0));
+
+// getActorMoving (0x56/0xD6) — non-orthogonal low5=0x16 family (shared
+// with getRandomNumber 0x16/0x96 and walkActorToObject 0x36/…; bit 0x40
+// set + 0x20 clear selects this op). SCUMM returns the actor's `_moving`
+// mask; scripts only test it for zero/non-zero (e.g. room-28 #202/#203:
+// `getActorMoving a=6` → `equalZero`), so 1-while-walking / 0-at-rest is
+// faithful. p8 actor (bit 0x80 = var-mode). Right-clicking a seated pirate
+// runs its verb script, which polls getActorMoving — was an unknown-opcode
+// halt (0xD6) until now.
+register(0x56, makeActorReadOp('getActorMoving', (a) => (a.isMoving ? 1 : 0)));
+register(0xd6, makeActorReadOp('getActorMoving', (a) => (a.isMoving ? 1 : 0)));
 
 // ─── walkActorToActor / putActorInRoom (non-orthogonal low5=0x0D) ─────
 // These two opcodes SHARE the low 5 bits — **bit 0x20 selects which**:
@@ -2228,6 +2263,29 @@ function startScriptHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const freezeResistant = (opcode & 0x20) !== 0;
   const child = vm.startScriptById(scriptId, { args, freezeResistant });
   vm.annotate(`startScript #${scriptId} slot=${child.slotIndex} args=[${args.join(',')}]`);
+}
+
+// ─── 0x42 / 0xC2  chainScript ────────────────────────────────────────
+// Stop the current script and start another *in its place*, passing a
+// word-vararg local list. SCUMM's o5_chainScript: read scriptId
+// (var-or-byte via bit 0x80) + args, kill the running slot, then
+// runScript the new one carrying over the dying slot's freeze-resistant
+// (and recursive) flags. Killing first frees the slot, so the new script
+// typically reuses it (lowest-index dead). The current slot is now dead,
+// so dispatch falls through to the freshly started one. Common in MI1's
+// background/room loops (e.g. a walk-driven loop chaining itself).
+register(0x42, chainScriptHandler);
+register(0xc2, chainScriptHandler);
+function chainScriptHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
+  const scriptId = readVarOrByte(opcode, 1, slot, vm.vars);
+  const args = readWordVararg(slot, vm.vars);
+
+  // Carry the dying slot's freeze-resistance to the chained script
+  // (SCUMM passes vm.slot[cur].freezeResistant / recursive).
+  const freezeResistant = slot.freezeResistant;
+  slot.kill();
+  const child = vm.startScriptById(scriptId, { args, freezeResistant });
+  vm.annotate(`chainScript #${scriptId} slot=${child.slotIndex} args=[${args.join(',')}]`);
 }
 
 // ─── 0x19  doSentence ────────────────────────────────────────────────

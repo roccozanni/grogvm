@@ -749,6 +749,17 @@ export class Vm {
       }
     }
 
+    // SCUMM's startScene stops every room-local and object/verb script on a
+    // room change (WIO_ROOM / WIO_FLOBJECT die; only globals — WIO_GLOBAL —
+    // survive). Without this, the old room's ambient/animation loops keep
+    // running into the new room and try to start locals that no longer exist
+    // there: room 28's #210 (which starts #208/#209) survived a pirate-talk
+    // close-up and halted with "local script #209 not present in current room
+    // 81 (loaded=58)". Run after EXCD is queued (it's scriptId 0, spared) and
+    // before the new ENCD. The transition caller is a global (e.g. the dialog
+    // script #17), so it keeps running across the load.
+    this.stopRoomLocalScripts();
+
     this.currentRoom = roomId;
     this.vars.writeGlobal(VAR_ROOM_INDEX, roomId);
     // Pseudo-rooms (0xCC) alias one logical id onto another's physical
@@ -1012,6 +1023,23 @@ export class Vm {
   /** Thaw every slot completely (the `freezeScripts 0` reset). */
   unfreezeAllScripts(): void {
     for (const s of this.slots) s.freezeCount = 0;
+  }
+
+  /**
+   * Stop every room-scoped script — room-local scripts (id ≥
+   * {@link LSCR_THRESHOLD}) and object/verb scripts (synthetic `VERB-*`
+   * slots) — leaving global scripts and the freshly-started ENCD/EXCD
+   * (scriptId 0) alone. SCUMM's `startScene` does this on every room
+   * change so an old room's ambient/animation loops don't bleed into the
+   * next room. Called by {@link enterRoom}.
+   */
+  private stopRoomLocalScripts(): void {
+    for (const s of this.slots) {
+      if (s.status === 'dead') continue;
+      if (s.scriptId >= Vm.LSCR_THRESHOLD || s.label.startsWith('VERB-')) {
+        s.kill();
+      }
+    }
   }
 
   /**

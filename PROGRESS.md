@@ -114,7 +114,7 @@ the un-parsed-beyond-initial `DOBJ` (we seed initial only), and any room-entry
 script gaps. The `scratch/` probes from this session (`probe-door-seq`,
 `probe-hover33`, `probe-dobj`, `probe-room28`, …) are handy templates.
 
-## Open issues (session 9: #1 & #2 confirmed; session 10: #3–#8 fixed & confirmed)
+## Open issues (session 9: #1 & #2 confirmed; session 10: #3–#8 fixed & confirmed; session 11: #9 chainScript + drawObject pile-up, #10 getActorMoving, #11 drawObject subop, #12 room-change script stop)
 
 ### 1. Camera-follow stutter + "two Guybrush" — FIXED & user-confirmed (session 9)
 Ordering bug, as hypothesised. `moveCameraFollow()` ran in `beginTick()` (every
@@ -254,6 +254,90 @@ and returned the ego, then rendered its nameless label. You can't Walk to / Look
 at yourself. `recomputeHover` now skips the ego (`VAR_EGO`) and falls through to
 object hit-testing (an object *behind* Guybrush is still reachable). Other actors
 remain hoverable for Talk-to. Shell-only; tsc clean, 766 green.
+
+### 9. Room 28: actors animate once then freeze + 0x42 on move — FIXED (session 11)
+Two user-reported symptoms in the SCUMM Bar (room 28), **one root cause**: the
+`chainScript` opcode (**0x42 / 0xC2**) was never implemented. The disassembler
+already decoded it (disasm.ts) but the executor had no handler, so dispatching it
+set `vm.haltInfo` → an unknown-opcode halt **freezes the entire VM** (`step` is a
+no-op once halted). Room 28's background animation drivers (locals #202/#203 and
+the #220 family, plus the global sentence script #2) all `chainScript` themselves
+to re-loop. So: enter the bar → loops animate the pirates for one delay cycle →
+the moment any of them (or, on a floor click, the move/sentence path) reaches
+`chainScript` the whole VM halts → **all** animation stops *and* input dies. That
+read as "actors animate once then stop" + "as soon as I move, unknown opcode
+0x42". Reproduced exactly with a probe: a floor click in room 28 drove local
+script #202 to `pc94 op 0x42` → halt (it was looping the pirates — it queries
+`getActorRoom(actor=6)`, a bar pirate).
+**Fix:** `chainScriptHandler` (opcodes/index.ts, registered 0x42 + 0xC2) — SCUMM's
+`o5_chainScript`: read scriptId (var-or-byte via bit 0x80) + the word-vararg
+locals, `slot.kill()` the running script, then `startScriptById` the new one
+carrying the dying slot's freeze-resistance. Killing first frees the slot, so the
+chained script reuses it (lowest-index dead) — the faithful "run in its place".
+The current slot is now dead, so dispatch falls through to the fresh script. +2
+tests (0x42 direct, 0xC2 var); 768 green, tsc clean.
+
+**Second, distinct root cause for the animation freeze (the halt was a red
+herring for it):** `drawObject` piled frames up in a retained draw queue. MI1
+animates background fixtures (the swinging chandelier pirate, a barking dog,
+table pirates) as **several single-frame objects that share one bounding box**,
+cycled by a loop script's bare `drawObject` (room-28 locals #206/#207/#210…). In
+SCUMM each redraw restores the background strips under the object's box and blits
+the new frame — erasing the previous one, so only the latest frame shows. Our
+compositor is **retained-mode** (it redraws *every* object in `vm.objectDrawQueue`
+each frame) and `Set.add` of an already-queued id doesn't reorder it, so all the
+frames accumulated permanently and the fixture froze after one cycle (the
+user-visible "spins once then stops"). Confirmed via bounding boxes: objs 357/358
+both `(32,120) 40×24`; 354/355/356 `(208,96)`; 317/318/319 `(520,80)` — frame sets
+sharing an exact box. **Fix:** `drawObjectHandler` now evicts any already-queued
+object covering the **exact same box** before (re-)queueing the drawn one at the
+end (freshest draws last/on top) — matching SCUMM's strip overwrite. Exact-box
+match (not overlap) leaves a legitimately distinct object — an item resting over a
+larger fixture — untouched. Probe confirmed exactly one of each frame set is
+queued at a time and they cycle (357↔358, 354→355→356, …). +2 tests; **770 green**,
+tsc clean. ✓ **user-confirmed in-app** (room 28 fixtures all animate continuously;
+walking no longer halts).
+
+### 10. Right-clicking a seated pirate → unknown opcode 0xD6 — FIXED (session 11)
+`getActorMoving` (**0x56 / 0xD6**) was in the disassembler but never registered in
+the executor — only `getRandomNumber` (0x16/0x96) from the same non-orthogonal
+low5=0x16 family (0x36/0x76/0xB6/0xF6 = walkActorToObject; bit 0x40 set + 0x20
+clear = getActorMoving). Right-clicking a pirate fires its default-verb script,
+which polls `getActorMoving` → unknown-opcode halt (0xD6 = the var-actor form).
+**Fix:** register 0x56/0xD6 as an actor-read op returning `isMoving ? 1 : 0`.
+SCUMM returns the `_moving` bitmask, but scripts only test it for zero/non-zero
+(e.g. room-28 #202/#203 do `getActorMoving a=6` → `equalZero`), so 1-while-walking
+is faithful. +1 test; **771 green**, tsc clean. ✓ user-confirmed (right-click no
+longer halts on 0xD6; surfaced #11/#12 below — the conversation close-up).
+
+### 11. drawObject mis-parsed as a 0xFF-terminated subop list — FIXED (session 11)
+v5 `drawObject` (0x05/0x85) carries **exactly one sub-operation byte**, not a
+verbOps-style `0xFF`-terminated list. Our handler looped until `0xFF`. Room 28's
+bare animation form happens to use subop `0xFF`, so it survived; but room 58's
+ENCD (the pirate-conversation close-up) uses `drawObject … at x,y` (subop `0x01`
+SO_AT) immediately followed by `setState` (0x07) — after reading the AT coords the
+loop kept going and mis-read the `setState` opcode as a bogus drawObject subop →
+"unknown subop 0x07" halt. **Fix:** read one subop, switch on `sub & 0x1f`
+(1=SO_AT x,y; 2=SO_IMAGE state; else bare draw), matching the tested disassembler
+(also masked there now for byte-consumption parity). +1 test (SO_AT consumes only
+x,y, the trailing setState still decodes).
+
+### 12. Room change didn't stop the old room's scripts → "#209 not present" — FIXED (session 11)
+Right-clicking a seated pirate starts a conversation close-up; the dialog script
+(global #17) does `loadRoomWithEgo` into room **81/82** (a pseudo-room aliased to
+physical **58**, hence "current room 81 (loaded=58)"). But `enterRoom` never
+stopped the previous room's scripts, so room 28's ambient loop **#210** (which
+`startScript`s #208/#209) kept running into room 58 and tried to start room-28
+local **#209**, absent there → halt. SCUMM's `startScene` stops every room-local
+(`WIO_ROOM`) and object/verb (`WIO_FLOBJECT`) script on a room change; only
+globals (`WIO_GLOBAL`) survive — which is why the dialog driver (#17, a global)
+keeps running across the load. **Fix:** `vm.stopRoomLocalScripts()` (kills slots
+with `scriptId ≥ LSCR_THRESHOLD` or a `VERB-*` label; spares globals and the
+scriptId-0 ENCD/EXCD), called from `enterRoom` before the new ENCD. Verified the
+full flow end-to-end: enter SCUMM Bar → talk to a pirate → close-up (room 82/58)
+with **no room-28 zombies** and no halt. +1 test (room-local + verb scripts die on
+`enterRoom`, global survives). **773 green**, tsc clean. **NEEDS USER CONFIRM
+in-app** (the pirate conversation should open without halting).
 
 Why: `renderPlayer` (player.ts, 1714 lines) was a vertically-stacked
 *resource browser*, not a game player — the actual game was wedged inside

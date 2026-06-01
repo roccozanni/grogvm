@@ -385,8 +385,9 @@ class Decoder {
     if (op === 0x05 || op === 0x85) {
       const o = this.p16(op, 1);
       const sub = this.u8();
-      if (sub === 1) return `drawObject ${o} at x=${this.p16(sub, 1)} y=${this.p16(sub, 2)}`;
-      if (sub === 2) return `drawObject ${o} state=${this.p16(sub, 1)}`;
+      // One subop byte: low 5 bits = action, high bits = param var-modes.
+      if ((sub & 0x1f) === 1) return `drawObject ${o} at x=${this.p16(sub, 1)} y=${this.p16(sub, 2)}`;
+      if ((sub & 0x1f) === 2) return `drawObject ${o} state=${this.p16(sub, 1)}`;
       return `drawObject ${o} draw`;
     }
     // getActor* (result, actor[p8] — except X/Y which use p16).
