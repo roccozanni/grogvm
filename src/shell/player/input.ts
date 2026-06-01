@@ -130,6 +130,12 @@ export interface MountInputArgs {
    * window (the canvas isn't focusable), so it fires regardless of focus.
    */
   readonly onEscape?: () => void;
+  /**
+   * The skip-line key (`.`) was pressed. The v5 convention maps the dot to
+   * "advance past the current line of speech" — the per-sentence analogue of
+   * Escape's whole-cutscene skip. Bound on the window alongside Escape.
+   */
+  readonly onSkipLine?: () => void;
 }
 
 export interface MountedInput {
@@ -235,6 +241,8 @@ export function mountVmFrameInput(args: MountInputArgs): MountedInput {
   const onKeyDown = (ev: KeyboardEvent): void => {
     if (ev.key === 'Escape' && args.onEscape) {
       args.onEscape();
+    } else if (ev.key === '.' && args.onSkipLine) {
+      args.onSkipLine();
     }
   };
 

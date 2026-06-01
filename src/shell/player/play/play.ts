@@ -91,6 +91,7 @@ async function mountGame(game: StoredGame, main: HTMLElement, onBack: () => void
       onLeftClick: (e) => debug.recordClick(e, play.onRoomClick('left').objId),
       onRightClick: (e) => debug.recordClick(e, play.onRoomClick('right').objId),
       onEscape: () => session.sendInput({ type: 'key', key: 'Escape' }),
+      onSkipLine: () => session.sendInput({ type: 'key', key: '.' }),
     });
     gameArea.replaceChildren(stack, play.verbBar);
     mounted = { width: frame.width, height: frame.height, play, disposeInput: input.dispose };

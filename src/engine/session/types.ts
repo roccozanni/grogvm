@@ -19,8 +19,8 @@ export interface SessionGame {
  * calls {@link EngineSession.sendInput}. NOTE: verb/sentence click dispatch
  * (running input-script #4 against the hovered object) is NOT handled here —
  * that's the Play surface's job (Phase 10, task 5). This covers only the
- * engine-level surface: cursor position, button holds, and the Escape /
- * abort-cutscene key.
+ * engine-level surface: cursor position, button holds, and keys — Escape
+ * (abort-cutscene) and `.` (skip the current line of speech).
  */
 export type InputEvent =
   | { readonly type: 'move'; readonly roomX: number; readonly roomY: number }

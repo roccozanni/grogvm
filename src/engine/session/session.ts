@@ -381,6 +381,7 @@ export function createSession(
           break;
         case 'key':
           if (ev.key === 'Escape') vm.abortCutscene();
+          else if (ev.key === '.') vm.skipText();
           break;
       }
     },

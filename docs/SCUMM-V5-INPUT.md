@@ -239,3 +239,23 @@ A complete "Look at the poster" in MI1, end to end:
 The same path, with the player armed with **Use** and clicking two
 objects, produces a two-object sentence via the `g110` preposition step
 in §5.
+
+## 9. Keyboard shortcuts (Escape, dot)
+
+Two engine-level keys the player uses during scripted moments:
+
+- **Escape — abort the cutscene.** Skips a *skippable* cutscene (one that
+  armed an `override`); `vm.abortCutscene()` jumps the cutscene script to
+  its override target. Ends the whole scene.
+- **`.` (dot) — skip the current line of speech.** The per-line analogue of
+  Escape. `vm.skipText()` drains the current talk page: if the printed
+  message has more sentence pages queued (split at `\xff\x03`, see §6 /
+  SCUMM-V5-CHAR) it flips to the next page; otherwise it ends the message
+  (clears `VAR_HAVE_MSG`, so a `wait-for-message` releases). One press = one
+  page, mirroring the talk timer's natural drain in `vm.beginTick()` — the
+  two share `advanceOrEndTalk()`. A no-op when nothing is being said.
+
+Both are routed the same way: `shell/player/input.ts` turns the keydown into
+a `session.sendInput({type:'key', key})`, and the session dispatches Escape →
+`abortCutscene`, `.` → `skipText`. They are distinct: Escape ends a scene,
+the dot ends a single spoken line.

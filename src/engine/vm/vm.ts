@@ -1247,26 +1247,51 @@ export class Vm {
     // auto-clears, matching the original's stopTalk.
     if (this.talkDelay > 0) {
       this.talkDelay--;
-      if (this.talkDelay === 0) {
-        if (this.talkPages.length > 0) {
-          // More sentence pages queued — flip to the next one and re-arm
-          // the timer instead of ending the message. VAR_HAVE_MSG stays
-          // set (beginTalk re-asserts it), so a wait-for-message keeps
-          // blocking until the final page finishes.
-          const next = this.talkPages.shift()!;
-          const dlg: ActiveDialog = { ...this.talkPageDlg!, text: next };
-          if (this.talkPageSystem) this.addSystemText(dlg);
-          else this.activeDialog = dlg;
-          this.beginTalk(next);
-        } else {
-          this.vars.writeGlobal(Vm.VAR_HAVE_MSG, 0);
-          const d = this.activeDialog;
-          if (d && d.actorId >= 1 && d.actorId <= this.actors.capacity) {
-            this.activeDialog = null;
-          }
-        }
+      if (this.talkDelay === 0) this.advanceOrEndTalk();
+    }
+  }
+
+  /**
+   * The current talk page is finished — its timer drained, or the player
+   * skipped it (see {@link skipText}). Either flip to the next queued
+   * sentence page or end the message. Shared by the talk timer
+   * ({@link beginTick}) and the manual skip so both behave identically.
+   */
+  private advanceOrEndTalk(): void {
+    if (this.talkPages.length > 0) {
+      // More sentence pages queued — flip to the next one and re-arm the
+      // timer instead of ending the message. VAR_HAVE_MSG stays set
+      // (beginTalk re-asserts it), so a wait-for-message keeps blocking
+      // until the final page finishes.
+      const next = this.talkPages.shift()!;
+      const dlg: ActiveDialog = { ...this.talkPageDlg!, text: next };
+      if (this.talkPageSystem) this.addSystemText(dlg);
+      else this.activeDialog = dlg;
+      this.beginTalk(next);
+    } else {
+      this.vars.writeGlobal(Vm.VAR_HAVE_MSG, 0);
+      const d = this.activeDialog;
+      if (d && d.actorId >= 1 && d.actorId <= this.actors.capacity) {
+        this.activeDialog = null;
       }
     }
+  }
+
+  /**
+   * Skip the current line of speech — the player's `.` (dot) key, the
+   * per-line analogue of {@link abortCutscene}'s whole-scene skip. ScummVM
+   * maps the dot to "advance past the current spoken line": one press drains
+   * the current talk page, flipping to the next queued page if any, else
+   * ending the message (clears `VAR_HAVE_MSG` so a wait-for-message releases).
+   * No-op when nothing is being said (`talkDelay <= 0`); returns whether it
+   * skipped anything. Distinct from `abortCutscene` — this ends one line, not
+   * the scene.
+   */
+  skipText(): boolean {
+    if (this.talkDelay <= 0) return false;
+    this.talkDelay = 0;
+    this.advanceOrEndTalk();
+    return true;
   }
 
   /**

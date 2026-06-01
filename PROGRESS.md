@@ -837,16 +837,9 @@ most lives in the inline known-bug entries above and the linked docs.
     the ±1px jitter (no flip-flop) *and* follows the path's actual shape.
     Verified on real room 33: S down the cliff, E along the dock. Straight-line
     walks fall back to `walkTarget` (unchanged). +1 test.
-- **Room 38 (lookout) fire composites *over* Guybrush** *(new,
-  2026-05-31, user-reported)*. The campfire actor draws on top of
-  Guybrush's torso/arm; it should sit in front of only his lower body
-  (he's seated behind the fire pit). Likely overlaps the **z-plane /
-  box-mask default clip** work — the seated ego's box mask vs. the
-  fire actor's `alwaysZclip` plane. NB: the session-3 z-plane entry
-  claimed the lookout fire occlusion fixed *for the standing/entry pose
-  behind the wall* (ASCII-verified) — this is the **seated fireside**
-  composite, a different pose/position. See
-  [docs/SCUMM-V5-ZPLANE.md](docs/SCUMM-V5-ZPLANE.md) §"Box-mask".
+- [x] **Room 38 (lookout) fire over Guybrush — FIXED (stale entry, user
+  confirms resolved, session 10).** The campfire no longer composites over
+  Guybrush; resolved by the earlier composition/z-clip work.
 - **Compositor honours `VAR_CURRENT_LIGHTS`** — a dark room should
   darken via the lights flag, not only a dark palette. Night rooms
   already ship a dark palette so the gap may be subtle — check it's even
@@ -875,18 +868,17 @@ most lives in the inline known-bug entries above and the linked docs.
   [docs/SCUMM-V5-INPUT.md](docs/SCUMM-V5-INPUT.md) §5.
 - **Inventory scroll arrows** (verbs 208/209) for >8 items — needs a
   save with a full inventory to exercise.
-- **Skip the current dialog sentence with `.` (dot)** *(new,
-  2026-05-31, user-reported)*. ScummVM maps the **dot** key to
-  "advance past the current line of speech" — the per-sentence analogue
-  of Escape's whole-cutscene skip. Hook: a `.` keydown in
-  `src/shell/player/input.ts` (mirroring `onEscape`) → a new
-  `vm.skipText()` that drains the **current talk page** — advance to the
-  next page if one is queued, else clear `VAR_HAVE_MSG` / `talkDelay`
-  (same path the talk timer takes when a page's delay runs out, see
-  `vm.ts beginTick` / `talkPages`). Distinct from `abortCutscene`: it
-  ends one line, not the scene. See
-  [docs/SCUMM-V5-INPUT.md](docs/SCUMM-V5-INPUT.md) /
-  [docs/SCUMM-V5-CHAR.md](docs/SCUMM-V5-CHAR.md).
+- [x] **Skip the current dialog sentence with `.` (dot) — DONE (session 10),
+  PENDING in-app confirm.** ScummVM maps the **dot** key to "advance past the
+  current line of speech." Implemented `vm.skipText()`: forces the current
+  talk page to its end via a shared `advanceOrEndTalk()` (factored out of
+  `beginTick`'s talk-timer drain) — flips to the next queued page (`\xff\x03`
+  split) if any, else clears `VAR_HAVE_MSG` / `activeDialog`. One press = one
+  page; no-op (returns false) when nothing is being said. Wired through the
+  session like Escape: `input.ts` `.` keydown → `onSkipLine` →
+  `sendInput({type:'key', key:'.'})` → `vm.skipText()`. Distinct from
+  `abortCutscene` (ends one line, not the scene). +3 talk tests (→759), tsc
+  clean. See [docs/SCUMM-V5-INPUT.md](docs/SCUMM-V5-INPUT.md) §9.
 
 **Opcodes still stubbed (cosmetic / peripheral)**
 

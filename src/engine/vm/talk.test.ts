@@ -57,6 +57,50 @@ describe('talk timing (VAR_HAVE_MSG)', () => {
     expect(vm.activeDialog).toBeNull();
   });
 
+  it('skipText ends a single-page line at once (the player dot key)', () => {
+    const vm = makeVm();
+    vm.vars.writeGlobal(1, 1); // VAR_EGO = actor 1
+    const a = vm.actors.get(1);
+    a.room = 1;
+    a.talkColor = 15;
+    vm.startScript({ scriptId: 1, bytecode: bytes(0xd8, 0x0f, 0x48, 0x69, 0x00, 0xa0) }); // printEgo "Hi"
+    vm.step();
+    expect(vm.talkDelay).toBeGreaterThan(0);
+    expect(vm.skipText()).toBe(true);
+    expect(vm.talkDelay).toBe(0);
+    expect(vm.vars.readGlobal(Vm.VAR_HAVE_MSG)).toBe(0);
+    expect(vm.activeDialog).toBeNull();
+  });
+
+  it('skipText advances a multi-page line one page per press, then ends it', () => {
+    const vm = makeVm();
+    vm.vars.writeGlobal(1, 1); // VAR_EGO = actor 1
+    const a = vm.actors.get(1);
+    a.room = 1;
+    a.talkColor = 15;
+    // printEgo "A\xff\x03B" — two sentence pages: 'A' shown now, 'B' queued.
+    vm.startScript({ scriptId: 1, bytecode: bytes(0xd8, 0x0f, 0x41, 0xff, 0x03, 0x42, 0x00, 0xa0) });
+    vm.step();
+    expect(vm.activeDialog?.text).toBe('A');
+    expect(vm.vars.readGlobal(Vm.VAR_HAVE_MSG)).toBe(1);
+    // First skip flips to page 'B' — the message is NOT over yet.
+    expect(vm.skipText()).toBe(true);
+    expect(vm.activeDialog?.text).toBe('B');
+    expect(vm.vars.readGlobal(Vm.VAR_HAVE_MSG)).toBe(1);
+    expect(vm.talkDelay).toBeGreaterThan(0);
+    // Second skip drains the last page → message ends.
+    expect(vm.skipText()).toBe(true);
+    expect(vm.vars.readGlobal(Vm.VAR_HAVE_MSG)).toBe(0);
+    expect(vm.activeDialog).toBeNull();
+  });
+
+  it('skipText is a no-op (returns false) when nothing is being said', () => {
+    const vm = makeVm();
+    expect(vm.talkDelay).toBe(0);
+    expect(vm.skipText()).toBe(false);
+    expect(vm.vars.readGlobal(Vm.VAR_HAVE_MSG)).toBe(0);
+  });
+
   it('wait-for-message blocks while talking and releases when the timer drains', () => {
     const vm = makeVm();
     vm.vars.writeGlobal(Vm.VAR_CHARINC, 1);
