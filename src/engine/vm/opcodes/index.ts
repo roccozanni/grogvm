@@ -917,12 +917,15 @@ register(0x0f, getObjectStateHandler);
 register(0x8f, getObjectStateHandler);
 
 // ─── 0x10 / 0x90  getObjectOwner ─────────────────────────────────────
-// `opcode result object[p16]`. Result var ← the object's owner actor
-// id (0 = nobody / still in the room). Mirror of setOwnerOf.
+// `opcode result object[p16]`. Result var ← the object's owner actor id
+// (15 = the room itself, OF_OWNER_ROOM; an actor id = in that actor's
+// inventory; 0 = nobody / removed). See vm.getObjectOwner — a room object
+// with no explicit owner reads as 15, which MI1's sentence script #2 gates
+// the walk-to-object approach on. Mirror of setOwnerOf.
 function getObjectOwnerHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const dest = readDestRef(slot, vm.vars);
   const obj = readVarOrWord(opcode, 1, slot, vm.vars);
-  const owner = vm.objectOwners.get(obj) ?? 0;
+  const owner = vm.getObjectOwner(obj);
   writeRef(dest, owner, slot, vm.vars);
   vm.annotate(`getObjectOwner obj=${obj} → ${owner}`);
 }
@@ -1155,7 +1158,16 @@ function objActPos(vm: Vm, id: number): { x: number; y: number } | null {
     return { x: a.x, y: a.y };
   }
   const obj = vm.loadedRoom?.objects.get(id);
-  return obj ? { x: obj.cdhd.x * 8, y: obj.cdhd.y * 8 } : null;
+  if (!obj) return null;
+  // SCUMM's getObjectXYPos returns the object's **walk-to point** — the exact
+  // spot walkActorToObject / loadRoomWithEgo send the ego to (walkX/walkY,
+  // unset = 0,0). getDist's proximity gate MUST use the same reference, or the
+  // ego reaches the walk-to point yet still reads as "too far" (measured to the
+  // distant image top-left). MI1's room-33 SCUMM Bar door has walk-to (715,130)
+  // but its image sits at (696,80) — the gap made every "open the door" abort
+  // with "Non riesco ad arrivarci". Mirroring walkActorToObject (no image-pos
+  // fallback) also keeps the two consistent for walk-to-less objects.
+  return { x: obj.cdhd.walkX, y: obj.cdhd.walkY };
 }
 function getDistHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const dest = readDestRef(slot, vm.vars);

@@ -182,6 +182,14 @@ const TRACE_CAPACITY = 64;
 const MIN_TALK_TICKS = 30;
 /** Global #4 = current-room id per the SCUMM v5 wiki. */
 const VAR_ROOM_INDEX = 4;
+/**
+ * SCUMM's `OF_OWNER_ROOM` — the owner value for an object that belongs to the
+ * room it sits in (i.e. not in anyone's inventory). MI1's sentence script #2
+ * gates the walk-to-object approach on `getObjectOwner(obj) == 15`, so a
+ * room object MUST read as 15 or the ego never walks up to it. Picking the
+ * object up reassigns the owner to an actor id; 0 means "nobody / removed".
+ */
+const OF_OWNER_ROOM = 15;
 
 /** Resolve a global script id to its loaded bytecode + owning room. */
 export type GlobalScriptResolver = (
@@ -1006,7 +1014,11 @@ export class Vm {
     const startScript = this.vars.readGlobal(Vm.VAR_CUTSCENE_START_SCRIPT);
     if (startScript > 0) {
       try {
-        this.startScriptById(startScript, { args });
+        // Run #18 nested (to completion) so its freezeScripts takes effect
+        // before the caller's next opcode — and before endCutscene starts
+        // #19. See runScriptNested.
+        const s = this.startScriptById(startScript, { args });
+        this.runScriptNested(s);
       } catch {
         // Start script unresolvable — cutscene still proceeds.
       }
@@ -1025,7 +1037,10 @@ export class Vm {
     const endScript = this.vars.readGlobal(Vm.VAR_CUTSCENE_END_SCRIPT);
     if (endScript > 0) {
       try {
-        this.startScriptById(endScript, { args: frame?.args ?? [] });
+        // Run #19 nested so it un-freezes scripts / restores input in order,
+        // not queued behind the start script's freeze. See runScriptNested.
+        const s = this.startScriptById(endScript, { args: frame?.args ?? [] });
+        this.runScriptNested(s);
       } catch {
         // End script unresolvable.
       }
@@ -1161,14 +1176,40 @@ export class Vm {
     if (this._haltInfo) return undefined;
     const slot = this.slots.find((s) => s.runnable);
     if (!slot) return undefined;
+    this.dispatchSlot(slot);
+    return slot;
+  }
 
+  /**
+   * Run one specific slot to completion *right now* — SCUMM's nested
+   * `runScript`. Steps only `slot` until it dies, yields (`breakHere`), or
+   * freezes, leaving every other slot untouched. Used for scripts that must
+   * finish before the caller's next opcode rather than being queued behind
+   * it: the cutscene start/end scripts (#18/#19). Queuing them instead
+   * scrambles ordering — the start script's `freezeScripts` would run *after*
+   * the end script was created and freeze it, deadlocking input (the
+   * room-33 "open the SCUMM Bar door" freeze). A `breakHere` mid-script just
+   * yields it back to the normal per-frame scheduler — no different from any
+   * other yielded slot. Capped against runaway loops.
+   */
+  runScriptNested(slot: ScriptSlot, maxSteps = 100_000): void {
+    let count = 0;
+    while (slot.runnable && !this._haltInfo && count < maxSteps) {
+      this.dispatchSlot(slot);
+      count++;
+    }
+  }
+
+  /** Dispatch a single opcode in `slot`. Shared by {@link step} (next
+   *  runnable slot) and {@link runScriptNested} (one specific slot). */
+  private dispatchSlot(slot: ScriptSlot): void {
     if (slot.pc >= slot.bytecode.length) {
       this.haltFromOpcode(
         slot,
         0,
         `pc=${slot.pc} past end of bytecode (len=${slot.bytecode.length})`,
       );
-      return slot;
+      return;
     }
 
     const opcodePc = slot.pc;
@@ -1187,7 +1228,7 @@ export class Vm {
         opcode,
         mnemonic: '(unknown)',
       });
-      return slot;
+      return;
     }
 
     try {
@@ -1202,7 +1243,7 @@ export class Vm {
         opcode,
         mnemonic: this.lastAnnotation ?? '(error)',
       });
-      return slot;
+      return;
     }
 
     this.appendTrace({
@@ -1212,7 +1253,6 @@ export class Vm {
       opcode,
       ...(this.lastAnnotation !== undefined && { mnemonic: this.lastAnnotation }),
     });
-    return slot;
   }
 
   /**
@@ -1442,6 +1482,23 @@ export class Vm {
     let n = 0;
     for (const o of this.objectOwners.values()) if (o === owner) n++;
     return n;
+  }
+
+  /**
+   * The owner of an object. An explicit entry (set by `pickupObject` /
+   * `setOwnerOf`, or restored from a save) always wins. With no entry, an
+   * object present in the **currently loaded room** is owned by the room
+   * ({@link OF_OWNER_ROOM} = 15) — its faithful initial state, since we don't
+   * yet parse the index's `DOBJ` owner/state directory; anything else is
+   * nobody (0). Backs the `getObjectOwner` opcode. Keeping the room default
+   * here (not in {@link objectOwners}) leaves {@link inventoryCount} /
+   * {@link findInventory} — which scan the map for a matching actor id —
+   * untouched (15 is never a real actor).
+   */
+  getObjectOwner(obj: number): number {
+    const explicit = this.objectOwners.get(obj);
+    if (explicit !== undefined) return explicit;
+    return this.loadedRoom?.objects.has(obj) ? OF_OWNER_ROOM : 0;
   }
 
   /**

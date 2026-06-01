@@ -678,6 +678,26 @@ describe('room-entry opcodes', () => {
     expect(vm.vars.readGlobal(1)).toBe(5);
   });
 
+  it('getObjectOwner defaults a room object to OF_OWNER_ROOM (15), absent → 0', () => {
+    const vm = makeVm();
+    // A minimal loaded room containing object 42 (no explicit owner entry).
+    vm.loadedRoom = {
+      id: 1, width: 0, height: 0, numObjects: 1, palette: new Uint8Array(768),
+      transparentIndex: null, indexed: new Uint8Array(0), stripMethods: [],
+      zPlanes: [], entryScript: null, exitScript: null, localScripts: new Map(),
+      objects: new Map([[42, { objId: 42 }]]),
+      walkBoxes: [], walkableMask: new Uint8Array(0), scaleSlots: [],
+    } as never;
+    // Present in the room, no explicit owner → owned by the room (15). This is
+    // what MI1's sentence script #2 gates the walk-to-object approach on.
+    expect(vm.getObjectOwner(42)).toBe(15);
+    // Not in the room → nobody (0).
+    expect(vm.getObjectOwner(99)).toBe(0);
+    // An explicit owner (pickup / setOwnerOf) always wins, even for a room obj.
+    vm.objectOwners.set(42, 3);
+    expect(vm.getObjectOwner(42)).toBe(3);
+  });
+
   it('getActorX reads the actor position into a result var (p16 actor)', () => {
     const vm = makeVm();
     const a = vm.actors.get(5);
@@ -866,7 +886,7 @@ describe('inventory subsystem', () => {
 });
 
 describe('getDist + ifClassOfIs', () => {
-  function roomWithObj(objId: number, x8: number, y8: number) {
+  function roomWithObj(objId: number, x8: number, y8: number, walkX = 0, walkY = 0) {
     return {
       id: 1, width: 320, height: 200, numObjects: 1,
       palette: new Uint8Array(768), transparentIndex: null,
@@ -874,7 +894,7 @@ describe('getDist + ifClassOfIs', () => {
       entryScript: null, exitScript: null, localScripts: new Map(),
       objects: new Map([[objId, {
         objId,
-        cdhd: { objId, x: x8, y: y8, width: 0, height: 0, flags: 0, parent: 0, walkX: 0, walkY: 0, actorDir: 0 },
+        cdhd: { objId, x: x8, y: y8, width: 0, height: 0, flags: 0, parent: 0, walkX, walkY, actorDir: 0 },
         imhd: { objId, numImages: 0, flags: 0, x: 0, y: 0, width: 0, height: 0 },
         images: new Map(), name: 'thing', verbs: new Map(),
       }]]),
@@ -882,12 +902,16 @@ describe('getDist + ifClassOfIs', () => {
     };
   }
 
-  it('getDist (0x34) → Chebyshev distance between an actor and an object', () => {
+  it('getDist (0x34) → Chebyshev distance to an object WALK-TO point (not its image)', () => {
     const vm = makeVm();
-    vm.loadedRoom = roomWithObj(50, 5, 5) as never; // object at (40, 40) px
+    // Image at (80,80)px but walk-to at (40,40). getDist must measure to the
+    // walk-to point — the spot walkActorToObject sends the ego — so an actor
+    // that walked up to the object reads as close, not "too far" (the room-33
+    // SCUMM Bar door bug). Image pos here would give max(70,60)=70.
+    vm.loadedRoom = roomWithObj(50, 10, 10, 40, 40) as never;
     const a = vm.actors.get(1);
     a.x = 10; a.y = 20;
-    // getDist g0 = dist(actor 1, object 50) → max(|10-40|,|20-40|) = 30.
+    // getDist g0 = dist(actor (10,20), walk-to (40,40)) → max(30,20) = 30.
     vm.startScript({ scriptId: 1, bytecode: bytes(0x34, 0x00, 0x00, 0x01, 0x00, 0x32, 0x00) });
     vm.step();
     expect(vm.vars.readGlobal(0)).toBe(30);

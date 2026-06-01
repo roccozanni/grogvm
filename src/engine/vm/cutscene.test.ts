@@ -94,6 +94,30 @@ describe('cutscene / endCutscene', () => {
     expect(started).toContain(19);
   });
 
+  it('runs the start/end scripts NESTED so freeze/unfreeze ordering is right', () => {
+    // Regression: the room-33 "open the SCUMM Bar door" freeze. The start
+    // script (#18) freezes every other slot; the end script (#19) unfreezes.
+    // If they are merely queued (not run nested), a caller that does
+    // cutScene…endCutScene in one run starts #18 AFTER #19 exists, so #18's
+    // freeze catches #19 and it never unfreezes → input dead. Nested
+    // execution runs each to completion in order.
+    const scripts: Record<number, Uint8Array> = {
+      18: bytes(0x60, 0x7f, 0xa0), // freezeScripts 127; stop
+      19: bytes(0x60, 0x00, 0xa0), // freezeScripts 0 (thaw all); stop
+    };
+    const vm = makeVm((id) => ({ bytecode: scripts[id]!, room: 1 }));
+    vm.vars.writeGlobal(Vm.VAR_CUTSCENE_START_SCRIPT, 18);
+    vm.vars.writeGlobal(Vm.VAR_CUTSCENE_END_SCRIPT, 19);
+    const bystander = vm.startScript({ scriptId: 5, bytecode: bytes(0x80, 0xa0) });
+    const caller = vm.startScript({ scriptId: 1, bytecode: bytes(0x80) });
+
+    vm.beginCutscene([], caller.slotIndex);
+    expect(bystander.freezeCount).toBe(1); // #18 ran nested → bystander frozen
+    vm.endCutscene();
+    expect(bystander.freezeCount).toBe(0); // #19 ran nested → thawed again
+    expect(bystander.runnable).toBe(true);
+  });
+
   it('clears VAR_OVERRIDE on begin and end', () => {
     const vm = makeVm();
     vm.vars.writeGlobal(Vm.VAR_OVERRIDE, 7);

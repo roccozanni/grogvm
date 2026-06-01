@@ -129,7 +129,35 @@ otherwise NeverClip class → front, else box mask via **`findBoxAtOrNearest`**
 no point — strict `findBoxAt` returned none → front, the old gap). Added an
 `isNeverClip` callback to `composeFrame` (wired in session.ts from
 `vm.objectClasses` class 20 / bit 19). 756 tests green (4 new z-clip cases),
-tsc clean. **NEEDS in-app confirm** in room 33 (walk Guybrush behind a building).
+tsc clean. ✓ user-confirmed in room 33 (Guybrush passes behind the buildings).
+
+### 4. Natural-play: "open the SCUMM Bar door" froze input — FIXED (session 10)
+First natural-play blocker (user-reported): in room 33, arming **Apri** (Open,
+verb 2) on the SCUMM Bar door (#428 → room 28) made Guybrush say "Non riesco ad
+arrivarci." and then walk input froze. **Three independent engine bugs stacked:**
+1. **Object owner default.** `getObjectOwner` returned 0 for a room object;
+   MI1's sentence script #2 gates the *walk-to-object* approach on
+   `owner == 15` (SCUMM's `OF_OWNER_ROOM`). With owner 0 the script skipped the
+   walk entirely → ego never approached → "can't reach". Fix: `vm.getObjectOwner`
+   defaults a room-present object to 15 (explicit pickup/setOwnerOf still wins).
+   (`DOBJ` initial owner/state still unparsed — this is the faithful default.)
+2. **`getDist` reference point.** Proximity used the object's *image* top-left
+   (`cdhd.x*8,y*8`); SCUMM's `getObjectXYPos` uses the **walk-to point**
+   (`walkX/walkY`) — the exact spot `walkActorToObject`/`loadRoomWithEgo` send
+   the ego. The door's image is (696,80) but its walk-to is (715,130), so the
+   ego reached the door yet read 52px away ≥ the 16px gate. Fix: `objActPos`
+   returns the walk-to point (no image-pos fallback — that would reintroduce the
+   walk-here/measure-there mismatch for walk-to-less objects).
+3. **Cutscene script ordering (the freeze).** The door-open handler (global 25)
+   does `cutScene … endCutScene` in one run without yielding. We *queued* the
+   cutscene start (#18) / end (#19) scripts instead of running them **nested**
+   (SCUMM's `runScript`), so #18's `freezeScripts 127` executed *after* #19 was
+   created and froze it → #19 never ran its `freezeScripts 0`/`userputSoftOn` →
+   input dead. Fix: `vm.runScriptNested` runs the cutscene start/end scripts to
+   completion in order; `step()` refactored to share `dispatchSlot`.
+Verified end-to-end (probe `probe-door-seq.ts`): Apri → door opens (state 1),
+input stays live; Vai → **room 28** (SCUMM Bar interior). +6 tests (761 total),
+tsc clean. **NEEDS in-app confirm** (open the SCUMM Bar door, walk in).
 
 Why: `renderPlayer` (player.ts, 1714 lines) was a vertically-stacked
 *resource browser*, not a game player — the actual game was wedged inside
