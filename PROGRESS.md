@@ -82,7 +82,39 @@ engine-side fixes (all separate from the rebuild; 753 tests green, tsc clean):
   paused/stepping (was every frame, then a 10 Hz throttle). Good hygiene, but
   **did NOT fix the stutter** → the stutter is not the debug panel.
 
-## Open issues (session 9: #1 & #2 fixed+confirmed; session 10: #3 fixed+confirmed)
+**Natural-play debugging pass (2026-06-01, session 10).** Engine is solid
+(766 tests green, tsc clean); started actually *playing* MI1 from room 33 and
+fixing each blocker the user hit (chosen approach: natural play, not debug
+warps). All on `main`, all engine-faithful. Headline fixes (details in the
+numbered open-issues below — #3–#8, all ✓ user-confirmed):
+- **Ego z-occlusion (#3)** — `forceClip == 0` is SCUMM's *not-forced* sentinel,
+  not "always front"; depth is box-mask-driven. Guybrush now passes behind the
+  room-33 buildings.
+- **Dot-key dialog skip** — `.` advances past the current spoken line
+  (`vm.skipText`), per-line analogue of Escape (see SCUMM-V5-INPUT §9).
+- **SCUMM Bar door (#4/#5)** — three stacked bugs fixed so "Apri the door → walk
+  in to room 28" works: object owner defaults to `OF_OWNER_ROOM` (15) so the
+  sentence script walks the ego up; `getDist` uses the **walk-to point** not the
+  image; cutscene start/end scripts run **nested** (`vm.runScriptNested`) so the
+  open-handler's freeze/unfreeze order is right (was freezing input dead). Plus
+  `delayVariable` (0x2b) implemented (room-28 ambient loop) and `setState` now
+  **renders** the new state (the open doorway draws + persists on re-entry).
+- **Stray interactive objects (#6)** — parse the index **`DOBJ`** directory and
+  seed initial object owner/state/**class**; `findObject`/hover skip the
+  **Untouchable** class (32). The not-yet-docked ship (#430) and ~510 other
+  initially-Untouchable objects are no longer hoverable.
+- **Quick-load (#7)** + **ego self-hover (#8)** — Play overlays/input re-bind
+  when the session swaps VM on restore; the ego can't hover-target itself.
+
+**Next session:** keep playing into the SCUMM Bar (room 28) and beyond —
+gather inventory items + reach a use-with puzzle so the **two-object "Use X with
+Y"** and **inventory scroll arrows** backlog items can be exercised with a real
+save. Watch for: more unimplemented opcodes (halts), missing object states from
+the un-parsed-beyond-initial `DOBJ` (we seed initial only), and any room-entry
+script gaps. The `scratch/` probes from this session (`probe-door-seq`,
+`probe-hover33`, `probe-dobj`, `probe-room28`, …) are handy templates.
+
+## Open issues (session 9: #1 & #2 confirmed; session 10: #3–#8 fixed & confirmed)
 
 ### 1. Camera-follow stutter + "two Guybrush" — FIXED & user-confirmed (session 9)
 Ordering bug, as hypothesised. `moveCameraFollow()` ran in `beginTick()` (every
@@ -213,8 +245,15 @@ own `sendInput`/render use the live VM, which is why rendering looked fine. **Fi
 `play.ts` tracks the mounted VM identity and re-mounts when `session.vm` changes
 (not only on dimension change); `restore`'s `composeAndPresent` fires `onFrame`
 so it re-binds immediately. The Debug panel already reads `session.vm` live each
-frame, so it was unaffected. tsc clean, 766 green. **NEEDS in-app confirm**
+frame, so it was unaffected. tsc clean, 766 green. ✓ user-confirmed
 (quick-load: highlights aligned, walking works).
+
+### 8. Ego could hover-target itself ("obj #1") — FIXED & user-confirmed (session 10)
+Hovering Guybrush showed "obj #1": the play-area hover runs `actorFromPos` first
+and returned the ego, then rendered its nameless label. You can't Walk to / Look
+at yourself. `recomputeHover` now skips the ego (`VAR_EGO`) and falls through to
+object hit-testing (an object *behind* Guybrush is still reachable). Other actors
+remain hoverable for Talk-to. Shell-only; tsc clean, 766 green.
 
 Why: `renderPlayer` (player.ts, 1714 lines) was a vertically-stacked
 *resource browser*, not a game player — the actual game was wedged inside
