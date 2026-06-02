@@ -241,20 +241,20 @@ describe('phase 8 — dialog escape codes (substitutions)', () => {
     expect(vm.systemText?.text).toBe('X=7');
   });
 
-  it('0x07 inserts the contents of a string resource', () => {
+  it('0x05 inserts a verb name (id read from a var)', () => {
     const vm = makeVm();
-    vm.vars.writeGlobal(60, 3);
-    vm.strings.set(3, bytes(0x48, 0x69)); // "Hi"
-    // \xff\x07 <var 60 → string id 3>
+    vm.vars.writeGlobal(80, 7);
+    vm.verbs.set(7, { id: 7, name: 'Usa', color: 0, hiColor: 0, dimColor: 0, backColor: 0, x: 0, y: 0, key: 0, charset: 0, centered: false, image: null, state: 'on' });
+    // \xff\x05 <var 80 → verb id 7>
     vm.startScript({
       scriptId: 1,
-      bytecode: bytes(0x14, 0xff, 0x0f, 0xff, 0x07, 0x3c, 0x00, 0x00),
+      bytecode: bytes(0x14, 0xff, 0x0f, 0xff, 0x05, 0x50, 0x00, 0x00),
     });
     vm.step();
-    expect(vm.systemText?.text).toBe('Hi');
+    expect(vm.systemText?.text).toBe('Usa');
   });
 
-  it('0x08 inserts an object name', () => {
+  it('0x06 inserts an object name (id read from a var)', () => {
     const obj: LoadedObject = {
       objId: 42,
       cdhd: { objId: 42, x: 0, y: 0, width: 0, height: 0, flags: 0, parent: 0, walkX: 0, walkY: 0, actorDir: 0 },
@@ -266,13 +266,25 @@ describe('phase 8 — dialog escape codes (substitutions)', () => {
     const vm = makeVm();
     vm.loadedRoom = { ...fakeRoom(1), objects: new Map([[42, obj]]) };
     vm.vars.writeGlobal(70, 42);
-    // \xff\x08 <var 70 → obj 42>
+    // \xff\x06 <var 70 → obj 42>
     vm.startScript({
       scriptId: 1,
-      bytecode: bytes(0x14, 0xff, 0x0f, 0xff, 0x08, 0x46, 0x00, 0x00),
+      bytecode: bytes(0x14, 0xff, 0x0f, 0xff, 0x06, 0x46, 0x00, 0x00),
     });
     vm.step();
     expect(vm.systemText?.text).toBe('sword');
+  });
+
+  it('0x07 inserts a string resource by DIRECT id (not via a var)', () => {
+    const vm = makeVm();
+    vm.strings.set(3, bytes(0x48, 0x69)); // string resource 3 = "Hi"
+    // \xff\x07 <string id 3, used directly — addStringToStack(num)>
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(0x14, 0xff, 0x0f, 0xff, 0x07, 0x03, 0x00, 0x00),
+    });
+    vm.step();
+    expect(vm.systemText?.text).toBe('Hi');
   });
 
   it('still strips a deferred code (0x0A actor name) without emitting', () => {

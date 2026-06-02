@@ -1872,7 +1872,7 @@ function verbOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
         // name entirely from these substitution codes.
         const nameBytes = readScummString(slot);
         const v = getOrCreateVerb(vm, verbId);
-        v.name = decodeScummString(nameBytes);
+        v.name = decodeScummString(nameBytes, vm, slot);
         v.image = null; // text verb — drop any prior image binding
         // NB: do NOT re-capture the charset here. SCUMM fixes a verb's
         // charset at `new` (definition); setName only changes the text.
@@ -2081,12 +2081,17 @@ function pushAscii(out: number[], s: string): void {
  * it needs the executing slot + vm; when either is absent (e.g. decoding
  * a static verb name) the code is dropped, matching the prior behaviour.
  *
- * Implemented substitutions, per the SCUMM v5 string-code layout:
- *   0x04 int-var  → the variable's value, in decimal
- *   0x07 string   → the contents of string resource `id`
- *   0x08 obj/verb → the object's or verb's display name
- * Deferred (argument consumed, nothing emitted): 0x06 var-name, 0x09
- * sound, 0x0A actor name (actor names aren't modelled yet), 0x0E
+ * Implemented substitutions, per the SCUMM v5 string-code layout
+ * (`convertMessageToString` — each code's 2-byte argument is a *var
+ * reference*, read with `derefRead`, holding the id to look up):
+ *   0x04 int    → the variable's value, in decimal
+ *   0x05 verb   → the display name of the verb whose id is in the var
+ *   0x06 name   → the display name of the object/actor whose id is in the var
+ *   0x07 string → the contents of string resource `id`
+ * MI1's sentence line (#100) is `verb[g107] str[g49] name[g108] " "
+ * verb[g110] " " name[g109]` — the preposition (g110) is itself a verb id
+ * whose name is "con"/"a", so it expands through the 0x05 verb path.
+ * Deferred (argument consumed, nothing emitted): 0x09 sound, 0x0E
  * mid-string colour (needs rich text — the dialog renderer paints one
  * colour per message today).
  */
@@ -2100,6 +2105,17 @@ function expandSubstitution(
 ): void {
   if (!vm || !slot) return;
   const word = (payload[i + 2] ?? 0) | ((payload[i + 3] ?? 0) << 8);
+  // SCUMM `convertMessageToString`: int/verb/name take their id from a var
+  // (`readVar(num)`), but string takes `num` directly as the string-var index
+  // (`addStringToStack(num)`). MI1's sentence line proves both: `0x05 g107` →
+  // verb name via the var, `0x07 49` → string resource 49 (a literal " "
+  // separator) by direct id. Reading 0x07 through the var instead would read
+  // g49 (= 0) and drop the space ("Usail pezzo…").
+  if (code === 0x07) {
+    const buf = vm.strings.get(word);
+    if (buf) pushAscii(out, decodeScummString(buf, vm, slot));
+    return;
+  }
   let value: number;
   try {
     value = derefRead(word, slot, vm.vars);
@@ -2108,11 +2124,11 @@ function expandSubstitution(
   }
   if (code === 0x04) {
     pushAscii(out, String(value));
-  } else if (code === 0x07) {
-    const buf = vm.strings.get(value);
-    if (buf) pushAscii(out, decodeScummString(buf));
-  } else if (code === 0x08) {
-    const name = vm.objectName(value) ?? vm.verbs.get(value)?.name;
+  } else if (code === 0x05) {
+    const name = vm.verbs.get(value)?.name;
+    if (name) pushAscii(out, name);
+  } else if (code === 0x06) {
+    const name = vm.objectName(value);
     if (name) pushAscii(out, name);
   }
 }
