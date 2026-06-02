@@ -19,8 +19,9 @@ Lean tracker. Three buckets:
 ## Current — natural play through MI1
 
 Playing MI1 from the start and fixing each blocker as it's hit (engine-faithful,
-committed on `main`). **785 tests green, tsc clean.** The intro → room 33 →
-SCUMM Bar (room 28) → pirate-conversation close-up is playable end-to-end.
+committed on `main`). **790 tests green, tsc clean.** The intro → room 33 →
+SCUMM Bar (room 28) → pirate-conversation close-up is playable end-to-end, with
+verbs, inventory, and two-object "Usa X con Y" / "Dai X a Y" working.
 
 **Working principle (agreed 2026-06-02):** no hacks/shortcuts — every change is
 the final, SCUMM-faithful solution. Confirm the real mechanism first (disassemble
@@ -31,87 +32,33 @@ bookkeeping. Surface any deferral/approximation explicitly and track it here;
 never bury a shortcut. If "faithful" needs a bigger refactor, raise the tradeoff
 rather than silently taking either the heavy path or the shortcut.
 
-**Last worked on — project rename + inventory/pickup fixes** *(2026-06-02;
-commits up to `cb02b12`; pickup + hover-arming user-confirmed in-browser)*:
+**Last worked on — two-object verbs + faithful sentence line** *(2026-06-02;
+commits up to `1a5fee9`; all user-confirmed in-browser)*. Input/verbs round —
+all faithful, committed, and **migrated to docs** (detail lives there now):
 
-- **Project renamed** webscumm → GrogVM (root dir is lowercase `grogvm`); game
-  dir `games/MI1` → `games/MI1-IT-CD-DOS-VGA`. Brand text = "GrogVM"; lowercase
-  identifiers (npm name, IndexedDB name, `grogvm:save:*` localStorage prefixes,
-  memory path) = "grogvm". Data-gated engine tests now point at the new game dir.
-- **Picked-up item lingered on the counter** *(confirmed fixed)*. MI1 **bakes the
-  pickable food into the room-background SMAP**; each food object's state-1 image
-  is the patch that *erases* the baked-in item once taken (drawing obj 566 over
-  the counter clears the meat). So pickup must **draw** the object, not drop it:
-  `pickupObjectHandler` `objectDrawQueue.delete` → `.add` (= SCUMM
-  `putState(obj,1)` + `markObjectRectAsDirty`). An earlier ownership "isHeld"
-  draw-gate was the wrong model and was reverted. **→ migrate to
-  [OBJECTS](docs/SCUMM-V5-OBJECTS.md): the bg-baked-item / eraser-patch technique.**
-- **Picked-up item's hit area persisted** *(fixed)*. The visual fix above only did
-  half of SCUMM's `o5_pickupObject`: it drew the state-1 patch but skipped
-  **`putClass(obj, kObjectClassUntouchable, 1)`** (it was explicitly deferred).
-  So the taken item vanished yet still hit-tested in the room — you could keep
-  clicking the empty spot. `findObject`/`pickObject` already skip Untouchable
-  (class 32 → bit 31); fix = set that class bit in `pickupObjectHandler` (the
-  mechanics half the eraser-patch fix left open). **→ migrate to
-  [OBJECTS](docs/SCUMM-V5-OBJECTS.md) alongside the eraser-patch note: full
-  pickup = own + state-1 draw + Untouchable + inventory refresh.**
-- **Inventory hover arms the verb via the engine** *(confirmed working)*. The
-  hover poller **#23 already arms** the item default (saves active verb to
-  **g394**, sets **g107 ← 8 Esamina**, object **g108**, restores g107 on
-  hover-out over the band g45 ≥ 152 / g44 ≥ 160). It never fired because the
-  **two-canvas split** fed it no screen-space coords. Fix = Option 1 (unify the
-  *input* coordinate space): the verb-bar `pointermove` writes screen g44/g45 over
-  an inventory slot, so #23 runs; the sentence line reads armed g107 via
-  `armedVerb`. Shell-side default-verb guess reverted. **→ migrate to
-  [INPUT](docs/SCUMM-V5-INPUT.md): inventory-hover arming + the coordinate seam.**
-- **Sentence line** — ignore the inventory-slot verb (200–207) so the line shows
-  the armed verb, not the slot's nameless "Vai".
-- **Inventory click-commit** *(user-confirmed in-browser 2026-06-02)*: a single
-  left-click on an inventory item **does run the armed verb** end-to-end —
-  `handleVerbClick(200..207)` → #4 → `doSentence` → #2. The open item is closed.
-- **Held items read as unreachable** *(fixed, real-data + unit confirmed)*. A verb
-  on an inventory item (e.g. "Apri" the meat) aborted with **"Non riesco ad
-  arrivarci"**: #2 gates every verb behind `getDist(ego, target)`, but
-  `objActPos` (`opcodes/index.ts`) resolved a target **only** as a placed room
-  object → a held item (not in `loadedRoom.objects`) → `null` → `0xFF` "far".
-  SCUMM's `getObjectOrActorXY` has a **WIO_INVENTORY** case: a held object's
-  position **is its holder's** position, so `getDist(ego, heldItem) =
-  dist(ego,ego) = 0` → reachable → the verb runs. Fix = add that case to
-  `objActPos` (owner is an actor in the current room → holder xy; owner ≥ the
-  13-slot actor table, e.g. `OF_OWNER_ROOM`=15 → room branch). Held-by-actor-in-
-  another-room → `0xFF` (matches `getObjectOrActorXY` returning −1). **→ migrate
-  to [OBJECTS](docs/SCUMM-V5-OBJECTS.md) (whereIsObject / inventory reach) and/or
-  the getDist note alongside the room-33 door walk-to-point fix.**
-- **Two-object "Usa X con Y" — confirmed working + sentence line now faithful**
-  *(real-data confirmed against a room-41 kitchen quicksave; rendered to pixels)*.
-  The full A+B commit + `g110` preposition step works end-to-end through the real
-  scripts: click Usa (7) → click meat (g108=566) → #4 arms preposition `g110`=130
-  → hover/route object B into `g109` → commit `doSentence(7,566,574)` → #2 runs.
-  **Two bugs found in the sentence line (verb #100) while verifying:** (1)
-  `verbOps setName` decoded names *without* `vm`/`slot`, so `expandSubstitution`
-  dropped every `0xFF NN` code; (2) the code→meaning map was wrong. Correct SCUMM
-  v5: `0x04` int / `0x05` verb / `0x06` name = `readVar(num)`; `0x07` string =
-  `num` **direct** string-resource id. MI1 #100 = `verb[g107] str[g49]
-  name[g108] " " verb[g110] " " name[g109]`, where the preposition `g110`=130 is
-  a *verb* whose name is "con", and `g49`'s separator is string res 49 = " "
-  (g49's value is 0 — read it through the var and the space vanishes:
-  "Usail pezzo"). The `@`(0x40) name-padding is already render-stripped
-  ([text.ts](src/engine/graphics/text.ts)). **Shell now renders #100 directly**
-  (retired the single-object `sentenceText` synthesis — the deferred render
-  "Option 2" sentence-line step), so "Usa il pezzo di carne con la pentola con lo
-  spezzatino" shows. **→ migrate to [INPUT §5/§6](docs/SCUMM-V5-INPUT.md): the
-  substitution-code table + #100 is rendered, not synthesized.**
-- **`stopScript 0` must self-stop** *(general engine fix; user-found via the
-  sentence-line)*. Clicking the sentence line (#100) armed "verb 100" as the
-  active verb + wiped the in-progress sentence. #4 guards this — `if (L1==100)
-  stopScript 0` before the `g107 = L1` arming — but our `stopScript` treated arg
-  0 as a no-op, so the guard's self-terminate did nothing and #4 fell through.
-  SCUMM `o5_stopScript`: `if (script==0) stopObjectCode()` — arg 0 stops the
-  *current* script; scripts use it to self-terminate at guards. Fixed + test.
-  Also `pickInk` now highlights only when a verb carries a non-zero hicolor
-  (SCUMM `drawVerb`: `mode && vs->hicolor ? hicolor : color`) — #100 (hicolor 0)
-  no longer flashes on hover. **→ migrate to [INPUT](docs/SCUMM-V5-INPUT.md): the
-  sentence line is a real verb (hittable, but self-guarded) — not special-cased.**
+- **Two-object "Usa X con Y" / "Dai X a Y"** works end-to-end: verb → object A →
+  `g110` preposition arms → object B routes to `g109` → `doSentence(v,A,B)` → #2.
+  Confirmed against a room-41 kitchen quicksave (Use) + the pirates (Give).
+  [INPUT §5](docs/SCUMM-V5-INPUT.md).
+- **Sentence line is verb #100**, rebuilt each frame from `0xFF NN` substitution
+  codes (`0x05` verb / `0x06` name via `readVar`; `0x07` string by **direct** id;
+  preposition `g110` is a verb named "con"; separator = string res 49 `" "`). Now
+  **rendered directly** — retired the shell `sentenceText` synthesis (the deferred
+  render "Option 2" step). [INPUT §6](docs/SCUMM-V5-INPUT.md) has the code table.
+- **`stopScript 0` self-stops** *(general opcode fix; was a no-op)*. #4's
+  `if (L1==100) stopScript 0` guard makes a sentence-line click inert; arg 0 stops
+  the *current* script. Also `pickInk` highlights only on a non-zero hicolor (so
+  #100 doesn't flash). [INPUT §3/§6](docs/SCUMM-V5-INPUT.md).
+- **`pickupObject` = own + state-1 draw (eraser patch) + Untouchable + inventory
+  refresh.** The Untouchable class is what kills the taken item's room hit-area;
+  the state-1 image erases the SMAP-baked item. [OBJECTS §5/§7](docs/SCUMM-V5-OBJECTS.md).
+- **Held items are reachable**: `getDist` resolves a held item to its holder's
+  position (dist 0), not as a missing room object (→ "Non riesco ad arrivarci").
+  [OBJECTS §7a](docs/SCUMM-V5-OBJECTS.md).
+- **Inventory click-commit + hover-arming** confirmed end-to-end via #4/#23.
+
+*Earlier (same day):* project renamed webscumm → GrogVM; game dir →
+`games/MI1-IT-CD-DOS-VGA`; lowercase identifiers (`grogvm`) throughout.
 
 **Tabled:** the room-28 cook is sliced by the table z-plane while walking — a
 grid-A* vs box-graph **pathfinding route** divergence, not a clip/z-plane bug.

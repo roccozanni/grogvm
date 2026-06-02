@@ -115,6 +115,18 @@ routine:
 overridden per-room by the room's entry script. In MI1 the default
 handler is global `#4`.
 
+**The sentence line is a clickable verb the script self-guards.** The
+sentence line is itself verb `#100` (§6) and is "on", so `findObject`/
+`findVerbAtPos` *do* return it — a click dispatches `runInputScript(1,
+100, button)` just like any verb. `#4` handles it: `if (local1 == 100)
+stopScript 0` (also the 200–207 / 208–209 inventory and scroll-arrow ids)
+**before** the `g107 = local1` arming. So the sentence-line click is inert
+by virtue of the script, not by the shell refusing to hit-test it.
+`stopScript 0` means **stop the *current* script** (`o5_stopScript`:
+`if (script == 0) stopObjectCode()`), the idiom scripts use to bail at a
+guard — treat arg 0 as a no-op and `#4` falls through and arms "verb 100",
+wiping the in-progress sentence.
+
 ## 4. Active verb / object — game globals
 
 The verb-input script keeps the in-progress sentence in **game
@@ -194,10 +206,34 @@ The strip of text at the top of the verb area ("Walk to door", "Use
 stick with…") is itself rendered through a **verb** — in MI1, verb
 `#100`. The verb-input and hover scripts rebuild its name every frame
 with `verbOps setName`, assembling it from **substitution codes**: an
-embedded `0xFF NN` sequence in the verb name expands at draw time to the
-name of the active verb, object A, the preposition, and object B. So the
-sentence line is not special engine text; it is an ordinary verb whose
-name the scripts keep rewriting.
+embedded `0xFF NN` sequence in the verb name expands to the name of the
+active verb, object A, the preposition, and object B. So the sentence line
+is not special engine text; it is an ordinary verb whose name the scripts
+keep rewriting — render it directly, don't synthesise a parallel string.
+
+**The substitution-code table** (`convertMessageToString`; each code is
+`0xFF NN` + a 2-byte little-endian argument; codes ≥ 0x04 are 4 bytes
+total, 0x01–0x03 are 2):
+
+| code | meaning | argument |
+|------|---------|----------|
+| `0x04` | integer value, decimal | var ref → `readVar(num)` |
+| `0x05` | **verb name** | var ref → verb id |
+| `0x06` | **object/actor name** | var ref → object id |
+| `0x07` | **string resource** | **direct** id (`addStringToStack(num)`, *not* a var) |
+
+The 0x05/0x06/0x07 distinction is easy to get wrong: int/verb/name read
+their id *through* a variable, but string takes the id **directly**. MI1's
+`#100` is `verb[g107] str[g49] name[g108] " " verb[g110] " " name[g109]`,
+i.e. *active-verb objectA prep objectB*. Two MI1-specific facts fall out:
+the **preposition** `g110` is itself a *verb* whose name is "con" / "a"
+(so it expands via the 0x05 verb path, not a literal), and the verb↔objectA
+**separator** is string resource 49 = `" "` — `g49`'s *value* is 0, so
+reading 0x07 through the var (instead of by direct id) drops the space and
+yields "Usail pezzo". Object names splice in with their `@` padding, which
+the renderer skips ([OBJECTS §5](SCUMM-V5-OBJECTS.md)). Expansion needs the
+live VM + slot; decode a verb name without them and every code is dropped
+(blank line).
 
 **Archived verbs are not drawn.** During a conversation MI1 archives the
 sentence line (`#100`) and the action verbs via `saveRestoreVerbs` (a

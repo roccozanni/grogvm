@@ -123,6 +123,15 @@ player hovers over the object: "key", "rusty cup", "the Voodoo
 Lady". Optional — some objects (e.g. invisible trigger zones) have
 empty OBNA payloads or none at all.
 
+**`@` (0x40) is name padding, not text.** Many names are padded with
+trailing `0x40` bytes (`il pezzo di carne@@@@…@`) up to some fixed width,
+*before* any NUL. SCUMM renders it as a blank glyph, so it's invisible
+in-game; the text renderer must skip `0x40` rather than draw it (see
+[`text.ts`](../src/engine/graphics/text.ts) `SCUMM_NAME_PAD`). Don't trim
+it out of the stored name — the substitution codes that splice names into
+the sentence line ([INPUT §6](SCUMM-V5-INPUT.md)) rely on the renderer's
+skip, and the padded length is the original byte layout.
+
 ## 6. VERB — verb-id → script-offset table
 
 The OBCD's `VERB` block holds the **verb scripts** that fire when
@@ -187,6 +196,17 @@ object already in a non-zero image-backed state at room (re)entry — that
 keeps an opened door drawn open when you leave and return, and across
 save/restore.
 
+**`pickupObject` is four steps, not one.** `o5_pickupObject` does *all* of:
+`putOwner(obj, VAR_EGO)` (inventory membership = ownership, INPUT §7),
+`putState(obj, 1)` + mark-dirty, **`putClass(obj, Untouchable, 1)`**, and
+`runInventoryScript`. MI1 bakes pickable items into the room-background
+SMAP, so the state-1 image is the *eraser patch* that paints over the
+baked-in item — pickup must **draw** the object (queue it), not drop it,
+or the item lingers on the table. And the Untouchable class is what makes
+the now-taken item's room hit-box stop responding (§7a / `findObject`);
+omit it and the sprite vanishes yet you can still click the empty spot.
+Doing only the draw leaves that hit-area half open.
+
 ## 7a. Object owner, state, and class — the `DOBJ` seed
 
 Three per-object attributes drive interaction, seeded from the index
@@ -218,6 +238,17 @@ object's **walk-to point** (`walkX/walkY` from the OBCD) — the exact spot
 differ by tens of pixels (a door image at `(696,80)` with walk-to
 `(715,130)`), so measuring against the image makes the ego arrive yet
 still read as too far away.
+
+**A held item's position is its holder's position.** `getObjectOrActorXY`
+has a `WIO_INVENTORY` case: for an object in someone's inventory it returns
+the *owning actor's* position (if in the current room), else "not found".
+So the proximity gate `getDist(ego, heldItem)` = `dist(ego, ego)` = 0 →
+always reachable, and a verb on an inventory item runs instead of aborting
+with "Non riesco ad arrivarci". The room-object lookup alone is wrong for
+a held item: it isn't in the current room's table, so it resolves to "far"
+(0xFF) and *every* verb on a held item fails the gate. Owner codes ≥ the
+actor-table size (e.g. `OF_OWNER_ROOM` = 15) are not actors → the normal
+room/walk-to branch.
 
 ## 8. Reference implementation
 
