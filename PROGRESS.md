@@ -19,7 +19,7 @@ Lean tracker. Three buckets:
 ## Current — natural play through MI1
 
 Playing MI1 from the start and fixing each blocker as it's hit (engine-faithful,
-committed on `main`). **798 tests green, tsc clean.** The intro → room 33 →
+committed on `main`). **811 tests green, tsc clean.** The intro → room 33 →
 SCUMM Bar (room 28) → pirate-conversation close-up is playable end-to-end, with
 verbs, inventory, and two-object "Usa X con Y" / "Dai X a Y" working.
 
@@ -32,7 +32,38 @@ bookkeeping. Surface any deferral/approximation explicitly and track it here;
 never bury a shortcut. If "faithful" needs a bigger refactor, raise the tradeoff
 rather than silently taking either the heavy path or the shortcut.
 
-**Last worked on — hang watchdog + Tier-2 divergence sweep** *(2026-06-02;
+**Last worked on — three bug-report saves (2026-06-03).** All fixed engine-
+faithfully, each verified against actual behaviour (rendered pixels / driven
+flow / ScummVM debugger). Root causes:
+
+- **Room 78 "can't exit"** — three layered causes, all needed: (1) CDHD
+  `walkX/walkY` were read **unsigned**, so the left exit's walk-to x=−25 became
+  65511 and the ego marched off-screen (`object/loader.ts`, now `i16`);
+  (2) the off-screen-but-in-box walk point was unreachable on the rasterized
+  `[0,width)` mask, so the ego stopped 25px short of the 16px proximity gate —
+  `startWalk` now extends the path's final segment to a target inside a visible
+  box (`actor/walk.ts`); (3) **the actual opener:** `getVerbEntryPoint` only
+  matched the exact verb, missing SCUMM's **verb 0xFF default fallback**. The
+  exit carries verb 0xFF (loadRoom); clicking commits walk-to verb 11; sentence
+  #2 does `getVerbEntryPoint(exit,11)` and must read truthy (via 0xFF) to take
+  the run-the-verb branch → `startObject(exit,11)` → 0xFF fallback → loadRoom.
+  Cracked via the user's ScummVM debugger (`g107=11` in both engines, #2 at the
+  has-verb offset) — pure verb-selection ruled out, divergence was in #2's
+  `getVerbEntryPoint` branch. *(SCUMM `getVerbEntrypoint` matches `entry ||
+  0xFF`.)*
+- **Room 30 compositing (Guybrush behind stairs)** — z-plane masking was
+  cumulative ("any plane > actorZ"); SCUMM masks an actor by the **single plane
+  at its clip level**. The two models agree only when planes nest ZP01⊇ZP02 (or
+  ZP02 empty); room 30 has ZP02⊇ZP01 (ZP01=barrels, ZP02 adds the railing), so a
+  floor actor (clip 1) was masked by ZP02 and drawn behind the stairs. Now
+  single-plane (`graphics/composite.ts`, `render/compositor.ts`, doc updated).
+- **Voodoo-lady room (29) black rectangle** — `getActorWalkBox` was a stub
+  returning 0, so room 29's reveal script #200 looped `while (box < 5)` forever
+  and never cleared the black entry-cover object (383). Now returns the real
+  box id. *(Initial right-edge-strip theory was a red herring; the screenshot
+  showed the cover was a centre object.)*
+
+**Earlier — hang watchdog + Tier-2 divergence sweep** *(2026-06-02;
 commit `20420a0`)*. The dialog-stuck bug was a *silent divergence from SCUMM*
 (deferred room scripts), which is why it took hours to find. Two outcomes:
 
