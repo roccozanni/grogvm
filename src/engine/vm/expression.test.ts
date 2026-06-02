@@ -144,6 +144,24 @@ describe('evalExpression', () => {
     expect(slot.locals[3]).toBe(77);
   });
 
+  it('writes to an INDEXED (array) dest, consuming the index word', () => {
+    // Regression: an expression dest can be an indexed var-ref (bit 0x2000),
+    // e.g. MI1 room 30 #205's `g221[L0] = ...`. The base word is followed by
+    // an index word that MUST be consumed, or the subop reader desyncs and
+    // hits a stray byte ("unknown subop 0x00"). Here: base g5 (0x2005) +
+    // var index L0 — with L0 = 2 the dest resolves to g7.
+    const vars = new Variables({ numVariables: 32, numBitVariables: 64 });
+    const slot = new ScriptSlot(0);
+    // index word 0x6000 = indexed(0x2000) | local(0x4000) | L0 → deref L0.
+    slot.start({
+      scriptId: 1,
+      bytecode: new Uint8Array([0x05, 0x20, 0x00, 0x60, ...pushImm(42), ...END]),
+      args: [2], // locals[0] = 2
+    });
+    evalExpression(slot, vars);
+    expect(vars.readGlobal(7)).toBe(42);
+  });
+
   it('throws on unknown subop', () => {
     const { vars, slot } = setup([
       ...destBytes(0x0001),

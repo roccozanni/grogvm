@@ -41,7 +41,7 @@
  * tiny in practice (boot scripts rarely exceed 4–6 deep).
  */
 
-import { isVarParam, readU16, readVarRef, readU8, writeRef } from './params';
+import { isVarParam, readU16, readVarRef, readU8, readDestRef, writeRef } from './params';
 import type { ScriptSlot } from './slot';
 import type { Variables } from './variables';
 import type { Vm } from './vm';
@@ -64,9 +64,13 @@ export class ExpressionError extends Error {
  * that don't exercise that subop — calling it will throw.
  */
 export function evalExpression(slot: ScriptSlot, vars: Variables, vm: Vm | null = null): void {
-  // The dest var-ref is always a raw reference word — no mode bit on
-  // an expression destination (it's the equivalent of setVar's dest).
-  const dest = readU16(slot);
+  // The dest is a var-ref written exactly like setVar's destination —
+  // including the *indexed/array* form (bit 0x2000), where a second word
+  // (the index) follows the base ref. Use readDestRef so that index word
+  // is consumed; reading a bare u16 here desyncs the PC on an indexed
+  // dest (e.g. `g221[L0] = ...`) and the next subop read lands on the
+  // stray index byte — MI1 room 30's #205 halted as "unknown subop 0x00".
+  const dest = readDestRef(slot, vars);
 
   const stack: number[] = [];
 
