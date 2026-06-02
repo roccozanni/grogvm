@@ -47,16 +47,27 @@ confirmed)*. Four fixes, durable semantics in docs:
 walking — a grid-A* vs box-graph **pathfinding route** divergence, not a clip/
 z-plane bug. [PATHFINDING §8](docs/PATHFINDING.md) + backlog below.
 
-**Open (low priority, none blocking):**
-
-- **Pirate close-up mirror — recheck only.** Earlier the close-up showed actor 3
-  flipped; user reports composition fine after the above, so likely resolved. If
-  it recurs: the dialog refaces actor 3 West and the compositor mirror flips
-  cost24's front-view art (it has only S/init art). [COSTUME-ANIM](docs/SCUMM-V5-COSTUME-ANIM.md).
-- **obj #320 verb highlight (deferred, user's call).** Hovering the nameless
-  floor-connector highlights "Esamina" — confirmed faithful (engine default-verb
-  hint; ScummVM matches). Could shell-side suppress for nameless objects, at a
-  small divergence. No action unless requested.
+**Open bug — picked-up object stays drawn in its room.** Picking up the kitchen
+items (carne 566, pentola 567) left them rendered in their original room
+position *as well as* in inventory. Reloading the save (now in room 41) showed
+them correctly absent — but that's **incidental**: the compositor skips
+draw-queue objects "not present in the loaded room" (`compositor.ts:180`), and
+566–568 belong to the kitchen, so room 41 never draws them anyway. The bug is
+real in the pickup room itself. Root cause: **ownership is never a gate for room
+drawing.** Two concrete gaps:
+1. `setOwnerOfHandler` (0x29 family) sets the owner but, unlike
+   `pickupObjectHandler` (which does `objectDrawQueue.delete(obj)` + state←1),
+   does **not** drop the object from the draw queue. If the kitchen pickup uses
+   setOwnerOf, the object stays queued and drawn.
+2. The room-entry queue-populate (`vm.ts:874-877`) and the compositor draw
+   (`compositor.ts:187-200`) both key off state/image only — never owner. So
+   even pickupObject's delete is undone on the next room (re)entry, since a
+   carried item keeps state>0 + an image.
+   Fix direction: gate room drawing on actor-ownership (skip drawing / skip
+   queue-populate for any object whose owner is an actor, not the room), rather
+   than relying on each pickup opcode to remember to delete from the queue.
+   First disassemble the meat/pot verb scripts to confirm which pickup opcode
+   the kitchen uses. [OBJECTS](docs/SCUMM-V5-OBJECTS.md).
 
 **Next:** finish the SCUMM Bar dialogs, gather inventory items, and reach a
 **use-with** puzzle so the two open input items below get exercised with a real
