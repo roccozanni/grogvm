@@ -130,6 +130,51 @@ describe.skipIf(!hasData)('MI1 smoke — boot → gameplay', () => {
     expect(vm.haltInfo).toBeNull();
   });
 
+  // Regression: a room change runs the OLD room's exit script (EXCD). SCUMM's
+  // startScene runs it NESTED — to completion before the loadRoom opcode
+  // returns — so the calling script's *next* opcodes see the post-EXCD state.
+  // The pirate-conversation script #93 relies on this: it does `loadRoom 82`
+  // then `g32 = 14` (VAR_VERB_SCRIPT → the dialog input script #14). Room 28's
+  // EXCD resets `g32 = 4` (the default verb script). When EXCD ran deferred
+  // (queued as a slot, executed after #93 finished its frame), it clobbered the
+  // 14 back to 4 — so dialog clicks routed to #4 (which only arms the verb,
+  // never commits a dialog selection) and the conversation hung: answers
+  // highlighted on hover but clicking did nothing. With EXCD nested, the 14
+  // survives and a dialog answer commits via #14 → #93.
+  it('pirate conversation: EXCD does not clobber VAR_VERB_SCRIPT; dialog click commits', () => {
+    const vm = boot();
+    expect(driveToFirstRoom(vm)).toBe(true);
+    // Drive Mêlée → SCUMM Bar (room 28): open then walk through the bar door
+    // (object 428). Same flow scratch/probe-room28-pirates.ts uses.
+    vm.pushSentence({ verb: 2, objectA: 428, objectB: 0 });
+    for (let t = 0; t < 600 && !vm.haltInfo; t++) tick(vm);
+    vm.pushSentence({ verb: 11, objectA: 428, objectB: 0 });
+    for (let t = 0; t < 600 && !vm.haltInfo; t++) { tick(vm); if (vm.currentRoom === 28) break; }
+    expect(vm.currentRoom).toBe(28);
+    for (let t = 0; t < 200; t++) tick(vm);
+
+    // Start the LOOM-ad pirate conversation (#93 loads the close-up room 82
+    // itself, then sets g32 = 14).
+    vm.startScriptById(93, { args: [] });
+    for (let t = 0; t < 400 && !vm.haltInfo; t++) tick(vm);
+    expect(vm.currentRoom).toBe(82);
+    // The crux: the conversation's verb-input script survives EXCD-28.
+    expect(vm.vars.readGlobal(32)).toBe(14);
+    // The dialog options are live verbs (120 "Olá, a te.", 121 "Che bel
+    // cappello.", …).
+    expect(vm.verbs.get(121)?.state).toBe('on');
+
+    // Click answer 121 → #14 sets g194 → #93 makes ego speak the line.
+    vm.handleVerbClick(121, 1);
+    let dialog: string | null = null;
+    for (let t = 0; t < 400 && !vm.haltInfo; t++) {
+      tick(vm);
+      if (vm.activeDialog) { dialog = vm.activeDialog.text; break; }
+    }
+    expect(dialog).toBe('Che bel cappello.');
+    expect(vm.haltInfo).toBeNull();
+  });
+
   // Regression: the head limb must track facing at rest. The stand/walk
   // costume records only stop/un-stop the head — only the init pose
   // carries the head's per-direction frame — so a stop must re-point the

@@ -777,12 +777,24 @@ export class Vm {
     const prev = this.loadedRoom;
     if (prev?.exitScript && prev.exitScript.length > 0) {
       try {
-        this.startScript({
+        const excd = this.startScript({
           scriptId: 0,
           bytecode: prev.exitScript,
           room: prev.id,
           label: `EXCD-${prev.id}`,
         });
+        // SCUMM `startScene` runs the exit script NESTED (runExitScript →
+        // runScript → runScriptNested): it must finish before the loadRoom
+        // opcode returns to its caller. Queuing it as a deferred slot instead
+        // lets the caller's next opcodes run first — and the EXCD then clobbers
+        // them. Concretely: the pirate-conversation script #93 does
+        // `loadRoom 82` then `g32 = 14` (set VAR_VERB_SCRIPT to the dialog
+        // input script). EXCD-28 resets `g32 = 4` (the default verb script); if
+        // it runs *after* #93's `g32 = 14`, the conversation is left routing
+        // dialog clicks to the wrong script (#4 arms but never commits), so
+        // clicking a dialog answer does nothing. Running EXCD now — before
+        // loadRoom returns — restores the original ordering.
+        this.runScriptNested(excd);
       } catch {
         // No free slot — silently skip. EXCD running is best-effort.
       }
