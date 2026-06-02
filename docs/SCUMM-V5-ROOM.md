@@ -124,16 +124,36 @@ Each is raw SCUMM bytecode (no header). The main loop runs them as
 
 1. When the script dispatches a `loadRoom` opcode, the engine first
    checks the **outgoing** room for an `EXCD`. If present, it starts
-   that bytecode in a free slot labelled `EXCD-{prevRoomId}` so it
-   runs alongside any still-live scripts.
+   that bytecode in a free slot labelled `EXCD-{prevRoomId}` and runs
+   it **nested** (see below).
 2. The new room is bound as the current room.
 3. If the new room has an `ENCD`, that's started in another free
-   slot labelled `ENCD-{newRoomId}`. Same scheduling as any global
-   script — yields and runs over multiple engine ticks.
+   slot labelled `ENCD-{newRoomId}`, also run **nested**.
 
 These slots have `scriptId = 0` (they're not global scripts) and a
 non-empty `label` to distinguish them from numbered global scripts
 in trace output.
+
+**EXCD and ENCD run NESTED — to their first yield — inside the
+`loadRoom` opcode, before it returns to the calling script.** SCUMM's
+`startScene` invokes `runExitScript()` / `runEntryScript()` (→ `runScript`
+→ `runScriptNested`) synchronously, so the script that issued `loadRoom`
+observes the room as the exit/entry scripts left it. They are NOT
+deferred slots picked up on a later tick — that would let the caller's
+own *next* opcodes run first and then get clobbered by the room script.
+
+Concrete failure if deferred (the bug that motivated this): the LOOM-ad
+pirate conversation script #93 does `loadRoom 82` then, on its very next
+opcode, `g32 = 14` (`VAR_VERB_SCRIPT` → the dialog input script #14).
+Room 28's `EXCD` resets `g32 = 4` (the default verb script). Run nested,
+EXCD's `g32 = 4` happens *during* `loadRoom` and #93's `g32 = 14` sticks.
+Run deferred, EXCD fired after #93's frame and overwrote 14 with 4, so
+dialog-answer clicks routed to #4 (which only *arms* a verb, never commits
+a dialog pick) and the conversation hung — answers highlighted on hover but
+clicking did nothing. `runScriptNested` stops at the first `breakHere`, so
+an ENCD that spans frames still yields back to the scheduler after its
+prologue — exactly the original. (Guarded by `vm.test.ts` "runs ENCD/EXCD
+NESTED …" + the MI1-smoke pirate-conversation regression.)
 
 **A room change stops the old room's scripts.** SCUMM's `startScene`
 kills every room-local (`WIO_ROOM`) and object/verb (`WIO_FLOBJECT`)
