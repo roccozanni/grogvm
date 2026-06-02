@@ -82,16 +82,35 @@ commits up to `cb02b12`; pickup + hover-arming user-confirmed in-browser)*:
   another-room → `0xFF` (matches `getObjectOrActorXY` returning −1). **→ migrate
   to [OBJECTS](docs/SCUMM-V5-OBJECTS.md) (whereIsObject / inventory reach) and/or
   the getDist note alongside the room-33 door walk-to-point fix.**
+- **Two-object "Usa X con Y" — confirmed working + sentence line now faithful**
+  *(real-data confirmed against a room-41 kitchen quicksave; rendered to pixels)*.
+  The full A+B commit + `g110` preposition step works end-to-end through the real
+  scripts: click Usa (7) → click meat (g108=566) → #4 arms preposition `g110`=130
+  → hover/route object B into `g109` → commit `doSentence(7,566,574)` → #2 runs.
+  **Two bugs found in the sentence line (verb #100) while verifying:** (1)
+  `verbOps setName` decoded names *without* `vm`/`slot`, so `expandSubstitution`
+  dropped every `0xFF NN` code; (2) the code→meaning map was wrong. Correct SCUMM
+  v5: `0x04` int / `0x05` verb / `0x06` name = `readVar(num)`; `0x07` string =
+  `num` **direct** string-resource id. MI1 #100 = `verb[g107] str[g49]
+  name[g108] " " verb[g110] " " name[g109]`, where the preposition `g110`=130 is
+  a *verb* whose name is "con", and `g49`'s separator is string res 49 = " "
+  (g49's value is 0 — read it through the var and the space vanishes:
+  "Usail pezzo"). The `@`(0x40) name-padding is already render-stripped
+  ([text.ts](src/engine/graphics/text.ts)). **Shell now renders #100 directly**
+  (retired the single-object `sentenceText` synthesis — the deferred render
+  "Option 2" sentence-line step), so "Usa il pezzo di carne con la pentola con lo
+  spezzatino" shows. **→ migrate to [INPUT §5/§6](docs/SCUMM-V5-INPUT.md): the
+  substitution-code table + #100 is rendered, not synthesized.**
 
 **Tabled:** the room-28 cook is sliced by the table z-plane while walking — a
 grid-A* vs box-graph **pathfinding route** divergence, not a clip/z-plane bug.
 [PATHFINDING §8](docs/PATHFINDING.md) + backlog below.
 
-**Next:** finish the SCUMM Bar dialogs, gather inventory items, and reach a
-**use-with** puzzle so the two open input items below get exercised with a real
-save. The inventory click-commit is now confirmed (above), so verbs on held
-items are fully wired; next live target is a held item whose verb has a *visible*
-effect (and the two-object Use X with Y commit).
+**Next:** the inventory click-commit AND two-object "Usa X con Y" are both
+confirmed (above), with the faithful #100 sentence line. Next live target is a
+held item whose verb has a *visible* effect (a real use-with puzzle solution),
+and exercising **Give X to <actor>** (verb 4, the other two-object verb — needs
+a second actor in the room). Then continue the SCUMM Bar dialogs.
 
 **Watch for** (recurring failure modes in newly-reached content):
 
@@ -111,9 +130,10 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
 
 **Input / UI**
 
-- **Two-object "Use X with Y" end-to-end** — single-object proven; confirm a
-  full A+B commit + the `g110` preposition step in a room with a use-with-able
-  object. [INPUT §5](docs/SCUMM-V5-INPUT.md).
+- **Two-object "Use X with Y" end-to-end** — *done* (see Current); A+B commit +
+  `g110` preposition + faithful #100 sentence line all confirmed. Remaining:
+  **Give X to <actor>** (verb 4) — same machinery, untested for lack of a second
+  actor in-scene. [INPUT §5](docs/SCUMM-V5-INPUT.md).
 - **Inventory scroll arrows** (verbs 208/209) for >8 items — needs a full
   inventory to exercise.
 
