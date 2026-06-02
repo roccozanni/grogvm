@@ -490,26 +490,6 @@ describe('composeFrame — object compositing', () => {
     for (let i = 0; i < fb.length; i++) expect(fb[i]).toBe(0x10);
   });
 
-  it('skips objects held by an actor (in inventory) even when queued', () => {
-    // A picked-up item can linger in the draw queue (setState/drawObject/
-    // room re-entry re-queue it); the isHeld gate keeps it out of the room.
-    const room: LoadedRoom = {
-      ...makeRoom(8, 4, 0x10),
-      objects: new Map([[1, makeObject(1, 0, 0, 4, 2, 0xaa)]]),
-    };
-    const fb = new Uint8Array(32);
-    const result = composeFrame({
-      room,
-      framebuffer: fb,
-      objectDrawQueue: [1],
-      getObjectState: () => 1,
-      isHeld: (id) => id === 1,
-    });
-    expect(result.objectsDrawn).toBe(0);
-    expect(result.skippedObjects[0]!.reason).toMatch(/held in inventory/);
-    for (let i = 0; i < fb.length; i++) expect(fb[i]).toBe(0x10);
-  });
-
   it('records skippedObjects when the id isn\'t in the room', () => {
     const room = makeRoom(8, 4, 0x10);
     const fb = new Uint8Array(32);

@@ -837,16 +837,19 @@ describe('inventory subsystem', () => {
     expect(vm.vars.readGlobal(0)).toBe(0);
   });
 
-  it('pickupObject (0x25) gives the object to ego, sets state 1, dequeues it', () => {
+  it('pickupObject (0x25) gives the object to ego, sets state 1, draws the taken patch', () => {
     const vm = makeVm();
     vm.vars.writeGlobal(1, 4); // VAR_EGO = actor 4
-    vm.objectDrawQueue.add(99); // object currently drawn in the room
     // pickupObject object=99, room=0 (current).
     vm.startScript({ scriptId: 1, bytecode: bytes(0x25, 0x63, 0x00, 0x00) });
     vm.step();
     expect(vm.objectOwners.get(99)).toBe(4);
     expect(vm.objectStates.get(99)).toBe(1);
-    expect(vm.objectDrawQueue.has(99)).toBe(false);
+    // SCUMM marks the object for redraw (putState 1 + markObjectRectAsDirty):
+    // MI1 bakes pickable items into the room background, and the state-1 image
+    // is the patch that erases the baked-in item once taken — so after pickup
+    // the object must be DRAWN, not dropped, or the item lingers on screen.
+    expect(vm.objectDrawQueue.has(99)).toBe(true);
     expect(vm.inventoryCount(4)).toBe(1);
   });
 

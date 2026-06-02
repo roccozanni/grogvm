@@ -1137,10 +1137,16 @@ register(0x85, drawObjectHandler);
 
 // ─── 0x25 / 0x65 / 0xa5 / 0xe5  pickupObject ─────────────────────────
 // `opcode object[p16] room[p8]`. Picks an object up into Ego's
-// inventory: SCUMM ties inventory membership to ownership, so we set
-// the object's owner to `VAR_EGO`, mark it state 1 (the "carried"
-// image variant), and drop it from the room's draw queue. The inventory
-// strip repaints from `vm.objectOwners`.
+// inventory: set the object's owner to `VAR_EGO`, put it in **state 1**,
+// and **mark it for drawing** — mirroring SCUMM's `putState(obj,1)` +
+// `markObjectRectAsDirty(obj)`. The state-1 image is the object's
+// "removed from the scene" appearance: MI1 bakes pickable items into the
+// room background (the SCUMM-Bar kitchen meat/pot/fish are painted into
+// the SMAP) and a pickable object's image is the patch that *erases* the
+// baked-in item once it's taken. So after pickup the object must be
+// **drawn**, not dropped — dropping it leaves the background item visible
+// on the table even though it's in the inventory. (Verified by rendering
+// room 41: drawing obj 566 at state 1 clears the meat from the counter.)
 //
 // `room == 0` means "the current room" (the arg only matters for
 // loading an object's image from a room it isn't currently in — we
@@ -1153,12 +1159,15 @@ function pickupObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const obj = readVarOrWord(opcode, 1, slot, vm.vars);
   const room = readVarOrByte(opcode, 2, slot, vm.vars);
   const ego = vm.vars.readGlobal(VAR_EGO);
-  // Snapshot the name BEFORE dropping the object from the room, so a
+  // Snapshot the name BEFORE the object leaves the room context, so a
   // carried item keeps its label after leaving its pickup room.
   vm.captureInventoryName(obj, room);
   vm.objectOwners.set(obj, ego);
   vm.objectStates.set(obj, 1);
-  vm.objectDrawQueue.delete(obj);
+  // Draw the state-1 image (the "taken" patch that covers the baked-in
+  // background item). Only meaningful while the object is in the current
+  // room; the compositor skips queue ids absent from the loaded room.
+  vm.objectDrawQueue.add(obj);
   // Refresh the inventory display (lays the item into the verb slots).
   vm.runInventoryScript(1);
   vm.annotate(`pickupObject obj=${obj} room=${room} → owner ${ego}`);

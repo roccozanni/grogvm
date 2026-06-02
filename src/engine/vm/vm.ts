@@ -1652,20 +1652,6 @@ export class Vm {
   }
 
   /**
-   * Is `obj` currently held by an actor (i.e. in someone's inventory)?
-   * An object whose owner is an actor id has left the room and must not
-   * render there — even though pickup-adjacent opcodes (`setState`,
-   * `drawObject`) and room re-entry may still queue it. The compositor
-   * gates on this so the carried item disappears from its pickup spot
-   * regardless of which path queued it. Owner 15 (room) / 0 (nobody) are
-   * not actors, so room objects are unaffected.
-   */
-  isHeldByActor(obj: number): boolean {
-    const owner = this.getObjectOwner(obj);
-    return owner >= 1 && owner <= this.actors.capacity;
-  }
-
-  /**
    * The `index`-th (1-based) object owned by `owner`, in pickup order
    * (Map insertion order mirrors SCUMM's inventory-array append order).
    * Returns 0 when `owner` is nobody or `index` is out of range. Backs

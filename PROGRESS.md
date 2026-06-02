@@ -47,15 +47,17 @@ confirmed)*. Four fixes, durable semantics in docs:
 walking — a grid-A* vs box-graph **pathfinding route** divergence, not a clip/
 z-plane bug. [PATHFINDING §8](docs/PATHFINDING.md) + backlog below.
 
-**Fixed this session — picked-up object stayed drawn in its room.** Carried
-items (carne 566, pentola 567) rendered in their pickup spot *and* in inventory.
-Root cause: **ownership was never a gate for room drawing.** The draw queue gets
-re-populated by several paths (`setState` `index.ts:918`, room re-entry
-`vm.ts:874-877`, `drawObject`), so clearing it at each pickup opcode is
-whack-a-mole. Fix: gate the *drawing* on ownership — `vm.isHeldByActor(obj)`
-(owner is an actor id) → compositor skips it (`isHeld` callback, wired in
-`session.ts`). Robust regardless of which opcode queued it. Test in
-`compositor.test.ts`.
+**Fixed this session — picked-up item stayed visible on the table.** Carried
+items (carne 566, pentola 567) stayed drawn in room 41 *and* showed in inventory.
+First diagnosis was **wrong** (an ownership "isHeld" draw-gate — reverted): the
+items aren't drawn as objects at all. Rendering proved MI1 **bakes the pickable
+food into the room-background SMAP**, and each food object's state-1 image is the
+patch that *erases* the baked-in item once taken (drawing obj 566 over the
+counter clears the meat). So pickup must **draw** the object (its taken/eraser
+state), not remove it. `pickupObjectHandler` was doing `objectDrawQueue.delete` —
+changed to `.add` (matches SCUMM `putState(obj,1)` + `markObjectRectAsDirty`).
+Without a room re-entry the eraser never drew, so the background item lingered.
+Verified by rendering room 41 from a pre-pickup save and performing the pickup.
 
 **Inventory hover now arms the verb via the engine (not a shell hack).**
 Hovering an item showed "Vai" and didn't arm anything. The game's hover poller
