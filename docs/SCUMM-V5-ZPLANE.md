@@ -218,54 +218,55 @@ sanity check.
 
 ---
 
-## 6. Compositor semantics — the depth-band rule
+## 6. Compositor semantics — the single-plane rule
 
-A room with `N` z-planes defines `N + 1` depth bands. Band 0 is the
-background; band 1 is everything in `ZP01`; band 2 is everything in
-`ZP02`; etc. Actors carry a small integer **z-level** that places them
-into one of these bands; the default is `actorZ = 0` (back-most).
+A room with `N` z-planes exposes `N` foreground masks `ZP01`…`ZP0N`.
+Each actor carries a 1-based **clip level** (SCUMM's `_zbuf`); the
+default is `0` ("in front of everything").
 
 ### The drawing rule
 
 When the compositor writes an actor pixel at room position (x, y):
 
-> The pixel is drawn iff **no z-plane whose 1-based index is greater
-> than `actorZ` has its bit set at (x, y)**.
+> The pixel is hidden iff the actor's **own clip-level plane** —
+> `ZP0k` for clip level `k` — has its bit set at (x, y). No other
+> plane is consulted.
 
 Equivalently:
 
-- Actor at `z = 0` is hidden by *any* plane with a bit set at the
-  pixel (`ZP01`, `ZP02`, `ZP03`, …).
-- Actor at `z = 1` is hidden only by `ZP02` and higher.
-- Actor at `z = 2` is hidden only by `ZP03` and higher.
+- Actor at clip level `0` is never occluded (in front of every plane).
+- Actor at clip level `1` is masked by `ZP01` **alone**.
+- Actor at clip level `2` is masked by `ZP02` **alone**. Etc.
 
-So bumping the actor's z-level "pulls them forward" past planes one
-at a time. `actorZ = N` (where `N` equals the plane count) places the
-actor in front of every plane and they're never occluded.
+This mirrors SCUMM exactly: the costume renderer masks an actor
+against the *single* mask buffer selected by `_zbuf` — it is **not** a
+cumulative "any plane above" stack. The earlier cumulative reading
+happened to agree on every MI1 room we'd seen because those rooms
+either had one real plane or an empty `ZP02` (§"empty planes"). MI1
+**room 30** broke it: there `ZP02 ⊇ ZP01` (`ZP01` is just the
+foreground barrels; `ZP02` adds the loft railing + stairs). A floor
+actor sits at clip level 1, so under the single-plane rule it is
+masked by `ZP01` only and walks *in front* of the stairs — exactly
+right. The cumulative rule masked it by `ZP01 ∪ ZP02` and drew
+Guybrush behind the staircase banister.
+
+### How an actor gets its clip level
+
+`clipLevel = forceClip > 0 ? forceClip : (NeverClip class ? 0 :
+walkBoxMask)`. `alwaysZclip k` sets `forceClip = k`; `neverZclip`
+clears it to 0 (an *unset* sentinel, **not** "in front" — it falls
+through to the box mask); the walk box the actor's feet stand in
+supplies the default (`mask 0` = in front, `mask k` = `ZP0k`).
 
 ### Why some pixels are marked in multiple planes
 
-Inspecting MI1 data you'll see foreground features (the trunk of a
-palm tree, an interior column, a tall rock) where the same pixel is
-set in both `ZP01` and `ZP02`. Under the rule above the overlap is
-redundant — the higher-indexed plane alone is enough to occlude every
-actor z-level it should — but the game's tools mark every applicable
-band explicitly. Two compatible readings:
-
-- **As a depth-stack ledger.** Each plane "claims" the depth band it
-  belongs to. A tall column that's in front of *both* back-walking
-  and middle-walking actors gets a claim in band 1 and a claim in
-  band 2. Cumulative marking makes the artist's intent obvious from
-  the data alone, without inferring it from the inheritance rule.
-- **As tool / engine insurance.** Different parts of the engine pipe
-  the planes through different paths (the `GrogVM` compositor walks
-  all planes; a hypothetical "is this pixel foreground at depth N?"
-  query might check just one plane). Explicit marking keeps both
-  consumers happy.
-
-Either way: the compositor doesn't need to do anything special for
-overlapping bits — the "any plane > actorZ" rule handles them
-correctly.
+Because masking is single-plane, a feature that must occlude actors at
+*several* clip levels has to appear in *each* of those planes — so the
+data marks the same pixel in `ZP01` and `ZP02` deliberately (and a
+"deeper" plane is typically a superset of the shallower ones, as in
+room 30). This is the artist's depth-stack ledger: each plane fully
+describes the foreground for actors at that one level. The compositor
+needs no special handling — it only ever reads the actor's own plane.
 
 ### Why some planes are entirely empty
 
@@ -307,13 +308,16 @@ In rough order of "what hits you first":
    correct. Real MI1 rooms have it. The RMIH count is what the engine
    allocates for, not a guarantee that every plane carries pixels.
 7. **The same pixel is marked in multiple planes** → also correct.
-   Foreground features that occlude actors at multiple depth bands
-   claim every band they belong to. The compositor's "any plane >
-   actorZ" rule handles overlapping marks without special-casing.
+   Masking is single-plane, so a feature occluding actors at several
+   clip levels is marked in each of those planes (deeper planes are
+   often supersets). The compositor only reads the actor's own plane.
 8. **The compositor draws the actor over geometry it should hide
-   behind** → either the wrong z-plane is being checked or `actorZ`
-   is too high. Remember the rule is *strictly greater than* — a
-   plane at index `actorZ` does **not** occlude.
+   behind (or behind geometry it should be in front of)** → wrong
+   clip level, or the cumulative "any plane above" rule crept back in.
+   The rule is single-plane: an actor at clip level `k` is masked by
+   `ZP0k` **alone** — never by `ZP0(k+1)` and up. A floor actor at
+   level 1 in a room where `ZP02 ⊇ ZP01` must stay in front of the
+   `ZP02`-only geometry (MI1 room 30 stairs).
 
 ---
 

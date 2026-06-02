@@ -12,13 +12,18 @@
  * frame.redirY)` — `redirX/Y` are typically negative so the frame
  * extends to the left of and above the anchor.
  *
- * Z-plane rule: an actor at z-level `actorZ` is hidden at (x, y) iff
- * any plane whose 1-based index is greater than `actorZ` has its bit
- * set at (x, y). Plane index 1 = `ZP01` (= `zPlanes[0]`), index 2 =
- * `ZP02`, and so on. `actorZ` defaults to 0 — the back-most depth
- * band, which is occluded by any plane bit. Some MI1/MI2 rooms mark
- * the same pixel in multiple planes; that's redundant under this rule
- * but matches the game data.
+ * Z-plane rule: an actor has a 1-based `clipPlane` (its SCUMM `_zbuf`
+ * level) and is hidden at (x, y) iff **that one z-plane** has its bit
+ * set at (x, y). `clipPlane` 1 = `ZP01` (= `zPlanes[0]`), 2 = `ZP02`,
+ * and so on; `clipPlane` 0 (the default) means "in front of every
+ * plane" — never occluded. This mirrors SCUMM exactly: the costume
+ * renderer masks an actor against the *single* mask buffer for its
+ * z-level, not a cumulative stack. Rooms whose planes nest the other
+ * way (MI1 room 30: `ZP02 ⊇ ZP01`, where `ZP01` is just the foreground
+ * barrels and `ZP02` adds the loft railing/stairs) only render right
+ * under this single-plane rule — a floor actor at clipPlane 1 must be
+ * masked by `ZP01` alone, so it walks *in front* of the stairs in
+ * `ZP02`. See docs/SCUMM-V5-ZPLANE.md §"the drawing rule".
  */
 
 import { COSTUME_FRAME_TRANSPARENT, type DecodedCostumeFrame } from './costume-frame';
@@ -35,8 +40,12 @@ export interface CompositeActorOptions {
   /** Actor anchor position in room coords (typically the feet). */
   readonly actorX: number;
   readonly actorY: number;
-  /** Actor z-level. Default 0 (back). */
-  readonly actorZ?: number;
+  /**
+   * Actor clip level — the 1-based z-plane (SCUMM `_zbuf`) that masks
+   * this actor. 0 (default) = in front of every plane (never occluded);
+   * `k` = masked by `zPlanes[k-1]` only. See the file header.
+   */
+  readonly clipPlane?: number;
   /** Z-planes in source order — `zPlanes[0]` corresponds to `ZP01`. */
   readonly zPlanes?: readonly DecodedZPlane[];
   /**
@@ -86,8 +95,13 @@ export function actorFramePlacement(
 
 export function compositeActor(opts: CompositeActorOptions): void {
   const { framebuffer, fbWidth, fbHeight, frame, costPalette, actorX, actorY } = opts;
-  const actorZ = opts.actorZ ?? 0;
+  const clipPlane = opts.clipPlane ?? 0;
   const zPlanes = opts.zPlanes ?? [];
+  // The single z-plane (if any) that masks this actor. SCUMM masks an
+  // actor against exactly its `_zbuf` level's plane — never a cumulative
+  // stack — so clipPlane 0 (or a level past the last plane) = unmasked.
+  const maskPlane =
+    clipPlane > 0 && clipPlane <= zPlanes.length ? zPlanes[clipPlane - 1]! : null;
   const mirror = opts.mirror ?? false;
   const scale = Math.max(0, Math.min(255, opts.scale ?? 255));
 
@@ -143,18 +157,9 @@ export function compositeActor(opts: CompositeActorOptions): void {
       if (idx === COSTUME_FRAME_TRANSPARENT) continue;
       const rx = left + px;
 
-      // Z-plane occlusion: hidden if any plane whose 1-based index >
-      // actorZ has its bit set at this pixel.
-      let occluded = false;
-      for (let p = 0; p < zPlanes.length; p++) {
-        const planeIndex = p + 1;
-        if (planeIndex <= actorZ) continue;
-        if (zPlanes[p]!.mask[ry * fbWidth + rx]) {
-          occluded = true;
-          break;
-        }
-      }
-      if (occluded) continue;
+      // Z-plane occlusion: hidden iff this actor's single clip plane has
+      // its bit set here (SCUMM masks against one mask buffer per actor).
+      if (maskPlane && maskPlane.mask[ry * fbWidth + rx]) continue;
 
       framebuffer[fbRowBase + rx] = costPalette[idx]!;
     }

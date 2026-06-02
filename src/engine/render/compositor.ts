@@ -333,26 +333,23 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
           actorX: actor.x,
           actorY: actor.y,
           mirror,
-          // Z-clip depth. SCUMM's `_forceClip` (actorOps neverZclip /
-          // alwaysZclip) decides which z-planes occlude the actor:
-          //   - alwaysZclip k (forceClip>0) → behind plane k and above,
-          //     so actorZ = k-1 (the "plane index > actorZ hides" rule
-          //     then masks the actor where plane k is set). E.g. the
-          //     Mêlée clouds (alwaysZclip 1) draw behind the mountain.
+          // Z-clip level. SCUMM's `_forceClip` (actorOps neverZclip /
+          // alwaysZclip) decides which single z-plane masks the actor:
+          //   - alwaysZclip k (forceClip>0) → clipPlane = k: masked by
+          //     ZP0k alone. E.g. the Mêlée clouds (alwaysZclip 1) draw
+          //     behind the mountain plane.
           //   - neverZclip (forceClip 0) and the unset default
-          //     (forceClip < 0) are both "not forced": the depth comes
-          //     from the NeverClip class (→ front) or, failing that, the
-          //     walk box the actor stands in — see resolveActorZ. This is
-          //     why the room-33 ego (forceClip 0, mask-1 dock box) passes
-          //     behind the houses while the room-38 ego (forceClip 0,
-          //     mask-0 box) stays in front of the wall.
-          // "In front" = the effective plane count, so a merged drawn-
-          // object foreground (which lands at plane index 1) never
-          // occludes an "in front" actor — only z-clipped ones.
-          actorZ: resolveActorZ(
+          //     (forceClip < 0) are both "not forced": the level comes
+          //     from the NeverClip class (→ 0, in front) or, failing
+          //     that, the walk box the actor stands in — see
+          //     resolveClipPlane. This is why the room-33 ego (mask-1
+          //     dock box) passes behind the houses while the room-38 ego
+          //     (mask-0 box) stays in front of the wall.
+          // clipPlane 0 = in front of every plane; a merged drawn-object
+          // foreground (OR'd into plane 1) only occludes clipPlane-1 actors.
+          clipPlane: resolveClipPlane(
             actor,
             room.walkBoxes,
-            actorZPlanes.length,
             isNeverClip ? isNeverClip(actor.id) : false,
           ),
           zPlanes: actorZPlanes,
@@ -407,20 +404,20 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
  * If the room has no planes, a fresh foreground plane is created.
  */
 /**
- * Resolve an actor's z-clip depth (the `actorZ` the "any plane > actorZ
- * hides" rule consumes). Mirrors SCUMM's resolution order
- * `zbuf = _forceClip ? _forceClip : (neverClipClass ? 0 : maskFromBox(_walkbox))`:
+ * Resolve an actor's z-clip level — the 1-based z-plane (`ZP0k`) that
+ * masks it, SCUMM's `_zbuf`. 0 = in front of every plane (no masking).
+ * Mirrors SCUMM's `zbuf = _forceClip ? _forceClip : (neverClipClass ? 0
+ * : maskFromBox(_walkbox))`:
  *
- *   - `alwaysZclip k` (forceClip > 0) → behind plane k and above, so
- *     actorZ = k − 1. An explicit script-set clip always wins.
+ *   - `alwaysZclip k` (forceClip > 0) → clipPlane = k: the actor is
+ *     masked by ZP0k alone. An explicit script-set clip always wins.
  *   - **not forced** — `neverZclip` (forceClip == 0, the opcode that
  *     *clears* the forced clip) or unset (forceClip < 0):
- *       · NeverClip class → in front of every plane.
- *       · otherwise → the *default* clip from the `mask` of the walk box
- *         the actor's feet stand in: mask 0 = in front, mask N (>0) =
- *         behind plane N (same mapping as alwaysZclip). An actor not
- *         standing in/near any box (or a room with no boxes) defaults to
- *         in front.
+ *       · NeverClip class → 0 (in front of every plane).
+ *       · otherwise → the `mask` of the walk box the actor's feet stand
+ *         in: mask 0 = in front, mask N (>0) = masked by ZP0N. An actor
+ *         not standing in/near any box (or a room with no boxes)
+ *         defaults to in front.
  *
  * NB: `forceClip == 0` is NOT "always in front" — it's SCUMM's *unset*
  * sentinel, so neverZclip and the never-set default behave identically
@@ -432,22 +429,20 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
  * mask the actor walks on (the room-33 ego stands on box 4, a diagonal
  * line). This matches the per-frame box the scale system already uses.
  *
- * "In front of every plane" = the effective plane count, so a merged
- * drawn-object foreground (which lands at plane index 1) never occludes
- * an in-front actor — only z-clipped ones. See docs/SCUMM-V5-ZPLANE.md
- * §"box-mask".
+ * Single-plane (not cumulative) masking is what lets MI1 room 30 render:
+ * its `ZP02 ⊇ ZP01` (ZP01 = the foreground barrels, ZP02 also covers the
+ * loft railing/stairs), so a floor actor at clipPlane 1 must be masked by
+ * ZP01 alone and walk *in front* of the stairs. See docs/SCUMM-V5-ZPLANE.md.
  */
-function resolveActorZ(
+function resolveClipPlane(
   actor: Actor,
   walkBoxes: ReadonlyArray<WalkBox>,
-  planeCount: number,
   neverClipClass: boolean,
 ): number {
-  if (actor.forceClip > 0) return actor.forceClip - 1;
-  if (neverClipClass) return planeCount;
+  if (actor.forceClip > 0) return actor.forceClip;
+  if (neverClipClass) return 0;
   const box = findBoxAtOrNearest(walkBoxes, actor.x, actor.y);
-  const mask = box ? box.mask : 0;
-  return mask > 0 ? mask - 1 : planeCount;
+  return box ? box.mask : 0;
 }
 
 function mergeForeground(

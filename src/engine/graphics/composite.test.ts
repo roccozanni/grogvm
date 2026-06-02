@@ -257,7 +257,7 @@ describe('compositeActor', () => {
     for (let i = 0; i < 8; i++) expect(framebuffer[i]).toBe(0);
   });
 
-  it('hides pixels when a z-plane with index > actorZ has its bit set', () => {
+  it('hides pixels where the actor clip plane has its bit set', () => {
     const framebuffer = new Uint8Array(4 * 1).fill(0x77);
     // ZP01: column 2 occludes.
     const zp01 = plane(4, 1, [0, 0, 1, 0]);
@@ -270,16 +270,16 @@ describe('compositeActor', () => {
       costPalette: identityPalette(16),
       actorX: 0,
       actorY: 0,
-      actorZ: 0,
+      clipPlane: 1, // masked by ZP01
       zPlanes: [zp01],
     });
     // Column 2 was occluded → 0x77 preserved. Others written.
     expect(Array.from(framebuffer)).toEqual([1, 2, 0x77, 4]);
   });
 
-  it('does not occlude when actorZ >= plane index', () => {
+  it('does not occlude when clipPlane is 0 (in front of every plane)', () => {
     const framebuffer = new Uint8Array(4 * 1).fill(0x77);
-    const zp01 = plane(4, 1, [0, 0, 1, 0]); // index 1
+    const zp01 = plane(4, 1, [0, 0, 1, 0]);
     compositeActor({
       framebuffer,
       fbWidth: 4,
@@ -288,13 +288,13 @@ describe('compositeActor', () => {
       costPalette: identityPalette(16),
       actorX: 0,
       actorY: 0,
-      actorZ: 1, // not strictly less than plane index 1 → not occluded
+      clipPlane: 0, // in front → no masking
       zPlanes: [zp01],
     });
     expect(Array.from(framebuffer)).toEqual([1, 2, 3, 4]);
   });
 
-  it('checks every plane with index > actorZ — multiple planes', () => {
+  it('masks by EXACTLY the clip plane, not a cumulative stack', () => {
     const framebuffer = new Uint8Array(4 * 1).fill(0x77);
     const zp01 = plane(4, 1, [1, 0, 0, 0]); // index 1 — occludes col 0
     const zp02 = plane(4, 1, [0, 0, 0, 1]); // index 2 — occludes col 3
@@ -306,12 +306,35 @@ describe('compositeActor', () => {
       costPalette: identityPalette(16),
       actorX: 0,
       actorY: 0,
-      actorZ: 1, // hidden by ZP02 only (index 2 > 1)
+      clipPlane: 2, // masked by ZP02 ALONE
       zPlanes: [zp01, zp02],
     });
-    // Col 0 not occluded (ZP01 index 1 not > actorZ 1).
-    // Col 3 occluded by ZP02 (index 2 > 1).
+    // Col 0 NOT occluded (ZP01 is not this actor's clip plane).
+    // Col 3 occluded by ZP02 (the clip plane).
     expect(Array.from(framebuffer)).toEqual([1, 2, 3, 0x77]);
+  });
+
+  it('clipPlane 1 ignores a higher plane even when it is a superset (MI1 room 30)', () => {
+    // Room 30: ZP02 ⊇ ZP01 (ZP01 = foreground barrels, ZP02 adds the
+    // loft railing/stairs). A floor actor at clipPlane 1 must be masked
+    // by ZP01 ALONE and stay in front of the ZP02-only stairs. The old
+    // cumulative "any plane > actorZ" rule wrongly hid col 3 too.
+    const framebuffer = new Uint8Array(4 * 1).fill(0x77);
+    const zp01 = plane(4, 1, [1, 0, 0, 0]); // barrels
+    const zp02 = plane(4, 1, [1, 0, 0, 1]); // superset: barrels + stairs (col 3)
+    compositeActor({
+      framebuffer,
+      fbWidth: 4,
+      fbHeight: 1,
+      frame: frame(4, 1, [1, 2, 3, 4]),
+      costPalette: identityPalette(16),
+      actorX: 0,
+      actorY: 0,
+      clipPlane: 1, // floor actor → ZP01 only
+      zPlanes: [zp01, zp02],
+    });
+    // Col 0 occluded by ZP01 (barrels). Col 3 (ZP02-only stairs) stays drawn.
+    expect(Array.from(framebuffer)).toEqual([0x77, 2, 3, 4]);
   });
 
   it('throws if a z-plane size mismatches the framebuffer', () => {

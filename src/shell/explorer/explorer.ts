@@ -343,7 +343,9 @@ function renderRoomView(
         costPalette: a.costPalette,
         actorX: a.x,
         actorY: a.y,
-        actorZ: a.z,
+        // Debug control: the actor's clip level (1-based z-plane that masks
+        // it; 0 = in front of every plane). See compositeActor.
+        clipPlane: a.z,
         zPlanes: zplanes.planes,
       });
       renderer.present(fb);
