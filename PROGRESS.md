@@ -101,6 +101,17 @@ commits up to `cb02b12`; pickup + hover-arming user-confirmed in-browser)*:
   "Option 2" sentence-line step), so "Usa il pezzo di carne con la pentola con lo
   spezzatino" shows. **→ migrate to [INPUT §5/§6](docs/SCUMM-V5-INPUT.md): the
   substitution-code table + #100 is rendered, not synthesized.**
+- **`stopScript 0` must self-stop** *(general engine fix; user-found via the
+  sentence-line)*. Clicking the sentence line (#100) armed "verb 100" as the
+  active verb + wiped the in-progress sentence. #4 guards this — `if (L1==100)
+  stopScript 0` before the `g107 = L1` arming — but our `stopScript` treated arg
+  0 as a no-op, so the guard's self-terminate did nothing and #4 fell through.
+  SCUMM `o5_stopScript`: `if (script==0) stopObjectCode()` — arg 0 stops the
+  *current* script; scripts use it to self-terminate at guards. Fixed + test.
+  Also `pickInk` now highlights only when a verb carries a non-zero hicolor
+  (SCUMM `drawVerb`: `mode && vs->hicolor ? hicolor : color`) — #100 (hicolor 0)
+  no longer flashes on hover. **→ migrate to [INPUT](docs/SCUMM-V5-INPUT.md): the
+  sentence line is a real verb (hittable, but self-guarded) — not special-cased.**
 
 **Tabled:** the room-28 cook is sliced by the table z-plane while walking — a
 grid-A* vs box-graph **pathfinding route** divergence, not a clip/z-plane bug.
