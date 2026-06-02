@@ -971,7 +971,11 @@ function getVerbEntryPointHandler(vm: Vm, slot: ScriptSlot, opcode: number): voi
   const dest = readDestRef(slot, vm.vars);
   const obj = readVarOrWord(opcode, 1, slot, vm.vars);
   const verb = readVarOrWord(opcode, 2, slot, vm.vars);
-  const has = vm.loadedRoom?.objects.get(obj)?.verbs.has(verb) ?? false;
+  // findObjectCode (not just loadedRoom) so the query also answers for a
+  // carried inventory item — MI1's inventory script #9 gates `startObject
+  // item 91` on this; if it read 0 for off-room items, every inventory
+  // slot fell through to the generic-frame fallback.
+  const has = vm.findObjectCode(obj)?.verbs.has(verb) ?? false;
   const entry = has ? 1 : 0;
   writeRef(dest, entry, slot, vm.vars);
   vm.annotate(`getVerbEntryPoint obj=${obj} verb=${verb} → ${entry}`);
@@ -1414,6 +1418,29 @@ function putActorInRoomHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   vm.annotate(`putActorInRoom actor=${id} room=${room}`);
 }
 for (const op of [0x2d, 0x6d, 0xad, 0xed]) register(op, putActorInRoomHandler);
+
+// ─── putActorAtObject (0x0E / 0x4E / 0x8E / 0xCE) ─────────────────────
+// `actor[p8] (bit 0x80) object[p16] (bit 0x40)`. Snap the actor (no
+// walk) onto the object's walk-to point, keeping its existing room —
+// SCUMM's `o5_putActorAtObject`, which reads the object via
+// getObjectXYPos (walk_x/walk_y in v5, the same point walkActorToObject
+// targets) and falls back to (240,120) when the object isn't found.
+// MI1's room-35 setup script #208 does putActorInRoom(4, 35) then
+// putActorAtObject(4, obj) to position the NPC — without this op the
+// VM halted on 0xCE ("Unknown opcode").
+function putActorAtObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
+  const id = readVarOrByte(opcode, 1, slot, vm.vars);
+  const objId = readVarOrWord(opcode, 2, slot, vm.vars);
+  const actor = actorOrNull(vm, id);
+  if (actor) {
+    const obj = vm.loadedRoom?.objects.get(objId);
+    const x = obj ? obj.cdhd.walkX : 240;
+    const y = obj ? obj.cdhd.walkY : 120;
+    actorPut(actor, x, y, actor.room);
+  }
+  vm.annotate(`putActorAtObject actor=${id} obj=${objId}`);
+}
+for (const op of [0x0e, 0x4e, 0x8e, 0xce]) register(op, putActorAtObjectHandler);
 
 // ─── 0x1E / 0x3E / 0x5E / 0x7E / 0x9E / 0xBE / 0xDE / 0xFE  walkActorTo ─
 // Walk an actor to (x, y). Records the intent on the actor; the walk

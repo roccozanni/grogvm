@@ -87,6 +87,57 @@ describe('seed opcodes — flow', () => {
     expect(vm.vars.readGlobal(100)).toBe(777);
   });
 
+  it('0xB7 startObject runs a CARRIED inventory item verb script from its home room', () => {
+    // Regression: MI1's inventory script #9 runs each carried item's verb-91
+    // (the icon script: `g376 = <icon obj>`) via startObject, then reads g376.
+    // The item is NOT in the current room, so resolving its code requires the
+    // home-room fallback. Without it, startObject no-ops, g376 stays stale, and
+    // every inventory slot drew the same wrong fallback icon (obj 1031).
+    const verb91 = bytes(0x1a, 0x78, 0x01, 0xe4, 0x03, 0x00); // move g376 = 996; stop
+    const homeRoom = {
+      id: 41,
+      objects: new Map([[566, { objId: 566, verbs: new Map([[91, verb91]]) }]]),
+      localScripts: new Map(),
+    } as never;
+    const vm = new Vm({
+      numVariables: 800,
+      numBitVariables: 2048,
+      handlers: SEED_OPCODES,
+      resolveRoom: (id) => (id === 41 ? homeRoom : (() => { throw new Error('no room'); })()),
+      resolveObjectRoom: (objId) => (objId === 566 ? 41 : null),
+    });
+    // Current room (7) does NOT contain object 566 — it's carried.
+    vm.loadedRoom = { id: 7, objects: new Map(), localScripts: new Map() } as never;
+    // startObject(obj=566, script=91, no args): 0x37 obj16=566(0x0236) script8=91 args-term.
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x37, 0x36, 0x02, 0x5b, 0xff, 0x00) });
+    vm.step();
+    expect(vm.vars.readGlobal(376)).toBe(996);
+  });
+
+  it('getVerbEntryPoint (0x8B) answers for a carried item via its home room', () => {
+    // #9 gates the startObject above on getVerbEntryPoint(item, 91) being
+    // truthy. It must consult the home room too, or the gate reads 0 for every
+    // carried item and the icon script never runs.
+    const homeRoom = {
+      id: 41,
+      objects: new Map([[566, { objId: 566, verbs: new Map([[91, bytes(0x00)]]) }]]),
+      localScripts: new Map(),
+    } as never;
+    const vm = new Vm({
+      numVariables: 800,
+      numBitVariables: 2048,
+      handlers: SEED_OPCODES,
+      resolveRoom: (id) => (id === 41 ? homeRoom : (() => { throw new Error('no room'); })()),
+      resolveObjectRoom: (objId) => (objId === 566 ? 41 : null),
+    });
+    vm.loadedRoom = { id: 7, objects: new Map(), localScripts: new Map() } as never;
+    // getVerbEntryPoint g0 = entry(obj=566, verb=91): 0x0B (immediate params)
+    // dest g0, obj16=566(0x0236), verb16=91(0x005B), then stop.
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x0b, 0x00, 0x00, 0x36, 0x02, 0x5b, 0x00) });
+    vm.step();
+    expect(vm.vars.readGlobal(0)).toBe(1);
+  });
+
   it('0x18 jumpRelative applies a signed offset', () => {
     const vm = makeVm();
     // jump +4 over the next four bytes, land on stopObjectCode.
@@ -1142,6 +1193,46 @@ describe('actor placement + room-transition opcodes (boot→lookout fixes)', () 
     expect(vm.actors.get(3).room).toBe(38); // kept, not clobbered to 0
     expect(vm.actors.get(3).x).toBe(10);
     expect(vm.actors.get(3).y).toBe(20);
+  });
+
+  it('putActorAtObject (0x0E) snaps the actor onto the object walk-to point, keeps its room', () => {
+    const vm = makeVm();
+    const a = vm.actors.get(3);
+    a.room = 35; a.x = 0; a.y = 0;
+    // Object 50: image at (10,10)px, walk-to at (88,120). putActorAtObject
+    // must land the actor on the WALK-TO point (88,120), not the image.
+    vm.loadedRoom = {
+      id: 35, width: 320, height: 200, numObjects: 1,
+      palette: new Uint8Array(768), transparentIndex: null,
+      indexed: new Uint8Array(0), stripMethods: [], zPlanes: [],
+      entryScript: null, exitScript: null, localScripts: new Map(),
+      objects: new Map([[50, {
+        objId: 50,
+        cdhd: { objId: 50, x: 10, y: 10, width: 0, height: 0, flags: 0, parent: 0, walkX: 88, walkY: 120, actorDir: 0 },
+        imhd: { objId: 50, numImages: 0, flags: 0, x: 0, y: 0, width: 0, height: 0 },
+        images: new Map(), name: 'thing', verbs: new Map(),
+      }]]),
+      walkBoxes: [], walkableMask: new Uint8Array(0), scaleSlots: [],
+    } as never;
+    // 0x0E putActorAtObject actor=3 obj=50 (byte actor, word obj), then stop.
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x0e, 0x03, 0x32, 0x00, 0xa0) });
+    vm.step();
+    expect(vm.actors.get(3).x).toBe(88);
+    expect(vm.actors.get(3).y).toBe(120);
+    expect(vm.actors.get(3).room).toBe(35); // kept, not clobbered
+    expect(vm.isHalted).toBe(false);
+  });
+
+  it('putActorAtObject falls back to (240,120) when the object is not in the room', () => {
+    const vm = makeVm();
+    const a = vm.actors.get(3);
+    a.room = 35;
+    // No room loaded → object 50 unresolvable → SCUMM fallback (240,120).
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x0e, 0x03, 0x32, 0x00, 0xa0) });
+    vm.step();
+    expect(vm.actors.get(3).x).toBe(240);
+    expect(vm.actors.get(3).y).toBe(120);
+    expect(vm.isHalted).toBe(false);
   });
 
   it('getActorMoving (0x56) writes 1 while walking, 0 at rest — no halt', () => {

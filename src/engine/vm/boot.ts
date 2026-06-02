@@ -64,6 +64,31 @@ export function bootGame(
   gameId: GameId,
   bootParam: number = BOOT_PARAM_ATTRACT,
 ): BootResult {
+  // Lazy object id → home-room index. Object numbers are globally unique
+  // (each object's OBCD is defined in exactly one room), so the first room
+  // we see owning an id is its home room. Built once on first miss by
+  // walking every room's object table (~100ms for MI1's 83 rooms), then
+  // cached — only touched when a carried inventory item's code is needed
+  // off-room (see Vm.findObjectCode). Null entry ⇒ scan done, id not owned.
+  let objectRoomIndex: Map<number, number> | null = null;
+  const resolveObjectRoom = (objId: number): number | null => {
+    if (!objectRoomIndex) {
+      objectRoomIndex = new Map();
+      for (const roomId of loff.keys()) {
+        let room;
+        try {
+          room = loadRoom(resourceFile, loff, roomId);
+        } catch {
+          continue;
+        }
+        for (const oid of room.objects.keys()) {
+          if (!objectRoomIndex.has(oid)) objectRoomIndex.set(oid, roomId);
+        }
+      }
+    }
+    return objectRoomIndex.get(objId) ?? null;
+  };
+
   const vm = new Vm({
     numVariables: Math.max(index.maxs.numVariables, 800),
     numBitVariables: Math.max(index.maxs.numBitVariables, 2048),
@@ -75,6 +100,7 @@ export function bootGame(
     resolveRoom: (id) => loadRoom(resourceFile, loff, id),
     resolveCostume: (id) => loadCostume(resourceFile, index, loff, id),
     resolveCharset: (id) => resolveCharsetById(resourceFile, index, loff, id),
+    resolveObjectRoom,
   });
 
   seedEngineVariables(vm, gameId);

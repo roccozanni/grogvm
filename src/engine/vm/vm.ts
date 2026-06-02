@@ -39,6 +39,7 @@ import { buildWalkableMask } from '../pathfinding/mask';
 import type { LoadedCostume } from '../graphics/costume-loader';
 import type { CharsetHeader } from '../graphics/charset';
 import type { LoadedRoom } from '../room/loader';
+import type { LoadedObject } from '../object/loader';
 import type { Sentence } from './sentence';
 import { ScriptSlot } from './slot';
 import { Variables } from './variables';
@@ -264,6 +265,17 @@ export type CharsetResolver = (
   charsetId: number,
 ) => { header: CharsetHeader; payload: Uint8Array } | null;
 
+/**
+ * Resolve a global object id to the id of the room whose OBCD defines
+ * it, or `null` when no room owns it. Object numbers are globally
+ * unique (each is defined in exactly one room), so this is the stable
+ * "home room" of an object. Used by {@link Vm.findObjectCode} to reach
+ * a carried inventory item's verb scripts after it has left its pickup
+ * room — SCUMM keeps a picked-up object's OBCD resident; we re-resolve
+ * it from its home room instead. See `bootGame` for the lazy index.
+ */
+export type ObjectRoomResolver = (objId: number) => number | null;
+
 export interface VmInit {
   readonly numVariables: number;
   readonly numBitVariables: number;
@@ -294,6 +306,13 @@ export interface VmInit {
    * right font via the index (not file-walk order). See {@link CharsetResolver}.
    */
   readonly resolveCharset?: CharsetResolver;
+  /**
+   * Resolver mapping an object id to its home room. Optional in tests;
+   * the real boot path wires it via {@link bootGame}. Lets
+   * {@link Vm.findObjectCode} run verb scripts for inventory items that
+   * have left their pickup room (e.g. MI1's inventory-icon verb 91).
+   */
+  readonly resolveObjectRoom?: ObjectRoomResolver;
 }
 
 export class Vm {
@@ -676,6 +695,14 @@ export class Vm {
   readonly resolveRoom: RoomResolver | undefined;
   readonly resolveCostume: CostumeResolver | undefined;
   readonly resolveCharset: CharsetResolver | undefined;
+  readonly resolveObjectRoom: ObjectRoomResolver | undefined;
+  /**
+   * Resident OBCD cache for carried inventory items — object id → its
+   * decoded {@link LoadedObject}, resolved from the object's home room
+   * the first time its code is needed off-room. OBCD is immutable
+   * resource data, so entries never go stale. See {@link findObjectCode}.
+   */
+  private readonly residentObjectCode = new Map<number, LoadedObject>();
   private readonly handlers: ReadonlyMap<number, OpcodeHandler>;
   private readonly traceBuffer: (TraceEntry | undefined)[] = new Array(
     TRACE_CAPACITY,
@@ -756,6 +783,40 @@ export class Vm {
     this.resolveRoom = init.resolveRoom;
     this.resolveCostume = init.resolveCostume;
     this.resolveCharset = init.resolveCharset;
+    this.resolveObjectRoom = init.resolveObjectRoom;
+  }
+
+  /**
+   * Resolve an object's code (verb scripts, name, CDHD) whether it sits
+   * in the current room OR is carried in the player's inventory.
+   *
+   * SCUMM keeps a picked-up object's OBCD resident, so its verb scripts
+   * run anywhere. Our rooms are decoded on demand, so a carried item's
+   * code isn't in {@link loadedRoom} once it leaves its pickup room. We
+   * re-resolve it from the object's home room ({@link resolveObjectRoom})
+   * and cache it ({@link residentObjectCode}) — OBCD is immutable.
+   *
+   * Without this, MI1's inventory script #9 (which runs each item's
+   * verb-91 "icon" script via `startObject` to learn the slot image,
+   * gated by `getVerbEntryPoint`) couldn't reach any carried item's
+   * verb 91 — every slot fell back to the generic frame object 1031,
+   * so the whole inventory drew one identical wrong icon.
+   */
+  findObjectCode(objId: number): LoadedObject | null {
+    const inRoom = this.loadedRoom?.objects.get(objId);
+    if (inRoom) return inRoom;
+    const cached = this.residentObjectCode.get(objId);
+    if (cached) return cached;
+    if (!this.resolveObjectRoom || !this.resolveRoom) return null;
+    const homeRoom = this.resolveObjectRoom(objId);
+    if (homeRoom === null) return null;
+    try {
+      const obj = this.resolveRoom(homeRoom).objects.get(objId) ?? null;
+      if (obj) this.residentObjectCode.set(objId, obj);
+      return obj;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -1088,17 +1149,23 @@ export class Vm {
     verbId: number,
     args: ReadonlyArray<number> = [],
   ): ScriptSlot | null {
-    const obj = this.loadedRoom?.objects.get(objId);
+    const obj = this.findObjectCode(objId);
     if (!obj) return null;
     const bytecode = findVerbScript(obj.verbs, verbId);
     if (!bytecode) return null;
     const slot = this.slots.find((s) => s.status === 'dead');
     if (!slot) return null;
+    // Tag the slot with the room that actually owns the object's code:
+    // the current room when it's a room object, else the carried item's
+    // home room (so a verb script that reads its room context is right).
+    const room = this.loadedRoom?.objects.has(objId)
+      ? this.loadedRoom.id
+      : this.resolveObjectRoom?.(objId) ?? this.loadedRoom?.id;
     slot.start({
       scriptId: objId,
       bytecode,
       args: [verbId, objId, ...args],
-      room: this.loadedRoom?.id,
+      room,
       label: `VERB-${objId}-${verbId}`,
     });
     return slot;
