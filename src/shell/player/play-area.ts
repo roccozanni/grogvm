@@ -101,9 +101,24 @@ const CURSOR_COLOR_HOVER_OBJECT = 14; // yellow when over an interactable
  */
 const G_ACTIVE_VERB = 107;
 const VERB_WALK_TO = 11;
+const VERB_LOOK_AT = 8;
 function armedVerb(vm: Vm): number | null {
   const v = vm.vars.readGlobal(G_ACTIVE_VERB);
   return v > 0 && v !== VERB_WALK_TO ? v : null;
+}
+
+/**
+ * The default verb for an inventory item with no command verb armed.
+ * MI1's default action for ordinary objects is "Look at" (Esamina,
+ * verb 8) — the same verb a right-click performs (INPUT §5) — and
+ * inventory items follow that. Returns null if Look at isn't currently
+ * defined, so the sentence line falls back to walk-to rather than
+ * naming a missing verb. (Room-object defaults stay game-driven via
+ * the hover poller's g182; only the shell-drawn inventory hover needs
+ * this, since it never routes through that poller.)
+ */
+function inventoryDefaultVerb(vm: Vm): number | null {
+  return vm.verbs.has(VERB_LOOK_AT) ? VERB_LOOK_AT : null;
 }
 
 export interface PlayAreaArgs {
@@ -496,12 +511,18 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
       // font, hence "Vai" reads smaller than the verbs). The engine builds
       // its text from the active verb+object; we synthesise the same here
       // and draw it in #100's own slot, so it sits where the original does.
-      // When hovering an inventory slot, `hoveredVerb` is that slot's verb
-      // id (200..207) — a nameless image verb, NOT a command verb. Passing
-      // it would make the preview fall through to the walk-to default
-      // ("Vai") instead of the armed verb. Inventory slots are containers,
-      // so keep the armed verb and just fill in the item: "Usa la pentola".
-      const previewVerb = hoveredInvItem !== null ? null : hoveredVerb;
+      // Resolve which verb the sentence line should name. An inventory
+      // slot is a *container*, not a command verb: its `hoveredVerb`
+      // (ids 200..207, a nameless image verb) must not drive the line, or
+      // the preview falls through to the walk-to default ("Vai"). Over an
+      // inventory item the armed verb wins ("Usa la pentola"); with none,
+      // the item's own default verb ("Esamina la pentola"). Over the room
+      // the hovered command verb wins, else the armed verb (sentenceText
+      // falls back to walk-to when both are null).
+      const previewVerb =
+        hoveredInvItem !== null
+          ? armedVerb(vm) ?? inventoryDefaultVerb(vm)
+          : hoveredVerb ?? armedVerb(vm);
       const text =
         v.id === VERB_SENTENCE
           ? sentenceText(vm, hoveredInvItem ?? hoveredObject, previewVerb)
@@ -878,15 +899,16 @@ function clutCss(palette: Uint8Array, idx: number): string {
 }
 
 /**
- * Build the sentence-preview string from the current verb + hovered
- * object. Format follows the v5 convention:
+ * Build the sentence-preview string from a resolved verb id + object.
+ * Format follows the v5 convention:
  *
  *   "{verb} {obj1}"                        single-object verb
  *   "{verb} {obj1} {preposition} {obj2}"   two-object verb (later)
  *
- * `hoveredVerb` takes priority when set so the bar previews the
- * verb the mouse is over BEFORE the user clicks to commit it —
- * matches the original MI1 UX.
+ * `previewVerbId` is the verb the line should name — the caller resolves
+ * precedence (hovered command verb / armed verb / inventory default),
+ * since only it knows whether the cursor is over the room or an inventory
+ * slot. A null id falls back to the game's walk-to verb.
  *
  * For the visible-only milestone we render the single-object form
  * only — the second object slot lands once we have inventory wired.
@@ -894,12 +916,8 @@ function clutCss(palette: Uint8Array, idx: number): string {
 function sentenceText(
   vm: Vm,
   hoveredObject: number | null,
-  hoveredVerb: number | null,
+  previewVerbId: number | null,
 ): string {
-  // Verb name precedence: the verb under the cursor (live preview)
-  // beats the armed verb (last click). Falls back to 'Walk to' (the
-  // implicit verb when nothing is selected and nothing's hovered).
-  const previewVerbId = hoveredVerb ?? armedVerb(vm);
   const previewVerb =
     previewVerbId !== null ? vm.verbs.get(previewVerbId) : null;
   // Idle default = the game's walk-to verb name ("Vai" in the Italian
