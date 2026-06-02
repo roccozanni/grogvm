@@ -190,6 +190,9 @@ export function createSession(
       getObjectState: (id) => vm.objectStates.get(id) ?? 1,
       // NeverClip class (20, bit 19) → actor always in front of z-planes.
       isNeverClip: (id) => ((vm.objectClasses.get(id) ?? 0) & (1 << 19)) !== 0,
+      // A picked-up object is owned by an actor → gone from the room even if
+      // pickup-adjacent opcodes left it queued.
+      isHeld: (id) => vm.isHeldByActor(id),
     });
 
     // Extract the camera slice. When the viewport spans the whole room (the

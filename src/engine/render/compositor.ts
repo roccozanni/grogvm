@@ -110,6 +110,16 @@ export interface ComposeFrameInput {
    * Defaults to "no actor is NeverClip".
    */
   readonly isNeverClip?: (actorId: number) => boolean;
+  /**
+   * Whether a queued object is currently held by an actor (in inventory).
+   * Picking an object up transfers its owner to ego, but pickup-adjacent
+   * opcodes (`setState`, `drawObject`) and room re-entry can still leave
+   * it in the draw queue — so gating purely on the queue would keep a
+   * carried item painted in its old room spot. Held objects are skipped.
+   * Typically: `isHeld: (id) => vm.isHeldByActor(id)`. Defaults to "nothing
+   * is held".
+   */
+  readonly isHeld?: (objectId: number) => boolean;
 }
 
 /** Reason an entire actor didn't draw — surfaced for diagnostics. */
@@ -138,7 +148,7 @@ export interface ComposeFrameResult {
 }
 
 export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
-  const { room, framebuffer, actors, getCostume, objectDrawQueue, getObjectState, isNeverClip } = input;
+  const { room, framebuffer, actors, getCostume, objectDrawQueue, getObjectState, isNeverClip, isHeld } = input;
   const skippedActors: SkippedActor[] = [];
   const skippedLimbs: SkippedLimb[] = [];
   const skippedObjects: SkippedObject[] = [];
@@ -182,6 +192,10 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
           objectId: objId,
           reason: `not present in room ${room.id}`,
         });
+        continue;
+      }
+      if (isHeld?.(objId)) {
+        skippedObjects.push({ objectId: objId, reason: 'held in inventory' });
         continue;
       }
       const state = getObjectState ? getObjectState(objId) : 1;
