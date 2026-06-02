@@ -101,24 +101,18 @@ const CURSOR_COLOR_HOVER_OBJECT = 14; // yellow when over an interactable
  */
 const G_ACTIVE_VERB = 107;
 const VERB_WALK_TO = 11;
-const VERB_LOOK_AT = 8;
+// Screen-space cursor vars the game's input scripts poll (SCUMM 44/45).
+// MI1's hover poller #23 reads these to hit-test the bottom panel: when
+// the cursor is over the inventory (g45 ≥ 152, g44 ≥ 160) it arms the
+// item's default verb (g107 ← Look at, saving the prior verb in g394 to
+// restore on hover-out) and sets the object-under-cursor (g108). Our room
+// canvas writes these as room coords (y < 152); the verb bar feeds its own
+// screen coords so #23 sees the inventory like the original single screen.
+const VAR_MOUSE_X = 44;
+const VAR_MOUSE_Y = 45;
 function armedVerb(vm: Vm): number | null {
   const v = vm.vars.readGlobal(G_ACTIVE_VERB);
   return v > 0 && v !== VERB_WALK_TO ? v : null;
-}
-
-/**
- * The default verb for an inventory item with no command verb armed.
- * MI1's default action for ordinary objects is "Look at" (Esamina,
- * verb 8) — the same verb a right-click performs (INPUT §5) — and
- * inventory items follow that. Returns null if Look at isn't currently
- * defined, so the sentence line falls back to walk-to rather than
- * naming a missing verb. (Room-object defaults stay game-driven via
- * the hover poller's g182; only the shell-drawn inventory hover needs
- * this, since it never routes through that poller.)
- */
-function inventoryDefaultVerb(vm: Vm): number | null {
-  return vm.verbs.has(VERB_LOOK_AT) ? VERB_LOOK_AT : null;
 }
 
 export interface PlayAreaArgs {
@@ -515,14 +509,12 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
       // slot is a *container*, not a command verb: its `hoveredVerb`
       // (ids 200..207, a nameless image verb) must not drive the line, or
       // the preview falls through to the walk-to default ("Vai"). Over an
-      // inventory item the armed verb wins ("Usa la pentola"); with none,
-      // the item's own default verb ("Esamina la pentola"). Over the room
-      // the hovered command verb wins, else the armed verb (sentenceText
-      // falls back to walk-to when both are null).
+      // inventory item the verb is whatever #23 has armed into g107 (the
+      // prior command verb, or the item default "Esamina" it arms on hover)
+      // — read via armedVerb. Over the room the hovered command verb wins,
+      // else the armed verb (sentenceText falls back to walk-to if null).
       const previewVerb =
-        hoveredInvItem !== null
-          ? armedVerb(vm) ?? inventoryDefaultVerb(vm)
-          : hoveredVerb ?? armedVerb(vm);
+        hoveredInvItem !== null ? armedVerb(vm) : hoveredVerb ?? armedVerb(vm);
       const text =
         v.id === VERB_SENTENCE
           ? sentenceText(vm, hoveredInvItem ?? hoveredObject, previewVerb)
@@ -644,6 +636,18 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
     const v = verbAt(x, y);
     const newHover = v?.id ?? null;
     const newInv = v ? inventoryItemForVerb(v.id) : null;
+    // Feed the running hover poller (#23) the screen-space cursor when over
+    // an inventory slot, so it arms the item's default verb + sets g108 —
+    // exactly as it does on the original's single 320×200 screen. Screen Y
+    // = canvas Y + the panel's screen origin (so it lands in #23's g45 ≥ 152
+    // inventory band). Scoped to inventory: feeding for command verbs could
+    // drive #23's room branch off stale g20/g21. The verb stays armed until
+    // the cursor re-enters the room (the room canvas writes y < 152, which
+    // makes #23 restore the saved verb from g394).
+    if (newInv !== null) {
+      vm.vars.writeGlobal(VAR_MOUSE_X, x);
+      vm.vars.writeGlobal(VAR_MOUSE_Y, y + VERB_BAR_START_Y);
+    }
     if (newHover !== hoveredVerb || newInv !== hoveredInvItem) {
       hoveredVerb = newHover;
       hoveredInvItem = newInv;

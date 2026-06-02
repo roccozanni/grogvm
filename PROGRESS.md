@@ -47,27 +47,37 @@ confirmed)*. Four fixes, durable semantics in docs:
 walking — a grid-A* vs box-graph **pathfinding route** divergence, not a clip/
 z-plane bug. [PATHFINDING §8](docs/PATHFINDING.md) + backlog below.
 
-**Open bug — picked-up object stays drawn in its room.** Picking up the kitchen
-items (carne 566, pentola 567) left them rendered in their original room
-position *as well as* in inventory. Reloading the save (now in room 41) showed
-them correctly absent — but that's **incidental**: the compositor skips
-draw-queue objects "not present in the loaded room" (`compositor.ts:180`), and
-566–568 belong to the kitchen, so room 41 never draws them anyway. The bug is
-real in the pickup room itself. Root cause: **ownership is never a gate for room
-drawing.** Two concrete gaps:
-1. `setOwnerOfHandler` (0x29 family) sets the owner but, unlike
-   `pickupObjectHandler` (which does `objectDrawQueue.delete(obj)` + state←1),
-   does **not** drop the object from the draw queue. If the kitchen pickup uses
-   setOwnerOf, the object stays queued and drawn.
-2. The room-entry queue-populate (`vm.ts:874-877`) and the compositor draw
-   (`compositor.ts:187-200`) both key off state/image only — never owner. So
-   even pickupObject's delete is undone on the next room (re)entry, since a
-   carried item keeps state>0 + an image.
-   Fix direction: gate room drawing on actor-ownership (skip drawing / skip
-   queue-populate for any object whose owner is an actor, not the room), rather
-   than relying on each pickup opcode to remember to delete from the queue.
-   First disassemble the meat/pot verb scripts to confirm which pickup opcode
-   the kitchen uses. [OBJECTS](docs/SCUMM-V5-OBJECTS.md).
+**Fixed this session — picked-up object stayed drawn in its room.** Carried
+items (carne 566, pentola 567) rendered in their pickup spot *and* in inventory.
+Root cause: **ownership was never a gate for room drawing.** The draw queue gets
+re-populated by several paths (`setState` `index.ts:918`, room re-entry
+`vm.ts:874-877`, `drawObject`), so clearing it at each pickup opcode is
+whack-a-mole. Fix: gate the *drawing* on ownership — `vm.isHeldByActor(obj)`
+(owner is an actor id) → compositor skips it (`isHeld` callback, wired in
+`session.ts`). Robust regardless of which opcode queued it. Test in
+`compositor.test.ts`.
+
+**Inventory hover now arms the verb via the engine (not a shell hack).**
+Hovering an item showed "Vai" and didn't arm anything. The game's hover poller
+**#23 already implements** the arming: over the inventory band (g45 ≥ 152,
+g44 ≥ 160) it saves the active verb to **g394**, arms the item default (g107 ←
+**8 Esamina**), sets object-under-cursor **g108**, and restores g107 from g394
+on hover-out. It never fired because our **two-canvas split** meant the verb bar
+fed the engine no screen-space mouse coords. Fix (Option 1 — *unify the input
+coordinate space*): the verb-bar `pointermove` now writes screen-space g44/g45
+when over an inventory slot, so #23 runs; the sentence line reads the armed g107
+via `armedVerb`. The shell-side default-verb guess was reverted.
+- **Option 2 (future) — unify the render surface.** Draw the whole 320×200
+  (room slice + verb panel) into one framebuffer/canvas with 1:1 coords, and
+  make the sentence line engine verb #100 (with `0xFF NN` substitution codes).
+  Most faithful; eliminates the coordinate bridge entirely. Take it on when a
+  *render-side* reason appears (verb #100 codes, mid-string colours, the
+  copy-protection wheel) — not speculatively. Option 1 is a clean subset.
+- **Verify in-browser:** hovering an item shows "Esamina <item>" (and keeps an
+  armed verb like "Usa <item>"); a single left click runs it; moving back to the
+  room restores the prior verb. The click-commit goes through `VAR_VERB_SCRIPT`
+  reading g108 — if a single click doesn't *run* the verb, that path (clickArea
+  routing, `handleVerbClick` vs `CLICK_AREA_INVENTORY`) is the next suspect.
 
 **Next:** finish the SCUMM Bar dialogs, gather inventory items, and reach a
 **use-with** puzzle so the two open input items below get exercised with a real
