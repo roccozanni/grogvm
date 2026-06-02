@@ -496,9 +496,15 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
       // font, hence "Vai" reads smaller than the verbs). The engine builds
       // its text from the active verb+object; we synthesise the same here
       // and draw it in #100's own slot, so it sits where the original does.
+      // When hovering an inventory slot, `hoveredVerb` is that slot's verb
+      // id (200..207) — a nameless image verb, NOT a command verb. Passing
+      // it would make the preview fall through to the walk-to default
+      // ("Vai") instead of the armed verb. Inventory slots are containers,
+      // so keep the armed verb and just fill in the item: "Usa la pentola".
+      const previewVerb = hoveredInvItem !== null ? null : hoveredVerb;
       const text =
         v.id === VERB_SENTENCE
-          ? sentenceText(vm, hoveredInvItem ?? hoveredObject, hoveredVerb)
+          ? sentenceText(vm, hoveredInvItem ?? hoveredObject, previewVerb)
           : v.name;
       if (!text) continue;
       // Each verb renders in the charset it was defined under (MI1's verb
