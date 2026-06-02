@@ -175,6 +175,39 @@ describe.skipIf(!hasData)('MI1 smoke — boot → gameplay', () => {
     expect(vm.haltInfo).toBeNull();
   });
 
+  // The hang watchdog would have caught THIS bug at play time. Recreate the
+  // pre-fix corruption (VAR_VERB_SCRIPT clobbered to 4 inside the conversation)
+  // and confirm a run of dead dialog clicks trips the watchdog — the live
+  // signal we now have instead of a multi-hour disassembly dig.
+  it('hang watchdog fires on the dialog-stuck symptom (clicks that change nothing)', () => {
+    const vm = boot();
+    expect(driveToFirstRoom(vm)).toBe(true);
+    vm.pushSentence({ verb: 2, objectA: 428, objectB: 0 });
+    for (let t = 0; t < 600 && !vm.haltInfo; t++) tick(vm);
+    vm.pushSentence({ verb: 11, objectA: 428, objectB: 0 });
+    for (let t = 0; t < 600 && !vm.haltInfo; t++) { tick(vm); if (vm.currentRoom === 28) break; }
+    expect(vm.currentRoom).toBe(28);
+    for (let t = 0; t < 200; t++) tick(vm);
+    vm.startScriptById(93, { args: [] });
+    for (let t = 0; t < 400 && !vm.haltInfo; t++) tick(vm);
+    expect(vm.currentRoom).toBe(82);
+
+    // Recreate the bug: point VAR_VERB_SCRIPT at the default script #4 (which
+    // only arms a verb, never commits a dialog pick) instead of dialog #14.
+    vm.vars.writeGlobal(32, 4);
+    let hang: import('./vm/vm').HangInfo | null = null;
+    vm.enableHangWatchdog((info) => { hang = info; }, { settleFrames: 3, deadInputThreshold: 3 });
+
+    // Click an answer three times; each arms g107 but commits nothing.
+    for (let c = 0; c < 3; c++) {
+      vm.handleVerbClick(121, 1);
+      for (let t = 0; t < 40 && !vm.haltInfo; t++) tick(vm);
+    }
+    expect(hang).not.toBeNull();
+    expect(hang!.verbScript).toBe(4); // points right at the mis-routed script
+    expect(hang!.room).toBe(82);
+  });
+
   // Regression: the head limb must track facing at rest. The stand/walk
   // costume records only stop/un-stop the head — only the init pose
   // carries the head's per-direction frame — so a stop must re-point the

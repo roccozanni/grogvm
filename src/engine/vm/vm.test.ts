@@ -3,7 +3,7 @@ import type { LoadedObject } from '../object/loader';
 import type { LoadedRoom } from '../room/loader';
 import type { WalkBox } from '../pathfinding/boxes';
 import { buildWalkableMask } from '../pathfinding/mask';
-import { NUM_SLOTS, UnknownOpcodeError, Vm, type OpcodeHandler } from './vm';
+import { NUM_SLOTS, UnknownOpcodeError, Vm, type HangInfo, type OpcodeHandler } from './vm';
 
 function makeVm(handlers: Record<number, OpcodeHandler> = {}): Vm {
   return new Vm({
@@ -858,6 +858,83 @@ describe('Vm — enterRoom + ENCD/EXCD', () => {
     vm.enterRoom(3);
     // Only system state should change; no labelled slots.
     expect(vm.slots.every((s) => s.label === '')).toBe(true);
+  });
+});
+
+describe('Vm — hang watchdog', () => {
+  // A VM whose VAR_VERB_SCRIPT (g32) resolves to `verbScriptBytecode`, with
+  // a frame every tick (VAR_TIMER_NEXT = 1) so the settle window advances.
+  function makeInputVm(
+    verbScriptBytecode: number[],
+    handlers: Record<number, OpcodeHandler>,
+  ): Vm {
+    const vm = new Vm({
+      numVariables: 64,
+      numBitVariables: 64,
+      handlers: new Map(Object.entries(handlers).map(([k, h]) => [Number(k), h])),
+      resolveGlobalScript: () => ({ bytecode: new Uint8Array(verbScriptBytecode), room: 0 }),
+    });
+    vm.vars.writeGlobal(19, 1); // VAR_TIMER_NEXT — frame every tick
+    vm.vars.writeGlobal(32, 4); // VAR_VERB_SCRIPT (global id < LSCR_THRESHOLD)
+    return vm;
+  }
+
+  function click(vm: Vm, settleTicks = 4): void {
+    vm.handleVerbClick(50, 1);
+    for (let t = 0; t < settleTicks; t++) vm.tick();
+  }
+
+  it('fires after N consecutive clicks that change nothing (the dialog-hang symptom)', () => {
+    // Verb script just stops — arms/commits nothing, like #4 on a dialog verb
+    // when VAR_VERB_SCRIPT is mis-pointed away from the dialog input script.
+    const vm = makeInputVm([0x01], { 0x01: (_v, s) => s.kill() });
+    let fired: HangInfo | null = null;
+    vm.enableHangWatchdog((info) => { fired = info; }, { settleFrames: 2, deadInputThreshold: 3 });
+    click(vm);
+    expect(fired).toBeNull(); // one dead click isn't enough
+    click(vm);
+    expect(fired).toBeNull();
+    click(vm);
+    expect(fired).not.toBeNull();
+    expect(fired!.deadInputs).toBe(3);
+    expect(fired!.verbScript).toBe(4);
+  });
+
+  it('does NOT fire when a click makes progress (commits a sentence)', () => {
+    // Verb script pushes a sentence then stops — observable progress.
+    const vm = makeInputVm([0x02], {
+      0x02: (v, s) => { v.pushSentence({ verb: 1, objectA: 2, objectB: 0 }); s.kill(); },
+    });
+    let fired: HangInfo | null = null;
+    vm.enableHangWatchdog((info) => { fired = info; }, { settleFrames: 2, deadInputThreshold: 3 });
+    click(vm);
+    click(vm);
+    click(vm);
+    expect(fired).toBeNull();
+  });
+
+  it('a single dead click between progress does not accumulate toward the threshold', () => {
+    // Alternate dead / progress clicks: the run never reaches 3 dead in a row.
+    let mode = 0;
+    const vm = makeInputVm([0x03], {
+      0x03: (v, s) => { if (mode === 1) v.pushSentence({ verb: 1, objectA: 2, objectB: 0 }); s.kill(); },
+    });
+    let fired: HangInfo | null = null;
+    vm.enableHangWatchdog((info) => { fired = info; }, { settleFrames: 2, deadInputThreshold: 3 });
+    mode = 0; click(vm); // dead
+    mode = 1; click(vm); // progress → resets run
+    mode = 0; click(vm); // dead
+    mode = 0; click(vm); // dead
+    expect(fired).toBeNull(); // only 2 dead in a row since the reset
+  });
+
+  it('is a no-op (no cost, no fire) when disabled', () => {
+    const vm = makeInputVm([0x01], { 0x01: (_v, s) => s.kill() });
+    let fired: HangInfo | null = null;
+    vm.enableHangWatchdog((info) => { fired = info; }, { settleFrames: 2, deadInputThreshold: 3 });
+    vm.disableHangWatchdog();
+    click(vm); click(vm); click(vm); click(vm);
+    expect(fired).toBeNull();
   });
 });
 

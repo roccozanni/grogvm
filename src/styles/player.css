@@ -616,6 +616,16 @@ a.button.secondary {
 .vm-debug-heading {
   margin: 0 0 0.5rem;
 }
+.vm-watchdog {
+  margin: 0 0 0.5rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #b58900;
+  border-radius: 4px;
+  background: #2a2000;
+  color: #ffcf4d;
+  font-size: 0.8rem;
+  line-height: 1.3;
+}
 .vm-controls {
   display: flex;
   flex-wrap: wrap;

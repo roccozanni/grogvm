@@ -95,6 +95,25 @@ export interface HaltInfo {
   readonly trace: ReadonlyArray<TraceEntry>;
 }
 
+/**
+ * Fired by the opt-in hang watchdog ({@link Vm.enableHangWatchdog}) when
+ * a run of consecutive player clicks each produced **no observable
+ * progress** — no room change, no speech, no committed sentence, no new
+ * script, no walk command. That is the live symptom of a silent
+ * divergence: a script parked waiting on a var the input never sets (the
+ * pirate-conversation `VAR_VERB_SCRIPT` clobber hung exactly this way —
+ * clicking dialog answers changed nothing).
+ */
+export interface HangInfo {
+  /** How many consecutive clicks produced no progress. */
+  readonly deadInputs: number;
+  readonly room: number;
+  /** `VAR_VERB_SCRIPT` (32) — the usual suspect when clicks misroute. */
+  readonly verbScript: number;
+  /** Live (non-dead) script ids when the watchdog fired. */
+  readonly liveScripts: ReadonlyArray<number>;
+}
+
 export type OpcodeHandler = (vm: Vm, slot: ScriptSlot, opcode: number) => void;
 
 /**
@@ -1263,14 +1282,125 @@ export class Vm {
     const scriptId = this.vars.readGlobal(Vm.VAR_VERB_SCRIPT);
     if (scriptId <= 0) return null;
     try {
-      return this.startScriptById(scriptId, {
+      const slot = this.startScriptById(scriptId, {
         args: [clickArea, code, button],
         label: `INPUT-${clickArea}-${code}-${button}`,
       });
+      this.wdNoteInput();
+      return slot;
     } catch {
       // Script not resolvable (e.g. a local id with no current room) —
       // a click with no usable input script is a no-op, not a crash.
       return null;
+    }
+  }
+
+  // ─── Hang watchdog (opt-in dev aid) ─────────────────────────────────
+  //
+  // The "input does nothing" detector. Enable it during play/testing and
+  // it watches each click (every runInputScript) for a settle window; if
+  // `deadInputThreshold` clicks in a row each leave the game with NO
+  // observable progress, it fires the sink. "Progress" is deliberately the
+  // set of things a click is *meant* to cause — a room change, speech, a
+  // committed sentence, a new running script, or a walk command — NOT raw
+  // var/animation churn (the music timer ticks every jiffy; idle costumes
+  // cycle frames). Fingerprinting only progress signals is what keeps it
+  // from drowning in ambient noise. Off by default → the per-frame check
+  // is a single null test, so zero cost when disabled.
+  private hangWatchdog: {
+    sink: (info: HangInfo) => void;
+    settle: number;
+    threshold: number;
+  } | null = null;
+  private wdDeadInputs = 0;
+  private wdSettleLeft = 0;
+  private wdChanged = false;
+  private wdPre = '';
+  /** Monotonic progress counters the watchdog watches (never decrease, so a
+   *  transient talk/sentence still registers; immune to anim/timer churn). */
+  private talkSeq = 0;
+  private sentenceSeq = 0;
+
+  /**
+   * Turn on the hang watchdog. `sink` receives a {@link HangInfo} when a
+   * run of dead clicks is detected. `settleFrames` is how many game frames
+   * to wait for a click's effect before judging it (default 12 ≈ ~1s at
+   * MI1's ~10 fps); `deadInputThreshold` is how many dead clicks in a row
+   * trip it (default 3). Idempotent; pass a fresh sink to replace.
+   */
+  enableHangWatchdog(
+    sink: (info: HangInfo) => void,
+    opts: { settleFrames?: number; deadInputThreshold?: number } = {},
+  ): void {
+    this.hangWatchdog = {
+      sink,
+      settle: Math.max(1, opts.settleFrames ?? 12),
+      threshold: Math.max(1, opts.deadInputThreshold ?? 3),
+    };
+    this.wdDeadInputs = 0;
+    this.wdSettleLeft = 0;
+    this.wdChanged = false;
+  }
+
+  /** Disable the hang watchdog. */
+  disableHangWatchdog(): void {
+    this.hangWatchdog = null;
+  }
+
+  /**
+   * Snapshot of *progress-only* state — see {@link hangWatchdog}. Includes
+   * only things a click is meant to cause and that don't churn on their own:
+   * the room, the monotonic talk/sentence counters, and any commanded walk.
+   * Deliberately NOT the live-script set (a click always transiently spawns
+   * the verb-redraw script #12 — that's not progress) nor raw vars (the music
+   * timer ticks every jiffy; costumes cycle frames).
+   */
+  private wdFingerprint(): string {
+    let walks = '';
+    for (const a of this.actors.all()) {
+      walks += a.walkTarget ? `${a.walkTarget.x}:${a.walkTarget.y};` : '-;';
+    }
+    return `r${this.currentRoom}|t${this.talkSeq}|s${this.sentenceSeq}|W${walks}`;
+  }
+
+  /** A click fired: open (or restart) a settle window. */
+  private wdNoteInput(): void {
+    if (!this.hangWatchdog) return;
+    // A new click while the previous window is still open: resolve the old
+    // one first so each click gets its own verdict (a burst of dead clicks
+    // still counts as several).
+    if (this.wdSettleLeft > 0) this.wdResolve();
+    this.wdPre = this.wdFingerprint();
+    this.wdSettleLeft = this.hangWatchdog.settle;
+    this.wdChanged = false;
+  }
+
+  /** Per-frame: watch the open window for any progress, then judge it. */
+  private wdFrameCheck(): void {
+    if (!this.hangWatchdog || this.wdSettleLeft <= 0) return;
+    if (!this.wdChanged && this.wdFingerprint() !== this.wdPre) this.wdChanged = true;
+    this.wdSettleLeft--;
+    if (this.wdSettleLeft === 0) this.wdResolve();
+  }
+
+  /** Settle window closed: bump or reset the dead-input run; fire at threshold. */
+  private wdResolve(): void {
+    const wd = this.hangWatchdog;
+    if (!wd) return;
+    this.wdSettleLeft = 0;
+    if (this.wdChanged) {
+      this.wdDeadInputs = 0;
+      return;
+    }
+    this.wdDeadInputs++;
+    if (this.wdDeadInputs >= wd.threshold) {
+      wd.sink({
+        deadInputs: this.wdDeadInputs,
+        room: this.currentRoom,
+        verbScript: this.vars.readGlobal(Vm.VAR_VERB_SCRIPT),
+        liveScripts: this.slots.filter((s) => s.status !== 'dead').map((s) => s.scriptId),
+      });
+      this.wdDeadInputs = 0; // re-arm: warn again after another run
     }
   }
 
@@ -1305,6 +1435,7 @@ export class Vm {
   /** Push a sentence onto the queue for the sentence driver to run. */
   pushSentence(sentence: Sentence): void {
     this.sentenceStack.push(sentence);
+    this.sentenceSeq++; // progress signal for the hang watchdog
   }
 
   /** Drop all pending sentences (the `doSentence` 0xFE / reset path). */
@@ -1574,6 +1705,7 @@ export class Vm {
     // (stutter / "two Guybrush"). Following after the walk keeps (actor, camera)
     // consistent within the single tick the session then presents.
     this.moveCameraFollow();
+    this.wdFrameCheck();
     return { framed: true, resumed, ran, delaying };
   }
 
@@ -1624,6 +1756,7 @@ export class Vm {
     const charinc = Math.max(1, this.vars.readGlobal(Vm.VAR_CHARINC));
     this.talkDelay = Math.max(MIN_TALK_TICKS, text.length * charinc);
     this.vars.writeGlobal(Vm.VAR_HAVE_MSG, 1);
+    this.talkSeq++; // progress signal for the hang watchdog
   }
 
   /**

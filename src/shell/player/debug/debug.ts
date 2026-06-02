@@ -138,10 +138,29 @@ export function mountDebugPanel(session: EngineSession, gameId: GameId): DebugPa
       counter,
     );
 
+    // Hang watchdog banner — surfaces "clicks that change nothing" (a script
+    // parked waiting on a var the input never sets, the dialog-stuck class of
+    // bug). Hidden until the watchdog fires; also logged to the console.
+    const watchdogBanner = el('div', { class: 'vm-watchdog', style: 'display:none' });
+    let wiredVm: typeof session.vm | null = null;
+    const wireWatchdog = (vm: typeof session.vm): void => {
+      vm.enableHangWatchdog((info) => {
+        const msg =
+          `Hang watchdog: ${info.deadInputs} clicks in a row changed nothing ` +
+          `in room ${info.room} — VAR_VERB_SCRIPT=${info.verbScript}, ` +
+          `live scripts [${info.liveScripts.join(', ')}]. Input may be misrouted.`;
+        // eslint-disable-next-line no-console
+        console.warn('[GrogVM] ' + msg);
+        watchdogBanner.textContent = '⚠ ' + msg;
+        watchdogBanner.style.display = '';
+      });
+    };
+
     element = el(
       'section',
       { class: 'vm-debug' },
       el('h2', { class: 'vm-debug-heading' }, 'VM inspector'),
+      watchdogBanner,
       controls,
       saves,
       live,
@@ -157,6 +176,12 @@ export function mountDebugPanel(session: EngineSession, gameId: GameId): DebugPa
       tickSig.set(st.tickCount);
       playingSig.set(st.playing);
       const vm = session.vm;
+      // (Re)attach the watchdog whenever the VM instance changes (reboot/restore).
+      if (vm !== wiredVm) {
+        wiredVm = vm;
+        watchdogBanner.style.display = 'none';
+        wireWatchdog(vm);
+      }
       roomSig.set(`room ${vm.currentRoom}${vm.loadedRoom ? ` (${vm.loadedRoom.width}×${vm.loadedRoom.height})` : ' — none loaded'}`);
       // Rebuild the heavy tables (slot/globals/bits/trace, ~350 DOM nodes)
       // ONLY when paused/stepping — doing it during play janks camera-follow,
