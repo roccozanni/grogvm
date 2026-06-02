@@ -79,8 +79,6 @@ const INVENTORY_VERB_LAST = 207;
 /** Default CLUT colours when a verb's slot doesn't specify one. */
 const DEFAULT_VERB_COLOR = 7; // light-grey ink
 const DEFAULT_VERB_HI_COLOR = 14; // light yellow
-/** MI1's sentence-line verb — drawn in the top band of the verb panel. */
-const VERB_SENTENCE = 100;
 const DEFAULT_VERB_DIM_COLOR = 8; // dark grey
 
 /** Verb-panel background fill (CLUT index). Black for now: a flat magenta fill
@@ -501,24 +499,15 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
         continue;
       }
       // Verb #100 is MI1's sentence line — a real verb in the top black
-      // band of the panel (at 160,145, charset 2 = the smaller dialogue
-      // font, hence "Vai" reads smaller than the verbs). The engine builds
-      // its text from the active verb+object; we synthesise the same here
-      // and draw it in #100's own slot, so it sits where the original does.
-      // Resolve which verb the sentence line should name. An inventory
-      // slot is a *container*, not a command verb: its `hoveredVerb`
-      // (ids 200..207, a nameless image verb) must not drive the line, or
-      // the preview falls through to the walk-to default ("Vai"). Over an
-      // inventory item the verb is whatever #23 has armed into g107 (the
-      // prior command verb, or the item default "Esamina" it arms on hover)
-      // — read via armedVerb. Over the room the hovered command verb wins,
-      // else the armed verb (sentenceText falls back to walk-to if null).
-      const previewVerb =
-        hoveredInvItem !== null ? armedVerb(vm) : hoveredVerb ?? armedVerb(vm);
-      const text =
-        v.id === VERB_SENTENCE
-          ? sentenceText(vm, hoveredInvItem ?? hoveredObject, previewVerb)
-          : v.name;
+      // band of the panel (at 160,145, the smaller dialogue font, hence
+      // "Vai" reads smaller than the verbs). The engine rebuilds its name
+      // every frame from the verb-input/hover scripts via #100's `0xFF NN`
+      // substitution codes (active verb g107, object A g108, preposition
+      // g110, object B g109), so it carries the full two-object "Usa X con
+      // Y" form. We render it like any other text verb — one faithful
+      // source of truth, no shell-side synthesis. (The mouse coords the
+      // room canvas / verb bar feed #23 each frame are what keep it current.)
+      const text = v.name;
       if (!text) continue;
       // Each verb renders in the charset it was defined under (MI1's verb
       // panel uses charset 6, a tall serif font — not the dialogue font).
@@ -902,37 +891,3 @@ function clutCss(palette: Uint8Array, idx: number): string {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
-/**
- * Build the sentence-preview string from a resolved verb id + object.
- * Format follows the v5 convention:
- *
- *   "{verb} {obj1}"                        single-object verb
- *   "{verb} {obj1} {preposition} {obj2}"   two-object verb (later)
- *
- * `previewVerbId` is the verb the line should name — the caller resolves
- * precedence (hovered command verb / armed verb / inventory default),
- * since only it knows whether the cursor is over the room or an inventory
- * slot. A null id falls back to the game's walk-to verb.
- *
- * For the visible-only milestone we render the single-object form
- * only — the second object slot lands once we have inventory wired.
- */
-function sentenceText(
-  vm: Vm,
-  hoveredObject: number | null,
-  previewVerbId: number | null,
-): string {
-  const previewVerb =
-    previewVerbId !== null ? vm.verbs.get(previewVerbId) : null;
-  // Idle default = the game's walk-to verb name ("Vai" in the Italian
-  // build), read from verb #11 — not a hardcoded English string.
-  const verbName =
-    previewVerb?.name || vm.verbs.get(VERB_WALK_TO)?.name || 'Walk to';
-  // A hovered object with no OBNA shows the verb alone — exactly what the
-  // original does over nameless hotspots (e.g. room 28's floor-connector
-  // object #320, a walk target with no name). We deliberately do NOT fall
-  // back to an "obj #N" placeholder here: that's debug noise in the game's
-  // sentence line, and the id is still surfaced in the Input debug panel.
-  const objName = hoveredObject !== null ? vm.objectName(hoveredObject) ?? '' : '';
-  return objName ? `${verbName} ${objName}` : verbName;
-}
