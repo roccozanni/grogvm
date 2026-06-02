@@ -22,68 +22,52 @@ Playing MI1 from the start and fixing each blocker as it's hit (engine-faithful,
 committed on `main`). **785 tests green, tsc clean.** The intro → room 33 →
 SCUMM Bar (room 28) → pirate-conversation close-up is playable end-to-end.
 
-**Last worked on — inventory + SCUMM-Bar polish, driven by two real
-inventory saves** *(2026-06-01; commits `13a6948`, `030bbbf`; all user-
-confirmed)*. Four fixes, durable semantics in docs:
+**Working principle (agreed 2026-06-02):** no hacks/shortcuts — every change is
+the final, SCUMM-faithful solution. Confirm the real mechanism first (disassemble
+the original, check ScummVM semantics) before editing; when engine-faithful and a
+quick shell workaround disagree, faithful wins. Verify the actual outcome (render
+real pixels for visual bugs; reproduce the real flow for behaviour) — not the
+bookkeeping. Surface any deferral/approximation explicitly and track it here;
+never bury a shortcut. If "faithful" needs a bigger refactor, raise the tradeoff
+rather than silently taking either the heavy path or the shortcut.
 
-- **Inventory icons** — `startObject` (0xB7) now runs the verb script
-  **nested** (like `startScript`). The inventory script #9 does
-  `startObject item 91; L4 = g376`, where each item's verb-91 sets `g376` to
-  its icon object; deferred, every slot read a stale `g376` and all items drew
-  one identical icon. [OPCODES §6](docs/SCUMM-V5-OPCODES.md).
-- **`@` (0x40) name-padding skipped at render** — OBNA names are `@`-padded
-  for in-place `setObjectName` rewrites; SCUMM's printer skips `@` even though
-  the sentence/dialogue fonts carry a glyph for it. Fixed "il pezzo di
-  carne@@@@…". [CHAR](docs/SCUMM-V5-CHAR.md).
-- **Closed-door box locking** — `matrixOp setBoxFlags` (was a stub) now writes
-  a per-room box-flag override and rebuilds the walkable mask (bit 0x80 =
-  locked). Overrides reset on room change (ENCD re-applies) and are saved.
-  Room 41's door 564 now seals its corridor. [PATHFINDING §10](docs/PATHFINDING.md).
-- **System text auto-clear** — a non-keepText `print a=255` now clears when
-  its talk timer drains (the cook's "Non puoi venire di qui!" lingered).
-  keepText (`\xff\x02`) signs/credits/titles still persist. [CHAR](docs/SCUMM-V5-CHAR.md).
+**Last worked on — project rename + inventory/pickup fixes** *(2026-06-02;
+commits up to `cb02b12`; pickup + hover-arming user-confirmed in-browser)*:
 
-**Tabled this session:** the room-28 cook is sliced by the table z-plane while
-walking — a grid-A* vs box-graph **pathfinding route** divergence, not a clip/
-z-plane bug. [PATHFINDING §8](docs/PATHFINDING.md) + backlog below.
+- **Project renamed** webscumm → GrogVM (root dir is lowercase `grogvm`); game
+  dir `games/MI1` → `games/MI1-IT-CD-DOS-VGA`. Brand text = "GrogVM"; lowercase
+  identifiers (npm name, IndexedDB name, `grogvm:save:*` localStorage prefixes,
+  memory path) = "grogvm". Data-gated engine tests now point at the new game dir.
+- **Picked-up item lingered on the counter** *(confirmed fixed)*. MI1 **bakes the
+  pickable food into the room-background SMAP**; each food object's state-1 image
+  is the patch that *erases* the baked-in item once taken (drawing obj 566 over
+  the counter clears the meat). So pickup must **draw** the object, not drop it:
+  `pickupObjectHandler` `objectDrawQueue.delete` → `.add` (= SCUMM
+  `putState(obj,1)` + `markObjectRectAsDirty`). An earlier ownership "isHeld"
+  draw-gate was the wrong model and was reverted. **→ migrate to
+  [OBJECTS](docs/SCUMM-V5-OBJECTS.md): the bg-baked-item / eraser-patch technique.**
+- **Inventory hover arms the verb via the engine** *(confirmed working)*. The
+  hover poller **#23 already arms** the item default (saves active verb to
+  **g394**, sets **g107 ← 8 Esamina**, object **g108**, restores g107 on
+  hover-out over the band g45 ≥ 152 / g44 ≥ 160). It never fired because the
+  **two-canvas split** fed it no screen-space coords. Fix = Option 1 (unify the
+  *input* coordinate space): the verb-bar `pointermove` writes screen g44/g45 over
+  an inventory slot, so #23 runs; the sentence line reads armed g107 via
+  `armedVerb`. Shell-side default-verb guess reverted. **→ migrate to
+  [INPUT](docs/SCUMM-V5-INPUT.md): inventory-hover arming + the coordinate seam.**
+- **Sentence line** — ignore the inventory-slot verb (200–207) so the line shows
+  the armed verb, not the slot's nameless "Vai".
 
-**Fixed this session — picked-up item stayed visible on the table.** Carried
-items (carne 566, pentola 567) stayed drawn in room 41 *and* showed in inventory.
-First diagnosis was **wrong** (an ownership "isHeld" draw-gate — reverted): the
-items aren't drawn as objects at all. Rendering proved MI1 **bakes the pickable
-food into the room-background SMAP**, and each food object's state-1 image is the
-patch that *erases* the baked-in item once taken (drawing obj 566 over the
-counter clears the meat). So pickup must **draw** the object (its taken/eraser
-state), not remove it. `pickupObjectHandler` was doing `objectDrawQueue.delete` —
-changed to `.add` (matches SCUMM `putState(obj,1)` + `markObjectRectAsDirty`).
-Without a room re-entry the eraser never drew, so the background item lingered.
-Verified by rendering room 41 from a pre-pickup save and performing the pickup.
-
-**Inventory hover now arms the verb via the engine (not a shell hack).**
-Hovering an item showed "Vai" and didn't arm anything. The game's hover poller
-**#23 already implements** the arming: over the inventory band (g45 ≥ 152,
-g44 ≥ 160) it saves the active verb to **g394**, arms the item default (g107 ←
-**8 Esamina**), sets object-under-cursor **g108**, and restores g107 from g394
-on hover-out. It never fired because our **two-canvas split** meant the verb bar
-fed the engine no screen-space mouse coords. Fix (Option 1 — *unify the input
-coordinate space*): the verb-bar `pointermove` now writes screen-space g44/g45
-when over an inventory slot, so #23 runs; the sentence line reads the armed g107
-via `armedVerb`. The shell-side default-verb guess was reverted.
-- **Option 2 (future) — unify the render surface.** Draw the whole 320×200
-  (room slice + verb panel) into one framebuffer/canvas with 1:1 coords, and
-  make the sentence line engine verb #100 (with `0xFF NN` substitution codes).
-  Most faithful; eliminates the coordinate bridge entirely. Take it on when a
-  *render-side* reason appears (verb #100 codes, mid-string colours, the
-  copy-protection wheel) — not speculatively. Option 1 is a clean subset.
-- **Verify in-browser:** hovering an item shows "Esamina <item>" (and keeps an
-  armed verb like "Usa <item>"); a single left click runs it; moving back to the
-  room restores the prior verb. The click-commit goes through `VAR_VERB_SCRIPT`
-  reading g108 — if a single click doesn't *run* the verb, that path (clickArea
-  routing, `handleVerbClick` vs `CLICK_AREA_INVENTORY`) is the next suspect.
+**Tabled:** the room-28 cook is sliced by the table z-plane while walking — a
+grid-A* vs box-graph **pathfinding route** divergence, not a clip/z-plane bug.
+[PATHFINDING §8](docs/PATHFINDING.md) + backlog below.
 
 **Next:** finish the SCUMM Bar dialogs, gather inventory items, and reach a
 **use-with** puzzle so the two open input items below get exercised with a real
-save.
+save. **Open from this session:** confirm a single left-click on an inventory
+item actually *runs* the armed verb — hover-arming is confirmed, but the
+click-commit (through `VAR_VERB_SCRIPT` reading g108; `handleVerbClick` vs
+`CLICK_AREA_INVENTORY`) is unverified end-to-end.
 
 **Watch for** (recurring failure modes in newly-reached content):
 
@@ -111,6 +95,15 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
 
 **Rendering**
 
+- **Unify the render surface (Option 2 — the faithful end-state for the UI).**
+  Today the room is one canvas (engine compositor) and the verb/inventory bar is
+  a second, shell-painted canvas; input was bridged by feeding screen coords
+  (Option 1, done). The faithful design is one 320×200 surface — room slice
+  (rows 0–143) + verb panel (144–199) — composited by the engine with 1:1 coords,
+  and the sentence line as engine verb #100 assembled from `0xFF NN` substitution
+  codes. Eliminates the coordinate seam entirely. Take it on when a *render-side*
+  reason appears (verb #100 codes, mid-string dialogue colours `0x0E`, the
+  copy-protection wheel) — not speculatively. Option 1 is a clean subset of it.
 - **Compositor honours `VAR_CURRENT_LIGHTS`** — darken a night room via the
   lights flag, not only a dark palette (may be subtle; night rooms already ship
   dark palettes — check it's visible first). [LIGHTING §4](docs/SCUMM-V5-LIGHTING.md).
