@@ -57,6 +57,22 @@ commits up to `cb02b12`; pickup + hover-arming user-confirmed in-browser)*:
   [INPUT](docs/SCUMM-V5-INPUT.md): inventory-hover arming + the coordinate seam.**
 - **Sentence line** — ignore the inventory-slot verb (200–207) so the line shows
   the armed verb, not the slot's nameless "Vai".
+- **Inventory click-commit** *(user-confirmed in-browser 2026-06-02)*: a single
+  left-click on an inventory item **does run the armed verb** end-to-end —
+  `handleVerbClick(200..207)` → #4 → `doSentence` → #2. The open item is closed.
+- **Held items read as unreachable** *(fixed, real-data + unit confirmed)*. A verb
+  on an inventory item (e.g. "Apri" the meat) aborted with **"Non riesco ad
+  arrivarci"**: #2 gates every verb behind `getDist(ego, target)`, but
+  `objActPos` (`opcodes/index.ts`) resolved a target **only** as a placed room
+  object → a held item (not in `loadedRoom.objects`) → `null` → `0xFF` "far".
+  SCUMM's `getObjectOrActorXY` has a **WIO_INVENTORY** case: a held object's
+  position **is its holder's** position, so `getDist(ego, heldItem) =
+  dist(ego,ego) = 0` → reachable → the verb runs. Fix = add that case to
+  `objActPos` (owner is an actor in the current room → holder xy; owner ≥ the
+  13-slot actor table, e.g. `OF_OWNER_ROOM`=15 → room branch). Held-by-actor-in-
+  another-room → `0xFF` (matches `getObjectOrActorXY` returning −1). **→ migrate
+  to [OBJECTS](docs/SCUMM-V5-OBJECTS.md) (whereIsObject / inventory reach) and/or
+  the getDist note alongside the room-33 door walk-to-point fix.**
 
 **Tabled:** the room-28 cook is sliced by the table z-plane while walking — a
 grid-A* vs box-graph **pathfinding route** divergence, not a clip/z-plane bug.
@@ -64,10 +80,9 @@ grid-A* vs box-graph **pathfinding route** divergence, not a clip/z-plane bug.
 
 **Next:** finish the SCUMM Bar dialogs, gather inventory items, and reach a
 **use-with** puzzle so the two open input items below get exercised with a real
-save. **Open from this session:** confirm a single left-click on an inventory
-item actually *runs* the armed verb — hover-arming is confirmed, but the
-click-commit (through `VAR_VERB_SCRIPT` reading g108; `handleVerbClick` vs
-`CLICK_AREA_INVENTORY`) is unverified end-to-end.
+save. The inventory click-commit is now confirmed (above), so verbs on held
+items are fully wired; next live target is a held item whose verb has a *visible*
+effect (and the two-object Use X with Y commit).
 
 **Watch for** (recurring failure modes in newly-reached content):
 

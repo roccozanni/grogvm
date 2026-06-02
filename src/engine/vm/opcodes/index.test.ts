@@ -989,6 +989,36 @@ describe('getDist + ifClassOfIs', () => {
     expect(vm.vars.readGlobal(0)).toBe(0xff);
   });
 
+  it('getDist → 0 for a HELD inventory item (holder position, not "far")', () => {
+    const vm = makeVm();
+    // Obj 50 is in ego's (actor 1) inventory — owner = ego, NOT a placed room
+    // object. SCUMM's getObjectOrActorXY resolves a held item to its holder's
+    // position, so getDist(ego, item) = dist(ego, ego) = 0 → reachable, and #2's
+    // proximity gate lets the verb run. Regression for the "Apri" + meat bug:
+    // before the WIO_INVENTORY case the item resolved as a missing room object
+    // → 0xFF, so every verb on a held item aborted with "Non riesco ad arrivarci".
+    vm.currentRoom = 5;
+    const a = vm.actors.get(1);
+    a.room = 5; a.x = 100; a.y = 80;
+    vm.objectOwners.set(50, 1);
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x34, 0x00, 0x00, 0x01, 0x00, 0x32, 0x00) });
+    vm.step();
+    expect(vm.vars.readGlobal(0)).toBe(0);
+  });
+
+  it('getDist → 0xFF for an item held by an actor in another room', () => {
+    const vm = makeVm();
+    // A held item whose holder isn't in the current room has no resolvable
+    // position (getObjectOrActorXY returns -1) → 0xFF. Matches SCUMM.
+    vm.currentRoom = 5;
+    const a = vm.actors.get(1);
+    a.room = 9; a.x = 100; a.y = 80; // holder elsewhere
+    vm.objectOwners.set(50, 1);
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x34, 0x00, 0x00, 0x01, 0x00, 0x32, 0x00) });
+    vm.step();
+    expect(vm.vars.readGlobal(0)).toBe(0xff);
+  });
+
   it('ifClassOfIs (0x1d) continues when the object is in the class', () => {
     const vm = makeVm();
     vm.objectClasses.set(17, 1 << 15); // class 16 set (bit 15)

@@ -1220,6 +1220,19 @@ function objActPos(vm: Vm, id: number): { x: number; y: number } | null {
     const a = vm.actors.get(id);
     return { x: a.x, y: a.y };
   }
+  // WIO_INVENTORY: a held item has no room position of its own. SCUMM's
+  // getObjectOrActorXY returns the **holder's** position for an inventory
+  // object, so getDist(ego, heldItem) = dist(ego, ego) = 0 — you can always
+  // "reach" what you're carrying, and #2's proximity gate passes so the verb
+  // runs. Without this, a held item falls through to the room-object lookup
+  // below (not a placed object → null → 0xFF "far"), and every verb on an
+  // inventory item aborts with "Non riesco ad arrivarci". Owner codes ≥ the
+  // 13-slot actor table (e.g. OF_OWNER_ROOM = 15) aren't actors → room branch.
+  const owner = vm.getObjectOwner(id);
+  if (owner >= 1 && owner <= vm.actors.capacity) {
+    const holder = vm.actors.get(owner);
+    return holder.room === vm.currentRoom ? { x: holder.x, y: holder.y } : null;
+  }
   const obj = vm.loadedRoom?.objects.get(id);
   if (!obj) return null;
   // SCUMM's getObjectXYPos returns the object's **walk-to point** — the exact
