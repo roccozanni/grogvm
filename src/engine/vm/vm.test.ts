@@ -814,6 +814,39 @@ describe('Vm — enterRoom + ENCD/EXCD', () => {
     expect(vm.loadedRoom).toBe(b);
   });
 
+  it('runs ENCD NESTED — its effect is visible the instant enterRoom returns', () => {
+    // ENCD = [0x01] → "g5 = 99". If ENCD were merely queued (deferred), g5
+    // would still be 0 here and only update on a later tick; SCUMM runs the
+    // entry script nested inside startScene, so the caller sees it done. This
+    // is the invariant the pirate-conversation fix depends on (a script's
+    // post-loadRoom opcodes must observe the post-ENCD/EXCD state).
+    const room = fakeRoom(11, [0x01]);
+    const vm = new Vm({
+      numVariables: 32,
+      numBitVariables: 64,
+      handlers: new Map<number, OpcodeHandler>([[0x01, (v, slot) => { v.vars.writeGlobal(5, 99); slot.kill(); }]]),
+      resolveRoom: () => room,
+    });
+    vm.enterRoom(11);
+    expect(vm.vars.readGlobal(5)).toBe(99); // ran synchronously, no tick needed
+  });
+
+  it('runs EXCD NESTED before the new room loads', () => {
+    // Leaving room 1 (EXCD = [0x01] → "g6 = 7") for room 2: EXCD must have run
+    // by the time enterRoom returns, mirroring runExitScript.
+    const a = fakeRoom(1, undefined, [0x01]);
+    const b = fakeRoom(2);
+    const vm = new Vm({
+      numVariables: 32,
+      numBitVariables: 64,
+      handlers: new Map<number, OpcodeHandler>([[0x01, (v, slot) => { v.vars.writeGlobal(6, 7); slot.kill(); }]]),
+      resolveRoom: (id) => (id === 1 ? a : b),
+    });
+    vm.enterRoom(1);
+    vm.enterRoom(2);
+    expect(vm.vars.readGlobal(6)).toBe(7);
+  });
+
   it('does nothing extra when ENCD/EXCD are absent', () => {
     const room = fakeRoom(3); // no scripts
     const vm = new Vm({

@@ -740,20 +740,29 @@ export class Vm {
   }
 
   /**
-   * Transition to a new room. The full sequence (per SCUMM v5):
+   * Transition to a new room. The full sequence (per SCUMM v5 `startScene`):
    *
-   *   1. Run the previous room's EXCD as a fresh slot if present
-   *      (e.g. stop the title music).
+   *   1. Run the previous room's EXCD if present (e.g. stop the title
+   *      music). Runs NESTED — to its first yield, before this method
+   *      returns — matching `runExitScript`.
    *   2. Decode the new room — `vm.loadedRoom` becomes the new data
    *      or `null` if the resolver throws (room 0 sentinel, etc.).
    *      `vm.currentRoom` + VAR_ROOM are updated unconditionally so
    *      scripts that read VAR_ROOM see the script-level value even
    *      if the decode failed.
-   *   3. Run the new room's ENCD as a fresh slot if present (e.g.
-   *      set up actors, play room music).
+   *   3. Run the new room's ENCD if present (e.g. set up actors, play
+   *      room music). Also NESTED, matching `runEntryScript`.
    *
-   * Both ENCD and EXCD slots get a human label ("ENCD-10", "EXCD-10")
-   * so the inspector can tell them apart from the global scripts.
+   * EXCD/ENCD run NESTED (not as deferred slots) because `startScene`
+   * is itself invoked synchronously from the `loadRoom` opcode: the
+   * exit/entry scripts must finish (to their first breakHere) before
+   * the opcode returns, so the calling script's next opcodes observe
+   * the post-transition state. Deferring them let the caller's
+   * continuation run first and the room script then clobber it — see
+   * the EXCD/ENCD `runScriptNested` calls below and the pirate-
+   * conversation `VAR_VERB_SCRIPT` regression in the MI1 smoke suite.
+   * Both slots get a human label ("ENCD-10", "EXCD-10") so the
+   * inspector can tell them apart from the global scripts.
    *
    * What this does NOT yet do:
    * - Kill non-freeze-resistant slots from the old room. Phase 7
@@ -806,9 +815,9 @@ export class Vm {
     // running into the new room and try to start locals that no longer exist
     // there: room 28's #210 (which starts #208/#209) survived a pirate-talk
     // close-up and halted with "local script #209 not present in current room
-    // 81 (loaded=58)". Run after EXCD is queued (it's scriptId 0, spared) and
-    // before the new ENCD. The transition caller is a global (e.g. the dialog
-    // script #17), so it keeps running across the load.
+    // 81 (loaded=58)". Run after EXCD has finished (it's scriptId 0, spared)
+    // and before the new ENCD. The transition caller is a global (e.g. the
+    // dialog script #17), so it keeps running across the load.
     this.stopRoomLocalScripts();
 
     // Box walk-flags are per-room and reset to the room's disk values on a
@@ -823,12 +832,19 @@ export class Vm {
     const next = this.loadedRoom;
     if (next?.entryScript && next.entryScript.length > 0) {
       try {
-        this.startScript({
+        const encd = this.startScript({
           scriptId: 0,
           bytecode: next.entryScript,
           room: next.id,
           label: `ENCD-${next.id}`,
         });
+        // Nested, same as EXCD above: SCUMM `startScene` runs the entry script
+        // (runEntryScript → runScript) to its first yield before the loadRoom
+        // opcode returns, so the caller's next opcodes observe the room as the
+        // ENCD set it up. `runScriptNested` runs until the first breakHere/stop,
+        // so an ENCD that spans frames still yields back to the per-frame
+        // scheduler after its prologue — exactly the original's behaviour.
+        this.runScriptNested(encd);
       } catch {
         // No free slot — silently skip.
       }

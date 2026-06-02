@@ -42,12 +42,14 @@ script #93's post-`loadRoom 82` opcode `g32 = 14` (`VAR_VERB_SCRIPT` → dialog
 input script #14) got clobbered back to `g32 = 4` by room 28's EXCD (`move g32 =
 4`). With g32=4 a dialog-answer click routes to #4, which only **arms** the verb
 (sentence line) and never commits a dialog selection — hence the hang. Fix:
-`enterRoom` now `runScriptNested`s EXCD to completion (matching `runExitScript`).
-Then `g32=14` sticks and a click commits via #14 → #93 (ego speaks the line). The
-already-saved quicksave had `g32=4` baked in (made under the bug) — repaired the
-save's global to 14. Regression test in the MI1 smoke suite. *(NB: ENCD still runs
-deferred; left as-is since all 791 tests + the intro path stay green — revisit if
-another script needs ENCD's post-load state synchronously.)*
+`enterRoom` now `runScriptNested`s **both EXCD and ENCD** to their first yield
+(matching `runExitScript`/`runEntryScript`) — the faithful rule: SCUMM runs them
+nested, so we run them nested. Then `g32=14` sticks and a click commits via #14 →
+#93 (ego speaks the line). The already-saved quicksave had `g32=4` baked in (made
+under the bug) — repaired the save's global to 14. Guards: MI1-smoke pirate-
+conversation regression (g32 survives EXCD, click commits) + two `vm.test.ts`
+unit tests asserting ENCD/EXCD effects are visible the instant `enterRoom`
+returns (no tick) so the nesting can't silently regress.
 
 **Earlier same day — two-object verbs + faithful sentence line** *(2026-06-02;
 commits up to `1a5fee9`; all user-confirmed in-browser)*. Input/verbs round —
