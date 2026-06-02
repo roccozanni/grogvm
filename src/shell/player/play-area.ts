@@ -78,7 +78,6 @@ const INVENTORY_VERB_LAST = 207;
 
 /** Default CLUT colours when a verb's slot doesn't specify one. */
 const DEFAULT_VERB_COLOR = 7; // light-grey ink
-const DEFAULT_VERB_HI_COLOR = 14; // light yellow
 const DEFAULT_VERB_DIM_COLOR = 8; // dark grey
 
 /** Verb-panel background fill (CLUT index). Black for now: a flat magenta fill
@@ -741,7 +740,12 @@ function loadCharset(
 
 function pickInk(v: VerbSlot, hovered: boolean, armed: boolean): number {
   if (v.state === 'dim') return v.dimColor || DEFAULT_VERB_DIM_COLOR;
-  if (hovered || armed) return v.hiColor || DEFAULT_VERB_HI_COLOR;
+  // SCUMM drawVerb highlights ONLY when the verb actually carries a hicolor
+  // (`mode && vs->hicolor ? hicolor : color`). A verb with hicolor 0 draws in
+  // its normal colour even under the cursor — so the sentence line (#100,
+  // hicolor 0) must not flash like an interactive button. Falling back to a
+  // default hi-colour here made every hicolor-less verb light up on hover.
+  if ((hovered || armed) && v.hiColor) return v.hiColor;
   return v.color || DEFAULT_VERB_COLOR;
 }
 

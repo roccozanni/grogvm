@@ -492,16 +492,22 @@ register(0x7c, isSoundRunningHandler);
 register(0xfc, isSoundRunningHandler);
 
 // ─── 0x62 / 0xE2  stopScript ─────────────────────────────────────────
-// `opcode script[p8]`. Kill every slot running the given global script
-// id. Script 0 = "stop the current script" in the original; we treat
-// 0 as a no-op (the caller keeps running) since the common use is
-// stopping *another* script.
+// `opcode script[p8]`. Kill every slot running the given global script id.
+// Script 0 means "stop the CURRENT script" — SCUMM `o5_stopScript`:
+// `if (script == 0) stopObjectCode()`. Scripts use `stopScript 0` to
+// terminate themselves at a guard (e.g. #4's verb-100 / sentence-line
+// branch: clicking the sentence line must abort #4 before it arms g107,
+// not fall through and set the active verb to 100). Treating 0 as a no-op
+// let that fall-through corrupt the sentence state.
 function stopScriptHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const scriptId = readVarOrByte(opcode, 1, slot, vm.vars);
-  if (scriptId !== 0) {
-    for (const s of vm.slots) {
-      if (s.status !== 'dead' && s.scriptId === scriptId) s.kill();
-    }
+  if (scriptId === 0) {
+    slot.kill();
+    vm.annotate('stopScript #0 (self)');
+    return;
+  }
+  for (const s of vm.slots) {
+    if (s.status !== 'dead' && s.scriptId === scriptId) s.kill();
   }
   vm.annotate(`stopScript #${scriptId}`);
 }

@@ -788,6 +788,17 @@ describe('room-entry opcodes', () => {
     vm.step();
     expect(victim.status).toBe('dead');
   });
+
+  it('stopScript 0 stops the CURRENT script (o5_stopScript: script 0 -> stopObjectCode)', () => {
+    const vm = makeVm();
+    // stopScript 0 ; setVar g0 = 1. If 0 were a no-op the slot would run on
+    // and set g0; faithfully it self-terminates and the setVar never runs.
+    // (This is the guard #4 uses to ignore a click on the sentence line #100.)
+    const slot = vm.startScript({ scriptId: 1, bytecode: bytes(0x62, 0x00, 0x1a, 0x00, 0x00, 0x01, 0x00) });
+    vm.step();
+    expect(slot.status).toBe('dead');
+    expect(vm.vars.readGlobal(0)).toBe(0);
+  });
 });
 
 describe('inventory subsystem', () => {
