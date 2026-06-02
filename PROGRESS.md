@@ -19,7 +19,7 @@ Lean tracker. Three buckets:
 ## Current — natural play through MI1
 
 Playing MI1 from the start and fixing each blocker as it's hit (engine-faithful,
-committed on `main`). **790 tests green, tsc clean.** The intro → room 33 →
+committed on `main`). **798 tests green, tsc clean.** The intro → room 33 →
 SCUMM Bar (room 28) → pirate-conversation close-up is playable end-to-end, with
 verbs, inventory, and two-object "Usa X con Y" / "Dai X a Y" working.
 
@@ -32,7 +32,63 @@ bookkeeping. Surface any deferral/approximation explicitly and track it here;
 never bury a shortcut. If "faithful" needs a bigger refactor, raise the tradeoff
 rather than silently taking either the heavy path or the shortcut.
 
-**Last worked on — room EXCD must run nested (dialog-stuck fix)** *(2026-06-02;
+**Last worked on — hang watchdog + Tier-2 divergence sweep** *(2026-06-02;
+commit `20420a0`)*. The dialog-stuck bug was a *silent divergence from SCUMM*
+(deferred room scripts), which is why it took hours to find. Two outcomes:
+
+- **Hang watchdog** (`Vm.enableHangWatchdog`, opt-in; wired into the always-on
+  debug panel). Fires when N consecutive clicks each produce **no progress** —
+  no room change, no talk, no committed sentence, no walk. Fingerprints
+  *progress-only* signals (monotonic `talkSeq`/`sentenceSeq` + room + walk
+  targets), NOT the live-script set (a click always transiently spawns the
+  verb-redraw #12) nor raw vars (music timer churns). Surfaces a console warning
+  + panel banner naming the room + `VAR_VERB_SCRIPT`. Catches the *symptom* of
+  any input-misroute / wait-on-a-var-that-never-changes hang, Tier-2 or Tier-3.
+- **Tier-2 checklist** below — the self-flagged approximations harvested by
+  grepping `for now|doesn't yet|best-effort|we don't yet|Math.random` etc.
+  Work through it; each addressed item should either become faithful + leave a
+  characterization test, or be explicitly re-tracked.
+
+### Tier-2 divergence checklist
+
+Silent, self-flagged approximations (run `git grep -nE "for now|doesn't yet|best-effort|we don't yet"`
+to refresh). Tiering: **Tier 1** = loud (halts on unknown opcode — fine). **Tier 2**
+= these (silent until a script ordering makes them observable, like the EXCD bug).
+**Tier 3** = unknown unknowns (only ScummVM differential tracing finds them).
+
+Priority H/M/L = likelihood of biting current/near play × severity.
+
+- [ ] **H — `getRandomNumber` uses `Math.random()`** (`opcodes/index.ts:~900`).
+  SCUMM uses a seeded LCG so save/replay is deterministic; ours isn't, so a
+  reloaded save can diverge (and it violates our own determinism rule). Faithful:
+  port the v5 LCG, seed in boot, snapshot the seed in save state.
+- [ ] **M — dialog/string escape codes deferred** (`opcodes/index.ts:~2044`):
+  keep-text `0xFF02`, var-name `0xFF06`, sound `0xFF09`, actor-name `0xFF0A`,
+  mid-string colour `0xFF0E`. Surfaces as blank/wrong text or missing inline
+  colour in dialogue-heavy content. (Also noted in Stubbed opcodes below.)
+- [ ] **M — actor/object names not stored** (`opcodes/index.ts:~1763`
+  `actorOps setActorName`; `~1980` string-resource object name). Look-at /
+  sentence line shows a blank or `obj #N` placeholder for renamed entities.
+- [ ] **M — verify cutscene Escape end-to-end + fix stale comment**
+  (`opcodes/index.ts:~827` says "we don't yet wire input → escape", but
+  `play.ts` now binds Escape → `abortCutscene`). Confirm the override path
+  actually fast-forwards a skippable cutscene; update/delete the stale note.
+- [ ] **L/M — `print` `clipped` line-wrap bound not modelled** (`vm.ts:~485`).
+  Long lines may overflow / mis-wrap vs the original's clip-X wrapping.
+- [ ] **L — camera scroll "snap both for now"** (`opcodes/index.ts:~410`) +
+  smooth `panCameraTo` (Open backlog). Gradual scroll over frames; no current
+  scene validates it.
+- [ ] **L — flashlight gfx not modelled** (`opcodes/index.ts:~576`, dark-room
+  strip extent). Cosmetic; only the flashlight rooms.
+- [ ] **? — `actorOps` subop treated as no-arg no-op "for now"**
+  (`opcodes/index.ts:~1781`). Identify the subop; assess whether it affects
+  behaviour or is genuinely inert.
+- Already tracked elsewhere (cross-ref, not duplicated here): box-graph routing
+  (Pathfinding backlog), `screenEffect` animation + `VAR_CURRENT_LIGHTS`
+  darkening (Rendering backlog), `saveRestoreVerbs` subset (Watch-for), audio /
+  `resourceRoutines` (Out of scope — Phase 11).
+
+**Earlier — room EXCD/ENCD must run nested (dialog-stuck fix)** *(2026-06-02;
 commit `afb48a8`; verified live + repaired a quicksave)*. A close-up conversation
 (LOOM-ad pirate, room 82) hung: dialog answers highlighted on hover but clicking
 did nothing. Root cause — a **room change runs the OLD room's EXCD nested** in
