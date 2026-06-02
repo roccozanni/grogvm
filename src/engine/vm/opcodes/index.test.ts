@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Vm } from '../vm';
 import { SEED_OPCODES } from './index';
+import { pickObject } from '../../object/hittest';
 
 function makeVm(): Vm {
   return new Vm({
@@ -851,6 +852,44 @@ describe('inventory subsystem', () => {
     // the object must be DRAWN, not dropped, or the item lingers on screen.
     expect(vm.objectDrawQueue.has(99)).toBe(true);
     expect(vm.inventoryCount(4)).toBe(1);
+    // SCUMM putClass(obj, kObjectClassUntouchable, 1): a taken object's room
+    // hit-box must stop responding. Class 32 → bit 31.
+    expect((vm.objectClasses.get(99) ?? 0) & (1 << 31)).not.toBe(0);
+  });
+
+  it('pickupObject makes the room hit-test (findObject) skip the taken object', () => {
+    const vm = makeVm();
+    vm.vars.writeGlobal(1, 4); // VAR_EGO
+    vm.loadedRoom = {
+      id: 33, width: 320, height: 200, numObjects: 1,
+      palette: new Uint8Array(768), transparentIndex: null,
+      indexed: new Uint8Array(0), stripMethods: [], zPlanes: [],
+      entryScript: null, exitScript: null, localScripts: new Map(),
+      objects: new Map([
+        [99, {
+          objId: 99,
+          // CDHD box in 8-px units: [40,56) x [40,56) → contains (50,50).
+          cdhd: { objId: 99, x: 5, y: 5, width: 2, height: 2, flags: 0, parent: 0, walkX: 0, walkY: 0, actorDir: 0 },
+          imhd: { objId: 99, numImages: 1, flags: 0, x: 40, y: 40, width: 16, height: 16 },
+          images: new Map(), name: 'the meat', verbs: new Map(),
+        }],
+      ]),
+      walkBoxes: [], walkableMask: new Uint8Array(0), scaleSlots: [],
+    };
+    // Same hit-test predicate findObject uses (Untouchable = class 32 / bit 31).
+    const at = (x: number, y: number) =>
+      pickObject({
+        objects: vm.loadedRoom!.objects,
+        drawQueue: vm.objectDrawQueue,
+        x, y,
+        isUntouchable: (id) => ((vm.objectClasses.get(id) ?? 0) & (1 << 31)) !== 0,
+      });
+    expect(at(50, 50)).toBe(99); // interactable before pickup
+
+    // Pick it up, then the same spot must hit nothing (now Untouchable).
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x25, 0x63, 0x00, 0x00) });
+    vm.step();
+    expect(at(50, 50)).toBe(null); // hit area gone after pickup
   });
 
   it('pickupObject snapshots the object name so it survives leaving the room', () => {

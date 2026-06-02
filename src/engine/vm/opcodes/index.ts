@@ -1152,9 +1152,12 @@ register(0x85, drawObjectHandler);
 // loading an object's image from a room it isn't currently in — we
 // resolve images lazily, so we just record it in the trace).
 //
-// Deferred vs. the original: the untouchable-class flag and
-// `runInventoryScript` (VAR_INVENTORY_SCRIPT) — neither is needed to
-// own/count an item, and the inventory UI script isn't wired yet.
+// SCUMM's o5_pickupObject also `putClass(obj, kObjectClassUntouchable, 1)` —
+// once taken, the object's room hit-box must stop responding (you've removed
+// it from the scene). Without it the item vanishes visually (state-1 patch)
+// yet still hit-tests in the room, so you can keep clicking the empty spot.
+// findObject already skips Untouchable (class 32), so setting the class here
+// closes the hit-area side that the visual fix left open.
 function pickupObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const obj = readVarOrWord(opcode, 1, slot, vm.vars);
   const room = readVarOrByte(opcode, 2, slot, vm.vars);
@@ -1164,6 +1167,9 @@ function pickupObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   vm.captureInventoryName(obj, room);
   vm.objectOwners.set(obj, ego);
   vm.objectStates.set(obj, 1);
+  // Mark Untouchable (class 32 → bit 31) so the room hit-test no longer
+  // returns it — SCUMM putClass(obj, kObjectClassUntouchable, 1).
+  vm.objectClasses.set(obj, ((vm.objectClasses.get(obj) ?? 0) | (1 << 31)) >>> 0);
   // Draw the state-1 image (the "taken" patch that covers the baked-in
   // background item). Only meaningful while the object is in the current
   // room; the compositor skips queue ids absent from the loaded room.

@@ -46,6 +46,15 @@ commits up to `cb02b12`; pickup + hover-arming user-confirmed in-browser)*:
   `putState(obj,1)` + `markObjectRectAsDirty`). An earlier ownership "isHeld"
   draw-gate was the wrong model and was reverted. **→ migrate to
   [OBJECTS](docs/SCUMM-V5-OBJECTS.md): the bg-baked-item / eraser-patch technique.**
+- **Picked-up item's hit area persisted** *(fixed)*. The visual fix above only did
+  half of SCUMM's `o5_pickupObject`: it drew the state-1 patch but skipped
+  **`putClass(obj, kObjectClassUntouchable, 1)`** (it was explicitly deferred).
+  So the taken item vanished yet still hit-tested in the room — you could keep
+  clicking the empty spot. `findObject`/`pickObject` already skip Untouchable
+  (class 32 → bit 31); fix = set that class bit in `pickupObjectHandler` (the
+  mechanics half the eraser-patch fix left open). **→ migrate to
+  [OBJECTS](docs/SCUMM-V5-OBJECTS.md) alongside the eraser-patch note: full
+  pickup = own + state-1 draw + Untouchable + inventory refresh.**
 - **Inventory hover arms the verb via the engine** *(confirmed working)*. The
   hover poller **#23 already arms** the item default (saves active verb to
   **g394**, sets **g107 ← 8 Esamina**, object **g108**, restores g107 on
