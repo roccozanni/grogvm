@@ -32,7 +32,24 @@ bookkeeping. Surface any deferral/approximation explicitly and track it here;
 never bury a shortcut. If "faithful" needs a bigger refactor, raise the tradeoff
 rather than silently taking either the heavy path or the shortcut.
 
-**Last worked on — two-object verbs + faithful sentence line** *(2026-06-02;
+**Last worked on — room EXCD must run nested (dialog-stuck fix)** *(2026-06-02;
+commit `afb48a8`; verified live + repaired a quicksave)*. A close-up conversation
+(LOOM-ad pirate, room 82) hung: dialog answers highlighted on hover but clicking
+did nothing. Root cause — a **room change runs the OLD room's EXCD nested** in
+SCUMM `startScene` (exit script finishes *before* the `loadRoom` opcode returns),
+but we queued it as a deferred slot (scriptId 0) that ran later in the frame. So
+script #93's post-`loadRoom 82` opcode `g32 = 14` (`VAR_VERB_SCRIPT` → dialog
+input script #14) got clobbered back to `g32 = 4` by room 28's EXCD (`move g32 =
+4`). With g32=4 a dialog-answer click routes to #4, which only **arms** the verb
+(sentence line) and never commits a dialog selection — hence the hang. Fix:
+`enterRoom` now `runScriptNested`s EXCD to completion (matching `runExitScript`).
+Then `g32=14` sticks and a click commits via #14 → #93 (ego speaks the line). The
+already-saved quicksave had `g32=4` baked in (made under the bug) — repaired the
+save's global to 14. Regression test in the MI1 smoke suite. *(NB: ENCD still runs
+deferred; left as-is since all 791 tests + the intro path stay green — revisit if
+another script needs ENCD's post-load state synchronously.)*
+
+**Earlier same day — two-object verbs + faithful sentence line** *(2026-06-02;
 commits up to `1a5fee9`; all user-confirmed in-browser)*. Input/verbs round —
 all faithful, committed, and **migrated to docs** (detail lives there now):
 
