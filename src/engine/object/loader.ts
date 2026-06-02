@@ -183,6 +183,12 @@ export function parseRoomObjects(
  * Parse a CDHD payload. Throws on short payload — every MI1/MI2 CDHD
  * is exactly 13 bytes; anything shorter is malformed.
  */
+/** Assemble a signed 16-bit LE value from two bytes. */
+function i16(lo: number, hi: number): number {
+  const v = lo | (hi << 8);
+  return v >= 0x8000 ? v - 0x10000 : v;
+}
+
 export function parseCDHD(payload: Uint8Array): CDHD {
   if (payload.length < 13) {
     throw new ObjectParseError(
@@ -198,8 +204,13 @@ export function parseCDHD(payload: Uint8Array): CDHD {
     height: payload[5]!,
     flags: payload[6]!,
     parent: payload[7]!,
-    walkX: payload[8]! | (payload[9]! << 8),
-    walkY: payload[10]! | (payload[11]! << 8),
+    // walk_x / walk_y are SIGNED 16-bit — an object's walk-to point can sit
+    // just off the room's left edge (negative x). MI1 room 78's left exit
+    // (obj 857) walks to x=-25; read unsigned it became 65511, so the ego
+    // marched off-screen right and never reached the exit (the "can't leave
+    // room 78" bug). Walk boxes are already parsed signed; match them here.
+    walkX: i16(payload[8]!, payload[9]!),
+    walkY: i16(payload[10]!, payload[11]!),
     actorDir: payload[12]!,
   };
 }

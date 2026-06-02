@@ -22,7 +22,7 @@
 import { DEFAULT_SCALE, type Actor, type Facing } from './actor';
 import type { Vm } from '../vm/vm';
 import { findPath } from '../pathfinding/grid';
-import { findBoxAtOrNearest } from '../pathfinding/boxes';
+import { findBoxAt, findBoxAtOrNearest } from '../pathfinding/boxes';
 import { resolveScale } from '../pathfinding/scale';
 import { startAnim } from '../graphics/costume-anim';
 
@@ -134,7 +134,29 @@ export function startWalk(
   // The first waypoint is the snapped start position — drop it so we
   // don't make the actor "teleport" to the box edge before walking.
   // Keep all the rest, including the (possibly snapped) final waypoint.
-  actor.walkPath = path.waypoints.slice(1);
+  const waypoints = path.waypoints.slice(1);
+
+  // Off-mask box targets: SCUMM walks in box space, so a target inside a
+  // visible walk box is reachable even when it lies off the rasterized
+  // [0,width)×[0,height) mask — boxes legitimately extend past the screen
+  // edges for room exits (MI1 room 78's exit walk-to is x=-25, inside its
+  // [-25..345] floor box). findPath snaps such a goal to the nearest
+  // in-bounds walkable pixel (the screen edge), leaving the ego ~25px short
+  // — past the exit sentence's 16px proximity gate, so it answers "non
+  // riesco ad arrivarci" and never loads the next room. When the true
+  // target sits in a visible box that the snapped endpoint also belongs to,
+  // the final straight segment stays inside that convex (walkable) box, so
+  // append the exact target and let the ego finish the approach onto it.
+  const targetBox = findBoxAt(room.walkBoxes, target.x, target.y);
+  if (targetBox) {
+    const end = waypoints.length > 0 ? waypoints[waypoints.length - 1]! : { x: actor.x, y: actor.y };
+    const atTarget = end.x === target.x && end.y === target.y;
+    if (!atTarget && findBoxAtOrNearest(room.walkBoxes, end.x, end.y)?.id === targetBox.id) {
+      waypoints.push({ x: target.x, y: target.y });
+    }
+  }
+
+  actor.walkPath = waypoints;
   actor.walkPathIdx = 0;
 }
 

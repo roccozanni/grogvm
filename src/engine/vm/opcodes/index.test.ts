@@ -1034,6 +1034,37 @@ describe('inventory subsystem', () => {
     expect(vm.vars.readGlobal(1)).toBe(0);
   });
 
+  it('getVerbEntryPoint → 1 for ANY verb when the object has the 0xFF default verb (MI1 room-78 exit)', () => {
+    // SCUMM's getVerbEntrypoint matches the exact verb OR verb 0xFF (the
+    // object's default action). MI1's "uscita" exits carry verb 0xFF
+    // (loadRoomWithEgo); the player clicks with the walk-to verb 11, and
+    // sentence script #2's `getVerbEntryPoint(exit, 11)` must read truthy
+    // (via the 0xFF fallback) to take the run-the-verb branch → the exit
+    // opens. Without the fallback it read 0 → walk-only → "can't leave".
+    const vm = makeVm();
+    vm.loadedRoom = {
+      id: 78, width: 320, height: 200, numObjects: 1,
+      palette: new Uint8Array(768), transparentIndex: null,
+      indexed: new Uint8Array(0), stripMethods: [], zPlanes: [],
+      entryScript: null, exitScript: null, localScripts: new Map(),
+      objects: new Map([
+        [857, {
+          objId: 857,
+          cdhd: { objId: 857, x: 0, y: 0, width: 0, height: 0, flags: 0, parent: 0, walkX: 0, walkY: 0, actorDir: 0 },
+          imhd: { objId: 857, numImages: 0, flags: 0, x: 0, y: 0, width: 0, height: 0 },
+          images: new Map(), name: "l'uscita",
+          // verbs 90 + 0xFF (default) — NO verb 11.
+          verbs: new Map([[90, new Uint8Array([0x00])], [0xff, new Uint8Array([0x00])]]),
+        }],
+      ]),
+      walkBoxes: [], walkableMask: new Uint8Array(0), scaleSlots: [],
+    } as never;
+    // getVerbEntryPoint g0 = (obj 857, verb 11): exit lacks 11 but has 0xFF → 1.
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x0b, 0x00, 0x00, 0x59, 0x03, 0x0b, 0x00, 0x00) });
+    vm.step();
+    expect(vm.vars.readGlobal(0)).toBe(1);
+  });
+
   it('actorFromPos (0x15) reads direct coords as words (p16), returns 0 when no actor is hit, advances PC by 7', () => {
     const vm = makeVm();
     // 0x15: dest local0, x = 50 (word), y = 60 (word). Per the opcode
@@ -1151,6 +1182,43 @@ describe('getDist + ifClassOfIs', () => {
     vm.step(); // ifClassOfIs → false → jump +5 past setVar
     vm.step(); // lands on stopObjectCode
     expect(vm.vars.readGlobal(1)).toBe(0);
+  });
+});
+
+describe('getActorWalkBox (0x7B)', () => {
+  function box(id: number, x0: number, y0: number, x1: number, y1: number, mask = 1) {
+    return { id, ulx: x0, uly: y0, urx: x1, ury: y0, lrx: x1, lry: y1, llx: x0, lly: y1, mask, flags: 0 };
+  }
+  function roomWithBoxes(boxes: unknown[]) {
+    return {
+      id: 29, width: 320, height: 144, numObjects: 0,
+      palette: new Uint8Array(768), transparentIndex: null,
+      indexed: new Uint8Array(0), stripMethods: [], zPlanes: [],
+      entryScript: null, exitScript: null, localScripts: new Map(), objects: new Map(),
+      walkBoxes: boxes, walkableMask: new Uint8Array(0), scaleSlots: [],
+    } as never;
+  }
+
+  it('returns the id of the box the actor stands in (not the old 0 stub)', () => {
+    // Regression: the stub returned 0, so MI1 room 29's reveal script #200
+    // looped `while (getActorWalkBox(ego) < 5)` forever and never cleared the
+    // black entry cover (obj 383) — the voodoo-lady room's black rectangle.
+    const vm = makeVm();
+    vm.loadedRoom = roomWithBoxes([box(0, -32000, -32000, -32000, -32000), box(6, 256, 112, 391, 130)]);
+    const a = vm.actors.get(1);
+    a.x = 346; a.y = 123; // inside box 6
+    // getActorWalkBox g5 = box(actor 1): 0x7B dest g5 (0x0005), actor byte 1, stop.
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x7b, 0x05, 0x00, 0x01, 0x00) });
+    vm.step();
+    expect(vm.vars.readGlobal(5)).toBe(6);
+  });
+
+  it('returns 0 when no room/boxes are loaded', () => {
+    const vm = makeVm();
+    vm.actors.get(1).x = 100;
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x7b, 0x05, 0x00, 0x01, 0x00) });
+    vm.step();
+    expect(vm.vars.readGlobal(5)).toBe(0);
   });
 });
 

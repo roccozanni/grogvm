@@ -32,6 +32,7 @@ import {
   type Actor,
 } from '../../actor/actor';
 import { startWalk, startActorChore, applyStandPose, reapplyChoreForFacing, FACING_FROM_OLD } from '../../actor/walk';
+import { findBoxAtOrNearest } from '../../pathfinding/boxes';
 import { pickObject } from '../../object/hittest';
 import { evalExpression } from '../expression';
 import { SENTENCE_CLEAR_VERB } from '../sentence';
@@ -961,12 +962,23 @@ register(0x90, getObjectOwnerHandler);
 
 // ─── 0x0B / 0x4B / 0x8B / 0xCB  getVerbEntryPoint ────────────────────
 // `opcode result object[p16] verb[p16]`. Result var ← the script entry
-// offset for `verb` on `object`, or 0 when the object has no such verb.
-// Scripts (e.g. MI1's inventory script #9) use it as a boolean "does
-// this object respond to this verb?" — so we return 1 when the verb is
-// present, 0 otherwise. (We keep per-verb bytecode slices, not raw
-// offsets; the truthiness is what callers test. NB: the exact-verb
-// query does NOT take the 0xFF default-verb fallback.)
+// offset for `verb` on `object`, or 0 when the object responds to no
+// such verb. Scripts use it as a boolean "does this object respond to
+// this verb?" — so we return 1 when present, 0 otherwise (we keep
+// per-verb bytecode slices, not raw offsets; the truthiness is what
+// callers test).
+//
+// CRUCIAL: SCUMM's getVerbEntrypoint matches the exact verb **OR verb
+// 0xFF** (the object's default-action verb) — `*verbptr == entry ||
+// *verbptr == 0xFF`. So an object with a 0xFF default responds to ANY
+// verb query. MI1 room exits rely on this: the "uscita" objects carry
+// verb 0xFF (= loadRoomWithEgo) and the player clicks them with the
+// default walk-to verb 11. The sentence script #2 does
+// `getVerbEntryPoint(exit, 11)` and, finding it truthy (via the 0xFF
+// fallback), takes the run-the-verb branch → `startObject(exit, 11)` →
+// which itself falls back to verb 0xFF → loadRoom. Without the 0xFF
+// match here, #2 read 0, took the walk-only branch, and the exit never
+// opened (Guybrush walked off-screen but never changed rooms).
 function getVerbEntryPointHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const dest = readDestRef(slot, vm.vars);
   const obj = readVarOrWord(opcode, 1, slot, vm.vars);
@@ -975,7 +987,8 @@ function getVerbEntryPointHandler(vm: Vm, slot: ScriptSlot, opcode: number): voi
   // carried inventory item — MI1's inventory script #9 gates `startObject
   // item 91` on this; if it read 0 for off-room items, every inventory
   // slot fell through to the generic-frame fallback.
-  const has = vm.findObjectCode(obj)?.verbs.has(verb) ?? false;
+  const verbs = vm.findObjectCode(obj)?.verbs;
+  const has = verbs ? (verbs.has(verb) || verbs.has(0xff)) : false;
   const entry = has ? 1 : 0;
   writeRef(dest, entry, slot, vm.vars);
   vm.annotate(`getVerbEntryPoint obj=${obj} verb=${verb} → ${entry}`);
@@ -1367,12 +1380,27 @@ register(0xa3, makeActorReadOp('getActorY', (a) => a.y, true));
 register(0x43, makeActorReadOp('getActorX', (a) => a.x, true));
 register(0xc3, makeActorReadOp('getActorX', (a) => a.x, true));
 // getActorWalkBox (0x7B/0xFB) — same non-orthogonal low-5-bits family
-// as multiply/getActorScale/divide. Returns the walk box the actor
-// stands in. STUB: returns 0 ("no box") until we wire box-containment
-// against the actor's position; enough to load rooms whose entry
-// scripts query it. p8 actor.
-register(0x7b, makeActorReadOp('getActorWalkBox', () => 0));
-register(0xfb, makeActorReadOp('getActorWalkBox', () => 0));
+// as multiply/getActorScale/divide. Returns the id of the walk box the
+// actor stands in (0 when no room/boxes). Resolved from the actor's
+// position with the nearest-box fallback the scale + z-clip systems use,
+// so MI1's thin/degenerate boxes still yield the box the actor walks on.
+//
+// Must be real, not a stub: room 29's reveal script #200 loops
+// `while (getActorWalkBox(ego) < 5)` before clearing the black entry
+// cover (obj 383). A stub returning 0 looped forever, so the cover never
+// lifted — the voodoo-lady room's centre stayed a black rectangle. p8 actor.
+function getActorWalkBoxHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
+  const dest = readDestRef(slot, vm.vars);
+  const id = readVarOrByte(opcode, 1, slot, vm.vars);
+  const actor = actorOrNull(vm, id);
+  const boxes = vm.loadedRoom?.walkBoxes ?? [];
+  const box = actor ? findBoxAtOrNearest(boxes, actor.x, actor.y) : null;
+  const value = box ? box.id : 0;
+  writeRef(dest, value, slot, vm.vars);
+  vm.annotate(`getActorWalkBox actor=${id} → ${value}`);
+}
+register(0x7b, getActorWalkBoxHandler);
+register(0xfb, getActorWalkBoxHandler);
 
 // getActorMoving (0x56/0xD6) — non-orthogonal low5=0x16 family (shared
 // with getRandomNumber 0x16/0x96 and walkActorToObject 0x36/…; bit 0x40

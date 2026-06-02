@@ -38,14 +38,17 @@ function cdhdBody(opts: {
   x?: number; y?: number;
   width?: number; height?: number;
   parent?: number;
+  walkX?: number; walkY?: number;
 }): Uint8Array {
+  const wx = opts.walkX ?? 0, wy = opts.walkY ?? 0;
   return new Uint8Array([
     opts.objId & 0xff, (opts.objId >>> 8) & 0xff,
     opts.x ?? 0, opts.y ?? 0,
     opts.width ?? 1, opts.height ?? 1,
     0, // flags
     opts.parent ?? 0,
-    0, 0, 0, 0, // walkX, walkY
+    wx & 0xff, (wx >>> 8) & 0xff, // walkX (signed 16-bit LE)
+    wy & 0xff, (wy >>> 8) & 0xff, // walkY (signed 16-bit LE)
     0, // actorDir
   ]);
 }
@@ -107,6 +110,22 @@ describe('parseCDHD', () => {
     expect(cdhd.width).toBe(28);
     expect(cdhd.height).toBe(15);
     expect(cdhd.parent).toBe(7);
+  });
+
+  it('decodes positive walk-to coordinates', () => {
+    const cdhd = parseCDHD(cdhdBody({ objId: 1, walkX: 341, walkY: 143 }));
+    expect(cdhd.walkX).toBe(341);
+    expect(cdhd.walkY).toBe(143);
+  });
+
+  it('decodes NEGATIVE walk-to coordinates as signed (MI1 room 78 left exit)', () => {
+    // The left "uscita" walks the ego to x=-25 (just off the room's left
+    // edge, inside its [-25..345] floor box). Read unsigned that became
+    // 65511, so the ego marched off-screen right and could never reach the
+    // exit — the "can't leave room 78" bug.
+    const cdhd = parseCDHD(cdhdBody({ objId: 857, walkX: -25, walkY: 143 }));
+    expect(cdhd.walkX).toBe(-25);
+    expect(cdhd.walkY).toBe(143);
   });
 
   it('throws on a short payload', () => {

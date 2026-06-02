@@ -1,6 +1,47 @@
 import { describe, expect, it } from 'vitest';
 import { ActorTable, createActor, DEFAULT_WALK_SPEED_X, DEFAULT_WALK_SPEED_Y } from './actor';
-import { stepAllActorWalks, stepWalk } from './walk';
+import { startWalk, stepAllActorWalks, stepWalk } from './walk';
+import { buildWalkableMask } from '../pathfinding/mask';
+
+describe('startWalk — off-mask box targets', () => {
+  // A floor box that extends off the left screen edge (x -25..120), like
+  // MI1 room 78's exit box. The walkable mask only covers [0,width).
+  const W = 120, H = 100;
+  const box = {
+    id: 1, ulx: -25, uly: 90, urx: 120, ury: 90, lrx: 120, lry: 99, llx: -25, lly: 99,
+    mask: 1, flags: 0, scale: 0,
+  };
+  function vm(): Parameters<typeof startWalk>[0] {
+    const mask = buildWalkableMask([box], W, H);
+    return {
+      actors: new ActorTable(3),
+      loadedRoom: { id: 78, width: W, height: H, walkBoxes: [box], walkableMask: mask, scaleSlots: [] },
+    } as unknown as Parameters<typeof startWalk>[0];
+  }
+
+  it('walks all the way to an off-mask target inside a visible box', () => {
+    // Regression (MI1 room 78 "can't exit"): the exit walk-to point sits at
+    // x=-25, off the rasterized mask. Without extending the path the ego
+    // stops at the screen edge (x=0), 25px short of the 16px proximity gate
+    // → "non riesco ad arrivarci". The true target must be appended.
+    const v = vm();
+    const a = v.actors.get(1);
+    a.x = 60; a.y = 95;
+    startWalk(v as never, a, { x: -25, y: 95 });
+    const last = a.walkPath[a.walkPath.length - 1];
+    expect(last).toEqual({ x: -25, y: 95 });
+  });
+
+  it('does NOT append a target that lies outside every visible box', () => {
+    const v = vm();
+    const a = v.actors.get(1);
+    a.x = 60; a.y = 95;
+    // (-25, 5) is off-mask AND outside the box (box is y 90..99) → no append.
+    startWalk(v as never, a, { x: -25, y: 5 });
+    const last = a.walkPath[a.walkPath.length - 1];
+    expect(last).not.toEqual({ x: -25, y: 5 });
+  });
+});
 
 function walkingActor(opts: {
   x: number;
