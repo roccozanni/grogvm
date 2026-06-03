@@ -378,4 +378,15 @@ describe('rescaleActorForPosition — placement rescale', () => {
     rescaleActorForPosition(vm, a);
     expect(a.scale).toBe(137); // untouched — wrong room's boxes don't apply
   });
+
+  it('leaves an ignoreBoxes actor at its script-set scale (cannon-flight dot)', () => {
+    // The flight actor (room 51 actor 11) is `ignoreBoxes; scale 255,255` and
+    // arcs to the top of the room, where the box scale slot interpolates tiny.
+    // An off-grid actor must NOT be position-rescaled or it shrinks to a dot.
+    const vm = vmInRoom(20); // a box scale that would otherwise shrink it
+    const a = createActor(1);
+    a.room = 1; a.x = 50; a.y = 50; a.scale = 255; a.ignoreBoxes = true;
+    rescaleActorForPosition(vm, a);
+    expect(a.scale).toBe(255); // unchanged — ignoreBoxes keeps the set scale
+  });
 });

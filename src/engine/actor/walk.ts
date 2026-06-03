@@ -296,6 +296,14 @@ function finishWalk(actor: Actor): void {
 export function rescaleActorForPosition(vm: Vm, actor: Actor): void {
   const room = vm.loadedRoom;
   if (!room || actor.room !== vm.currentRoom) return;
+  // An actor that ignores boxes is off the walk-box grid, so it is NOT subject
+  // to box-derived perspective scaling — it keeps the scale a script set. Room
+  // 51's cannon launch is the case: the flight actor (11, costume 40) is set
+  // `ignoreBoxes; scale 255,255` and arcs up to y≈36, where the box scale slot
+  // interpolates to ~1 — without this guard the position-rescale shrank it to a
+  // single dot mid-flight. (Mirrors the ignoreBoxes z-clip rule; see
+  // resolveClipPlane in render/compositor.ts.)
+  if (actor.ignoreBoxes) return;
   const box = findBoxAtOrNearest(room.walkBoxes, actor.x, actor.y);
   const s = box ? resolveScale(box.scale, room.scaleSlots, actor.y) : null;
   actor.scale = s ?? DEFAULT_SCALE;

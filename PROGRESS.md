@@ -89,7 +89,16 @@ actor in scene):
   edge** — `print a=3 at 240,64 "--penseremo…"` is actor talk with explicit `at`;
   the renderer left-aligned it and (unlike the no-`at` talk path) didn't clamp, so
   it overran the viewport. `paintDialog` now clamps left-aligned talk to the
-  viewport too. **(2)+(3) await in-browser confirmation.**
+  viewport too. *(text **user-confirmed**; cannon z-clip user-confirmed visible.)*
+  (4) **Cannon-flight Guybrush rendered as a dot** *(save `bug-guybrush-scale`)* —
+  with the z-clip fixed he was visible but tiny. The flight actor (11) is
+  `ignoreBoxes; scale 255,255`, but `rescaleActorForPosition` recomputed scale
+  from the box `SCAL` slot by y on every placement, ignoring `ignoreBoxes`: at the
+  arc peak (y≈36) the slot interpolates to **1** (a dot). An off-grid actor is now
+  exempt from box scaling (early-return on `ignoreBoxes`), keeping its script-set
+  scale. Confirmed via `scratch/probe-scale.ts` (flight y→scale: 36→1, 105→108).
+  Regression test added. [WALK-BOXES §6](docs/SCUMM-V5-WALK-BOXES.md).
+  **Awaits in-browser confirmation.**
 
 **Earlier — two more bug-report saves (2026-06-03, cont.).** Both fixed
 engine-faithfully and **migrated to docs**:

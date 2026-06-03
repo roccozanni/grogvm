@@ -174,6 +174,14 @@ scale via `setScale`) isn't clobbered — placement is one-shot, so a
 with no `SCAL` slot (or no box) resets the actor to full size, so a sub-255
 scale never sticks across rooms.
 
+**`ignoreBoxes` actors are exempt from box scaling.** An actor off the walk-box
+grid keeps the scale a script set — `rescaleActorForPosition` early-returns when
+`actor.ignoreBoxes`. Room 51's cannon launch is the case: the flight actor (11,
+costume 40) is set `ignoreBoxes; scale 255,255` and arcs up to y≈36, where the
+box's `SCAL` slot interpolates to ~1; without the exemption the placement
+rescale shrank it to a **single dot** mid-flight. (Same off-grid principle as
+the `ignoreBoxes` z-clip rule — see [ZPLANE](SCUMM-V5-ZPLANE.md).)
+
 ## 7. Reference implementation
 
 - Parser: [`src/engine/pathfinding/boxes.ts`](../src/engine/pathfinding/boxes.ts)
