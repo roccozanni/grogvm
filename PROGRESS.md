@@ -51,12 +51,28 @@ actor in scene):
   (room = 0)`). With "Dai" armed + pot held, the hover poller `#23`, when over
   an **actor** (id < 12), runs a per-actor handler via the indexed table
   `g396[actorId]` (= `VAR(396 + actorId)`); a pirate with no give-script has `0`
-  there → `startScript 0`. SCUMM's `runScript` opens `if (!script) return;` — so
-  starting script 0 is a **silent no-op**, never a global load. `startScriptById`
-  now returns `null` for id ≤ 0; the `startScript`/`chainScript` handlers skip the
+  there → `startScript 0`. Index slot 0 is an unused DSCR entry (room 0), so
+  resolving it as a global would halt — but the game issues `startScript 0` on an
+  ordinary hover, so id 0 must be a **silent no-op**. `startScriptById` now
+  returns `null` for id ≤ 0; the `startScript`/`chainScript` handlers skip the
   nested run. Verified: hover no longer halts, and committing the give yields the
   real gag — *"Ah, quello sarà perfetto come elmetto!"* (`scratch/repro-give-pot.ts`).
   [OPCODES §6](docs/SCUMM-V5-OPCODES.md). Guards: two `index.test.ts` no-op cases.
+
+- **Fettucini cannon money not awarded** *(same room 51 scene, follow-on)* — after
+  the give → cannon-launch → close-up dialog, the act pays "478 pezzi da otto",
+  but no money arrived and obj 488 (the money inventory icon) never reached the
+  inventory. Cause: the **`startObject` opcode's args were prepended with
+  `[verb, obj]`** before becoming the verb body's locals. The game's bytecode
+  (`scratch/dis.ts`) shows args map straight onto `L0, L1, …`: sentence `#2` runs
+  verbs as `startObject obj script [secondObj, verb]`, and obj 488 verb-250 (the
+  money routine) does `g195 += L0` (`g195` = pieces of eight) then
+  `setOwnerOf(488, ego)`. With the prepend, `startObject 488 250 [478]` gave
+  `L0 = 250`, so it added the wrong amount and never re-owned 488. Fixed
+  `startVerbScript` to pass args directly. Verified: invoking the routine from
+  the save now sets owner→ego, name→"pezzi da otto", and adds 488 to inventory
+  (g195 −238 → +478 → 240, correct for that save). [OPCODES §6](docs/SCUMM-V5-OPCODES.md).
+  **User-confirmed in-browser** (full give → cannon → close-up-dialog → money flow).
 
 **Earlier — two more bug-report saves (2026-06-03, cont.).** Both fixed
 engine-faithfully and **migrated to docs**:

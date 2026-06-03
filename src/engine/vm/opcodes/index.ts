@@ -2458,8 +2458,8 @@ function startScriptHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   // Resolution (global DSCR vs room-local LSCR) lives in startScriptById.
   const freezeResistant = (opcode & 0x20) !== 0;
   const child = vm.startScriptById(scriptId, { args, freezeResistant });
-  // startScript 0 is a no-op in SCUMM (runScript's `if (!script) return;`) —
-  // startScriptById returns null and there is nothing to nest.
+  // startScript 0 is a no-op (see startScriptById) — it returns null and
+  // there is nothing to nest.
   if (!child) {
     vm.annotate(`startScript #${scriptId} (no-op: script 0)`);
     return;
@@ -2497,7 +2497,7 @@ function chainScriptHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   slot.kill();
   const child = vm.startScriptById(scriptId, { args, freezeResistant });
   // chainScript 0 → the current slot is stopped and no script replaces it
-  // (runScript's `if (!script) return;`). Matches SCUMM.
+  // (id 0 is a no-op — see startScriptById).
   vm.annotate(
     child
       ? `chainScript #${scriptId} slot=${child.slotIndex} args=[${args.join(',')}]`

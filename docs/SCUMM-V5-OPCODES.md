@@ -294,14 +294,16 @@ cutscene start/end hooks (CUTSCENES §2): `#18`'s `freezeScripts 127` and
 `startScript` opcode handler allocates the slot then calls
 `vm.runScriptNested(child)`. (`chainScript` above is the in-place variant.)
 
-**Starting script 0 is a silent no-op.** SCUMM's `runScript` (and `runObject`)
-opens with `if (!script) return;`, so `startScript 0` / `chainScript 0` do
-nothing — they must *not* be resolved as a global, since DSCR slot 0 is an
-unused entry (room 0) and resolving it would halt. This is reachable in normal
-play: with a "Dai"/"Usa" verb armed and an object held, the hover poller `#23`,
-when the cursor is over an **actor** (id < 12), starts a per-actor handler via
-the indexed table `g396[actorId]` (= `VAR(396 + actorId)`); an actor with no
-special give/use script has a `0` there, so `#23` issues `startScript 0`. Guard
+**Starting script 0 is a silent no-op.** `startScript 0` / `chainScript 0` do
+nothing — id 0 must *not* be resolved as a global, since DSCR slot 0 is an
+unused entry (room 0) and resolving it would halt. The proof is in the game's
+own bytecode: this is reachable in normal play. With a "Dai"/"Usa" verb armed
+and an object held, the hover poller `#23`, when the cursor is over an **actor**
+(id < 12), starts a per-actor handler via the indexed table `g396[actorId]`
+(= `VAR(396 + actorId)`) — disassemble `#23` with `scratch/dis.ts` to see the
+`startScript g396[L0]` at pc 341. An actor with no special give/use script has
+a `0` there, so `#23` issues `startScript 0`; since the game does this on an
+ordinary hover, id 0 has to be a no-op rather than a halt. Guard
 at the resolution boundary (`startScriptById` returns `null` for id ≤ 0; the
 `startScript`/`chainScript` handlers then skip the nested run). Repro: give the
 pot to a pirate in room 51 → "Ah, quello sarà perfetto come elmetto!"
@@ -317,6 +319,18 @@ doing `startObject item 91; L4 = g376`, where each item's **verb-91** sets
 read a stale `g376` for every slot and every item drew one identical icon;
 nested, each slot reads its own freshly-set `g376`. Handler:
 `vm.startVerbScript(...)` then `vm.runScriptNested(child)`.
+
+**`startObject` args map straight onto the verb body's locals** `L0, L1, …` —
+there is **no** implicit `[verb, object]` prepend. This is visible in the
+bytecode (`scratch/dis.ts`): the sentence script `#2` runs a verb as
+`startObject obj=L1 script=4 [L2]` (give) or the general `startObject obj=L1
+script=L0 [L2,L0]`, and the verb bodies read those positions directly — object
+`566` verb-7 tests `L0 == 574` (the second object in "Usa carne con pentola"),
+and the money routine object `488` verb-250 does `g195 += L0` (`g195` = pieces
+of eight) then `setOwnerOf(488, ego)`. We briefly prepended `[verb, obj]`, which
+shifted the real args up two slots: the Fettucini-cannon reward
+`startObject 488 250 [478]` then read `L0 = 250` instead of `478`, so verb-250
+added the wrong amount and never re-owned `488` — the player got no money.
 
 ## 7. Script id ranges
 

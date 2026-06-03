@@ -144,17 +144,19 @@ describe('Vm — startVerbScript', () => {
     expect(slot!.status).toBe('running');
   });
 
-  it('seeds locals with [verb, obj, ...args]', () => {
+  it('seeds locals directly from the args list (no verb/obj prepend)', () => {
+    // The startObject opcode's args map straight onto L0, L1, …. Per the game
+    // bytecode (scratch/dis.ts), sentence #2 runs verbs as `startObject obj
+    // verb [secondObj, verb]`, so the verb body reads the second object at L0.
     const vm = makeVm();
     vm.loadedRoom = roomWithObjects(1, [
       objWithVerbs(50, new Map([[3, new Uint8Array([0xa0])]])),
     ]);
 
     const slot = vm.startVerbScript(50, 3, [99, 100])!;
-    expect(slot.locals[0]).toBe(3); // verb
-    expect(slot.locals[1]).toBe(50); // object
-    expect(slot.locals[2]).toBe(99);
-    expect(slot.locals[3]).toBe(100);
+    expect(slot.locals[0]).toBe(99);
+    expect(slot.locals[1]).toBe(100);
+    expect(slot.locals[2]).toBe(0); // unset locals stay zero
   });
 
   it('falls back to the default verb (0xFF)', () => {

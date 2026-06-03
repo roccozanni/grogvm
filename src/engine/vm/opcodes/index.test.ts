@@ -53,10 +53,11 @@ describe('seed opcodes — flow', () => {
   });
 
   it('0x0A startScript 0 is a silent no-op (not a global-script load)', () => {
-    // SCUMM's runScript opens `if (!script) return;`. MI1's hover poller #23
+    // The game hits `startScript 0` in ordinary play: MI1's hover poller #23
     // runs a per-actor handler via an indexed table that is 0 for actors with
-    // no give/use script — `startScript 0`. Resolving id 0 as a global (DSCR
-    // slot 0 = unused, room 0) would wrongly halt the VM (the give-pot crash).
+    // no give/use script. Resolving id 0 as a global (DSCR slot 0 = unused,
+    // room 0) would wrongly halt the VM (the give-pot crash), so id 0 must be
+    // a no-op.
     let resolverCalls = 0;
     const vm = new Vm({
       numVariables: 800,

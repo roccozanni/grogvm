@@ -1163,10 +1163,21 @@ export class Vm {
     const room = this.loadedRoom?.objects.has(objId)
       ? this.loadedRoom.id
       : this.resolveObjectRoom?.(objId) ?? this.loadedRoom?.id;
+    // The startObject opcode's arg list maps DIRECTLY onto L0, L1, … — there
+    // is NO implicit verb/object prepend. Evidence is in the game's own
+    // bytecode (disassemble with scratch/dis.ts): sentence script #2 runs a
+    // verb as `startObject obj=L1 script=4 [L2]` (give) and the general
+    // `startObject obj=L1 script=L0 [L2,L0]`, and the verb bodies read those
+    // positions — object 566 verb-7 tests `L0 == 574` (the second object in
+    // "Usa carne con pentola"), and object 488 verb-250 (the money routine)
+    // does `g195 += L0` (g195 = pieces of eight) then setOwnerOf(488, ego).
+    // Prepending [verb, obj] put the verb id in L0, so verb-250 added 250
+    // instead of 478 and never re-owned 488 — the Fettucini-cannon reward
+    // ("478 pezzi da otto") never reached the inventory.
     slot.start({
       scriptId: objId,
       bytecode,
-      args: [verbId, objId, ...args],
+      args,
       room,
       label: `VERB-${objId}-${verbId}`,
     });
@@ -1189,14 +1200,15 @@ export class Vm {
       freezeResistant?: boolean;
     } = {},
   ): ScriptSlot | null {
-    // SCUMM's `runScript` opens with `if (!script) return;` — starting
-    // script 0 is a silent no-op, not an error. MI1 relies on this: the
-    // hover poller #23, after a "Dai"/"Use" verb is armed, runs a per-actor
-    // handler script via the indexed table `g396[actorId]`; for an actor
-    // with no special give/use handler the table entry is 0, so #23 does
-    // `startScript 0`. Resolving id 0 as a global (DSCR slot 0 = unused,
-    // room 0) would wrongly halt the whole VM. (Repro: give the pot to a
-    // pirate in room 51 — see scratch/repro-give-pot.ts.)
+    // Starting script 0 is a silent no-op, not an error. The game issues it
+    // in ordinary play: with a "Dai"/"Use" verb armed, the hover poller #23,
+    // over an actor, runs a per-actor handler via the indexed table
+    // `g396[actorId]` (= VAR(396 + actorId)) — 0 for an actor with no such
+    // handler, so #23 does `startScript 0` (seen in the #23 disassembly,
+    // scratch/dis.ts). Index slot 0 is an unused DSCR entry (owning room 0),
+    // so resolving id 0 as a global would halt — yet the game hits this on a
+    // normal hover, so it must be a no-op. (Repro: give the pot to a pirate in
+    // room 51 — see scratch/repro-give-pot.ts.)
     if (scriptId <= 0) return null;
 
     let bytecode: Uint8Array;
