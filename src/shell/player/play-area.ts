@@ -354,14 +354,21 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
       dx = cameraLeft + VIEWPORT_HALF;
       dy = roomHeight - blockH - 2;
     }
-    // Keep the (centred) bubble on screen: clamp the centre so the
-    // widest line stays inside the viewport, and the top below screen.top.
+    // Keep the bubble on screen, matching SCUMM (talk text never runs off the
+    // edge). `dx` is the centre when `d.center`, else the left edge.
+    const maxW = measureText(charset.payload, charset.header, text).width;
     if (d.center) {
-      const maxW = measureText(charset.payload, charset.header, text).width;
       const halfW = Math.floor(maxW / 2) + 2;
       const lo = cameraLeft + halfW;
       const hi = cameraLeft + VIEWPORT_W - halfW;
       if (lo <= hi) dx = Math.max(lo, Math.min(hi, dx));
+    } else {
+      // Left-aligned: clamp so a script-positioned line (`print at x,y`) can't
+      // overflow the right margin — e.g. room 51's `print a=3 at 240,64
+      // "--penseremo noi al resto."`, which otherwise ran off the right edge.
+      const lo = cameraLeft;
+      const hi = cameraLeft + VIEWPORT_W - maxW;
+      dx = hi >= lo ? Math.max(lo, Math.min(hi, dx)) : lo;
     }
     dy = Math.max(vm.screen.top, dy);
     // Actor-talk ink is read LIVE from the speaker's current talkColor (SCUMM

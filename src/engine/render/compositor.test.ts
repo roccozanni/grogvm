@@ -604,6 +604,22 @@ describe('composeFrame — actor z-clip (forceClip)', () => {
     for (let i = 0; i < fb.length; i++) expect(fb[i]).toBe(0x10);
   });
 
+  it('ignoreBoxes actor over a mask-1 box draws in FRONT (off the box grid)', () => {
+    // The cannon-launch case: actor 11 is set `ignoreBoxes; neverZclip` and
+    // flies above the walk boxes. It must not pick up the nearest box's mask
+    // (which would let the tent pole, ZP01, mask it) — an off-grid actor keeps
+    // its retained init box (mask 0 → front).
+    const room = { ...roomWithFullPlane(8, 4, 0x10), walkBoxes: [fullBox(1)] };
+    const fb = new Uint8Array(8 * 4);
+    const a = makeActorAt(1, 1, 1, 1);
+    a.anim = activeLimb0Anim();
+    a.forceClip = 0;
+    a.ignoreBoxes = true;
+    composeFrame({ room, framebuffer: fb, actors: [a], getCostume: cost });
+    expect(fb[1 * 8 + 1]).toBe(0x99);
+    expect(fb[2 * 8 + 2]).toBe(0x99);
+  });
+
   it('a mask-1 box does not occlude an explicit alwaysZclip-2 actor', () => {
     // forceClip > 0 wins over the box mask: alwaysZclip 2 → actorZ 1, and the
     // single plane (index 1) is ≤ actorZ, so it does not hide the actor.

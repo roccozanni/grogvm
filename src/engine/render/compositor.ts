@@ -441,6 +441,16 @@ function resolveClipPlane(
 ): number {
   if (actor.forceClip > 0) return actor.forceClip;
   if (neverClipClass) return 0;
+  // An actor that ignores boxes is off the walk-box grid: it isn't assigned a
+  // walk box as it moves, so its z-clip stays at the retained init box
+  // (mask 0 → in front). We don't track a per-actor walk box, so model it
+  // directly here — without this, findBoxAtOrNearest snaps an off-grid actor to
+  // the nearest box and applies that box's mask. That is what made the
+  // cannon-launch actor (room 51 actor 11, costume 40, set `ignoreBoxes;
+  // neverZclip`) vanish: airborne at y≈48 it snapped to box 7 (mask 1) and the
+  // tent pole (ZP01) masked it, instead of flying/falling in front. An explicit
+  // `alwaysZclip k` (forceClip > 0) still wins above.
+  if (actor.ignoreBoxes) return 0;
   const box = findBoxAtOrNearest(walkBoxes, actor.x, actor.y);
   return box ? box.mask : 0;
 }

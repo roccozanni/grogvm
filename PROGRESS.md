@@ -74,6 +74,23 @@ actor in scene):
   (g195 −238 → +478 → 240, correct for that save). [OPCODES §6](docs/SCUMM-V5-OPCODES.md).
   **User-confirmed in-browser** (full give → cannon → close-up-dialog → money flow).
 
+- **Room 51 (circus tent) compositing — three issues.** (1) **Left Fettucini
+  brother behind the haystack** — `actorOps init` (SO_DEFAULT) didn't reset
+  `forceClip`; the brothers, init'd with no zclip op, inherited `forceClip=1`
+  from a prior slot user and drew behind ZP01's haystack crate. Init now clears
+  it. Verified by render (`scratch/crop51.ts`); committed `f26816f`.
+  [ZPLANE §forceClip](docs/SCUMM-V5-ZPLANE.md). (2) **Guybrush vanishes when shot
+  from the cannon** — the flight actor (11, costume 40) is `ignoreBoxes;
+  neverZclip`; airborne at y≈48 our `findBoxAtOrNearest` snapped it to box 7
+  (mask 1) and the tent pole (ZP01) masked it. `resolveClipPlane` now sends an
+  `ignoreBoxes` actor to the front (off the box grid → retained init box, mask 0);
+  `alwaysZclip` still wins. This is the exact case the ZPLANE "faithfulness caveat"
+  predicted. Deterministic compositor test added. (3) **Talk text off the right
+  edge** — `print a=3 at 240,64 "--penseremo…"` is actor talk with explicit `at`;
+  the renderer left-aligned it and (unlike the no-`at` talk path) didn't clamp, so
+  it overran the viewport. `paintDialog` now clamps left-aligned talk to the
+  viewport too. **(2)+(3) await in-browser confirmation.**
+
 **Earlier — two more bug-report saves (2026-06-03, cont.).** Both fixed
 engine-faithfully and **migrated to docs**:
 

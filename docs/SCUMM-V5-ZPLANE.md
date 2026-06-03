@@ -431,9 +431,16 @@ same per-frame box the actor-scale system already uses, so scale and
 z-clip stay consistent. (Faithfulness caveat: SCUMM tracks the actor's
 assigned `_walkbox`; geometric-nearest can differ from it for an actor
 standing off all boxes — e.g. a sky-placed `forceClip == 0` actor would
-resolve to the nearest *floor* box rather than "none → front". No MI1
-intro actor hits this — decorative actors are either `alwaysZclip` or in
-the NeverClip class — but track `_walkbox` if a real scene shows it.)
+resolve to the nearest *floor* box rather than "none → front".) **Room 51's
+cannon launch is exactly that case:** the airborne actor (actor 11, costume
+40) is set `ignoreBoxes; neverZclip` and flies/falls over the tent pole at
+y≈48; geometric-nearest snapped it to box 7 (mask 1) and ZP01 (the pole)
+masked it, so Guybrush *vanished* instead of arcing in front. Fix:
+`resolveClipPlane` short-circuits an **`ignoreBoxes`** actor to the front
+(clipPlane 0) — an actor off the box grid isn't assigned a walk box as it
+moves, so it keeps its retained init box (mask 0). An explicit `alwaysZclip`
+still wins above. (A non-`ignoreBoxes` actor standing off all boxes would
+still mis-resolve; track `_walkbox` if a scene shows it.)
 
 The compositor calls `findBoxAt(room.walkBoxes, actor.x, actor.y)` and
 `resolveActorZ` maps the resulting `mask` → `actorZ`. Validated
