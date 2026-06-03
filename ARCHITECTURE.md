@@ -455,12 +455,13 @@ visible; see the project memory note).
 ```
 grogvm/
 ├── ARCHITECTURE.md
-├── index.html                  # `/`        → library page entry
-├── explore.html                # `/explore` → explorer page entry (reads ?game=)
-├── play.html                   # `/play`    → player page entry  (reads ?game=)
+├── pages/                      # HTML entries (Vite `root`); served URLs unchanged
+│   ├── index.html              # `/`        → library page entry
+│   ├── explore/index.html      # `/explore` → explorer page entry (reads ?game=)
+│   └── play/index.html         # `/play`    → player page entry  (reads ?game=)
 ├── package.json
 ├── tsconfig.json
-├── vite.config.ts              # multi-page rollupOptions.input (one per page)
+├── vite.config.ts              # root=pages/, alias /src; multi-page rollupOptions.input
 ├── vitest.config.ts
 ├── public/
 ├── test/
