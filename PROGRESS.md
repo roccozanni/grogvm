@@ -98,7 +98,7 @@ actor in scene):
   exempt from box scaling (early-return on `ignoreBoxes`), keeping its script-set
   scale. Confirmed via `scratch/probe-scale.ts` (flight y→scale: 36→1, 105→108).
   Regression test added. [WALK-BOXES §6](docs/SCUMM-V5-WALK-BOXES.md).
-  **Awaits in-browser confirmation.**
+  **User-confirmed in-browser.** All four room-51 compositing issues confirmed fixed.
 
 **Earlier — two more bug-report saves (2026-06-03, cont.).** Both fixed
 engine-faithfully and **migrated to docs**:
