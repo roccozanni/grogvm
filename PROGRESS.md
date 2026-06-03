@@ -51,24 +51,13 @@ rather than silently taking either the heavy path or the shortcut.
   id 0 / room 0.
 
 **Last worked on — two more bug-report saves (2026-06-03, cont.).** Both fixed
-engine-faithfully, verified against the real flow:
+engine-faithfully and **migrated to docs**:
 
-- **Chicken "Unknown opcode 0x54"** *(save `bug-cant-exit-room-78`)* — examining
-  the chicken printed Guybrush's thought then halted: `setObjectName` ($54/$D4)
-  was unregistered, and its trailing NUL-terminated name string also desynced the
-  PC. Now registered: read obj id, consume the SCUMM string via `readScummString`,
-  decode, and apply via a new `objectNameOverrides` map that wins over the room
-  OBNA + pickup snapshot (faithful to SCUMM's in-place OBNA overwrite); persisted
-  in savestate. Commit `35d5a7d`.
-- **Ego renders full-size for one room-change frame** *(same save)* — entering a
-  far-view room (the street, 78, from a building via `loadRoomWithEgo`), a
-  *standing* ego kept its stale pre-transition scale until it walked. Scale was
-  only recomputed in `stepAllActorWalks` gated on `isMoving`. Extracted
-  `rescaleActorForPosition` and called it at the discrete placement events that
-  lacked it: `loadRoomWithEgo`, `putActor`, `putActorAtObject` (kept OFF the
-  per-idle-tick path so a script-pinned static actor — the room-38 fire — isn't
-  clobbered). Real entry: first standing frame 248→251 (position-correct).
-  Commit `7c2ab70`.
+- **`setObjectName` ($54/$D4)** implemented — examining the chicken halted on the
+  unregistered opcode (commit `35d5a7d`). [OBJECTS §5](docs/SCUMM-V5-OBJECTS.md).
+- **Actor scale recomputed at placement**, not only while walking — a standing ego
+  rendered full-size for one frame after a room change (commit `7c2ab70`).
+  [WALK-BOXES §6](docs/SCUMM-V5-WALK-BOXES.md).
 
 **Earlier same day — three bug-report saves (2026-06-03).** All fixed engine-
 faithfully, each verified against actual behaviour (rendered pixels / driven

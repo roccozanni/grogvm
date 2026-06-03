@@ -12,10 +12,6 @@ sessions.
    the load-bearing principles.
 2. **[PROGRESS.md](PROGRESS.md)** — current phase state, what's done,
    what's queued. Status line at the top says where we are.
-3. **[docs/SCUMM-V5-SMAP.md](docs/SCUMM-V5-SMAP.md)** — the gnarliest
-   format we've cracked so far. Worth skimming even if you're not
-   working on graphics; it sets the tone for how the user wants
-   reverse-engineering knowledge captured.
 
 ## Project intent
 
@@ -54,9 +50,6 @@ if violated:
 - **No judgmental phrasing about other people's work.** Refer to
   reverse-engineering notes neutrally ("long-circulating notes"), not
   as "amateur" or "wrong".
-- **Don't cite URLs for the SCUMM reverse-engineering notes.** The
-  user found them on a deleted page in the Internet Archive; they're
-  not attributable to the official ScummVM wiki.
 - **No emojis in code or commits.** Documentation may use ⚠️ sparingly
   for warning callouts (see SCUMM-V5-SMAP.md).
 - **The user commits manually.** Never `git commit` without an
@@ -182,6 +175,29 @@ var).
    section documenting design decisions and any new gotchas. Then
    commit, with `Co-Authored-By: Claude Opus 4.7 (1M context)
    <noreply@anthropic.com>` in the trailer.
+
+## When asked to wrap a session
+
+Wrapping = draining this session's lab-notes from the **Current** section
+of PROGRESS.md into their durable homes. It is NOT printing a status
+summary in chat. Do this before stopping:
+
+1. Re-read the notes added to **Current** this session.
+2. Extract only the **facts** — settled conclusions (root cause, opcode
+   semantics, the *why*), never the failed hypotheses, dead ends, or the
+   blow-by-blow of getting there — and write them into the appropriate
+   `docs/SCUMM-V5-*.md` file. That is the durable knowledge base; git keeps
+   the blow-by-blow, so it never belongs in docs or PROGRESS.
+3. Once a finding lives in `docs/`, condense its PROGRESS.md note to **1–2
+   sentences max** — a pointer + the `[DOC §N]` link, like the existing
+   "Migrated to [ROOM §6]" entries — so **Current** stays lean and free of
+   clutter.
+
+This is the lab-notebook → docs flow PROGRESS.md's own header describes: a
+finding stays in Current only until it is written into docs, *then* it is
+trimmed. Capture from the notebook while fresh — don't reconstruct doc prose
+from memory later; that's how bad claims get in. (Committing is still
+manual — see Durable preferences; wrapping edits files, it doesn't commit.)
 
 ## Quick health checks
 

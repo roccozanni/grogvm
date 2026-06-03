@@ -132,6 +132,19 @@ it out of the stored name — the substitution codes that splice names into
 the sentence line ([INPUT §6](SCUMM-V5-INPUT.md)) rely on the renderer's
 skip, and the padded length is the original byte layout.
 
+**`setObjectName` ($54/$D4) renames in place — and that's *why* OBNA is
+padded.** The opcode is `object[p16] name[c]… $00`: a 16-bit object id then
+a NUL-terminated SCUMM string (which can carry `0xFF NN` control codes, so
+it must be consumed with the same reader as `print`, not byte-scanned — a
+short read leaves the PC mid-string and the next byte decodes as a bogus
+opcode). SCUMM overwrites the OBNA buffer where it sits, so the trailing
+`@` padding is the slack a longer replacement uses (obj 488's verb-91:
+`@@@@@ pezzi da otto@@@@` → `500 pezzi da otto`). We model the overwrite as
+an `objectNameOverrides` map that wins over both the room OBNA and the
+pickup-time inventory snapshot in `objectName()`, and persist it in the
+save state. Handler: [`opcodes/index.ts`](../src/engine/vm/opcodes/index.ts)
+`setObjectNameHandler`.
+
 ## 6. VERB — verb-id → script-offset table
 
 The OBCD's `VERB` block holds the **verb scripts** that fire when

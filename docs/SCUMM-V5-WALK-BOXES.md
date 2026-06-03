@@ -156,6 +156,24 @@ is skipped entirely and the actor walks straight-line. SCUMM uses
 this for camera-locked cinematic motion where the actor needs to
 cross non-walkable regions.
 
+### Perspective-scale recompute timing
+
+An actor's scale is resolved from the `SCAL` slot of the box it stands in,
+by its `y` (small at the back, full at the front). The non-obvious part is
+*when* to recompute it: on **position change**, not on every tick.
+`rescaleActorForPosition(vm, actor)` does the lookup, and it runs at two
+moments — each walk step (`stepAllActorWalks`, gated on `isMoving`), **and
+every discrete placement event**: `loadRoomWithEgo`, `putActor`,
+`putActorAtObject`. The placement rescale is load-bearing: enter a far-view
+room (e.g. the street, 78) via `loadRoomWithEgo` and a *standing* ego would
+otherwise keep its pre-transition scale and render full-size until its
+first walk step. It is deliberately kept **off** the per-idle-tick path so
+a script-pinned static actor (the room-38 fire, set smaller than its floor
+scale via `setScale`) isn't clobbered — placement is one-shot, so a
+`setScale` that runs after placement in the same script still wins. A box
+with no `SCAL` slot (or no box) resets the actor to full size, so a sub-255
+scale never sticks across rooms.
+
 ## 7. Reference implementation
 
 - Parser: [`src/engine/pathfinding/boxes.ts`](../src/engine/pathfinding/boxes.ts)
