@@ -41,64 +41,29 @@ rather than silently taking either the heavy path or the shortcut.
   previous label rect, or it's drawn additively each hover without dedup) —
   investigate the map-room hover/label render path. Verify across hover-in /
   hover-out by rendering actual frames, not label bookkeeping.
-**Last worked on — Give-Pot crash (2026-06-03, cont.).** Fixed engine-faithfully
-and **migrated to docs**. Also confirms the **verb-4 "Dai X a <actor>"** path
-end-to-end (the documented next milestone — was untested for lack of a second
-actor in scene):
 
-- **Give Pot crash** *(save `bug-cant-give-pot`, room 51)* — `startScript 0` was
-  resolved as a global and halted (`Cannot load global script #0: unused entry
-  (room = 0)`). With "Dai" armed + pot held, the hover poller `#23`, when over
-  an **actor** (id < 12), runs a per-actor handler via the indexed table
-  `g396[actorId]` (= `VAR(396 + actorId)`); a pirate with no give-script has `0`
-  there → `startScript 0`. Index slot 0 is an unused DSCR entry (room 0), so
-  resolving it as a global would halt — but the game issues `startScript 0` on an
-  ordinary hover, so id 0 must be a **silent no-op**. `startScriptById` now
-  returns `null` for id ≤ 0; the `startScript`/`chainScript` handlers skip the
-  nested run. Verified: hover no longer halts, and committing the give yields the
-  real gag — *"Ah, quello sarà perfetto come elmetto!"* (`scratch/repro-give-pot.ts`).
-  [OPCODES §6](docs/SCUMM-V5-OPCODES.md). Guards: two `index.test.ts` no-op cases.
+**Last worked on — room 51 (Fettucini cannon scene), 2026-06-03.** Six bugs, all
+fixed engine-faithfully, **user-confirmed in-browser**, and **migrated to docs**.
+Confirms the **verb-4 "Dai X a <actor>"** path end-to-end (the documented next
+milestone). Two-line summary; full detail in docs + git (commits `fa8974a`…`dd1fd6e`):
 
-- **Fettucini cannon money not awarded** *(same room 51 scene, follow-on)* — after
-  the give → cannon-launch → close-up dialog, the act pays "478 pezzi da otto",
-  but no money arrived and obj 488 (the money inventory icon) never reached the
-  inventory. Cause: the **`startObject` opcode's args were prepended with
-  `[verb, obj]`** before becoming the verb body's locals. The game's bytecode
-  (`scratch/dis.ts`) shows args map straight onto `L0, L1, …`: sentence `#2` runs
-  verbs as `startObject obj script [secondObj, verb]`, and obj 488 verb-250 (the
-  money routine) does `g195 += L0` (`g195` = pieces of eight) then
-  `setOwnerOf(488, ego)`. With the prepend, `startObject 488 250 [478]` gave
-  `L0 = 250`, so it added the wrong amount and never re-owned 488. Fixed
-  `startVerbScript` to pass args directly. Verified: invoking the routine from
-  the save now sets owner→ego, name→"pezzi da otto", and adds 488 to inventory
-  (g195 −238 → +478 → 240, correct for that save). [OPCODES §6](docs/SCUMM-V5-OPCODES.md).
-  **User-confirmed in-browser** (full give → cannon → close-up-dialog → money flow).
+- **Script/verb semantics** — (1) `startScript 0` is a silent no-op, not a global
+  load (the give-pot halt; `#23` hover poller runs `g396[actorId]`=0). (2)
+  `startObject` args map directly onto `L0,L1,…` — no `[verb,obj]` prepend (the
+  Fettucini money: obj 488 verb-250 `g195 += L0` was reading the verb id; also
+  unblocked two-object "Usa X con Y"). [OPCODES §6](docs/SCUMM-V5-OPCODES.md).
+- **Compositing** — (3) `actorOps init` now clears `forceClip` (left brother drew
+  behind the haystack). (4) `ignoreBoxes` actor → front, not nearest-box mask
+  (cannon-flight Guybrush masked by the pole). (5) `ignoreBoxes` actor exempt from
+  box scaling (flight Guybrush shrank to a dot at the arc peak). (4)+(5) are the
+  same "off the box grid" principle for z-clip + scale.
+  [ZPLANE](docs/SCUMM-V5-ZPLANE.md), [WALK-BOXES §6](docs/SCUMM-V5-WALK-BOXES.md).
+- **Text** — (6) `paintDialog` clamps left-aligned actor talk to the viewport
+  (`print … at 240,64` ran off the right edge).
 
-- **Room 51 (circus tent) compositing — three issues.** (1) **Left Fettucini
-  brother behind the haystack** — `actorOps init` (SO_DEFAULT) didn't reset
-  `forceClip`; the brothers, init'd with no zclip op, inherited `forceClip=1`
-  from a prior slot user and drew behind ZP01's haystack crate. Init now clears
-  it. Verified by render (`scratch/crop51.ts`); committed `f26816f`.
-  [ZPLANE §forceClip](docs/SCUMM-V5-ZPLANE.md). (2) **Guybrush vanishes when shot
-  from the cannon** — the flight actor (11, costume 40) is `ignoreBoxes;
-  neverZclip`; airborne at y≈48 our `findBoxAtOrNearest` snapped it to box 7
-  (mask 1) and the tent pole (ZP01) masked it. `resolveClipPlane` now sends an
-  `ignoreBoxes` actor to the front (off the box grid → retained init box, mask 0);
-  `alwaysZclip` still wins. This is the exact case the ZPLANE "faithfulness caveat"
-  predicted. Deterministic compositor test added. (3) **Talk text off the right
-  edge** — `print a=3 at 240,64 "--penseremo…"` is actor talk with explicit `at`;
-  the renderer left-aligned it and (unlike the no-`at` talk path) didn't clamp, so
-  it overran the viewport. `paintDialog` now clamps left-aligned talk to the
-  viewport too. *(text **user-confirmed**; cannon z-clip user-confirmed visible.)*
-  (4) **Cannon-flight Guybrush rendered as a dot** *(save `bug-guybrush-scale`)* —
-  with the z-clip fixed he was visible but tiny. The flight actor (11) is
-  `ignoreBoxes; scale 255,255`, but `rescaleActorForPosition` recomputed scale
-  from the box `SCAL` slot by y on every placement, ignoring `ignoreBoxes`: at the
-  arc peak (y≈36) the slot interpolates to **1** (a dot). An off-grid actor is now
-  exempt from box scaling (early-return on `ignoreBoxes`), keeping its script-set
-  scale. Confirmed via `scratch/probe-scale.ts` (flight y→scale: 36→1, 105→108).
-  Regression test added. [WALK-BOXES §6](docs/SCUMM-V5-WALK-BOXES.md).
-  **User-confirmed in-browser.** All four room-51 compositing issues confirmed fixed.
+*Method note (user-reinforced):* ground SCUMM-semantics claims in the game's own
+bytecode (`scratch/dis.ts`) and rendered pixels — **no ScummVM-source citations**
+(it isn't on this machine). All six were cracked that way.
 
 **Earlier — two more bug-report saves (2026-06-03, cont.).** Both fixed
 engine-faithfully and **migrated to docs**:
