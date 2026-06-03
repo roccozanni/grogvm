@@ -279,6 +279,28 @@ function finishWalk(actor: Actor): void {
  * conceptually a walking actor walks regardless of which room they
  * happen to be in.
  */
+/**
+ * Recompute an actor's perspective scale from the walk box it currently
+ * stands in (SCUMM scales actors by floor depth). Resets to full size when
+ * the box specifies no scaling — see the in-place note in
+ * {@link stepAllActorWalks}. A no-op unless the actor is in the loaded room.
+ *
+ * Use this for *discrete* placement events (putActor / putActorAtObject /
+ * room entry): SCUMM rescales an actor the moment its position is set, so
+ * it never renders one frame at a stale scale. It's deliberately NOT called
+ * on every idle tick — that would clobber a script-pinned static actor
+ * (e.g. the room-38 fire, set smaller than its floor scale). Placement is a
+ * one-shot event, so a `setScale` opcode that runs *after* placement in the
+ * same script still wins.
+ */
+export function rescaleActorForPosition(vm: Vm, actor: Actor): void {
+  const room = vm.loadedRoom;
+  if (!room || actor.room !== vm.currentRoom) return;
+  const box = findBoxAtOrNearest(room.walkBoxes, actor.x, actor.y);
+  const s = box ? resolveScale(box.scale, room.scaleSlots, actor.y) : null;
+  actor.scale = s ?? DEFAULT_SCALE;
+}
+
 export function stepAllActorWalks(vm: Vm): void {
   for (const actor of vm.actors.all()) {
     const wasMoving = actor.isMoving;
@@ -287,20 +309,13 @@ export function stepAllActorWalks(vm: Vm): void {
     // Perspective scale: recompute from the walk box the actor now stands in
     // (SCUMM scales actors by floor depth). Only while moving / just-arrived,
     // so a script-pinned static actor (e.g. the room-38 fire, set smaller than
-    // its floor scale) keeps its scale. See pathfinding/scale.ts.
-    const room = vm.loadedRoom;
-    if ((actor.isMoving || wasMoving) && room && actor.room === vm.currentRoom) {
-      // Nearest-box (not strict): MI1's thin cliff boxes mean an actor on a
-      // valid floor pixel often sits in no box strictly — strict lookup would
-      // leave the scale stuck small until a wide box, popping it at the end.
-      const box = findBoxAtOrNearest(room.walkBoxes, actor.x, actor.y);
-      const s = box ? resolveScale(box.scale, room.scaleSlots, actor.y) : null;
-      // No per-box scaling here (a non-scaled box, or no box) → full size.
-      // Crucially this RESETS the scale: otherwise a sub-255 value picked up
-      // in a scaled room (e.g. 210 on the room-33 dock) would stick forever in
-      // later non-scaled rooms, leaving the actor permanently slightly small.
-      actor.scale = s ?? DEFAULT_SCALE;
-    }
+    // its floor scale) keeps its scale. Placement events rescale separately,
+    // via rescaleActorForPosition (see putActor) — that's what keeps an idle
+    // actor from rendering one stale frame after a room change. The
+    // nearest-box lookup matters: MI1's thin cliff boxes mean an actor on a
+    // valid floor pixel often sits in no box strictly, which would otherwise
+    // leave the scale stuck small until a wide box and pop it at the end.
+    if (actor.isMoving || wasMoving) rescaleActorForPosition(vm, actor);
     // Drive the costume chore from movement state:
     //  - moving        → walk chore (body cycles; the record stops the
     //                    head limb so the body sprite carries the head)

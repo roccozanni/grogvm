@@ -31,7 +31,7 @@ import {
   DEFAULT_TALK_STOP_FRAME,
   type Actor,
 } from '../../actor/actor';
-import { startWalk, startActorChore, applyStandPose, reapplyChoreForFacing, FACING_FROM_OLD } from '../../actor/walk';
+import { startWalk, startActorChore, applyStandPose, reapplyChoreForFacing, FACING_FROM_OLD, rescaleActorForPosition } from '../../actor/walk';
 import { findBoxAtOrNearest } from '../../pathfinding/boxes';
 import { pickObject } from '../../object/hittest';
 import { evalExpression } from '../expression';
@@ -1465,6 +1465,9 @@ function putActorAtObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void
     const x = obj ? obj.cdhd.walkX : 240;
     const y = obj ? obj.cdhd.walkY : 120;
     actorPut(actor, x, y, actor.room);
+    // Rescale for the new position so an idle, just-placed actor renders at
+    // the right floor scale immediately (not one stale frame until it walks).
+    rescaleActorForPosition(vm, actor);
   }
   vm.annotate(`putActorAtObject actor=${id} obj=${objId}`);
 }
@@ -1615,6 +1618,12 @@ function loadRoomWithEgoHandler(vm: Vm, slot: ScriptSlot, opcode: number): void 
       ego.x = obj.cdhd.walkX;
       ego.y = obj.cdhd.walkY;
     }
+    // Rescale for the entry position in the newly-loaded room, so ego
+    // renders at the right floor scale on the first frame — not full size
+    // until it walks. Matters for far-view rooms like the street (78),
+    // entered from a building via this op. Done before the optional walk
+    // (the walk step would otherwise be the first thing to fix the scale).
+    rescaleActorForPosition(vm, ego);
     if (x !== -1) startWalk(vm, ego, { x, y });
   }
   vm.annotate(`loadRoomWithEgo obj=${objId} room=${room} (${x},${y})`);
@@ -1634,7 +1643,12 @@ function putActorHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const x = readVarOrWord(opcode, 2, slot, vm.vars);
   const y = readVarOrWord(opcode, 3, slot, vm.vars);
   const actor = actorOrNull(vm, id);
-  if (actor) actorPut(actor, x, y, actor.room);
+  if (actor) {
+    actorPut(actor, x, y, actor.room);
+    // Rescale for the new position so an idle, just-placed actor renders at
+    // the right floor scale immediately (not one stale frame until it walks).
+    rescaleActorForPosition(vm, actor);
+  }
   vm.annotate(`putActor actor=${id} (${x},${y}) room=${actor?.room ?? 0}`);
 }
 for (const op of [0x01, 0x21, 0x41, 0x61, 0x81, 0xa1, 0xc1, 0xe1]) {

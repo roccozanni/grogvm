@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ActorTable, createActor, DEFAULT_WALK_SPEED_X, DEFAULT_WALK_SPEED_Y } from './actor';
-import { startWalk, stepAllActorWalks, stepWalk } from './walk';
+import { startWalk, stepAllActorWalks, stepWalk, rescaleActorForPosition } from './walk';
 import { buildWalkableMask } from '../pathfinding/mask';
 
 describe('startWalk — off-mask box targets', () => {
@@ -345,5 +345,37 @@ describe('stepAllActorWalks — perspective scale', () => {
     a.walkTarget = { x: 60, y: 50 }; a.isMoving = true; a.walkSpeedX = 2;
     stepAllActorWalks(vm);
     expect(a.scale).toBe(255); // reset to DEFAULT_SCALE, not left at 100
+  });
+});
+
+describe('rescaleActorForPosition — placement rescale', () => {
+  function vmInRoom(boxScale: number): Parameters<typeof rescaleActorForPosition>[0] {
+    const box = {
+      id: 0, ulx: 0, uly: 0, urx: 100, ury: 0, lrx: 100, lry: 100, llx: 0, lly: 100,
+      mask: 0, flags: 0, scale: boxScale,
+    };
+    return {
+      currentRoom: 1,
+      loadedRoom: { walkBoxes: [box], scaleSlots: [] },
+    } as unknown as Parameters<typeof rescaleActorForPosition>[0];
+  }
+
+  it('rescales a STANDING actor at placement (the room-change "big ego" bug)', () => {
+    // The bug: ego placed in a far-view room renders at a stale full-size
+    // scale until it starts walking. Placement must rescale immediately,
+    // without isMoving ever being set.
+    const vm = vmInRoom(210);
+    const a = createActor(1);
+    a.room = 1; a.x = 50; a.y = 50; a.scale = 255; a.isMoving = false;
+    rescaleActorForPosition(vm, a);
+    expect(a.scale).toBe(210);
+  });
+
+  it('is a no-op when the actor is not in the loaded room', () => {
+    const vm = vmInRoom(210);
+    const a = createActor(1);
+    a.room = 2; a.x = 50; a.y = 50; a.scale = 137; // a different room
+    rescaleActorForPosition(vm, a);
+    expect(a.scale).toBe(137); // untouched — wrong room's boxes don't apply
   });
 });
