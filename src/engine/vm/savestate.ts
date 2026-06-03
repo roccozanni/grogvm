@@ -101,6 +101,8 @@ export interface SaveState {
   readonly objectStates: ReadonlyArray<[number, number]>;
   readonly objectOwners: ReadonlyArray<[number, number]>;
   readonly inventoryNames: ReadonlyArray<[number, string]>;
+  /** `setObjectName` ($54) renames; optional for backward compat. */
+  readonly objectNameOverrides?: ReadonlyArray<[number, string]>;
   readonly objectClasses: ReadonlyArray<[number, number]>;
   readonly objectDrawQueue: ReadonlyArray<number>;
 
@@ -265,6 +267,7 @@ export function snapshotVm(vm: Vm, meta?: { game?: string; label?: string; saved
     objectStates: [...vm.objectStates],
     objectOwners: [...vm.objectOwners],
     inventoryNames: [...vm.inventoryNames],
+    objectNameOverrides: [...vm.objectNameOverrides],
     objectClasses: [...vm.objectClasses],
     objectDrawQueue: [...vm.objectDrawQueue],
 
@@ -346,6 +349,8 @@ export function restoreVm(vm: Vm, state: SaveState): void {
   for (const [id, v] of state.objectStates) vm.objectStates.set(id, v);
   for (const [id, v] of state.objectOwners) vm.objectOwners.set(id, v);
   for (const [id, name] of state.inventoryNames) vm.inventoryNames.set(id, name);
+  for (const [id, name] of state.objectNameOverrides ?? [])
+    vm.objectNameOverrides.set(id, name);
   for (const [id, v] of state.objectClasses) vm.objectClasses.set(id, v);
   for (const id of state.objectDrawQueue) vm.objectDrawQueue.add(id);
 

@@ -1556,6 +1556,23 @@ function setOwnerOfHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
 }
 for (const op of [0x29, 0x69, 0xa9, 0xe9]) register(op, setOwnerOfHandler);
 
+// ─── setObjectName (0x54/0xD4) ───────────────────────────────────────
+// `object[p16] (bit 0x80) name[c]… 0x00`. Renames an object in place:
+// SCUMM overwrites the OBNA buffer so a later `getObjectName` / print
+// `\xff\x08` shows the new label (e.g. MI1 obj 488 verb-91 rewrites
+// "@@@@@ pezzi da otto@@@@" → "500 pezzi da otto"). The trailing operand
+// is a NUL-terminated SCUMM string, so we must consume it via
+// readScummString — otherwise the PC stops mid-string and the next byte
+// decodes as a bogus opcode (this is the "Unknown opcode 0x54" halt:
+// the byte after the printed name was being read as an instruction).
+function setObjectNameHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
+  const obj = readVarOrWord(opcode, 1, slot, vm.vars);
+  const name = decodeScummString(readScummString(slot), vm, slot);
+  vm.setObjectName(obj, name);
+  vm.annotate(`setObjectName obj=${obj} name="${name}"`);
+}
+for (const op of [0x54, 0xd4]) register(op, setObjectNameHandler);
+
 // ─── startObject (0x37/0x77/0xB7/0xF7) ───────────────────────────────
 // `object[p16] (bit 0x80) script[p8] (bit 0x40) args[v16]`. Runs the
 // object's OBCD verb script — exactly what vm.startVerbScript does

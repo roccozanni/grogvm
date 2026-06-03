@@ -347,6 +347,8 @@ export class Vm {
    * current room.
    */
   readonly inventoryNames = new Map<number, string>();
+  /** Object-id → name set by `setObjectName` ($54); wins over OBNA. */
+  readonly objectNameOverrides = new Map<number, string>();
   /**
    * Per-object class bitmask, mutated by `actorSetClass` (0x5D) and
    * tested by `ifClassOfIs` (0x1D). Class N occupies bit `N-1` (classes
@@ -1902,11 +1904,27 @@ export class Vm {
    * is unknown so callers can fall back to an `obj #N` placeholder.
    */
   objectName(objId: number): string | undefined {
+    // A `setObjectName` ($54) rename takes priority over both the room's
+    // OBNA and the pickup-time snapshot — it's an explicit in-place
+    // overwrite (SCUMM rewrites the OBNA buffer; e.g. obj 488's
+    // "@@@@@ pezzi da otto@@@@" → "500 pezzi da otto").
+    const renamed = this.objectNameOverrides.get(objId);
+    if (renamed !== undefined) return renamed;
     const inRoom = this.loadedRoom?.objects.get(objId)?.name;
     if (inRoom) return inRoom;
     const carried = this.inventoryNames.get(objId);
     if (carried) return carried;
     return undefined;
+  }
+
+  /**
+   * Override an object's display name in place — backs `setObjectName`
+   * ($54/$D4). Wins over the room OBNA and the {@link inventoryNames}
+   * snapshot (see {@link objectName}) and persists across rooms and saves,
+   * mirroring SCUMM's in-place OBNA rewrite.
+   */
+  setObjectName(objId: number, name: string): void {
+    this.objectNameOverrides.set(objId, name);
   }
 
   /**
@@ -2030,6 +2048,7 @@ export class Vm {
     this.objectStates.clear();
     this.objectOwners.clear();
     this.inventoryNames.clear();
+    this.objectNameOverrides.clear();
     this.objectClasses.clear();
     this.boxFlagOverrides.clear();
     this.objectDrawQueue.clear();

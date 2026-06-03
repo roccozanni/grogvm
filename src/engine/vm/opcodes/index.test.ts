@@ -980,6 +980,36 @@ describe('inventory subsystem', () => {
     expect(vm.objectName(99)).toBe('the rubber chicken');
   });
 
+  it('setObjectName (0x54) renames an object in place, consuming the trailing string', () => {
+    const vm = makeVm();
+    // setObjectName obj=99 name="500 pieces"; stop. The name is a
+    // NUL-terminated string that must be consumed, or the byte after it
+    // decodes as a bogus opcode (the "Unknown opcode 0x54" halt).
+    const name = [...'500 pieces'].map((c) => c.charCodeAt(0));
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(0x54, 0x63, 0x00, ...name, 0x00, 0x00),
+    });
+    const slot = vm.slots.find((s) => s.status === 'running')!;
+    vm.step(); // setObjectName — must land the PC on the 0x00 stop, not mid-string
+    vm.step(); // the 0x00 stop
+    expect(vm.haltInfo).toBeNull(); // no "Unknown opcode 0x54" desync
+    expect(slot.status).toBe('dead');
+    expect(vm.objectName(99)).toBe('500 pieces');
+  });
+
+  it('setObjectName overrides the room OBNA and the pickup snapshot', () => {
+    const vm = makeVm();
+    vm.inventoryNames.set(99, 'the rubber chicken');
+    const name = [...'a chicken with a pulley'].map((c) => c.charCodeAt(0));
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(0x54, 0x63, 0x00, ...name, 0x00, 0x00),
+    });
+    vm.step();
+    expect(vm.objectName(99)).toBe('a chicken with a pulley');
+  });
+
   it('actorFromPos (0xd5) reads both coords as vars, returns the actor under them, advances PC by 7', () => {
     const vm = makeVm();
     vm.vars.writeGlobal(20, 100);
