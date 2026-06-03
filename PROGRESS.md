@@ -19,7 +19,7 @@ Lean tracker. Three buckets:
 ## Current — natural play through MI1
 
 Playing MI1 from the start and fixing each blocker as it's hit (engine-faithful,
-committed on `main`). **811 tests green, tsc clean.** The intro → room 33 →
+committed on `main`). **815 tests green, tsc clean.** The intro → room 33 →
 SCUMM Bar (room 28) → pirate-conversation close-up is playable end-to-end, with
 verbs, inventory, and two-object "Usa X con Y" / "Dai X a Y" working.
 
@@ -32,7 +32,45 @@ bookkeeping. Surface any deferral/approximation explicitly and track it here;
 never bury a shortcut. If "faithful" needs a bigger refactor, raise the tradeoff
 rather than silently taking either the heavy path or the shortcut.
 
-**Last worked on — three bug-report saves (2026-06-03).** All fixed engine-
+### Open bug-report saves (reported, not yet fixed)
+
+- **Map labels not cleared** *(save `bug-map-labels`)* — on the map screen,
+  hovering a place shows a name label, but hovering OUT never clears it;
+  hovering the same place repeatedly stacks several identical labels on screen.
+  Lead: the hover-label draw isn't erased/redrawn on hover-exit (no clear of the
+  previous label rect, or it's drawn additively each hover without dedup) —
+  investigate the map-room hover/label render path. Verify across hover-in /
+  hover-out by rendering actual frames, not label bookkeeping.
+- **Give Pot crash** *(save `bug-cant-give-pot`)* — give the pot to the actor in
+  that room: click verb "dai" → click pot → as soon as the actor is hovered,
+  `HALTED — Cannot load global script #0: unused entry (room = 0)`. A
+  runScript/chainScript/cutscene is being fed script id **0** (an unused index
+  entry). Giving objects to other actors in earlier rooms did NOT crash, so it's
+  specific to this room/actor — likely a var or object-verb lookup returning 0
+  that then drives a script load. The halt is the global-script loader rejecting
+  id 0 / room 0.
+
+**Last worked on — two more bug-report saves (2026-06-03, cont.).** Both fixed
+engine-faithfully, verified against the real flow:
+
+- **Chicken "Unknown opcode 0x54"** *(save `bug-cant-exit-room-78`)* — examining
+  the chicken printed Guybrush's thought then halted: `setObjectName` ($54/$D4)
+  was unregistered, and its trailing NUL-terminated name string also desynced the
+  PC. Now registered: read obj id, consume the SCUMM string via `readScummString`,
+  decode, and apply via a new `objectNameOverrides` map that wins over the room
+  OBNA + pickup snapshot (faithful to SCUMM's in-place OBNA overwrite); persisted
+  in savestate. Commit `35d5a7d`.
+- **Ego renders full-size for one room-change frame** *(same save)* — entering a
+  far-view room (the street, 78, from a building via `loadRoomWithEgo`), a
+  *standing* ego kept its stale pre-transition scale until it walked. Scale was
+  only recomputed in `stepAllActorWalks` gated on `isMoving`. Extracted
+  `rescaleActorForPosition` and called it at the discrete placement events that
+  lacked it: `loadRoomWithEgo`, `putActor`, `putActorAtObject` (kept OFF the
+  per-idle-tick path so a script-pinned static actor — the room-38 fire — isn't
+  clobbered). Real entry: first standing frame 248→251 (position-correct).
+  Commit `7c2ab70`.
+
+**Earlier same day — three bug-report saves (2026-06-03).** All fixed engine-
 faithfully, each verified against actual behaviour (rendered pixels / driven
 flow / ScummVM debugger). Root causes:
 
