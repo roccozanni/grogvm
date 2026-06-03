@@ -1811,6 +1811,15 @@ function actorOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
           actor.walkPath = [];
           actor.walkPathIdx = 0;
           actor.isMoving = false;
+          // initActor clears the forced z-clip (forceClip 0 = "not forced",
+          // depth then comes from the NeverClip class or the walk-box mask).
+          // Without this, an actor reusing a slot left at `alwaysZclip k` by an
+          // earlier scene stays masked by ZP0k even after a plain `init`. Room
+          // 51 inits the Fettucini brothers (costume 27) with no zclip op, so
+          // they reset to box-derived depth (box 4, mask 0 → in front);
+          // otherwise the left brother, inheriting forceClip=1, draws behind the
+          // haystack crate in ZP01.
+          actor.forceClip = 0;
           // Reset chore frames to SCUMM's initActor defaults.
           actor.walkFrame = DEFAULT_WALK_FRAME;
           actor.standFrame = DEFAULT_STAND_FRAME;

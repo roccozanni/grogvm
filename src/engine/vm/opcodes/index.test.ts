@@ -578,6 +578,21 @@ describe('seed opcodes — cursorCommand state wiring', () => {
   });
 });
 
+describe('seed opcodes — actorOps init (SO_DEFAULT)', () => {
+  it('init clears a stale forceClip (initActor resets the forced z-clip)', () => {
+    // An actor reusing a slot left at alwaysZclip k by an earlier scene must
+    // reset to "not forced" on init, or it stays masked behind ZP0k. Room 51
+    // inits the Fettucini brothers with no zclip op and they must come to the
+    // front; without this they kept forceClip=1 and drew behind the haystack.
+    const vm = makeVm();
+    vm.actors.get(3).forceClip = 1; // leftover alwaysZclip=1 from a prior scene
+    // actorOps 3 { init }: 0x13 actor=3 (byte), subop 0x08 (SO_DEFAULT), 0xFF.
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x13, 0x03, 0x08, 0xff, 0x00) });
+    vm.step();
+    expect(vm.actors.get(3).forceClip).toBe(0);
+  });
+});
+
 describe('seed opcodes — verbOps state wiring', () => {
   it('subop 0x09 "new" creates an OFF slot (curmode 0)', () => {
     const vm = makeVm();

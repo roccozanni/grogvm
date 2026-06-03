@@ -381,6 +381,15 @@ zbuf = _forceClip != 0 ? _forceClip
 > room). What actually keeps a decorative actor unconditionally in front
 > is the **NeverClip class**, not `forceClip`.
 
+> ⚠️ **`initActor` (actorOps SO_DEFAULT, 0x08) must clear `forceClip`.**
+> SCUMM's `initActor` resets the forced clip, so an actor reusing a slot that an
+> earlier scene left at `alwaysZclip k` comes back to box-derived depth on a
+> plain `init`. Room 51 inits the Fettucini brothers (costume 27) with no zclip
+> op; without the reset they inherited `forceClip = 1` from a prior occupant and
+> the left brother drew **behind the haystack crate** in ZP01. We set
+> `forceClip = 0` on init (the not-forced sentinel, ≡ the `-1` default for
+> depth). Verified by rendering room 51 (`scratch/crop51.ts`).
+
 `alwaysZclip k` → `actorZ = k − 1` so that "plane index > actorZ" makes
 plane `k` (and higher) occlude the actor while planes below `k` don't.
 The **Mêlée-island clouds** (room 10, costume 59) set `alwaysZclip 1`
