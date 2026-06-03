@@ -52,6 +52,47 @@ describe('seed opcodes — flow', () => {
     expect(live!.slotIndex).toBe(original);
   });
 
+  it('0x0A startScript 0 is a silent no-op (not a global-script load)', () => {
+    // SCUMM's runScript opens `if (!script) return;`. MI1's hover poller #23
+    // runs a per-actor handler via an indexed table that is 0 for actors with
+    // no give/use script — `startScript 0`. Resolving id 0 as a global (DSCR
+    // slot 0 = unused, room 0) would wrongly halt the VM (the give-pot crash).
+    let resolverCalls = 0;
+    const vm = new Vm({
+      numVariables: 800,
+      numBitVariables: 2048,
+      handlers: SEED_OPCODES,
+      resolveGlobalScript: () => {
+        resolverCalls++;
+        throw new Error('should not resolve script 0');
+      },
+    });
+    // startScript 0 (byte immediate), no args. Then breakHere so the caller
+    // survives — proving execution continued past the no-op rather than halting.
+    const slot = vm.startScript({ scriptId: 1, bytecode: bytes(0x0a, 0x00, 0xff, 0x80) });
+    vm.step(); // run startScript 0
+    expect(vm.haltInfo).toBeNull();
+    expect(resolverCalls).toBe(0); // id 0 short-circuited before resolution
+    vm.step(); // breakHere
+    expect(slot.status).toBe('yielded'); // caller still alive
+  });
+
+  it('0x42 chainScript 0 stops the current slot and starts nothing', () => {
+    const vm = new Vm({
+      numVariables: 800,
+      numBitVariables: 2048,
+      handlers: SEED_OPCODES,
+      resolveGlobalScript: () => {
+        throw new Error('should not resolve script 0');
+      },
+    });
+    const slot = vm.startScript({ scriptId: 1, bytecode: bytes(0x42, 0x00, 0xff) });
+    vm.step();
+    expect(vm.haltInfo).toBeNull();
+    expect(slot.status).toBe('dead'); // current slot killed, no replacement
+    expect(vm.slots.some((s) => s.status !== 'dead')).toBe(false);
+  });
+
   it('0xC2 chainScript reads the script id from a var', () => {
     const chained = bytes(0x80);
     const vm = new Vm({

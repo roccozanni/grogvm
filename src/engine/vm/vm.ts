@@ -1188,7 +1188,17 @@ export class Vm {
       label?: string;
       freezeResistant?: boolean;
     } = {},
-  ): ScriptSlot {
+  ): ScriptSlot | null {
+    // SCUMM's `runScript` opens with `if (!script) return;` — starting
+    // script 0 is a silent no-op, not an error. MI1 relies on this: the
+    // hover poller #23, after a "Dai"/"Use" verb is armed, runs a per-actor
+    // handler script via the indexed table `g396[actorId]`; for an actor
+    // with no special give/use handler the table entry is 0, so #23 does
+    // `startScript 0`. Resolving id 0 as a global (DSCR slot 0 = unused,
+    // room 0) would wrongly halt the whole VM. (Repro: give the pot to a
+    // pirate in room 51 — see scratch/repro-give-pot.ts.)
+    if (scriptId <= 0) return null;
+
     let bytecode: Uint8Array;
     let room: number;
     if (scriptId >= Vm.LSCR_THRESHOLD) {
@@ -1277,7 +1287,7 @@ export class Vm {
         // before the caller's next opcode — and before endCutscene starts
         // #19. See runScriptNested.
         const s = this.startScriptById(startScript, { args });
-        this.runScriptNested(s);
+        if (s) this.runScriptNested(s);
       } catch {
         // Start script unresolvable — cutscene still proceeds.
       }
@@ -1299,7 +1309,7 @@ export class Vm {
         // Run #19 nested so it un-freezes scripts / restores input in order,
         // not queued behind the start script's freeze. See runScriptNested.
         const s = this.startScriptById(endScript, { args: frame?.args ?? [] });
-        this.runScriptNested(s);
+        if (s) this.runScriptNested(s);
       } catch {
         // End script unresolvable.
       }

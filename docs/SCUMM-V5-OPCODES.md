@@ -294,6 +294,20 @@ cutscene start/end hooks (CUTSCENES §2): `#18`'s `freezeScripts 127` and
 `startScript` opcode handler allocates the slot then calls
 `vm.runScriptNested(child)`. (`chainScript` above is the in-place variant.)
 
+**Starting script 0 is a silent no-op.** SCUMM's `runScript` (and `runObject`)
+opens with `if (!script) return;`, so `startScript 0` / `chainScript 0` do
+nothing — they must *not* be resolved as a global, since DSCR slot 0 is an
+unused entry (room 0) and resolving it would halt. This is reachable in normal
+play: with a "Dai"/"Usa" verb armed and an object held, the hover poller `#23`,
+when the cursor is over an **actor** (id < 12), starts a per-actor handler via
+the indexed table `g396[actorId]` (= `VAR(396 + actorId)`); an actor with no
+special give/use script has a `0` there, so `#23` issues `startScript 0`. Guard
+at the resolution boundary (`startScriptById` returns `null` for id ≤ 0; the
+`startScript`/`chainScript` handlers then skip the nested run). Repro: give the
+pot to a pirate in room 51 → "Ah, quello sarà perfetto come elmetto!"
+(`scratch/repro-give-pot.ts`). Before the guard this halted with
+`Cannot load global script #0: unused entry (room = 0)`.
+
 **`startObject` (0x37/0x77/0xB7/0xF7) runs nested too** — same `runScript`
 mechanism, so a started object-verb script finishes (to its first
 `breakHere`/stop) before the caller's next opcode. This is load-bearing for

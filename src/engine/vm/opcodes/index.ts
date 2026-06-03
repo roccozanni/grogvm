@@ -2458,6 +2458,12 @@ function startScriptHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   // Resolution (global DSCR vs room-local LSCR) lives in startScriptById.
   const freezeResistant = (opcode & 0x20) !== 0;
   const child = vm.startScriptById(scriptId, { args, freezeResistant });
+  // startScript 0 is a no-op in SCUMM (runScript's `if (!script) return;`) —
+  // startScriptById returns null and there is nothing to nest.
+  if (!child) {
+    vm.annotate(`startScript #${scriptId} (no-op: script 0)`);
+    return;
+  }
   // SCUMM's `startScript` runs the new script NESTED: `runScript` →
   // `runScriptNested`, executing it to its first breakHere/stop before the
   // caller's next opcode — it is NOT queued behind the caller. Scripts rely on
@@ -2490,7 +2496,13 @@ function chainScriptHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const freezeResistant = slot.freezeResistant;
   slot.kill();
   const child = vm.startScriptById(scriptId, { args, freezeResistant });
-  vm.annotate(`chainScript #${scriptId} slot=${child.slotIndex} args=[${args.join(',')}]`);
+  // chainScript 0 → the current slot is stopped and no script replaces it
+  // (runScript's `if (!script) return;`). Matches SCUMM.
+  vm.annotate(
+    child
+      ? `chainScript #${scriptId} slot=${child.slotIndex} args=[${args.join(',')}]`
+      : `chainScript #${scriptId} (no-op: script 0)`,
+  );
 }
 
 // ─── 0x19  doSentence ────────────────────────────────────────────────

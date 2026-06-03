@@ -41,16 +41,24 @@ rather than silently taking either the heavy path or the shortcut.
   previous label rect, or it's drawn additively each hover without dedup) —
   investigate the map-room hover/label render path. Verify across hover-in /
   hover-out by rendering actual frames, not label bookkeeping.
-- **Give Pot crash** *(save `bug-cant-give-pot`)* — give the pot to the actor in
-  that room: click verb "dai" → click pot → as soon as the actor is hovered,
-  `HALTED — Cannot load global script #0: unused entry (room = 0)`. A
-  runScript/chainScript/cutscene is being fed script id **0** (an unused index
-  entry). Giving objects to other actors in earlier rooms did NOT crash, so it's
-  specific to this room/actor — likely a var or object-verb lookup returning 0
-  that then drives a script load. The halt is the global-script loader rejecting
-  id 0 / room 0.
+**Last worked on — Give-Pot crash (2026-06-03, cont.).** Fixed engine-faithfully
+and **migrated to docs**. Also confirms the **verb-4 "Dai X a <actor>"** path
+end-to-end (the documented next milestone — was untested for lack of a second
+actor in scene):
 
-**Last worked on — two more bug-report saves (2026-06-03, cont.).** Both fixed
+- **Give Pot crash** *(save `bug-cant-give-pot`, room 51)* — `startScript 0` was
+  resolved as a global and halted (`Cannot load global script #0: unused entry
+  (room = 0)`). With "Dai" armed + pot held, the hover poller `#23`, when over
+  an **actor** (id < 12), runs a per-actor handler via the indexed table
+  `g396[actorId]` (= `VAR(396 + actorId)`); a pirate with no give-script has `0`
+  there → `startScript 0`. SCUMM's `runScript` opens `if (!script) return;` — so
+  starting script 0 is a **silent no-op**, never a global load. `startScriptById`
+  now returns `null` for id ≤ 0; the `startScript`/`chainScript` handlers skip the
+  nested run. Verified: hover no longer halts, and committing the give yields the
+  real gag — *"Ah, quello sarà perfetto come elmetto!"* (`scratch/repro-give-pot.ts`).
+  [OPCODES §6](docs/SCUMM-V5-OPCODES.md). Guards: two `index.test.ts` no-op cases.
+
+**Earlier — two more bug-report saves (2026-06-03, cont.).** Both fixed
 engine-faithfully and **migrated to docs**:
 
 - **`setObjectName` ($54/$D4)** implemented — examining the chicken halted on the
