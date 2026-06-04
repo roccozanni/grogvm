@@ -19,7 +19,8 @@ Lean tracker. Three buckets:
 ## Current — natural play through MI1
 
 Playing MI1 from the start and fixing each blocker as it's hit (engine-faithful,
-committed on `main`). **815 tests green, tsc clean.** The intro → room 33 →
+committed on `main`). **826 unit tests + tsc clean**, plus a data-gated
+integration playthrough (`npm run test:integration`). The intro → room 33 →
 SCUMM Bar (room 28) → pirate-conversation close-up is playable end-to-end, with
 verbs, inventory, and two-object "Usa X con Y" / "Dai X a Y" working.
 
@@ -35,6 +36,18 @@ rather than silently taking either the heavy path or the shortcut.
 ### Open bug-report saves (reported, not yet fixed)
 
 *(none open)*
+
+**Tooling — test harness + integration suite (2026-06-04, uncommitted in working
+tree).** Graduated the scratch boot/drive boilerplate into a reusable harness:
+`src/testkit/drive.ts` (game-agnostic VM drivers, synthetic-tested) + `scummv5.ts`
+(load/boot/save by dir). Added a root `integration/mi1/` **playthrough** suite
+(`npm run test:integration`, data-gated, kept out of default `npm test`), driven
+by numeric ids so it passes on IT *and* EN. Test-placement rule now: engine-
+mechanism regressions = synthetic engine unit tests (not save/game-bound);
+`integration/` = does-the-game-play mechanics (no save, no localized strings);
+`scratch/` = save-based troubleshooting. Dead/stale-path scratch probes archived
+to `scratch/archive/`; live unmigrated probes carry an "UNMIGRATED" banner. Full
+detail in [AGENTS.md "The harness"](AGENTS.md).
 
 **Last fixed — map labels not cleared** *(save `bug-map-labels`, 2026-06-04)* —
 on the map (room 85) the hover label smeared into a trail of stale names and

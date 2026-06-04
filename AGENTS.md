@@ -91,7 +91,7 @@ src/
     install/              directory picker + game detection
     player/               room viewer + block-tree dump
     storage/              IndexedDB wrappers, FS-Access permission
-  engine/                 (no DOM imports anywhere below this line)
+  engine/                 (no DOM imports, no node:fs — portable core)
     resources/            .000/.001 parsing — XOR, blocks, tree nav,
                           per-tag description catalog
     graphics/             rmhd, clut, smap, trns, room composition
@@ -101,6 +101,14 @@ src/
                           boot, vars.ts (name→index map), lighting.ts;
                           opcodes/index.ts is the EXECUTING opcode table,
                           disasm.ts is the read-only DISASSEMBLER (below)
+  testkit/                dev/test harness — sibling of engine, NOT inside
+                          it (see below). drive.ts = game-agnostic VM
+                          drivers (pure, synthetic-testable); scummv5.ts =
+                          load/boot/save by game dir (Node-only, node:fs)
+integration/              root-level playthroughs — drive the REAL game files
+  mi1/                    & saves, run via `npm run test:integration` (NOT
+                          default `npm test`). game.ts = data dir + ids;
+                          playthrough.test.ts = mechanics scenarios
 ```
 
 ### The disassembler (`src/engine/vm/disasm.ts`)
@@ -127,6 +135,54 @@ var).
   (and vice-versa). Known limitation: a linear sweep still misaligns on
   ~13% of MI1 scripts (rare opcodes / embedded data) — `SCAN` hits in a
   script that reports "misaligned" are leads, not proof.
+
+### The harness (`src/testkit/`) + integration playthroughs (`integration/`)
+
+The *dynamic* companion to the disassembler: load → boot → drive → inspect
+the real game on the VM. Reach for it whenever you need to reproduce a flow
+or render real state (the working principle: verify behaviour, not
+bookkeeping) instead of re-deriving the boot boilerplate. Two layers:
+
+- **`testkit/` — the reusable harness.**
+  - `drive.ts` — **game-agnostic** VM drivers: `setMouse`/`hover`,
+    `driveTicks(vm, n)`, `driveUntil(vm, pred, {maxTicks})`,
+    `driveToRoom(vm, room)`. Operate on a bare `Vm`, so MI2 (any v5 game)
+    reuses them unchanged; unit-tested against a **synthetic VM**
+    (`drive.test.ts`), runs everywhere incl. CI.
+  - `scummv5.ts` — load/boot/save **by game directory**: `hasData(dir)`,
+    `bootScummV5(dir)` → `Vm`, `loadScummV5(dir)`, `restoreSave(vm, name)`
+    (bare slot → `saves/<name>.websave.json`). Re-exports `drive.ts` so a
+    caller gets the whole harness from one import.
+  - Lives in `src/testkit/`, a **sibling of `engine`/`shell`, not inside
+    `engine/`** — it's the only `node:fs` consumer and the engine stays a
+    portable browser-bundled core. Its own tests are synthetic
+    (`scummv5.test.ts` exercises `hasData` against a temp dir of empty
+    dummy files), so they run in the default suite.
+
+- **`integration/<game>/` — playthroughs against the REAL game.** Code-based
+  test suites (no DSL) that drive the game through its own scripts and assert
+  mechanics. Driven by **numeric ids** (verb/object/dialog ids in
+  `game.ts`), which are game-structural — identical across IT/EN builds (only
+  text is translated), so one suite covers a game, not a variation, and the
+  same suite passes against both builds. `mi1/` has `game.ts` (data dir + ids,
+  no localized strings) and `playthrough.test.ts`.
+  - **Never assert a localized string.** Verify mechanics; when a test must
+    check produced text, derive the expectation from the same build (e.g. a
+    dialog answer's own `name`), don't hardcode a translation.
+  - **Run separately:** `npm run test:integration` (own vitest config). NOT
+    part of the default `npm test`, which stays fast/synthetic/data-free.
+  - **Data-gated:** each suite self-skips via `describe.skipIf(!hasGame())`
+    so a fresh checkout / CI stays green; never commit the copyrighted bytes.
+  - **No save-file dependence.** Where regression tests go, by layer:
+    once a bug's root cause is identified, its anti-regression test is a
+    **synthetic engine unit test** (`src/**/*.test.ts`) capturing the
+    mechanism — NOT tied to a save or a game (e.g. the map-labels root cause
+    lives in `vm.test.ts`). `integration/` is for *does-the-game-play*
+    mechanics only. Save-based troubleshooting stays in `scratch/`.
+
+Scratch note: dead probes that predate the `games/MI1` → `games/MI1-IT-CD-DOS-VGA`
+rename were moved to `scratch/archive/`. New probes should use the harness
+(one import — `bootScummV5(dir)`) rather than copy-pasting the resource preamble.
 
 ## Known gotchas (will bite if forgotten)
 

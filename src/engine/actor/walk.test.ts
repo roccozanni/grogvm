@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { ActorTable, createActor, DEFAULT_WALK_SPEED_X, DEFAULT_WALK_SPEED_Y } from './actor';
-import { startWalk, stepAllActorWalks, stepWalk, rescaleActorForPosition } from './walk';
+import { applyStandPose, startWalk, stepAllActorWalks, stepWalk, rescaleActorForPosition } from './walk';
 import { buildWalkableMask } from '../pathfinding/mask';
+import { currentLimbPicture } from '../graphics/costume-anim';
+import type { CostumeHeader } from '../graphics/costume';
 
 describe('startWalk — off-mask box targets', () => {
   // A floor box that extends off the left screen edge (x -25..120), like
@@ -388,5 +390,78 @@ describe('rescaleActorForPosition — placement rescale', () => {
     a.room = 1; a.x = 50; a.y = 50; a.scale = 255; a.ignoreBoxes = true;
     rescaleActorForPosition(vm, a);
     expect(a.scale).toBe(255); // unchanged — ignoreBoxes keeps the set scale
+  });
+});
+
+describe('applyStandPose — rest head tracks facing', () => {
+  // Regression (was confirmed end-to-end on the real ego costume, now
+  // synthetic): the head limb must re-point to the current facing AT REST.
+  // The stand/walk chores only stop/un-stop the head — only the INIT pose
+  // carries the head's per-direction frame — so a stand must re-seed the head
+  // via init (applyStandPose runs init *then* stand). Before the fix a turned
+  // actor kept a stale head (e.g. a front-facing head while facing west).
+  //
+  // Fixture: a costume whose init pose (chore 1) points the head limb (1) at a
+  // DISTINCT frame per direction; the stand pose (chore 3) has no record (a
+  // no-op here). The cmd stream sits at payload[0], so a limb's `start` equals
+  // its frame index. (Layout mirrors costume-anim.test.ts's packAnim/makeHeader.)
+  const HEAD_FRAME = { W: 8, E: 10, S: 12, N: 14 } as const; // distinct per dir
+  function headCostume(): { header: CostumeHeader; payload: Uint8Array } {
+    const payload = new Uint8Array(80);
+    // A picture byte at each head frame (avoid the cmd bytes 0x79/0x7a).
+    payload[HEAD_FRAME.W] = 0x21; payload[HEAD_FRAME.E] = 0x22;
+    payload[HEAD_FRAME.S] = 0x23; payload[HEAD_FRAME.N] = 0x24;
+    // An anim record naming limb 1 (mask bit 1<<14 → LE 00 40) at frame `fi`, length 2.
+    const rec = (fi: number): number[] => [0x00, 0x40, fi & 0xff, (fi >> 8) & 0xff, 0x01];
+    const POS = { W: 30, E: 40, S: 50, N: 60 } as const;
+    payload.set(rec(HEAD_FRAME.W), POS.W); payload.set(rec(HEAD_FRAME.E), POS.E);
+    payload.set(rec(HEAD_FRAME.S), POS.S); payload.set(rec(HEAD_FRAME.N), POS.N);
+    // animOffsets store position+6 (decoder applies COSTUME_OFFSET_ADJUST = -6).
+    // init pose = chore 1 → animIds 4..7 (chore*4 + dir; dir W0 E1 S2 N3).
+    const animOffsets = new Array(16).fill(0);
+    animOffsets[4] = POS.W + 6; animOffsets[5] = POS.E + 6;
+    animOffsets[6] = POS.S + 6; animOffsets[7] = POS.N + 6;
+    const header: CostumeHeader = {
+      numAnim: 16, format: 0x58, paletteSize: 16, palette: new Uint8Array(16),
+      animCmdOffset: 6, // cmdBase = 6 + (-6) = 0 → a limb's start == its frame index
+      limbOffsets: new Array(16).fill(0), animOffsets, mirrorFlag: false,
+    };
+    return { header, payload };
+  }
+
+  it('re-points the head limb to a distinct frame for each facing', () => {
+    const cost = headCostume();
+    const vm = {
+      actors: new ActorTable(3),
+      getCostume: () => cost,
+    } as unknown as Parameters<typeof applyStandPose>[0];
+    const a = vm.actors.get(1);
+    a.costume = 1;
+
+    const headAt = (facing: 'W' | 'E' | 'S' | 'N') => {
+      a.facing = facing;
+      applyStandPose(vm, a);
+      const l1 = a.anim.limbs[1]!;
+      return {
+        start: l1.start,
+        active: l1.active,
+        stopped: ((a.anim.stopped >> 1) & 1) === 1,
+        pic: currentLimbPicture(a.anim, 1, cost.payload),
+      };
+    };
+
+    const w = headAt('W'), e = headAt('E'), s = headAt('S'), n = headAt('N');
+
+    // The head is drawn (active, un-stopped, a real picture) in every facing.
+    for (const h of [w, e, s, n]) {
+      expect(h.active).toBe(true);
+      expect(h.stopped).toBe(false);
+      expect(h.pic).toBeGreaterThanOrEqual(0);
+    }
+    // The crux: front/side/back are DISTINCT head frames — before the fix a
+    // turned actor kept whatever frame the previous facing left.
+    expect(s.start).not.toBe(w.start);
+    expect(n.start).not.toBe(w.start);
+    expect(n.start).not.toBe(s.start);
   });
 });

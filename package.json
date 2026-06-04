@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
