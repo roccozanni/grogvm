@@ -240,12 +240,39 @@ describe('Vm — talk timer + dialog clearing', () => {
     expect(vm.systemText).not.toBeNull(); // the keepText sign is still up
   });
 
-  it('blasts distinct-position system lines side by side (the "Le tre prove" card)', () => {
+  it('blasts distinct-position system lines side by side in one frame (the "Parte Due / Il Viaggio" card)', () => {
     const vm = makeVm();
+    // Same frame, no restore armed: the chapter card (global #122) prints
+    // both lines back-to-back before yielding, so they coexist.
     vm.addSystemText({ ...dialog(254), text: 'Parte Uno', x: 155, y: 165 });
     vm.addSystemText({ ...dialog(254), text: 'Le Tre Prove', x: 155, y: 180 });
     expect(vm.systemTexts.map((d) => d.text)).toEqual(['Parte Uno', 'Le Tre Prove']);
     expect(vm.systemText?.text).toBe('Le Tre Prove'); // back-compat: last line
+  });
+
+  it('erases the previous frame\'s transient label before drawing the next (bug-map-labels)', () => {
+    const vm = makeVm();
+    // The map hover poller (global #24) re-prints the location name near the
+    // cursor every frame. Each new frame arms the per-cycle restore, so the
+    // drifting label replaces the previous one instead of smearing a trail.
+    (vm as unknown as { systemTextRestorePending: boolean }).systemTextRestorePending = true;
+    vm.addSystemText({ ...dialog(255), text: "l'osservatorio", x: 74, y: 123 });
+    (vm as unknown as { systemTextRestorePending: boolean }).systemTextRestorePending = true;
+    vm.addSystemText({ ...dialog(255), text: "l'osservatorio", x: 72, y: 124 });
+    // Hover-out: a bare `print " " at 0,0` clears the last label too.
+    (vm as unknown as { systemTextRestorePending: boolean }).systemTextRestorePending = true;
+    vm.addSystemText({ ...dialog(255), text: ' ', x: 0, y: 0 });
+    expect(vm.systemTexts.map((d) => d.text)).toEqual([' ']); // single line, no trail
+  });
+
+  it('a new-frame transient print leaves keepText signs standing', () => {
+    const vm = makeVm();
+    vm.addSystemText({ ...dialog(255, true), text: 'SIGN', x: 10, y: 10 }); // keepText
+    (vm as unknown as { systemTextRestorePending: boolean }).systemTextRestorePending = true;
+    vm.addSystemText({ ...dialog(255), text: 'label', x: 50, y: 50 }); // transient, new frame
+    (vm as unknown as { systemTextRestorePending: boolean }).systemTextRestorePending = true;
+    vm.addSystemText({ ...dialog(255), text: 'label2', x: 60, y: 60 }); // erases 'label', not SIGN
+    expect(vm.systemTexts.map((d) => d.text)).toEqual(['SIGN', 'label2']);
   });
 
   it('replaces a system line printed again at the same position (credit roll)', () => {

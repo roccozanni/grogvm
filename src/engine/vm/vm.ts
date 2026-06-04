@@ -518,17 +518,39 @@ export class Vm {
    * two channels coexist and must not mask each other (a sign stays up
    * while Guybrush talks).
    *
-   * SCUMM "blasts" system text onto the screen, where it *accumulates*:
-   * successive prints at DIFFERENT positions stack (the "Le tre prove"
-   * part-title is two prints — "Parte Uno" @y165 + "Le Tre Prove" @y180
-   * — both visible at once), while a print at an already-occupied
-   * position replaces it (the credit roll re-prints at the same spot).
-   * Blast text is erased when the screen is redrawn — i.e. on a room
-   * change ({@link enterRoom}) — and never by the talk timer; it also
-   * clears on an empty system print or {@link reset}. Mutate via
-   * {@link addSystemText} / {@link clearSystemText}, not directly.
+   * SCUMM "blasts" system text onto a single charset region. The lifetime
+   * model is SCUMM's `restoreCharsetBg`: a *transient* (non-keepText) print
+   * draws over a region that is restored (erased) exactly once per display
+   * cycle, lazily, just before the first transient draw of that cycle (see
+   * {@link systemTextRestorePending}, armed each game frame in {@link tick}).
+   * Two consequences, both observed in MI1 bytecode:
+   *   - Multiple transient prints **within one frame** coexist — the
+   *     "Parte Due / Il Viaggio" chapter card (global #122) prints both
+   *     lines back-to-back at @y165/@y180 before yielding, and once drawn
+   *     they persist across the following wait frames (no new transient
+   *     print arrives to trigger the restore).
+   *   - A transient print in a **new** frame erases the previous frame's
+   *     transient text first. The map hover poller (global #24) re-prints
+   *     the location name at the cursor each frame and a bare `print " "
+   *     at 0,0` on hover-out; without the per-frame restore these smear
+   *     into a trail of stale labels (bug-map-labels).
+   * keepText prints (signs, credits, the "Le tre prove!" title) never
+   * trigger or suffer the restore — they accumulate and persist until an
+   * explicit empty print, a room change ({@link enterRoom}), or {@link reset}.
+   * Same-position prints replace (the credit roll re-prints at one spot).
+   * Mutate via {@link addSystemText} / {@link clearSystemText}, not directly.
    */
   systemTexts: ActiveDialog[] = [];
+
+  /**
+   * Armed at the top of each game frame ({@link tick}); consumed by the
+   * first transient (non-keepText) {@link addSystemText} of that frame,
+   * which restores (erases) the prior frame's transient system text before
+   * drawing — SCUMM's `restoreCharsetBg`. Transient, not part of save state:
+   * it re-arms every frame, so a restore loaded as `false` self-corrects on
+   * the next tick.
+   */
+  private systemTextRestorePending = false;
 
   /** Back-compat single-slot view: the most-recently-blasted line. */
   get systemText(): ActiveDialog | null {
@@ -540,11 +562,19 @@ export class Vm {
   }
 
   /**
-   * Blast one system line. Replaces any existing line at the same screen
-   * anchor (so the credit roll, which re-prints at one spot, doesn't
-   * stack), otherwise appends (so distinct positions coexist).
+   * Blast one system line. A transient (non-keepText) line that is the
+   * first of a new display cycle restores the screen first — erasing the
+   * previous cycle's transient text (keepText lines survive) — so a
+   * cursor-tracking label doesn't smear (see {@link systemTexts}). Further
+   * transient lines in the same frame, and all keepText lines, accumulate.
+   * A line at an already-occupied anchor replaces it (the credit roll
+   * re-prints at one spot).
    */
   addSystemText(dlg: ActiveDialog): void {
+    if (!dlg.keepText && this.systemTextRestorePending) {
+      this.systemTexts = this.systemTexts.filter((d) => d.keepText);
+      this.systemTextRestorePending = false;
+    }
     const key = `${dlg.x},${dlg.y}`;
     const at = this.systemTexts.findIndex((d) => `${d.x},${d.y}` === key);
     if (at >= 0) this.systemTexts[at] = dlg;
@@ -1776,6 +1806,9 @@ export class Vm {
     }
     this.frameAccumulator = 0;
     // ── one game frame ──
+    // Arm SCUMM's per-cycle `restoreCharsetBg`: the first transient system
+    // print this frame erases last frame's transient text (see systemTexts).
+    this.systemTextRestorePending = true;
     this.processSentence();
     let resumed = false;
     for (const s of this.slots) {

@@ -277,20 +277,41 @@ coexist on screen:
 - **Actor speech** (`activeDialog`, a real actor id) — transient,
   positioned above the speaker, auto-cleared when the talk timer drains.
 - **System text** (`systemTexts[]`, reserved ids 252–255: signs,
-  narrator, credits, part-titles) — SCUMM *blasts* it onto the
-  framebuffer, where it **accumulates**: successive prints at distinct
-  screen positions stack, while a print at an already-occupied position
-  replaces it. It is **not** auto-cleared by the talk timer; it's erased
-  when the screen is redrawn — i.e. on a **room change** — or by an empty
-  print / reset.
+  narrator, credits, part-titles) — SCUMM *blasts* it onto a single
+  charset region. Its lifetime is SCUMM's **`restoreCharsetBg`**: a
+  *transient* (non-keepText) print draws over a region that is restored
+  (erased) exactly **once per display cycle**, lazily, just before the
+  first transient draw of that cycle. So transient prints **within one
+  frame accumulate**, but the first transient print of a *new* frame
+  erases the previous frame's transient text first. keepText prints
+  (`\xff\x02`) neither trigger nor suffer the restore — they accumulate
+  and persist until an explicit clear, room change, or reset. A print at
+  an already-occupied anchor replaces it.
 
-The accumulate-don't-replace rule is load-bearing for two real scenes:
-the MI1 **credit roll** re-prints at one fixed spot (replace → one line
-at a time), and the **"Le tre prove" part-title** issues *two* separate
-`print(254)` opcodes at different y (`"Parte Uno"` @165, `"Le Tre Prove"`
-@180) that must show stacked. A single-slot model shows only the last.
-(That card's ~5 s hold is a separate matter — it's the duration of its
-sound, gated by an `isSoundRunning` wait loop, so it lands with audio.)
+Two real scenes pin down both halves of this rule:
+
+- The **"Parte Due / Il Viaggio" chapter card** (`global #122`) issues
+  *two* `print(254)` opcodes back-to-back **in one frame** at different y
+  (`@165`, `@180`) and they coexist — same-frame transient prints stack.
+  Once drawn they persist across the following wait frames (no new
+  transient print arrives to fire the restore). (That card's hold is a
+  separate matter — the duration of its sound, gated by an
+  `isSoundRunning` wait loop, so it lands with audio.)
+- The **map hover poller** (`global #24`, room 85) re-prints the
+  hovered location's name **near the cursor every frame**, and a bare
+  `print " " at 0,0` on hover-out. Because the cursor drifts a pixel or
+  two per frame, a naïve "stack distinct positions" model smeared a trail
+  of stale labels that never cleared (`bug-map-labels`). The per-cycle
+  restore is what collapses each frame's label onto one and lets the
+  hover-out space erase it — exactly the original's behaviour.
+
+Implementation: `Vm.systemTextRestorePending` is armed at the top of each
+game frame (`tick`) and consumed by the first transient `addSystemText` of
+that frame, which drops the prior frame's transient lines (keepText lines
+survive). It's transient — not part of save state; it re-arms every frame.
+System text is also **not** auto-cleared by the talk timer beyond the
+keepText rule below, and is fully erased on a **room change** / empty print
+/ reset.
 
 ### What's not in the renderer (deliberately)
 

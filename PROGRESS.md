@@ -34,13 +34,20 @@ rather than silently taking either the heavy path or the shortcut.
 
 ### Open bug-report saves (reported, not yet fixed)
 
-- **Map labels not cleared** *(save `bug-map-labels`)* — on the map screen,
-  hovering a place shows a name label, but hovering OUT never clears it;
-  hovering the same place repeatedly stacks several identical labels on screen.
-  Lead: the hover-label draw isn't erased/redrawn on hover-exit (no clear of the
-  previous label rect, or it's drawn additively each hover without dedup) —
-  investigate the map-room hover/label render path. Verify across hover-in /
-  hover-out by rendering actual frames, not label bookkeeping.
+*(none open)*
+
+**Last fixed — map labels not cleared** *(save `bug-map-labels`, 2026-06-04)* —
+on the map (room 85) the hover label smeared into a trail of stale names and
+never cleared on hover-out. Root cause: `addSystemText` stacked transient system
+prints at *distinct* positions, but the map poller (`global #24`) re-prints the
+name *at the drifting cursor* every frame. Faithful fix is SCUMM's
+**`restoreCharsetBg`** — a non-keepText system print restores (erases) the prior
+*display cycle's* transient text before drawing; transient prints *within one
+frame* still coexist (the "Parte Due / Il Viaggio" card, `global #122`). Armed
+per game frame via `Vm.systemTextRestorePending`, consumed by the first transient
+`addSystemText`. Verified by driving the real poller frame-by-frame over the save
+(15-deep trail → one cursor-following label, hover-out → invisible `" "@0,0`) and
+confirming the intro card still shows both lines. [CHAR §6](docs/SCUMM-V5-CHAR.md).
 
 **Last worked on — room 51 (Fettucini cannon scene), 2026-06-03.** Six bugs, all
 fixed engine-faithfully, **user-confirmed in-browser**, and **migrated to docs**.
