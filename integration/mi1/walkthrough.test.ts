@@ -30,6 +30,12 @@
  *   • Player actions go through the faithful click flow ({@link actions});
  *     any unavoidable shortcut is flagged as debt at the call site.
  *
+ * BEAT NAMING: `<Part> · <Room> — <what the beat proves>`. Part is the game's
+ * own part (roman numeral; I = "The Three Trials"); Room is where the beat
+ * acts. No ordinal — file order *is* run order, so the sequence is positional.
+ * Stop-on-break surfaces the failing beat's name, so it must say *where* (the
+ * room) and *what* broke; don't cross-reference other beats by number.
+ *
  * Data-gated (skipped without the game files). Run: `npm run test:integration`.
  */
 import { describe, expect, it } from 'vitest';
@@ -43,7 +49,7 @@ import {
   walkTo,
 } from '../../src/testkit/scummv5';
 import { VAR_CURRENT_LIGHTS, VAR_EGO } from '../../src/engine/vm/vars';
-import { boot, hasGame, ROOMS, VERBS } from './game';
+import { boot, hasGame, ROOMS, VARS, VERBS } from './game';
 
 // One VM for the whole walkthrough, driven forward across beats.
 const vm = boot();
@@ -64,7 +70,7 @@ const beat = (name: string, fn: () => void): void =>
   });
 
 describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
-  beat('I.1 — boots the intro through to the Mêlée lookout (33), lit, control returned', () => {
+  beat('I · Mêlée Lookout — intro boots through to the lookout (33), lit, control returned', () => {
     expect(driveToRoom(vm, ROOMS.meleeLookout.id)).toBe(true);
     expect(vm.haltInfo).toBeNull();
     const ego = vm.vars.readGlobal(VAR_EGO);
@@ -78,7 +84,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     expect([...vm.verbs.values()].some((v) => v.state === 'on')).toBe(true);
   });
 
-  beat('I.2 — a floor click walks ego across the lookout', () => {
+  beat('I · Mêlée Lookout — a floor click walks ego across the lookout', () => {
     const ego = vm.vars.readGlobal(VAR_EGO);
     const start = { x: vm.actors.get(ego).x, y: vm.actors.get(ego).y };
     walkTo(vm, { x: 160, y: 140 });
@@ -91,14 +97,14 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     expect(vm.haltInfo).toBeNull();
   });
 
-  beat('I.3 — "Look at" the election poster yields a description', () => {
+  beat('I · Mêlée Lookout — "Look at" the election poster yields a description', () => {
     use(vm, VERBS.look, ROOMS.meleeLookout.poster);
     driveUntil(vm, (v) => v.activeDialog !== null, { maxTicks: 3600 });
     expect((vm.activeDialog?.text ?? '').length).toBeGreaterThan(0);
     expect(vm.haltInfo).toBeNull();
   });
 
-  beat('I.4 — open the bar door and walk through into the SCUMM Bar (28)', () => {
+  beat('I · Mêlée Lookout — open the bar door, walk through into the SCUMM Bar (28)', () => {
     // Faithful: Open the door (verb→hover→scene-click → doSentence), then a
     // walk-to-door scene click; ego paths to it and the door script changes
     // room. (The old playthrough probe pushed these sentences directly — here
@@ -110,8 +116,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     expect(vm.haltInfo).toBeNull();
   });
 
-  beat('I.5 — Talk to the LOOM-ad pirate → his close-up (82); pick an answer, ego speaks it', () => {
-    // Continue from I.4's room-28 state; let the bar settle.
+  beat('I · SCUMM Bar — talk to the LOOM-ad pirate → close-up (82), pick an answer, ego speaks it', () => {
+    // Continue in the room-28 state the previous beat left; let the bar settle.
     driveTicks(vm, 200);
     // Faithful trigger: "Parla" (talk to) the salesman pirate #333. His verb
     // script starts conversation script #93, which loads the close-up room 82.
@@ -144,7 +150,109 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     expect(vm.haltInfo).toBeNull();
   });
 
+  beat('I · SCUMM Bar — talk to the 3 pirates; the trials flag (g197) flips', () => {
+    // Continue in the room-28 state the previous beat left; let the bar settle.
+    driveTicks(vm, 200);
+    // Unlike the LOOM pirate, the three important-looking pirates (#322) run
+    // their conversation #220 *inline* in the bar — no close-up room. The
+    // options arm as live verbs right here in room 28.
+    expect(vm.vars.readGlobal(VARS.trialsLearned)).toBe(0); // not yet learned
+    use(vm, VERBS.talk, ROOMS.scummBar.threePirates);
+
+    // First menu: pick "Voglio diventare un pirata." (the real opener; the
+    // other two are jokes). Capture its own label so we don't hardcode a
+    // translation.
+    const wantPirate = ROOMS.scummBar.trialsAnswers.wantToBePirate;
+    driveUntil(vm, (v) => v.verbs.get(wantPirate)?.state === 'on', { maxTicks: 2400 });
+    expect(vm.verbs.get(wantPirate)?.name?.length ?? 0).toBeGreaterThan(0);
+    pickAnswer(vm, wantPirate);
+
+    // The pirates explain the three trials → the conversation-stage flag
+    // flips. That's the mechanic (no localized text matched).
+    expect(driveUntil(vm, (v) => v.vars.readGlobal(VARS.trialsLearned) === 1, { maxTicks: 4000 })).toBe(true);
+
+    // Exit via the goodbye option (it arms in the follow-up menu); control
+    // returns in a navigable bar — verb bar live, no lingering menu.
+    const goodbye = ROOMS.scummBar.trialsAnswers.goodbye;
+    driveUntil(vm, (v) => v.verbs.get(goodbye)?.state === 'on', { maxTicks: 2400 });
+    pickAnswer(vm, goodbye);
+    expect(
+      driveUntil(vm, (v) => v.verbs.get(VERBS.talk)?.state === 'on', { maxTicks: 4000 }),
+    ).toBe(true);
+    expect(vm.loadedRoom?.id).toBe(ROOMS.scummBar.id);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat('I · SCUMM Bar — wait out the cook, sneak into the kitchen (41)', () => {
+    const cook = () => vm.actors.get(ROOMS.scummBar.cookActor);
+    const inBar = () => cook().room === ROOMS.scummBar.id;
+
+    // Pre-position ego at the kitchen door (right side) so it can slip in
+    // during the brief window — crossing the whole bar mid-window won't make
+    // it. (A floor click toward the door; ego paths to the doorway box.)
+    walkTo(vm, { x: 500, y: 130 });
+    driveTicks(vm, 1500);
+
+    // The cook cycles out into the bar then back. The door's left open, so a
+    // Walk-to (verb 11) carries ego through — but only with the cook deep in
+    // the bar (his sweep dips to x≈300), clear of the doorway he'd otherwise
+    // block. The window is timed, so retry across cycles; each miss waits out
+    // the window before the next try.
+    let entered = false;
+    for (let attempt = 0; attempt < 12 && !entered; attempt++) {
+      driveUntil(vm, () => inBar() && cook().x < 340, { maxTicks: 4000 });
+      if (inBar() && cook().x < 340) {
+        use(vm, VERBS.walk, ROOMS.scummBar.kitchenDoor);
+        entered = driveToRoom(vm, ROOMS.kitchen.id, { maxTicks: 1500 });
+      }
+      if (!entered) driveUntil(vm, () => !inBar(), { maxTicks: 2000 });
+    }
+    expect(entered).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat('I · Kitchen — take the meat and the pot', () => {
+    const ego = vm.vars.readGlobal(VAR_EGO);
+    // Both sit on the kitchen floor; Pick up (verb 9) flips ownership to ego.
+    for (const obj of [ROOMS.kitchen.meat, ROOMS.kitchen.pot]) {
+      use(vm, VERBS.pickUp, obj);
+      expect(driveUntil(vm, (v) => v.getObjectOwner(obj) === ego, { maxTicks: 3000 })).toBe(true);
+    }
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat('I · Kitchen — stomp the board 3× to scare the gull, grab the fish', () => {
+    const ego = vm.vars.readGlobal(VAR_EGO);
+    const k = ROOMS.kitchen;
+    const gull = () => vm.actors.get(k.seagullActor);
+
+    // Open the dock door: unblocks the dock walkboxes, makes the fish touchable
+    // and starts the gull watcher (local #203, on ego's distance to the board).
+    use(vm, VERBS.open, k.dockDoor);
+    driveTicks(vm, 400);
+
+    // Two stomps notch the gull's scare counter; step off between so the
+    // watcher re-triggers on the next approach.
+    for (let stomp = 1; stomp <= 2; stomp++) {
+      walkTo(vm, k.boardWalkTo);
+      expect(
+        driveUntil(vm, (v) => v.vars.readGlobal(VARS.gullScare) === stomp, { maxTicks: 4000 }),
+      ).toBe(true);
+      walkTo(vm, k.offBoard);
+      driveTicks(vm, 300);
+    }
+
+    // Third stomp makes the gull bolt (x 252→310); the fish's "bird will peck"
+    // guard lifts only WHILE it flies. Trigger on the bolt, then grab inside
+    // that window.
+    walkTo(vm, k.boardWalkTo);
+    expect(driveUntil(vm, () => gull().x > 260, { maxTicks: 4000 })).toBe(true);
+    use(vm, VERBS.pickUp, k.fish);
+    expect(driveUntil(vm, (v) => v.getObjectOwner(k.fish) === ego, { maxTicks: 3000 })).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
   // ── FRONTIER ──────────────────────────────────────────────────────────
-  // Next: out into Mêlée town — the three trials (sword, thievery, treasure).
-  // (Back in the SCUMM Bar after I.5.)
+  // Next: out into Mêlée town for the three trials (sword, thievery,
+  // treasure). (Meat, pot, fish in inventory; trials learned; in the kitchen.)
 });
