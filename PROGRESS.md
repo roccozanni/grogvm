@@ -42,14 +42,24 @@ run end-of-session / after a refactor. Design + the testkit pieces it added
 [AGENTS "The harness"](AGENTS.md). Engine finding — *a printing sentence blocks
 the next one* (command mid-speech no-ops; wait for the line to clear) →
 [INPUT §5](docs/SCUMM-V5-INPUT.md). Old `playthrough.test.ts` deleted (its
-mechanics are now beats I.1–I.5).
+mechanics are now the first five beats).
 
-Frontier: **I.1** boot→Mêlée lookout (33) → **I.2** floor-walk → **I.3** look-at
-poster → **I.4** open + walk through the bar door (28) → **I.5** LOOM-ad pirate
-conversation, faithful end-to-end and back in the bar (talk-to verb 10 on pirate
-#333 → close-up room 82; answer #121, goodbye #124). All per-game ids live in
-`game.ts`. Next: out into Mêlée town — the three trials (sword, thievery,
-treasure).
+Beats are named `<Part> · <Room> — <what it proves>` (Part = the game's own
+part; I = "The Three Trials"), **no ordinal** — file order *is* run order.
+Per-game ids/vars live in `game.ts`: `ROOMS` (room-grouped objects/scripts),
+`VERBS`, and `VARS` (story/puzzle globals — assert these over localized text).
+
+Frontier (all Part I): **Mêlée Lookout** boot→33, floor-walk, look-at poster,
+open+walk the bar door→28 → **SCUMM Bar** LOOM-ad pirate close-up (talk #333 →
+room 82, answer #121/goodbye #124); three important-looking pirates (#322, inline
+conv #220, answer #122/goodbye #127) → trials learned (`VARS.trialsLearned`/g197
+0→1); wait out the cook (actor #6, ~2000t hidden / ~800t out wandering) and walk
+the open kitchen door (#316→41 — a *verb-11 sentence* on the door, since a bare
+floor click won't run its walk-through script) → **Kitchen** take meat #566 + pot
+#567; stomp the loose board #575 3× to scare the seagull (actor #7) — fish #568 is
+grabbable only DURING the fly-away (its class-6 "the bird will peck" guard lifts
+only mid-flight), keyed off `VARS.gullScare`/g272. Next: out into Mêlée town —
+the three trials (sword, thievery, treasure).
 
 ### Open bug-report saves (reported, not yet fixed)
 
