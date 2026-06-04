@@ -96,7 +96,11 @@ variants of the same base instruction — dispatch is per full byte.)
 - **findObject** `$35` — `opcode result x[p8] y[p8]`. First touchable object at coords (excl. bottom/right edges).
 - **findInventory** `$3D` — `opcode result owner[p8] index[p8]`.
 - **getInventoryCount** `$31` — `opcode result actor[p8]`.
-- **getVerbEntryPoint** `$0B` — `opcode result object[p16] verb[p16]`.
+- **getVerbEntryPoint** `$0B` — `opcode result object[p16] verb[p16]`. Returns the
+  object's script entry for `verb`, **or its `0xFF` default-verb entry** when the
+  exact verb has none (SCUMM matches `entry || 0xFF`). This fallback is the opener
+  for edge exits: a plain walk-to (verb 11) on an exit whose only verb is `0xFF`
+  reads truthy here → sentence #2 runs it → `loadRoom` (the room-78 "can't exit").
 - **getClosestObjActor** `$66` — `opcode result actor[p16]`. (≤255 units.)
 - **getDist** `$34` — `opcode result objA[p16] objB[p16]`.
 - **ifClassOfIs** `$1D` — `opcode value[p16] args[v16]... target[16]`. `unless (value's class ∈ args) goto target`.

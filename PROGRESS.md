@@ -33,10 +33,6 @@ bookkeeping. Surface any deferral/approximation explicitly and track it here;
 never bury a shortcut. If "faithful" needs a bigger refactor, raise the tradeoff
 rather than silently taking either the heavy path or the shortcut.
 
-### Open bug-report saves (reported, not yet fixed)
-
-*(none open)*
-
 **In flight — MI1 full walkthrough (the regression net), started 2026-06-04.**
 `integration/mi1/walkthrough.test.ts`: ONE seeded VM driven through the game's
 own solution start→onward, grown beat by beat (last green beat = the frontier);
@@ -55,111 +51,9 @@ conversation, faithful end-to-end and back in the bar (talk-to verb 10 on pirate
 `game.ts`. Next: out into Mêlée town — the three trials (sword, thievery,
 treasure).
 
-**Tooling — test harness + integration suite (2026-06-04, commit `77f761a`).**
-Graduated the scratch boot/drive boilerplate into a reusable harness:
-`src/testkit/drive.ts` (game-agnostic VM drivers, synthetic-tested) + `scummv5.ts`
-(load/boot/save by dir). Added a root `integration/mi1/` **playthrough** suite
-(`npm run test:integration`, data-gated, kept out of default `npm test`), driven
-by numeric ids so it passes on IT *and* EN. Test-placement rule now: engine-
-mechanism regressions = synthetic engine unit tests (not save/game-bound);
-`integration/` = does-the-game-play mechanics (no save, no localized strings);
-`scratch/` = save-based troubleshooting. Dead/stale-path scratch probes archived
-to `scratch/archive/`; live unmigrated probes carry an "UNMIGRATED" banner. Full
-detail in [AGENTS.md "The harness"](AGENTS.md).
+### Open bug-report saves (reported, not yet fixed)
 
-**Last fixed — map labels not cleared** *(save `bug-map-labels`, 2026-06-04)* —
-on the map (room 85) the hover label smeared into a trail of stale names and
-never cleared on hover-out. Root cause: `addSystemText` stacked transient system
-prints at *distinct* positions, but the map poller (`global #24`) re-prints the
-name *at the drifting cursor* every frame. Faithful fix is SCUMM's
-**`restoreCharsetBg`** — a non-keepText system print restores (erases) the prior
-*display cycle's* transient text before drawing; transient prints *within one
-frame* still coexist (the "Parte Due / Il Viaggio" card, `global #122`). Armed
-per game frame via `Vm.systemTextRestorePending`, consumed by the first transient
-`addSystemText`. Verified by driving the real poller frame-by-frame over the save
-(15-deep trail → one cursor-following label, hover-out → invisible `" "@0,0`) and
-confirming the intro card still shows both lines; **user-confirmed in-browser**.
-[CHAR §6](docs/SCUMM-V5-CHAR.md).
-
-**Last worked on — room 51 (Fettucini cannon scene), 2026-06-03.** Six bugs, all
-fixed engine-faithfully, **user-confirmed in-browser**, and **migrated to docs**.
-Confirms the **verb-4 "Dai X a <actor>"** path end-to-end (the documented next
-milestone). Two-line summary; full detail in docs + git (commits `fa8974a`…`dd1fd6e`):
-
-- **Script/verb semantics** — (1) `startScript 0` is a silent no-op, not a global
-  load (the give-pot halt; `#23` hover poller runs `g396[actorId]`=0). (2)
-  `startObject` args map directly onto `L0,L1,…` — no `[verb,obj]` prepend (the
-  Fettucini money: obj 488 verb-250 `g195 += L0` was reading the verb id; also
-  unblocked two-object "Usa X con Y"). [OPCODES §6](docs/SCUMM-V5-OPCODES.md).
-- **Compositing** — (3) `actorOps init` now clears `forceClip` (left brother drew
-  behind the haystack). (4) `ignoreBoxes` actor → front, not nearest-box mask
-  (cannon-flight Guybrush masked by the pole). (5) `ignoreBoxes` actor exempt from
-  box scaling (flight Guybrush shrank to a dot at the arc peak). (4)+(5) are the
-  same "off the box grid" principle for z-clip + scale.
-  [ZPLANE](docs/SCUMM-V5-ZPLANE.md), [WALK-BOXES §6](docs/SCUMM-V5-WALK-BOXES.md).
-- **Text** — (6) `paintDialog` clamps left-aligned actor talk to the viewport
-  (`print … at 240,64` ran off the right edge).
-
-*Method note (user-reinforced):* ground SCUMM-semantics claims in the game's own
-bytecode (`scratch/dis.ts`) and rendered pixels — **no ScummVM-source citations**
-(it isn't on this machine). All six were cracked that way.
-
-**Earlier — two more bug-report saves (2026-06-03, cont.).** Both fixed
-engine-faithfully and **migrated to docs**:
-
-- **`setObjectName` ($54/$D4)** implemented — examining the chicken halted on the
-  unregistered opcode (commit `35d5a7d`). [OBJECTS §5](docs/SCUMM-V5-OBJECTS.md).
-- **Actor scale recomputed at placement**, not only while walking — a standing ego
-  rendered full-size for one frame after a room change (commit `7c2ab70`).
-  [WALK-BOXES §6](docs/SCUMM-V5-WALK-BOXES.md).
-
-**Earlier same day — three bug-report saves (2026-06-03).** All fixed engine-
-faithfully, each verified against actual behaviour (rendered pixels / driven
-flow / ScummVM debugger). Root causes:
-
-- **Room 78 "can't exit"** — three layered causes, all needed: (1) CDHD
-  `walkX/walkY` were read **unsigned**, so the left exit's walk-to x=−25 became
-  65511 and the ego marched off-screen (`object/loader.ts`, now `i16`);
-  (2) the off-screen-but-in-box walk point was unreachable on the rasterized
-  `[0,width)` mask, so the ego stopped 25px short of the 16px proximity gate —
-  `startWalk` now extends the path's final segment to a target inside a visible
-  box (`actor/walk.ts`); (3) **the actual opener:** `getVerbEntryPoint` only
-  matched the exact verb, missing SCUMM's **verb 0xFF default fallback**. The
-  exit carries verb 0xFF (loadRoom); clicking commits walk-to verb 11; sentence
-  #2 does `getVerbEntryPoint(exit,11)` and must read truthy (via 0xFF) to take
-  the run-the-verb branch → `startObject(exit,11)` → 0xFF fallback → loadRoom.
-  Cracked via the user's ScummVM debugger (`g107=11` in both engines, #2 at the
-  has-verb offset) — pure verb-selection ruled out, divergence was in #2's
-  `getVerbEntryPoint` branch. *(SCUMM `getVerbEntrypoint` matches `entry ||
-  0xFF`.)*
-- **Room 30 compositing (Guybrush behind stairs)** — z-plane masking was
-  cumulative ("any plane > actorZ"); SCUMM masks an actor by the **single plane
-  at its clip level**. The two models agree only when planes nest ZP01⊇ZP02 (or
-  ZP02 empty); room 30 has ZP02⊇ZP01 (ZP01=barrels, ZP02 adds the railing), so a
-  floor actor (clip 1) was masked by ZP02 and drawn behind the stairs. Now
-  single-plane (`graphics/composite.ts`, `render/compositor.ts`, doc updated).
-- **Voodoo-lady room (29) black rectangle** — `getActorWalkBox` was a stub
-  returning 0, so room 29's reveal script #200 looped `while (box < 5)` forever
-  and never cleared the black entry-cover object (383). Now returns the real
-  box id. *(Initial right-edge-strip theory was a red herring; the screenshot
-  showed the cover was a centre object.)*
-
-**Earlier — hang watchdog + Tier-2 divergence sweep** *(2026-06-02;
-commit `20420a0`)*. The dialog-stuck bug was a *silent divergence from SCUMM*
-(deferred room scripts), which is why it took hours to find. Two outcomes:
-
-- **Hang watchdog** (`Vm.enableHangWatchdog`, opt-in; wired into the always-on
-  debug panel). Fires when N consecutive clicks each produce **no progress** —
-  no room change, no talk, no committed sentence, no walk. Fingerprints
-  *progress-only* signals (monotonic `talkSeq`/`sentenceSeq` + room + walk
-  targets), NOT the live-script set (a click always transiently spawns the
-  verb-redraw #12) nor raw vars (music timer churns). Surfaces a console warning
-  + panel banner naming the room + `VAR_VERB_SCRIPT`. Catches the *symptom* of
-  any input-misroute / wait-on-a-var-that-never-changes hang, Tier-2 or Tier-3.
-- **Tier-2 checklist** below — the self-flagged approximations harvested by
-  grepping `for now|doesn't yet|best-effort|we don't yet|Math.random` etc.
-  Work through it; each addressed item should either become faithful + leave a
-  characterization test, or be explicitly re-tracked.
+*(none open)*
 
 ### Tier-2 divergence checklist
 
@@ -170,10 +64,12 @@ to refresh). Tiering: **Tier 1** = loud (halts on unknown opcode — fine). **Ti
 
 Priority H/M/L = likelihood of biting current/near play × severity.
 
-- [ ] **H — `getRandomNumber` uses `Math.random()`** (`opcodes/index.ts:~900`).
-  SCUMM uses a seeded LCG so save/replay is deterministic; ours isn't, so a
-  reloaded save can diverge (and it violates our own determinism rule). Faithful:
-  port the v5 LCG, seed in boot, snapshot the seed in save state.
+- [~] **L — `getRandomNumber` determinism** (`opcodes/index.ts:~900`). Now routes
+  through `Vm.randomInt` over an injectable `VmInit.random` (default `Math.random`);
+  the integration playthrough seeds it (`testkit/random.ts`) so the regression net
+  is reproducible — see [AGENTS "The harness"](AGENTS.md). Residual (low): the *app*
+  still defaults to `Math.random` and the seed isn't in the save snapshot, so a
+  reloaded *app* save can still diverge. Close it only if app-side replay matters.
 - [ ] **M — dialog/string escape codes deferred** (`opcodes/index.ts:~2044`):
   keep-text `0xFF02`, var-name `0xFF06`, sound `0xFF09`, actor-name `0xFF0A`,
   mid-string colour `0xFF0E`. Surfaces as blank/wrong text or missing inline
@@ -200,54 +96,9 @@ Priority H/M/L = likelihood of biting current/near play × severity.
   darkening (Rendering backlog), `saveRestoreVerbs` subset (Watch-for), audio /
   `resourceRoutines` (Out of scope — Phase 11).
 
-**Earlier — room EXCD/ENCD run nested (dialog-stuck fix)** *(2026-06-02; commits
-`afb48a8`, `692a0fc`; user-confirmed in-browser)*. The LOOM-ad pirate close-up
-(room 82) hung — dialog answers highlighted but clicking did nothing — because
-the room's EXCD/ENCD ran *deferred* instead of nested, so room 28's EXCD
-clobbered conversation script #93's `VAR_VERB_SCRIPT = 14` back to 4 and clicks
-misrouted to #4 (arms a verb, never commits a dialog pick). `enterRoom` now
-`runScriptNested`s both, matching SCUMM `startScene`. **Migrated to**
-[ROOM §6](docs/SCUMM-V5-ROOM.md). Guards: MI1-smoke pirate-conversation
-regression + `vm.test.ts` "runs ENCD/EXCD NESTED" cases. (The bug's quicksave
-had `g32=4` baked in — repaired the save's global to 14.)
-
-**Earlier same day — two-object verbs + faithful sentence line** *(2026-06-02;
-commits up to `1a5fee9`; all user-confirmed in-browser)*. Input/verbs round —
-all faithful, committed, and **migrated to docs** (detail lives there now):
-
-- **Two-object "Usa X con Y" / "Dai X a Y"** works end-to-end: verb → object A →
-  `g110` preposition arms → object B routes to `g109` → `doSentence(v,A,B)` → #2.
-  Confirmed against a room-41 kitchen quicksave (Use) + the pirates (Give).
-  [INPUT §5](docs/SCUMM-V5-INPUT.md).
-- **Sentence line is verb #100**, rebuilt each frame from `0xFF NN` substitution
-  codes (`0x05` verb / `0x06` name via `readVar`; `0x07` string by **direct** id;
-  preposition `g110` is a verb named "con"; separator = string res 49 `" "`). Now
-  **rendered directly** — retired the shell `sentenceText` synthesis (the deferred
-  render "Option 2" step). [INPUT §6](docs/SCUMM-V5-INPUT.md) has the code table.
-- **`stopScript 0` self-stops** *(general opcode fix; was a no-op)*. #4's
-  `if (L1==100) stopScript 0` guard makes a sentence-line click inert; arg 0 stops
-  the *current* script. Also `pickInk` highlights only on a non-zero hicolor (so
-  #100 doesn't flash). [INPUT §3/§6](docs/SCUMM-V5-INPUT.md).
-- **`pickupObject` = own + state-1 draw (eraser patch) + Untouchable + inventory
-  refresh.** The Untouchable class is what kills the taken item's room hit-area;
-  the state-1 image erases the SMAP-baked item. [OBJECTS §5/§7](docs/SCUMM-V5-OBJECTS.md).
-- **Held items are reachable**: `getDist` resolves a held item to its holder's
-  position (dist 0), not as a missing room object (→ "Non riesco ad arrivarci").
-  [OBJECTS §7a](docs/SCUMM-V5-OBJECTS.md).
-- **Inventory click-commit + hover-arming** confirmed end-to-end via #4/#23.
-
-*Earlier (same day):* project renamed webscumm → GrogVM; game dir →
-`games/MI1-IT-CD-DOS-VGA`; lowercase identifiers (`grogvm`) throughout.
-
 **Tabled:** the room-28 cook is sliced by the table z-plane while walking — a
 grid-A* vs box-graph **pathfinding route** divergence, not a clip/z-plane bug.
 [PATHFINDING §8](docs/PATHFINDING.md) + backlog below.
-
-**Next:** the inventory click-commit AND two-object "Usa X con Y" are both
-confirmed (above), with the faithful #100 sentence line. Next live target is a
-held item whose verb has a *visible* effect (a real use-with puzzle solution),
-and exercising **Give X to <actor>** (verb 4, the other two-object verb — needs
-a second actor in the room). Then continue the SCUMM Bar dialogs.
 
 **Watch for** (recurring failure modes in newly-reached content):
 

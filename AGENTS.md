@@ -205,6 +205,18 @@ Scratch note: dead probes that predate the `games/MI1` → `games/MI1-IT-CD-DOS-
 rename were moved to `scratch/archive/`. New probes should use the harness
 (one import — `bootScummV5(dir)`) rather than copy-pasting the resource preamble.
 
+### The hang watchdog (`Vm.enableHangWatchdog`)
+
+Opt-in diagnostic (wired into the always-on debug panel): fires when N
+consecutive clicks each produce **no progress** — no room change, no talk, no
+committed sentence, no walk. It fingerprints *progress-only* signals (monotonic
+`talkSeq`/`sentenceSeq` + room + walk targets), deliberately NOT the live-script
+set (a click always transiently spawns the verb-redraw #12) nor raw vars (the
+music timer churns). Surfaces a console warning + panel banner naming the room +
+`VAR_VERB_SCRIPT`. Catches the *symptom* of any input-misroute / wait-on-a-var-
+that-never-changes hang — the class of bug (e.g. the deferred-room-script dialog
+freeze) that otherwise costs hours to localize.
+
 ## Known gotchas (will bite if forgotten)
 
 - **TypeScript 6 narrows typed-array buffer generics.**

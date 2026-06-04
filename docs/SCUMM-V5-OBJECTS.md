@@ -60,8 +60,8 @@ A fixed 13-byte header at the start of every OBCD's payload:
 | 5      | u8   | `height`     | Bounding-box height in 8-pixel units.                            |
 | 6      | u8   | `flags`      | Per-object flags. Bit 0x80 = "untouchable".                      |
 | 7      | u8   | `parent`     | Parent object id (0 = no parent). Used for inventory groupings.  |
-| 8      | u16  | `walkX`      | "Walk to" target x in **pixels**. Where an actor stands to use this object. |
-| 10     | u16  | `walkY`      | "Walk to" target y in pixels.                                    |
+| 8      | i16  | `walkX`      | "Walk to" target x in **pixels**, **signed**. Where an actor stands to use this object — an edge exit's walk-to point can be *off-screen* (e.g. x = −25), so reading it unsigned (→ 65511) marches the actor off into space. |
+| 10     | i16  | `walkY`      | "Walk to" target y in pixels, signed.                            |
 | 12     | u8   | `actorDir`   | Suggested actor facing on interaction (N/S/E/W encoding).        |
 
 The `x/y/width/height` fields are in 8-pixel units because the

@@ -105,6 +105,14 @@ Out-of-bounds coords should be clamped to the mask's
 outside the room boundary then produces a sensible target inside
 the walkable area.
 
+A walk-to target that legitimately sits **off the mask** must still be
+*reached*, not merely clamped. An object's `walkX/walkY` can be off-screen
+(a negative x for an edge exit); clamping the goal to `[0, width)` stops the
+actor a few px inside the boundary — short of the verb's ~16px proximity gate,
+so the exit's `loadRoom` never fires. The fix: once the actor is in the goal's
+walk-box, extend the path's final segment out to the true (off-mask) target so
+the gate is satisfied.
+
 Snap distance can be large (a click far from any walkable region
 snaps to the nearest edge), but it's bounded by the mask size and
 the search itself is `O(width × height)` worst case. At MI1's
