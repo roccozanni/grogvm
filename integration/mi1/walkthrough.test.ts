@@ -252,7 +252,30 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     expect(vm.haltInfo).toBeNull();
   });
 
+  beat('I · Kitchen — back out through the SCUMM Bar to the Mêlée Lookout (33)', () => {
+    // Kitchen → bar through the kitchen-side door (#570); Walk-to runs its
+    // room change (no cook gating on this side).
+    use(vm, VERBS.walk, ROOMS.kitchen.barDoor);
+    expect(driveToRoom(vm, ROOMS.scummBar.id, { maxTicks: 2000 })).toBe(true);
+
+    // Bar → lookout through the left exit (#315). The FIRST bar exit fires a
+    // one-time cutscene (the Sheriff; through rooms 70→72) before control
+    // lands back at the lookout — so give the room change a wide budget.
+    driveTicks(vm, 200);
+    use(vm, VERBS.walk, ROOMS.scummBar.exitDoor);
+    expect(driveToRoom(vm, ROOMS.meleeLookout.id, { maxTicks: 8000 })).toBe(true);
+
+    // Cutscene released: input live and a verb armed (verb 11 isn't the one
+    // re-armed here, so check userput + any-verb-on, as the intro beat does).
+    expect(
+      driveUntil(vm, (v) => v.cursor.userput > 0 && [...v.verbs.values()].some((x) => x.state === 'on'), {
+        maxTicks: 2000,
+      }),
+    ).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
   // ── FRONTIER ──────────────────────────────────────────────────────────
   // Next: out into Mêlée town for the three trials (sword, thievery,
-  // treasure). (Meat, pot, fish in inventory; trials learned; in the kitchen.)
+  // treasure). (Meat, pot, fish in inventory; trials learned; at the lookout.)
 });

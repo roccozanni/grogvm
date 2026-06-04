@@ -58,8 +58,10 @@ the open kitchen door (#316→41 — a *verb-11 sentence* on the door, since a b
 floor click won't run its walk-through script) → **Kitchen** take meat #566 + pot
 #567; stomp the loose board #575 3× to scare the seagull (actor #7) — fish #568 is
 grabbable only DURING the fly-away (its class-6 "the bird will peck" guard lifts
-only mid-flight), keyed off `VARS.gullScare`/g272. Next: out into Mêlée town —
-the three trials (sword, thievery, treasure).
+only mid-flight), keyed off `VARS.gullScare`/g272 → retrace out (kitchen door
+#570→bar, exit door #315→lookout): the first bar exit fires a one-time Sheriff
+cutscene (through rooms 70→72) before control lands back at the Mêlée Lookout
+(33). Next: out into Mêlée town — the three trials (sword, thievery, treasure).
 
 ### Open bug-report saves (reported, not yet fixed)
 

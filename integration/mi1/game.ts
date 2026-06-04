@@ -125,6 +125,13 @@ export const ROOMS = {
      * heading in while he guards it gets kicked back (script 216).
      */
     cookActor: 6,
+    /**
+     * The left exit door → back out to the Mêlée Lookout (33). A Walk-to
+     * (verb 11) sentence runs its `loadRoomWithEgo` 33. The FIRST exit also
+     * fires a one-time cutscene (the Sheriff; through rooms 70→72) before
+     * control lands at the lookout — so the room change takes a while.
+     */
+    exitDoor: 315,
   },
 
   /** The SCUMM Bar kitchen (entered through {@link ROOMS.scummBar}'s
@@ -154,6 +161,9 @@ export const ROOMS = {
     offBoard: { x: 220, y: 130 },
     /** The seagull — an ACTOR (id 7). It bolts (x 252→310) on the 3rd stomp. */
     seagullActor: 7,
+    /** Kitchen-side door back to the SCUMM Bar (28); Walk-to runs its
+     *  `loadRoomWithEgo` 28. No cook gating on this side. */
+    barDoor: 570,
   },
 
   /** The LOOM-ad pirate close-up (reached by talking to {@link ROOMS.scummBar}'s
