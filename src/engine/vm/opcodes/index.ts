@@ -897,14 +897,14 @@ register(0x68, isScriptRunningHandler);
 register(0xe8, isScriptRunningHandler);
 
 // ─── 0x16 / 0x96  getRandomNumber ────────────────────────────────────
-// Result var = random integer in [0, max] (inclusive). Real SCUMM
-// uses a deterministic LCG so save states reproduce; for now we use
-// `Math.random()` — good enough for the boot's idle-timer scripts.
-// Phase 8 (save states) will swap in a seedable PRNG.
+// Result var = random integer in [0, max] (inclusive), drawn from the
+// VM's injectable entropy source via {@link Vm.randomInt} — Math.random
+// in the app, a seeded generator under test (see VmInit.random) so a
+// scripted playthrough reproduces bit-for-bit.
 function getRandomNrHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const dest = readDestRef(slot, vm.vars);
   const max = readVarOrByte(opcode, 1, slot, vm.vars);
-  const v = Math.floor(Math.random() * (max + 1));
+  const v = vm.randomInt(max);
   writeRef(dest, v, slot, vm.vars);
   vm.annotate(`getRandomNumber max=${max} → ${v}`);
 }

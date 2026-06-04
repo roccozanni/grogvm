@@ -63,6 +63,12 @@ export function bootGame(
   loff: RoomOffsetTable,
   gameId: GameId,
   bootParam: number = BOOT_PARAM_ATTRACT,
+  /**
+   * Optional seeded entropy source ({@link VmInit.random}). Omitted by
+   * the app (→ Math.random); supplied by the integration playthrough so
+   * the run is reproducible.
+   */
+  random?: () => number,
 ): BootResult {
   // Lazy object id → home-room index. Object numbers are globally unique
   // (each object's OBCD is defined in exactly one room), so the first room
@@ -101,6 +107,7 @@ export function bootGame(
     resolveCostume: (id) => loadCostume(resourceFile, index, loff, id),
     resolveCharset: (id) => resolveCharsetById(resourceFile, index, loff, id),
     resolveObjectRoom,
+    random,
   });
 
   seedEngineVariables(vm, gameId);

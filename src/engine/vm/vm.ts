@@ -313,6 +313,18 @@ export interface VmInit {
    * have left their pickup room (e.g. MI1's inventory-icon verb 91).
    */
   readonly resolveObjectRoom?: ObjectRoomResolver;
+  /**
+   * Entropy source for the `getRandomNumber` opcode — a function
+   * returning a float in `[0, 1)`. Defaults to {@link Math.random}, so
+   * the app plays with live randomness (ambient bar life, etc.). Tests
+   * inject a *seeded* generator (see `testkit`) so a scripted playthrough
+   * reproduces bit-for-bit across runs — a regression net can't be flaky.
+   * NOTE: the generator's state is intentionally NOT part of the save
+   * snapshot ({@link snapshotVm}); seed at construction instead. This is
+   * deterministic-for-reproducibility, not bit-identical to the original
+   * DOS interpreter's RNG (which the bytecode doesn't define).
+   */
+  readonly random?: () => number;
 }
 
 export class Vm {
@@ -816,6 +828,20 @@ export class Vm {
     this.resolveCostume = init.resolveCostume;
     this.resolveCharset = init.resolveCharset;
     this.resolveObjectRoom = init.resolveObjectRoom;
+    this.randomSource = init.random ?? Math.random;
+  }
+
+  /** Entropy source for {@link randomInt}; see {@link VmInit.random}. */
+  private readonly randomSource: () => number;
+
+  /**
+   * A random integer in `[0, max]` **inclusive** — the contract of the
+   * `getRandomNumber` opcode (0x16 / 0x96). The single place the engine
+   * consumes randomness, routed through the injectable {@link VmInit.random}
+   * source so tests can seed it for reproducible playthroughs.
+   */
+  randomInt(max: number): number {
+    return Math.floor(this.randomSource() * (max + 1));
   }
 
   /**

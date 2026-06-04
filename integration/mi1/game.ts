@@ -18,17 +18,24 @@
  * (copyrighted) game files. Launch with `npm run test:integration`; when the
  * data isn't present the suite skips via {@link hasGame}.
  */
-import { bootScummV5, hasData } from '../../src/testkit/scummv5';
+import { bootScummV5, hasData, makeSeededRandom } from '../../src/testkit/scummv5';
 import type { Vm } from '../../src/engine/vm/vm';
 
 /** The build we run the playthrough against (IT — also carries the saves). */
 export const DATA_DIR = 'games/MI1-IT-CD-DOS-VGA';
 
+/**
+ * Fixed RNG seed for the playthrough. Boot seeds the engine's entropy
+ * source with this so the whole run is reproducible — a regression net
+ * we run each session must not be flaky. Change only with reason.
+ */
+export const SEED = 0x6d6f6e6b; // "monk"
+
 /** Whether the MI1 data is present (gate the suite on this). */
 export const hasGame = (): boolean => hasData(DATA_DIR);
 
-/** Boot MI1 to the title screen. */
-export const boot = (): Vm => bootScummV5(DATA_DIR);
+/** Boot MI1 to the title screen, seeded for a deterministic playthrough. */
+export const boot = (): Vm => bootScummV5(DATA_DIR, 'MI1', makeSeededRandom(SEED));
 
 /** Verb ids — global, not owned by any room (same in every build). */
 export const VERBS = {
@@ -38,6 +45,8 @@ export const VERBS = {
   walk: 11,
   /** "Open"-style verb (e.g. push the bar door before walking through). */
   open: 2,
+  /** "Parla" / Talk to. */
+  talk: 10,
 } as const;
 
 /** Per-room ids: each room's number + the objects/scripts that live there. */
@@ -54,17 +63,28 @@ export const ROOMS = {
   /** The SCUMM Bar interior (entered through the lookout's bar door). */
   scummBar: {
     id: 28,
+    /**
+     * The LOOM-ad salesman pirate. "Parla" (talk to, verb 10) — also his
+     * default verb (g182) — runs his verb script, which starts the
+     * conversation script #93 → the close-up {@link ROOMS.pirateCloseup}.
+     */
+    loomPirate: 333,
   },
 
-  /** The LOOM-ad pirate close-up. */
+  /** The LOOM-ad pirate close-up (reached by talking to {@link ROOMS.scummBar}'s
+   *  `loomPirate`, whose verb script starts conversation script #93). */
   pirateCloseup: {
     id: 82,
-    /** Conversation script that loads room 82 and arms the dialog verbs. */
-    convoScript: 93,
     /** Dialog-answer verb ids (verb ids; their `name` is the localized line). */
     answers: {
       /** "Che bel cappello." / "Nice hat." */
       niceHat: 121,
+      /**
+       * "E' stato bello parlare con te." / "Nice talking to you." — the
+       * goodbye option; picking it ends the close-up and returns to the
+       * SCUMM Bar (room 28).
+       */
+      goodbye: 124,
     },
   },
 } as const;

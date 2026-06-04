@@ -31,6 +31,8 @@ import type { Vm } from '../engine/vm/vm';
 // The game-agnostic drivers are part of the harness API — re-export so
 // callers import everything from here.
 export * from './drive';
+export * from './random';
+export * from './actions';
 
 /** The two resource files every v5 game ships (index + data). */
 const INDEX_FILE = 'MONKEY.000';
@@ -57,10 +59,19 @@ export function loadScummV5(dir: string): LoadedGame {
   return { res, index, loff: parseLoff(res) };
 }
 
-/** Load + boot the game in `dir`, returning the booted {@link Vm} (at the title). */
-export function bootScummV5(dir: string, gameId: GameId = 'MI1'): Vm {
+/**
+ * Load + boot the game in `dir`, returning the booted {@link Vm} (at the
+ * title). Pass `random` (e.g. {@link makeSeededRandom}) to make the run
+ * reproducible — the playthrough seeds it so a regression run is
+ * deterministic; omit it for live randomness.
+ */
+export function bootScummV5(
+  dir: string,
+  gameId: GameId = 'MI1',
+  random?: () => number,
+): Vm {
   const { res, index, loff } = loadScummV5(dir);
-  return bootGame(res, index, loff, gameId).vm;
+  return bootGame(res, index, loff, gameId, undefined, random).vm;
 }
 
 /**
