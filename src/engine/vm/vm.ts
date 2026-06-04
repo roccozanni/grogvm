@@ -319,10 +319,16 @@ export interface VmInit {
    * the app plays with live randomness (ambient bar life, etc.). Tests
    * inject a *seeded* generator (see `testkit`) so a scripted playthrough
    * reproduces bit-for-bit across runs — a regression net can't be flaky.
-   * NOTE: the generator's state is intentionally NOT part of the save
-   * snapshot ({@link snapshotVm}); seed at construction instead. This is
-   * deterministic-for-reproducibility, not bit-identical to the original
-   * DOS interpreter's RNG (which the bytecode doesn't define).
+   * The generator's state is intentionally NOT part of the save snapshot
+   * ({@link snapshotVm}); seed at construction instead. This is faithful:
+   * the original DOS interpreter seeds its RNG once at process start and
+   * saves only variables/object/actor state, never the RNG seed — so
+   * loading an original save also continues the stream from wherever the
+   * process happens to be, and future draws diverge from the live run.
+   * Our reloaded saves diverging the same way is correct, not a bug. The
+   * seam exists only to make the *test* playthrough reproducible (seeded);
+   * it is deterministic-for-reproducibility, not bit-identical to the
+   * original's RNG (which the bytecode doesn't define).
    */
   readonly random?: () => number;
 }

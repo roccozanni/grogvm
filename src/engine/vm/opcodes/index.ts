@@ -825,8 +825,10 @@ register(0xd8, (vm, slot) => {
 //                              we saw before this fix).
 // For `flag=0` (end): nothing more to read.
 //
-// We don't yet wire input → escape, so the captured target is recorded
-// for later but normal execution falls through into the body.
+// Escape IS wired: input.ts → play.ts `onEscape` → session sees key
+// 'Escape' → `vm.abortCutscene()`, which jumps this slot to `overridePc`.
+// Until the player actually skips, the captured target just sits here and
+// normal execution falls through into the cutscene body.
 register(0x58, (vm, slot) => {
   const flag = readU8(slot);
   if (flag !== 0) {

@@ -19,6 +19,14 @@
  * bytes so the slot resumes precisely. Dead slots store nothing. Slot
  * bytecode is small (KBs across 25 slots) so this is cheap and robust.
  *
+ * The RNG state is also deliberately absent: the original interpreter
+ * seeds its random generator once at process start and never saves the
+ * seed, so an original save resumes the stream from wherever the process
+ * happens to be — future draws diverge from the live run. Our saves
+ * diverging the same way is faithful, not a bug. Reproducibility where it
+ * matters (the test playthrough) comes from seeding the VM at boot, not
+ * from the save (see {@link VmInit.random}).
+ *
  * # Format
  *
  * Plain JSON. TypedArrays (variable banks, locals, string resources) are

@@ -64,33 +64,28 @@ to refresh). Tiering: **Tier 1** = loud (halts on unknown opcode — fine). **Ti
 
 Priority H/M/L = likelihood of biting current/near play × severity.
 
-- [~] **L — `getRandomNumber` determinism** (`opcodes/index.ts:~900`). Now routes
-  through `Vm.randomInt` over an injectable `VmInit.random` (default `Math.random`);
-  the integration playthrough seeds it (`testkit/random.ts`) so the regression net
-  is reproducible — see [AGENTS "The harness"](AGENTS.md). Residual (low): the *app*
-  still defaults to `Math.random` and the seed isn't in the save snapshot, so a
-  reloaded *app* save can still diverge. Close it only if app-side replay matters.
-- [ ] **M — dialog/string escape codes deferred** (`opcodes/index.ts:~2044`):
-  keep-text `0xFF02`, var-name `0xFF06`, sound `0xFF09`, actor-name `0xFF0A`,
-  mid-string colour `0xFF0E`. Surfaces as blank/wrong text or missing inline
-  colour in dialogue-heavy content. (Also noted in Stubbed opcodes below.)
-- [ ] **M — actor/object names not stored** (`opcodes/index.ts:~1763`
-  `actorOps setActorName`; `~1980` string-resource object name). Look-at /
-  sentence line shows a blank or `obj #N` placeholder for renamed entities.
-- [ ] **M — verify cutscene Escape end-to-end + fix stale comment**
-  (`opcodes/index.ts:~827` says "we don't yet wire input → escape", but
-  `play.ts` now binds Escape → `abortCutscene`). Confirm the override path
-  actually fast-forwards a skippable cutscene; update/delete the stale note.
-- [ ] **L/M — `print` `clipped` line-wrap bound not modelled** (`vm.ts:~485`).
+- [ ] **M — dialog/string escape codes still deferred**
+  (`decodeScummString` / `expandSubstitution`, `opcodes/index.ts:~2155`):
+  keep-text `0xFF02`, sound `0xFF09`, actor-name `0xFF0A`, mid-string colour
+  `0xFF0E` (each consumed but emits nothing). Surfaces as blank/wrong text or
+  missing inline colour in dialogue-heavy content. (Also in Stubbed opcodes
+  below.) *Done since last review:* `0x04` int, `0x05` verb-name, `0x06`
+  object/actor-name, `0x07` string-resource all expand now.
+- [ ] **M — actor names not stored** (`actorOps setActorName` subop `0x0d`,
+  `opcodes/index.ts:~1857`; no name field on the actor struct). Look-at /
+  sentence line shows a blank for a script-renamed actor. *Object* names are
+  now handled: `setObjectName` (`0x54/0xD4`) writes `objectNameOverrides`
+  (wins over OBNA, persists across rooms + saves), read via `vm.objectName`.
+- [ ] **L/M — `print` `clipped` line-wrap bound not modelled** (`vm.ts:~524`).
   Long lines may overflow / mis-wrap vs the original's clip-X wrapping.
-- [ ] **L — camera scroll "snap both for now"** (`opcodes/index.ts:~410`) +
+- [ ] **L — camera scroll "snap both for now"** (`opcodes/index.ts:~411`) +
   smooth `panCameraTo` (Open backlog). Gradual scroll over frames; no current
   scene validates it.
-- [ ] **L — flashlight gfx not modelled** (`opcodes/index.ts:~576`, dark-room
+- [ ] **L — flashlight gfx not modelled** (`opcodes/index.ts:~577`, dark-room
   strip extent). Cosmetic; only the flashlight rooms.
-- [ ] **? — `actorOps` subop treated as no-arg no-op "for now"**
-  (`opcodes/index.ts:~1781`). Identify the subop; assess whether it affects
-  behaviour or is genuinely inert.
+- [ ] **? — `actorOps` subop `0x0f` treated as no-arg no-op "for now"**
+  (`opcodes/index.ts:~1874`; seen in MI1 boot after setCostume, not in the
+  wiki). Assess whether it affects behaviour or is genuinely inert.
 - Already tracked elsewhere (cross-ref, not duplicated here): box-graph routing
   (Pathfinding backlog), `screenEffect` animation + `VAR_CURRENT_LIGHTS`
   darkening (Rendering backlog), `saveRestoreVerbs` subset (Watch-for), audio /
@@ -160,8 +155,9 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
 - `cursorCommand` image subops (0x2C): `setCursorImage` / `setCursorHotspot` /
   `setCursor`.
 - `matrixOp` (0x30): box connectivity flags / scale / create-box-matrix.
-- Dialog escape codes still deferred: keep-text `0x02`, var-name `0x06`, sound
-  `0x09`, actor name `0x0A`, mid-string colour `0x0E`.
+- Dialog escape codes still deferred: keep-text `0x02`, sound `0x09`, actor
+  name `0x0A`, mid-string colour `0x0E`. (`0x04`–`0x07` now expand — see the
+  Tier-2 entry above.)
 
 **Tooling**
 
