@@ -38,55 +38,22 @@ rather than silently taking either the heavy path or the shortcut.
 *(none open)*
 
 **In flight — MI1 full walkthrough (the regression net), started 2026-06-04.**
-A second integration suite, `integration/mi1/walkthrough.test.ts`: ONE VM booted
-once and driven through the game's own solution start→end, grown room by room
-(last green beat = the **frontier**). Purpose: run it end-of-session / after a
-refactor to confirm the game is still playable; the failing beat's name says
-where it broke. Distinct from `playthrough.test.ts` (4 independent fresh-boot
-mechanic probes). Design decisions (agreed):
-- **Headless / logic-only.** Asserts observable VM *state* (room, ownership,
-  globals, halt, actor pos, dialog-as-data), renders **zero pixels**. Catches
-  playability/logic regressions, NOT visual ones — those stay in-browser
-  real-pixel confirmation. A green run proves the game *plays*, not *renders*.
-- **From boot every run** (no save fast-forward) so intro/early regressions
-  can't hide; accept it slows as it spans the game. Snapshots stay a build-time
-  convenience only.
-- **Deterministic.** Added a seedable RNG seam: `getRandomNumber` (0x16/0x96)
-  now routes through `Vm.randomInt(max)` over an injectable `VmInit.random`
-  (default `Math.random`; app unchanged). `testkit/random.ts` `makeSeededRandom`
-  (mulberry32) seeds it; the playthrough boots with fixed `SEED` so the run is
-  reproducible — a flaky regression net is worthless. **NOT** in the save
-  snapshot (no `SAVE_VERSION` bump; seed at construction). Not bit-identical to
-  the DOS RNG (bytecode doesn't define one) — "faithful" here = reproducible.
-- **Faithful click flow + numeric ids.** New `src/testkit/actions.ts`
-  vocabulary (`walkTo`/`use`/`pickAnswer`/`objectPoint`/`waitIdle`) is thin sugar
-  over hover-poller→g108→`doSentence`; targets are object ids whose hover point
-  is *derived* from the CDHD hit-box center (coord-free, build-agnostic). It's
-  **harness-level** (bare-`Vm`, v5-generic — same contract as `drive.ts`), kept
-  separate from `drive.ts` because it composes real input (needs a booted VM)
-  vs pure synthetic-testable drivers; `objectPoint` is unit-tested, the input
-  helpers are exercised by the walkthrough.
-- **Dedup.** The old `playthrough.test.ts` (4 fresh-boot mechanic probes) is
-  **deleted** — boot→room / walk / look-at are covered by beats I.1–I.3, and the
-  two-actor pirate conversation became beat I.5. Single integration suite now.
-- **Beat guard.** A module-level `beat()` marks the first failing checkpoint red
-  and `ctx.skip()`s the rest — one clean signal, no cascade, no false greens.
-- **Finding — speech blocks the next sentence.** A printing sentence ("Look at
-  X") blocks on its message; a command issued mid-speech has no effect (verified:
-  walk-to-door mid-line paths ego to the door but the room won't change). So
-  `use`/`walkTo` call `waitIdle` (drive until `activeDialog` clears) first — the
-  faithful "wait for ego to stop talking" between actions.
+`integration/mi1/walkthrough.test.ts`: ONE seeded VM driven through the game's
+own solution start→onward, grown beat by beat (last green beat = the frontier);
+run end-of-session / after a refactor. Design + the testkit pieces it added
+(`actions.ts` faithful action vocabulary, `random.ts` seeded-RNG seam,
+`beat()` guard, headless/from-boot/deterministic rationale) →
+[AGENTS "The harness"](AGENTS.md). Engine finding — *a printing sentence blocks
+the next one* (command mid-speech no-ops; wait for the line to clear) →
+[INPUT §5](docs/SCUMM-V5-INPUT.md). Old `playthrough.test.ts` deleted (its
+mechanics are now beats I.1–I.5).
 
-Frontier so far: **I.1** boot→Mêlée lookout (33, lit, control returned) → **I.2**
-floor-click walk → **I.3** Look-at poster → description → **I.4** open bar door +
-walk through into the SCUMM Bar (28) → **I.5** the LOOM-ad pirate conversation,
-now fully faithful end-to-end and back in the bar. Trigger found by disassembly:
-the salesman pirate is **object #333** in room 28; "Parla" (talk to, **verb 10**,
-also his default verb g182) runs his verb script → `startScript #93` → close-up
-room 82. Pick an answer (#121 "nice hat") → ego speaks that line; fire the goodbye
-(**#124** "E' stato bello parlare con te.") to end the close-up and return to
-room 28. (The earlier `startScriptById(#93)` shortcut is retired.) Next: out into
-Mêlée town — the three trials (sword, thievery, treasure).
+Frontier: **I.1** boot→Mêlée lookout (33) → **I.2** floor-walk → **I.3** look-at
+poster → **I.4** open + walk through the bar door (28) → **I.5** LOOM-ad pirate
+conversation, faithful end-to-end and back in the bar (talk-to verb 10 on pirate
+#333 → close-up room 82; answer #121, goodbye #124). All per-game ids live in
+`game.ts`. Next: out into Mêlée town — the three trials (sword, thievery,
+treasure).
 
 **Tooling — test harness + integration suite (2026-06-04, commit `77f761a`).**
 Graduated the scratch boot/drive boilerplate into a reusable harness:

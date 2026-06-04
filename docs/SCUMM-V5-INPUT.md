@@ -169,6 +169,18 @@ faces it, runs the object's verb code, prints the response. It is *not*
 where objects are gathered — by the time it runs, the sentence is
 complete.
 
+**A printing sentence blocks the next one.** A sentence whose verb code
+prints a line (e.g. "Look at X" → `printEgo`) doesn't return control until
+that message clears — the script blocks on the message. A *new* sentence
+issued while the line is still up has no effect: the verb/scene click is
+accepted but the command can't run. (Observed concretely: clicking a door
+to walk through it while ego is mid-line paths ego all the way to the door
+but the room change never fires until the line finishes.) The faithful
+consequence for any driver/agent is to **wait for the current line to
+clear** — `VAR_HAVE_MSG` (g3) drops / `activeDialog` goes null — before
+issuing the next command, exactly as a player waits for ego to stop
+talking.
+
 ### Two-object verbs ("Use X with Y", "Give X to Y")
 
 In MI1 the two-object verbs are **Use** (verb 7) and **Give** (verb 4).

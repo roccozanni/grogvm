@@ -108,7 +108,7 @@ src/
 integration/              root-level playthroughs — drive the REAL game files
   mi1/                    & saves, run via `npm run test:integration` (NOT
                           default `npm test`). game.ts = data dir + ids;
-                          playthrough.test.ts = mechanics scenarios
+                          walkthrough.test.ts = the continuous regression net
 ```
 
 ### The disassembler (`src/engine/vm/disasm.ts`)
@@ -149,10 +149,24 @@ bookkeeping) instead of re-deriving the boot boilerplate. Two layers:
     `driveToRoom(vm, room)`. Operate on a bare `Vm`, so MI2 (any v5 game)
     reuses them unchanged; unit-tested against a **synthetic VM**
     (`drive.test.ts`), runs everywhere incl. CI.
+  - `actions.ts` — **game-agnostic** faithful player-action vocabulary:
+    `walkTo`/`use`/`pickAnswer`/`objectPoint`/`waitIdle`. Thin sugar over the
+    real click flow (hover poller → active-object global → `doSentence`) — no
+    sentence injection, so a playthrough built on it guards the genuine input
+    path. Object targets derive their hover point from the CDHD hit-box center
+    (`objectPoint`), so the suite stays coord-free; the caller supplies the
+    game's verb/object ids. Split from `drive.ts` (which is pure/synthetic-
+    testable) because these compose real input needing a booted VM.
+  - `random.ts` — `makeSeededRandom(seed)` (mulberry32), an injectable entropy
+    source for `VmInit.random`. The engine's `getRandomNumber` routes through
+    `Vm.randomInt` over this (default `Math.random`; app unchanged), so a
+    scripted playthrough is **reproducible** — a flaky regression net is
+    worthless. Not part of the save snapshot.
   - `scummv5.ts` — load/boot/save **by game directory**: `hasData(dir)`,
-    `bootScummV5(dir)` → `Vm`, `loadScummV5(dir)`, `restoreSave(vm, name)`
-    (bare slot → `saves/<name>.websave.json`). Re-exports `drive.ts` so a
-    caller gets the whole harness from one import.
+    `bootScummV5(dir[, gameId, random])` → `Vm`, `loadScummV5(dir)`,
+    `restoreSave(vm, name)` (bare slot → `saves/<name>.websave.json`).
+    Re-exports `drive.ts`/`actions.ts`/`random.ts` so a caller gets the whole
+    harness from one import.
   - Lives in `src/testkit/`, a **sibling of `engine`/`shell`, not inside
     `engine/`** — it's the only `node:fs` consumer and the engine stays a
     portable browser-bundled core. Its own tests are synthetic
@@ -165,7 +179,14 @@ bookkeeping) instead of re-deriving the boot boilerplate. Two layers:
   `game.ts`), which are game-structural — identical across IT/EN builds (only
   text is translated), so one suite covers a game, not a variation, and the
   same suite passes against both builds. `mi1/` has `game.ts` (data dir + ids,
-  no localized strings) and `playthrough.test.ts`.
+  no localized strings) and `walkthrough.test.ts` — **the regression net**: ONE
+  VM booted once and driven through the game's own solution start→onward, grown
+  beat by beat (last green beat = the frontier). Headless (asserts VM *state*,
+  renders no pixels → catches logic/playability regressions, not visual ones),
+  from boot every run (no save fast-forward), deterministic (seeded RNG). A
+  module-level `beat()` guard reds the first failing checkpoint and skips the
+  rest, so a refactor's breakage localizes to one beat. Run it end-of-session /
+  after a refactor.
   - **Never assert a localized string.** Verify mechanics; when a test must
     check produced text, derive the expectation from the same build (e.g. a
     dialog answer's own `name`), don't hardcode a translation.
