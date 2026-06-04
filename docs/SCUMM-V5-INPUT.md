@@ -247,6 +247,18 @@ the renderer skips ([OBJECTS §5](SCUMM-V5-OBJECTS.md)). Expansion needs the
 live VM + slot; decode a verb name without them and every code is dropped
 (blank line).
 
+**`0x06` resolves actor-or-object, actor first** (SCUMM's
+`getObjOrActorName`). A low id — within the actor table (`id ≤
+actors.capacity`, the same rule `objActPos`/`faceActor` use) — is an
+*actor*, resolved to its `setActorName` name; everything else is an object
+(override → room OBNA → carried-item snapshot). The actor name is set by
+`actorOps setActorName` (`0x0D`), stored on the actor, and persists across
+rooms + saves — it must, because it's set once at room entry, not when the
+sentence is built. MI1 room 51 names actors 3 & 4 "Fratelli Fettucini" in
+its ENCD; "Dai la pentola a …" expands `name[g109]=3` through this actor
+path. Skip storing the name and the target renders blank ("Dai la pentola a
+").
+
 **Archived verbs are not drawn.** During a conversation MI1 archives the
 sentence line (`#100`) and the action verbs via `saveRestoreVerbs` (a
 non-zero `saveid`) and creates the dialog replies as their own verbs.
