@@ -37,8 +37,8 @@ rather than silently taking either the heavy path or the shortcut.
 
 *(none open)*
 
-**Tooling — test harness + integration suite (2026-06-04, uncommitted in working
-tree).** Graduated the scratch boot/drive boilerplate into a reusable harness:
+**Tooling — test harness + integration suite (2026-06-04, commit `77f761a`).**
+Graduated the scratch boot/drive boilerplate into a reusable harness:
 `src/testkit/drive.ts` (game-agnostic VM drivers, synthetic-tested) + `scummv5.ts`
 (load/boot/save by dir). Added a root `integration/mi1/` **playthrough** suite
 (`npm run test:integration`, data-gated, kept out of default `npm test`), driven
