@@ -71,11 +71,15 @@ Priority H/M/L = likelihood of biting current/near play × severity.
   missing inline colour in dialogue-heavy content. (Also in Stubbed opcodes
   below.) *Done since last review:* `0x04` int, `0x05` verb-name, `0x06`
   object/actor-name, `0x07` string-resource all expand now.
-- [ ] **M — actor names not stored** (`actorOps setActorName` subop `0x0d`,
-  `opcodes/index.ts:~1857`; no name field on the actor struct). Look-at /
-  sentence line shows a blank for a script-renamed actor. *Object* names are
-  now handled: `setObjectName` (`0x54/0xD4`) writes `objectNameOverrides`
-  (wins over OBNA, persists across rooms + saves), read via `vm.objectName`.
+- [x] **M — actor names not stored** — DONE. `actorOps setActorName` (`0x0d`)
+  now decodes via `readScummString`/`decodeScummString` (like `setObjectName`)
+  and writes `actor.name`; `vm.objectName` resolves a low id (≤ actor-table
+  size) to the actor's name first (SCUMM `getObjOrActorName`), so the look-at /
+  sentence line shows e.g. "Dai la pentola a Fratelli Fettucini" (actor 3,
+  renamed at room 51 entry). Persists across rooms + saves (`ActorSnapshot.name`).
+  *Object* names were already handled: `setObjectName`
+  (`0x54/0xD4`) writes `objectNameOverrides` (wins over OBNA), read via the same
+  `vm.objectName`.
 - [ ] **L/M — `print` `clipped` line-wrap bound not modelled** (`vm.ts:~524`).
   Long lines may overflow / mis-wrap vs the original's clip-X wrapping.
 - [ ] **L — camera scroll "snap both for now"** (`opcodes/index.ts:~411`) +

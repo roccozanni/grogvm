@@ -1857,13 +1857,13 @@ function actorOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
         break;
       }
       case 0x0d: {
-        // setActorName — NUL-terminated string. We don't store names
-        // on the actor struct yet (no field). Capture for the trace.
-        const start = slot.pc;
-        while (slot.pc < slot.bytecode.length && slot.bytecode[slot.pc] !== 0) slot.pc++;
-        if (slot.pc >= slot.bytecode.length) throw new Error('actorOps setActorName: missing 0x00 terminator');
-        const name = String.fromCharCode(...slot.bytecode.subarray(start, slot.pc));
-        slot.pc++;
+        // setActorName — NUL-terminated SCUMM string. Decode through the
+        // same path as setObjectName ($54) so `0xFF NN` escapes are
+        // consumed (not mistaken for the terminator) and control codes are
+        // stripped. Stored on the actor so the look-at / sentence line can
+        // resolve it (`getObjOrActorName`); persists across rooms + saves.
+        const name = decodeScummString(readScummString(slot), vm, slot);
+        if (actor) actor.name = name;
         ops.push(`setName(${JSON.stringify(name)})`);
         break;
       }

@@ -527,6 +527,22 @@ describe('Vm — objectName + captureInventoryName', () => {
     expect(vm.objectName(99)).toBeUndefined();
   });
 
+  it('resolves a low id to its actor name (getObjOrActorName)', () => {
+    // Ids within the actor table are actors, not objects — e.g. MI1's
+    // "Dai la pentola a Fratelli Fettucini" (actor 3, renamed at room entry).
+    const vm = makeVm();
+    vm.actors.get(3).name = 'Fratelli Fettucini';
+    expect(vm.objectName(3)).toBe('Fratelli Fettucini');
+  });
+
+  it('returns undefined for an unnamed actor, not the object table', () => {
+    const vm = makeVm();
+    // An object happens to share the id; the actor branch wins (name '' →
+    // undefined), so an unnamed actor never leaks an object name.
+    vm.loadedRoom = roomWithObjects(5, [named(3, 'should not win')]);
+    expect(vm.objectName(3)).toBeUndefined();
+  });
+
   it('falls back to the carried-item snapshot when not in the room', () => {
     const vm = makeVm();
     vm.loadedRoom = roomWithObjects(5, [named(42, 'the rock')]);

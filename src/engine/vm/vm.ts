@@ -1984,13 +1984,23 @@ export class Vm {
   }
 
   /**
-   * Resolve an object's display name. Checks the current room's object
-   * table first (correct for room objects and just-picked-up items),
-   * then the carried-item snapshot in {@link inventoryNames} (for items
-   * carried out of their pickup room). Returns `undefined` when the name
-   * is unknown so callers can fall back to an `obj #N` placeholder.
+   * Resolve an object-or-actor display name. Mirrors SCUMM's
+   * `getObjOrActorName`: a low id (within the actor table) is an actor,
+   * resolved to its `setActorName` name; everything else is an object.
+   * For objects: checks a `setObjectName` override, then the current
+   * room's object table (room objects + just-picked-up items), then the
+   * carried-item snapshot in {@link inventoryNames} (for items carried
+   * out of their pickup room). Returns `undefined` when the name is
+   * unknown so callers can fall back to an `obj #N` placeholder.
    */
   objectName(objId: number): string | undefined {
+    // Actor-or-object split: ids 1..actor-table-size are actors (the same
+    // rule objActPos / faceActor use). An unnamed actor falls through to
+    // `undefined`, not the object table — its id never names an object.
+    if (objId >= 1 && objId <= this.actors.capacity) {
+      const name = this.actors.get(objId).name;
+      return name !== '' ? name : undefined;
+    }
     // A `setObjectName` ($54) rename takes priority over both the room's
     // OBNA and the pickup-time snapshot — it's an explicit in-place
     // overwrite (SCUMM rewrites the OBNA buffer; e.g. obj 488's

@@ -49,6 +49,15 @@ export interface Actor {
   visible: boolean;
   /** CLUT index used when the actor speaks. */
   talkColor: number;
+  /**
+   * Display name from `actorOps setActorName` (subop 0x0d), control
+   * sequences stripped. `''` = never named. SCUMM's `getObjOrActorName`
+   * resolves a low id (< actor table size) to the actor's name, so the
+   * look-at / sentence line shows this for a script-renamed actor (e.g.
+   * "Fratelli Fettucini"). Persists across rooms and saves, like SCUMM's
+   * `_actors[id].name`.
+   */
+  name: string;
   /** Per-actor scale, 0..255 where 255 = 100%. SCUMM scales actors as they walk away. */
   scale: number;
   /** When true, the actor walks in straight lines ignoring walk boxes. */
@@ -135,6 +144,7 @@ export function createActor(id: number): Actor {
     facing: 'S',
     visible: true,
     talkColor: 0,
+    name: '',
     scale: DEFAULT_SCALE,
     ignoreBoxes: false,
     forceClip: -1,

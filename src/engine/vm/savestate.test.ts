@@ -100,6 +100,7 @@ function loadUpState(vm: Vm): void {
   ego.y = 120;
   ego.costume = 12;
   ego.facing = 'W';
+  ego.name = 'Guybrush Threepwood';
   ego.scale = 200;
   ego.forceClip = 0;
   ego.walkTarget = { x: 50, y: 100 };
@@ -180,6 +181,7 @@ describe('save-state — synthetic round-trip', () => {
     const ego = vm2.actors.get(3);
     expect(ego.x).toBe(160);
     expect(ego.facing).toBe('W');
+    expect(ego.name).toBe('Guybrush Threepwood');
     expect(ego.walkPath).toEqual([{ x: 60, y: 110 }, { x: 50, y: 100 }]);
     expect(ego.anim.stopped).toBe(0b10);
     expect(ego.anim.limbs).toHaveLength(16);

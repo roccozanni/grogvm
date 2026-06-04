@@ -70,6 +70,7 @@ interface ActorSnapshot {
   readonly facing: Facing;
   readonly visible: boolean;
   readonly talkColor: number;
+  readonly name: string;
   readonly scale: number;
   readonly ignoreBoxes: boolean;
   readonly forceClip: number;
@@ -239,6 +240,7 @@ export function snapshotVm(vm: Vm, meta?: { game?: string; label?: string; saved
       facing: a.facing,
       visible: a.visible,
       talkColor: a.talkColor,
+      name: a.name,
       scale: a.scale,
       ignoreBoxes: a.ignoreBoxes,
       forceClip: a.forceClip,
@@ -426,6 +428,7 @@ function applyActorSnapshot(a: Actor, snap: ActorSnapshot): void {
   a.facing = snap.facing;
   a.visible = snap.visible;
   a.talkColor = snap.talkColor;
+  a.name = snap.name;
   a.scale = snap.scale;
   a.ignoreBoxes = snap.ignoreBoxes;
   a.forceClip = snap.forceClip;
