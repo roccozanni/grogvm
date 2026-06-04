@@ -47,7 +47,8 @@ frame* still coexist (the "Parte Due / Il Viaggio" card, `global #122`). Armed
 per game frame via `Vm.systemTextRestorePending`, consumed by the first transient
 `addSystemText`. Verified by driving the real poller frame-by-frame over the save
 (15-deep trail → one cursor-following label, hover-out → invisible `" "@0,0`) and
-confirming the intro card still shows both lines. [CHAR §6](docs/SCUMM-V5-CHAR.md).
+confirming the intro card still shows both lines; **user-confirmed in-browser**.
+[CHAR §6](docs/SCUMM-V5-CHAR.md).
 
 **Last worked on — room 51 (Fettucini cannon scene), 2026-06-03.** Six bugs, all
 fixed engine-faithfully, **user-confirmed in-browser**, and **migrated to docs**.
