@@ -228,6 +228,17 @@ One-liners; broken into tasks when we start them. See ARCHITECTURE.md §9.
 
 ## Done
 
+- **Website — unified markdown page model** *(2026-06-05)*. ARCHITECTURE §9
+  Phase 12 (staged migration, stages 1–5). Every page — home, the SCUMM-v5 docs,
+  and the library/explore/play app screens — is authored as markdown under
+  `pages/` (file path = route) and rendered by an owned generator (markdown-it +
+  gray-matter + a Vite plugin) into a single `dist/` with path-based routing; no
+  hand-authored HTML. The final stage unified the app pages with the content
+  pages: one shared HTML shell (`renderDocument`) + one dark monospace `site.css`
+  on every page (shared nav + `.content` frame), markdown typography scoped to
+  `.prose` (so it stays off the app screens), and the play canvas centered. Retro/
+  terminal aesthetic throughout. See ARCHITECTURE §8, §9 Phase 12, §11 Q13.
+
 - **Phase 10 — Shell rebuild + EngineSession** *(2026-05-31)*. Rebuilt the shell
   around an `EngineSession` seam (engine owns the loop, clock injected →
   Node-testable) with a multi-page static build (`/`, `/explore`, `/play`); split

@@ -588,10 +588,21 @@ throughout, and the engine is never touched.
    with frontmatter `script: app/<island>`; the generator injects the island
    script. Move the library off `/` (home takes `/`). Delete the authored HTML
    and the `pages/` directory — now a single pipeline.
-4. **Polish.** Per-page CSS scoping (each page links only `base` + its island's
+4. **Polish.** Per-page CSS scoping (each page links its own `base` + island
    stylesheet); verify route-level code-splitting (engine chunk loads only on
    `/play`, `/explore`); gitignore generated output; reconcile the §4/§7 "shell"
    prose with the new layer names.
+5. **Unify app + content presentation.** The app pages still diverged from the
+   content pages — a bare shell with their own dark island CSS, vs. the content
+   pages' nav + light prose chrome. Collapse both onto one shared shell
+   (`renderDocument`) and one dark `site.css` linked on every page: the same nav
+   + `.content` frame everywhere, with markdown typography scoped to a `.prose`
+   class (content pages only) so it never leaks onto the app screens nested in
+   `#app`. This folds the stage-4 per-page `base.css` into the single shared
+   `site.css` — the islands inherit the shared chrome + theme tokens from the
+   linked sheet and bundle only their own screen stylesheet (`explorer.css` /
+   `player.css`). Visual direction: a retro/terminal feel — monospace + dark
+   across the whole site.
 
 ---
 

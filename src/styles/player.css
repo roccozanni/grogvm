@@ -571,7 +571,7 @@
 .play-game {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
 }
 .play-error {
   padding: 1.5rem;
