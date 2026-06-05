@@ -7,7 +7,7 @@ import type { Plugin } from 'vite';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { loadPages, renderBody, routeToOutputPath, type Page } from './generate';
-import { renderHtmlPage } from '../site/layout';
+import { renderDocument } from '../site/layout';
 import { writeAppPages } from './app-pages';
 
 export interface ContentPluginOptions {
@@ -24,7 +24,7 @@ export function contentPlugin({ pagesDir, siteCssPath, stagingRoot }: ContentPlu
 
   const siteCss = (): string => readFileSync(siteCssPath, 'utf8');
   const pageHtml = (page: Page): string =>
-    renderHtmlPage({
+    renderDocument({
       title: page.title,
       bodyHtml: renderBody(readFileSync(page.file, 'utf8'), page.file, pagesDir),
     });

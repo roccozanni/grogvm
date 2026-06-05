@@ -492,8 +492,8 @@ grogvm/
 ├── dist/                        # single-pipeline output: bundled app pages + emitted content (no merge step)
 └── src/
     ├── build/                   # generate.ts (md→HTML) · app-pages.ts (stage islands) · content-plugin.ts
-    ├── site/                    # content presentation: page layout, nav, chrome, typography (no engine/platform)
-    ├── styles/                  # base.css (every page; emitted asset) + per-island stylesheets
+    ├── site/                    # shared presentation: one page shell + nav + site.css (every page; no engine/platform)
+    ├── styles/                  # per-island stylesheets (explorer.css, player.css) layered atop site.css tokens
     ├── platform/                # host services — browser-API adapters + the install catalog
     │   ├── routing/             # parse location.pathname + ?game= (no nav state machine)
     │   ├── storage/             # IndexedDB + File System Access + localStorage

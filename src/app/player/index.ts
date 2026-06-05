@@ -1,5 +1,4 @@
 // Player island — `/play?game=<id>`, the game canvas + Debug drawer.
-import '../../styles/base.css';
 import '../../styles/player.css';
 import { renderPlay } from './play/play';
 import { currentGameParam, libraryHref } from '../../platform/routing/routing';

@@ -1,5 +1,4 @@
 // Explorer island — `/explore?game=<id>`, the session-free resource browser.
-import '../../styles/base.css';
 import '../../styles/explorer.css';
 import { renderExplorer } from './explorer';
 import { currentGameParam, libraryHref } from '../../platform/routing/routing';

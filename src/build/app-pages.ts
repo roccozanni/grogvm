@@ -6,7 +6,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { loadPages, routeToOutputPath, renderBody, type Page } from './generate';
-import { renderAppShell } from '../site/layout';
+import { renderDocument } from '../site/layout';
 import { readFileSync } from 'node:fs';
 
 const appPages = (pagesDir: string): Page[] => loadPages(pagesDir).filter((p) => p.island !== null);
@@ -38,7 +38,7 @@ export function writeAppPages(pagesDir: string, stagingRoot: string): void {
     const bodyHtml = renderBody(readFileSync(page.file, 'utf8'), page.file, pagesDir).trim();
     writeFileSync(
       htmlPath,
-      renderAppShell({ title: page.title, entrySrc: './entry.ts', bodyHtml: bodyHtml || undefined }),
+      renderDocument({ title: page.title, entrySrc: './entry.ts', bodyHtml: bodyHtml || undefined }),
     );
   }
 }

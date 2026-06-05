@@ -1,13 +1,20 @@
-/* Content-page (home + reference docs) styling. Distinct from the app's
-   per-screen CSS — this is the site chrome + readable prose typography.
-   Linked as a stable /site.css (no hashing) by the docs generator. */
+/* The single shared stylesheet for every page — content (home, docs) and app
+   (library, explore, play) alike. Dark terminal theme: tokens, site chrome
+   (nav + content frame), readable prose, and the shared app components. Linked
+   stably as /site.css; the explorer/player screens bundle their own CSS atop
+   these tokens. */
 
 :root {
-  --ink: #1b1b1f;
-  --muted: #5b5b66;
-  --accent: #7a4ddb;
-  --rule: #e4e4ea;
-  --code-bg: #f4f4f7;
+  color-scheme: dark;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14px;
+  --bg: #0c0d12;
+  --fg: #e3e3e3;
+  --muted: #888;
+  --accent: #ffd966;
+  --error: #ff6b6b;
+  --border: #1f2230;
+  --code-bg: #06070b;
 }
 
 * {
@@ -16,13 +23,15 @@
 
 body {
   margin: 0;
-  color: var(--ink);
-  font: 16px/1.65 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: #fff;
+  background: var(--bg);
+  color: var(--fg);
+  min-height: 100vh;
 }
 
+/* ── Site chrome: nav header + page frame (every page) ─────────────── */
+
 .site-nav {
-  border-bottom: 1px solid var(--rule);
+  border-bottom: 1px solid var(--border);
   padding: 0.9rem 1.25rem;
   color: var(--muted);
   font-size: 0.9rem;
@@ -38,10 +47,12 @@ body {
 }
 
 .content {
-  max-width: 46rem;
+  max-width: 840px;
   margin: 0 auto;
-  padding: 2.5rem 1.25rem 5rem;
+  padding: 2rem 1.5rem 5rem;
 }
+
+/* ── Prose (home + docs) ───────────────────────────────────────────── */
 
 .content h1,
 .content h2,
@@ -52,6 +63,7 @@ body {
 
 .content h1 {
   margin-top: 0;
+  color: var(--accent);
 }
 
 .content a {
@@ -62,12 +74,13 @@ body {
   background: var(--code-bg);
   padding: 0.1em 0.35em;
   border-radius: 4px;
-  font-size: 0.88em;
+  font-size: 0.9em;
 }
 
 .content pre {
   background: var(--code-bg);
   padding: 1rem 1.1rem;
+  border: 1px solid var(--border);
   border-radius: 8px;
   overflow-x: auto;
 }
@@ -84,7 +97,7 @@ body {
 
 .content th,
 .content td {
-  border: 1px solid var(--rule);
+  border: 1px solid var(--border);
   padding: 0.4rem 0.6rem;
   text-align: left;
 }
@@ -92,4 +105,137 @@ body {
 .doc-list {
   line-height: 2;
   padding-left: 1.1rem;
+}
+
+/* ── Shared app components (library + the screens' common chrome) ──── */
+
+header h1 {
+  margin: 0 0 0.25rem;
+  color: var(--accent);
+}
+
+.subtitle {
+  color: var(--muted);
+  margin: 0 0 1.5rem;
+}
+
+button {
+  font: inherit;
+  background: #1a1d28;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  padding: 0.4rem 0.8rem;
+  cursor: pointer;
+  border-radius: 4px;
+  margin-right: 0.5rem;
+}
+
+button:hover {
+  background: #232838;
+}
+
+button.secondary {
+  color: var(--muted);
+}
+
+button.primary {
+  background: #2a2f44;
+  border-color: #3a4060;
+}
+
+.game-list ul {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1.5rem;
+}
+
+.game-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.game-row .name {
+  flex: 1;
+}
+
+.game-row .game-id {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+.empty {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.error {
+  color: var(--error);
+  margin-bottom: 1rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--error);
+  border-radius: 4px;
+}
+
+.unsupported {
+  padding: 2rem;
+}
+
+.unsupported code {
+  color: var(--accent);
+}
+
+.unsupported .hint {
+  margin-top: 1.5rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: rgba(255, 217, 102, 0.05);
+}
+
+.unsupported .hint ol {
+  padding-left: 1.25rem;
+  margin: 0.5rem 0;
+}
+
+/* The library flash banner and the missing-game / permission message rendered
+   by app/shared.ts — shared across screens, so they live here. */
+.flash {
+  color: var(--error);
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--error);
+  border-radius: 4px;
+  margin-bottom: 1rem;
+}
+
+.page-message {
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+a.back-link {
+  color: var(--fg);
+}
+
+/* <a> elements styled as buttons (library Play / Explore links). */
+a.button {
+  display: inline-block;
+  font: inherit;
+  background: #1a1d28;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  padding: 0.4rem 0.8rem;
+  margin-right: 0.5rem;
+  border-radius: 4px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+a.button.secondary {
+  opacity: 0.85;
 }
