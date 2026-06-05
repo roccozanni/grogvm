@@ -225,7 +225,9 @@ phase roadmap (and git matches it).
 
 - **Audio** — iMUSE + AdLib first; MT-32 and CD redbook later.
 - **MI2** — verify it boots on the same engine; fix the v5-but-slightly-different
-  edge cases.
+  edge cases. Known unimplemented one: MI2 `COST` payloads need their first 2
+  bytes skipped before parsing (every payload-relative offset is 2 bytes too
+  small otherwise) — the costume decoder doesn't yet apply this shift.
 
 ---
 

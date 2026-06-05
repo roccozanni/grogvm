@@ -29,7 +29,7 @@ the correction.
 
 The animation playback engine — anim record layout, per-slot
 `SlotModifier`, the cmd byte stream, and the things the wiki gets
-right and wrong — lives in a separate spike doc,
+right and wrong — lives in a separate doc,
 [`costume-anim.md`](costume-anim.md). This document
 focuses on the **static** parts of the format: header, palette,
 limb-image tables, picture headers, and the pixel RLE.
@@ -54,10 +54,7 @@ LECF                 top-level container
 A single LFLF can contain multiple `COST` blocks; LFLFs that don't ship
 any costumes have none. The index file (`MONKEY.000`) carries a `DCOS`
 directory that maps **costume id → (disk file, byte offset)** so the
-engine can grab any costume by id at runtime. `GrogVM`'s engine
-currently indexes costumes by their position in the block tree (i.e.
-"the 4th `COST` we walked past") rather than by id; resolving DCOS is
-deferred until script-controlled costume loads matter.
+engine can grab any costume by id at runtime.
 
 ---
 
@@ -76,12 +73,10 @@ of the torso because its slot number is higher, and a "talking" anim
 only changes the head slot while the torso slot stays put.
 
 A slot is also what other parts of the SCUMM literature call a "limb",
-and so do we throughout the rest of this document — `slot` is more
-correct given that slots routinely hold non-anatomical things (a hat
-or a sword or a particle), but `limb` is what the engine and our code
-have always been calling it. The two terms are interchangeable. The
-distinction matters only when reading external references that prefer
-one over the other.
+and this document uses both terms — `slot` is more correct given that
+slots routinely hold non-anatomical things (a hat or a sword or a
+particle), but `limb` is the more common word in SCUMM references. The
+two are interchangeable.
 
 The actor isn't an array of *frames*; it's an array of (slot ←
 image-table-index) pointers that the **animation runtime** ticks
@@ -163,8 +158,8 @@ MI1 costume 24 — the three important-looking pirates in the SCUMM Bar
 (room 28, actor 3) — is `format == 0x59`, 32-color. Decoding it with the
 16-color RLE split renders vertical-streak garbage where the pirates
 should be (the run byte's colour/length boundary is off by one bit; see
-§5). `decodeCostumeFrame` takes a `paletteSize` (16 | 32) from the header
-so the split matches. The mirror flag's effect on rendering
+§5). A decoder must take the palette size (16 or 32) from the header so the
+run-byte split matches. The mirror flag's effect on rendering
 isn't yet pinned down empirically; long-circulating notes describe it
 as a "different alignment" rule, possibly affecting whether frames are
 auto-mirrored along the actor's facing axis. Implementations should
@@ -193,8 +188,8 @@ not draw".
 The byte at offset 0 is **the highest valid animation index**, not the
 count. So `numAnim = N` means animation ids `0..N` are valid, and the
 `animOffs` table that follows has `N + 1` entries. Most decoders
-either off-by-one this or paper over it by always adding 1; we do the
-latter and store the count internally.
+either off-by-one this or paper over it by always adding 1; the safe
+approach is to add 1 and store the count.
 
 ### 3.4 frameOffs
 
@@ -219,9 +214,8 @@ before doing a table lookup:
 The animation counters are 8-bit values exposed to script via global
 variables; scripts use them to synchronise behaviour with a slot's
 animation progress ("when his foot is at its lowest point, play the
-footstep sound"). For Phase 3's single-static-frame goal these are
-inert — we never tick the animation runtime — but they're load-bearing
-for any future phase that wants real motion.
+footstep sound"). They matter only while the animation runtime is
+ticking; a static single-frame decode never touches them.
 
 The frame-table indices in `frameOffs` are only 7 bits of "real"
 index; the top bit is reserved (purpose not yet established
@@ -265,14 +259,11 @@ during this animation". The animation runtime walks the participating
 slots tick-by-tick, advancing each one through its slice of `frameOffs`
 at the rate the engine drives.
 
-Phase 6's anim runtime (in `src/engine/graphics/costume-anim.ts`)
-implements this — `startAnim` parses an anim record into per-slot
-playback state, `stepAnim` advances each slot's cursor every engine
-tick, and the compositor reads the cmd byte at
-`payload[slot.start + cursor]` to pick the picture index. See
-[`costume-anim.md`](costume-anim.md) for the
-decoder spec and the known limitations against MI1 Guybrush's
-records.
+The animation runtime walks these records: it parses an anim record into
+per-slot playback state, advances each slot's cursor every engine tick, and
+reads the cmd byte at the slot's current cursor to pick the picture index.
+See [`costume-anim.md`](costume-anim.md) for the decoder spec and the known
+limitations against MI1 Guybrush's records.
 
 ---
 
@@ -361,9 +352,9 @@ into it as a side effect. That's how a walk-cycle composes
 displacement — each image in the sequence carries the delta from the
 previous image's anchor, and the engine sums them.
 
-For Phase 3's static deliverable, `xinc` and `yinc` are inert (we draw
-exactly one image and never iterate). They're parsed and surfaced so
-the eventual animation runtime can use them.
+`xinc` and `yinc` are inert for a static single-image decode (nothing
+iterates); they matter only to the animation runtime, which sums them
+across a sequence.
 
 ### 4.2 The actor anchor convention
 
@@ -472,10 +463,10 @@ runs.
 
 When the decoder emits a pixel of costume index 0, the compositor
 must skip it — the underlying framebuffer pixel (the room background,
-or another already-drawn actor pixel) is preserved. `GrogVM` emits a
-sentinel value (`0xFF`) for index-0 pixels so the compositor has a
-single value to check; costume indices only range 0..31 so a 0xFF
-sentinel is unambiguous in this namespace.
+or another already-drawn actor pixel) is preserved. A common technique
+is to emit a sentinel value (e.g. `0xFF`) for index-0 pixels so the
+compositor has a single value to check; costume indices only range
+0..31, so such a sentinel is unambiguous.
 
 This is what gives costumes their irregular silhouettes — the
 rectangular `width × height` image has transparent runs encoded just
@@ -495,16 +486,10 @@ block in MI2 is therefore 2 bytes too small relative to the post-
 header payload that our parser hands the costume decoder.
 
 The clean fix, recommended by the long-circulating notes and confirmed
-by `GrogVM`'s testing, is to **skip the first 2 bytes of an MI2
+by testing against real data, is to **skip the first 2 bytes of an MI2
 costume payload** before parsing, treating those two bytes as part of
 the implicit pre-header. All offsets then resolve correctly against
 the shifted payload.
-
-`GrogVM`'s decoder isn't yet wired through with this correction —
-Phase 3 was developed against MI1 data and we haven't smoke-tested
-MI2 costumes end-to-end yet. The fix slots in cleanly as a 2-byte
-slice in `walkCostumes` or `parseCostumeHeader` when the resource
-file is identified as MI2.
 
 ---
 
@@ -538,8 +523,7 @@ to actual RGBA pixels:
    triple.
 8. **Composite onto the room framebuffer** at `(actorX + x,
    actorY + y)`, skipping transparent pixels and respecting any
-   z-plane mask the room provides. (Compositor + z-planes are
-   Phase 3's next two tasks.)
+   z-plane mask the room provides.
 
 ---
 
@@ -596,68 +580,3 @@ from scratch:
     `0x78` and `0x7C` (animation counters). Mask `& 0x7F` before
     indexing into a limb's image table, but only after handling the
     magic values.
-
----
-
-## 9. Reference implementation
-
-The accompanying TypeScript implementation lives in two files:
-
-- [`src/engine/graphics/costume.ts`](../src/engine/graphics/costume.ts) —
-  costume navigation (`walkCostumes`), header parsing
-  (`parseCostumeHeader`), and per-limb image-table decoding
-  (`decodeLimbTables`).
-- [`src/engine/graphics/costume-frame.ts`](../src/engine/graphics/costume-frame.ts) —
-  image header reading and RLE decode (`decodeCostumeFrame`).
-
-Public surface, in the order a consumer typically calls them:
-
-- `walkCostumes(file) → CostumeEntry[]` — iterate every `COST` block
-  in source order, tagged with the LFLF position it lives in.
-- `parseCostumeHeader(payload) → CostumeHeader` — fixed-portion fields:
-  `numAnim`, `format`, `mirrorFlag`, `paletteSize`, `palette`,
-  `animCmdOffset` (= `frameOffs` in this doc's naming), `limbOffsets`
-  (= `imageTableOffs`), `animOffsets` (= `animOffs`).
-- `decodeLimbTables(payload, header) → LimbTable[]` — groups limbs by
-  shared `imageTableOffs` value and decodes the u16 LE pointer list at
-  each group, flagging trailing entries that don't look like sensible
-  payload pointers.
-- `decodeCostumeFrame(payload, framePtr) → DecodedCostumeFrame` —
-  reads the 12-byte image header from `framePtr − 6 .. framePtr + 6`
-  and decodes the RLE pixel stream into a row-major `width × height`
-  buffer of costume-local palette indices, with transparent pixels
-  marked by the `COSTUME_FRAME_TRANSPARENT` sentinel.
-
-Unit tests in
-[`src/engine/graphics/costume.test.ts`](../src/engine/graphics/costume.test.ts)
-and
-[`src/engine/graphics/costume-frame.test.ts`](../src/engine/graphics/costume-frame.test.ts)
-cover the dispatch and grammar against handcrafted synthetic fixtures
-(including the length-zero escape and extended-length runs > 16
-pixels). Real-game correctness is verified through the player UI's
-costume diagnostics and supporting throwaway scripts under
-`scratch/` — we deliberately don't commit MI1 or MI2 game data.
-
-Currently **deferred** until a later phase needs them:
-
-- **Animation record decoding** — now landed in Phase 6 at
-  `src/engine/graphics/costume-anim.ts` with `startAnim` / `stepAnim`
-  / `currentAnimCmd`. The decoder follows the wiki-spec layout
-  (`u16 LE activeSlots + per-set-bit (u16 frameIndex + optional u8
-  lengthAndFlags)`) and handles cmd-byte stepping each engine tick.
-  See [`costume-anim.md`](costume-anim.md) for the
-  full spec, the wiki's `usemask` parameter (which is a render-time
-  caller flag, not a stored field), and a known limitation against
-  MI1 Guybrush where some `frameIndex` values appear out-of-range
-  for reasons not fully decoded.
-- **32-color RLE.** ✅ Implemented. `decodeCostumeFrame` takes a
-  `paletteSize` (16 | 32, from the header's `format` bit 0) and splits
-  the run byte accordingly (4/4 vs 5/3). MI1 costume 24 (the SCUMM-Bar
-  important pirates, room 28) is the first `format == 0x59` costume we
-  hit; before this it rendered as vertical-streak garbage.
-- **MI2's 2-byte offset shift.** Documented; not yet patched into the
-  decoder. Needed before MI2 smoke-tests pass.
-- **Mirror flag semantics.** Bit 7 of the format byte is parsed and
-  exposed, but the rendering rule it triggers isn't yet exercised. No
-  MI1/MI2 costume we've seen has it set; we'll determine its effect
-  from the first one that does.
