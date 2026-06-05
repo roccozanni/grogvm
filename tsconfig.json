@@ -15,5 +15,5 @@
     "noEmit": true,
     "types": ["vite/client", "wicg-file-system-access"]
   },
-  "include": ["src", "pages", "integration", "vite.config.ts", "vitest.config.ts", "vitest.integration.config.ts"]
+  "include": ["src", "integration", "vite.config.ts", "vitest.config.ts", "vitest.integration.config.ts"]
 }

@@ -477,14 +477,15 @@ grogvm/
 │   └── scumm-v5-*.md, …        #  /docs/:slug  → reference   (content; the SCUMM-v5 format docs)
 ├── package.json
 ├── tsconfig.json
-├── vite.config.ts              # multi-page inputs supplied by the generator (src/build); no authored HTML
+├── vite.config.ts              # stages app pages, then Vite bundles them; root = .pages/
 ├── vitest.config.ts
 ├── public/
+├── .pages/                      # GENERATED, gitignored: staged app-page HTML + entry.ts (Vite root)
 ├── test/
 │   └── fixtures/                # synthetic binary fixtures for tests
-├── dist/                        # single-pipeline output: generated HTML + bundled islands (no merge step)
+├── dist/                        # single-pipeline output: bundled app pages + emitted content (no merge step)
 └── src/
-    ├── build/                   # docs→HTML generator + Vite plugin (dev middleware + build inputs)
+    ├── build/                   # generate.ts (md→HTML) · app-pages.ts (stage islands) · docs-plugin.ts (content)
     ├── site/                    # content presentation: page layout, nav, chrome, typography (no engine/platform)
     ├── styles/                  # base.css (every page; emitted asset) + per-island stylesheets
     ├── platform/                # host services — browser-API adapters + the install catalog

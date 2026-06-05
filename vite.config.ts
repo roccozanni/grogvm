@@ -1,40 +1,35 @@
 import { defineConfig } from 'vite';
 import { fileURLToPath } from 'node:url';
 import { docsPlugin } from './src/build/docs-plugin';
+import { writeAppPages, appPageInputs } from './src/build/app-pages';
 
-// Multi-page static build (ARCHITECTURE.md §7, §11 Q11). Each page is a real
-// HTML entry → real static file → refresh-safe + crawler-indexable with no
-// server. The game id rides in `?game=` (client-only), so these stay static.
-//
-// The HTML entries live under `pages/` (not the repo root), so Vite's `root`
-// points there. The served URLs are unchanged — `pages/` is the doc root, so
-// `pages/index.html` → `/`, `pages/explore/index.html` → `/explore/`, etc.
-//
-// `docsPlugin` (§9 Phase 12) renders the content pages from `docs/*.md`: the
-// app pages above are bundled by Vite, the /docs/* pages are generated. They
-// merge into one `dist/` over disjoint routes. (Stage 3 folds the app pages
-// into markdown too, retiring `pages/`.)
+// One page model (ARCHITECTURE.md §8, §11 Q13): every page is markdown in
+// `docs/`. Pages with a `script:` are *app* pages — the generator stages a real
+// HTML entry + entry.ts under `.pages/` (gitignored) so Vite bundles the island;
+// pages without one are static content emitted by `docsPlugin`. Both land in a
+// single `dist/` over disjoint routes — refresh-safe, crawler-indexable, no
+// server. App game ids still ride in `?game=` (client-only).
 const entry = (path: string): string => fileURLToPath(new URL(path, import.meta.url));
+const docsDir = entry('./docs');
+const stagingRoot = entry('./.pages');
+
+// Stage the app-page entries now so they exist as Vite inputs (build) and are
+// served by `root` (dev). docsPlugin re-stages on edits during dev.
+writeAppPages(docsDir, stagingRoot);
 
 export default defineConfig({
-  root: entry('./pages'),
-  plugins: [
-    docsPlugin({ docsDir: entry('./docs'), siteCssPath: entry('./src/site/site.css') }),
-  ],
+  root: stagingRoot,
+  plugins: [docsPlugin({ docsDir, siteCssPath: entry('./src/site/site.css'), stagingRoot })],
   server: {
     port: 5173,
   },
   build: {
-    // `outDir` is resolved relative to `root`; keep the build at the repo-root
-    // `dist/`. `emptyOutDir` is required since it sits outside `root`.
+    // `outDir` sits outside `root`, so `emptyOutDir` is required. Content pages
+    // are appended by docsPlugin's closeBundle after this app build is written.
     outDir: entry('./dist'),
     emptyOutDir: true,
     rollupOptions: {
-      input: {
-        main: entry('./pages/index.html'), //         /          → library
-        explore: entry('./pages/explore/index.html'), // /explore/  → resource explorer
-        play: entry('./pages/play/index.html'), //     /play/     → player
-      },
+      input: appPageInputs(docsDir, stagingRoot),
     },
   },
 });

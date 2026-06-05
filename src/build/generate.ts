@@ -5,11 +5,12 @@ import matter from 'gray-matter';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-export interface DocMeta {
-  slug: string; //  'scumm-v5-room'
-  route: string; // '/docs/scumm-v5-room/'
+export interface Page {
+  slug: string; //   'scumm-v5-room'
+  route: string; //  '/', '/library/', '/docs/scumm-v5-room/'
   title: string;
-  file: string; //  absolute source path
+  island: string | null; // frontmatter `script` (e.g. 'app/library') → app page; else content
+  file: string; //   absolute source path
 }
 
 /** `docs/SCUMM-V5-ROOM.md` → `scumm-v5-room`. */
@@ -49,14 +50,26 @@ export function renderBody(source: string): string {
   return md.render(matter(source).content);
 }
 
-/** List the publishable docs (every `*.md` except a home `index.md`), sorted. */
-export function listDocs(docsDir: string): DocMeta[] {
+/**
+ * The output path for a route: `/` → `index.html`, `/library/` →
+ * `library/index.html`, `/docs/x/` → `docs/x/index.html`.
+ */
+export function routeToOutputPath(route: string): string {
+  const clean = route.replace(/^\/+|\/+$/g, '');
+  return clean === '' ? 'index.html' : `${clean}/index.html`;
+}
+
+/** Every page in `docs/`: route from frontmatter `route`, else `/docs/<slug>/`. */
+export function loadPages(docsDir: string): Page[] {
   return readdirSync(docsDir)
-    .filter((f) => /\.md$/i.test(f) && f.toLowerCase() !== 'index.md')
+    .filter((f) => /\.md$/i.test(f))
     .sort()
     .map((f) => {
       const slug = slugFor(f);
       const file = join(docsDir, f);
-      return { slug, route: `/docs/${slug}/`, title: pageTitle(readFileSync(file, 'utf8'), slug), file };
+      const { data } = matter(readFileSync(file, 'utf8'));
+      const route = typeof data.route === 'string' ? data.route : `/docs/${slug}/`;
+      const island = typeof data.script === 'string' ? data.script : null;
+      return { slug, route, title: pageTitle(readFileSync(file, 'utf8'), slug), island, file };
     });
 }

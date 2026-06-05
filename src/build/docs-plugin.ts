@@ -1,32 +1,37 @@
-// Vite plugin that turns docs/*.md into static content pages (§9 Phase 12).
-// Dev: middleware renders /docs/* on request and reloads when docs/ or site/
-// change. Build: emits dist/docs/**/index.html + dist/site.css after Vite's
-// own (app) output. App pages are untouched — the two producers write into
-// disjoint route namespaces (app owns /, /explore, /play; content owns /docs/*).
+// Vite plugin for the content pages (§9 Phase 12). Content pages (docs/*.md
+// without a `script:`) are static HTML wrapped in the site layout: served by
+// middleware in dev, emitted into dist/ in build. App pages (with `script:`)
+// are bundled by Vite from the staging root (see app-pages.ts) — this plugin
+// only re-stages them on dev edits. The two producers write disjoint routes.
 import type { Plugin } from 'vite';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { listDocs, renderBody } from './generate';
+import { loadPages, renderBody, routeToOutputPath, type Page } from './generate';
 import { renderHtmlPage, renderDocsIndex } from '../site/layout';
+import { writeAppPages } from './app-pages';
 
 export interface DocsPluginOptions {
   docsDir: string;
   siteCssPath: string;
+  stagingRoot: string;
 }
 
-export function docsPlugin({ docsDir, siteCssPath }: DocsPluginOptions): Plugin {
+export function docsPlugin({ docsDir, siteCssPath, stagingRoot }: DocsPluginOptions): Plugin {
   let outDir = 'dist';
   let isBuild = false;
 
+  const contentPages = (): Page[] => loadPages(docsDir).filter((p) => p.island === null);
+  const docsPages = (): Page[] => contentPages().filter((p) => p.route.startsWith('/docs/'));
+
   const siteCss = (): string => readFileSync(siteCssPath, 'utf8');
-
   const indexHtml = (): string =>
-    renderHtmlPage({ title: 'Documentation', bodyHtml: renderDocsIndex(listDocs(docsDir)) });
+    renderHtmlPage({ title: 'Documentation', bodyHtml: renderDocsIndex(docsPages()) });
+  const pageHtml = (page: Page): string =>
+    renderHtmlPage({ title: page.title, bodyHtml: renderBody(readFileSync(page.file, 'utf8')) });
 
-  const pageHtml = (slug: string): string | null => {
-    const doc = listDocs(docsDir).find((d) => d.slug === slug);
-    if (!doc) return null;
-    return renderHtmlPage({ title: doc.title, bodyHtml: renderBody(readFileSync(doc.file, 'utf8')) });
+  const normalize = (url: string): string => {
+    const u = url.split('?')[0]!.replace(/index\.html$/, '');
+    return u === '/' ? u : u.endsWith('/') ? u : `${u}/`;
   };
 
   return {
@@ -39,38 +44,39 @@ export function docsPlugin({ docsDir, siteCssPath }: DocsPluginOptions): Plugin 
 
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
-        const url = (req.url ?? '').split('?')[0]!.replace(/index\.html$/, '');
-        if (url === '/site.css') {
+        const raw = (req.url ?? '').split('?')[0];
+        if (raw === '/site.css') {
           res.setHeader('Content-Type', 'text/css');
           res.end(siteCss());
           return;
         }
-        if (url === '/docs' || url === '/docs/') {
+        const url = normalize(req.url ?? '');
+        if (url === '/docs/') {
           res.setHeader('Content-Type', 'text/html');
           res.end(indexHtml());
           return;
         }
-        const m = /^\/docs\/([a-z0-9-]+)\/?$/.exec(url);
-        const html = m ? pageHtml(m[1]!) : null;
-        if (html) {
+        const page = contentPages().find((p) => p.route === url);
+        if (page) {
           res.setHeader('Content-Type', 'text/html');
-          res.end(html);
+          res.end(pageHtml(page));
           return;
         }
-        next();
+        next(); // app pages + assets are Vite's
       });
 
-      const reload = (file: string): void => {
+      const onChange = (file: string): void => {
         if (file.startsWith(docsDir) || file.startsWith(dirname(siteCssPath))) {
+          writeAppPages(docsDir, stagingRoot); // re-stage in case an app page's md changed
           server.ws.send({ type: 'full-reload', path: '*' });
         }
       };
-      server.watcher.on('change', reload);
-      server.watcher.on('add', reload);
-      server.watcher.on('unlink', reload);
+      server.watcher.on('change', onChange);
+      server.watcher.on('add', onChange);
+      server.watcher.on('unlink', onChange);
     },
 
-    // Runs after Vite has written the app build — append the content pages.
+    // Runs after Vite has written the app build — append the static content pages.
     closeBundle() {
       if (!isBuild) return;
       const write = (rel: string, body: string): void => {
@@ -80,7 +86,7 @@ export function docsPlugin({ docsDir, siteCssPath }: DocsPluginOptions): Plugin 
       };
       write('site.css', siteCss());
       write('docs/index.html', indexHtml());
-      for (const doc of listDocs(docsDir)) write(`docs/${doc.slug}/index.html`, pageHtml(doc.slug)!);
+      for (const page of contentPages()) write(routeToOutputPath(page.route), pageHtml(page));
     },
   };
 }
