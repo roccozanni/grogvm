@@ -10,7 +10,7 @@ dispatch infrastructure every opcode plugs into.
 
 ## Sources
 
-- **Per-opcode encoding table: [SCUMM-V5-OPCODE-REFERENCE.md](SCUMM-V5-OPCODE-REFERENCE.md)**
+- **Per-opcode encoding table: [opcode-reference.md](opcode-reference.md)**
   — every opcode's operand layout + semantics, transcribed from the
   ScummVM wiki (<https://wiki.scummvm.org/index.php?title=SCUMM/V5_opcodes>).
   Consult it before decoding/implementing an opcode; the parameter

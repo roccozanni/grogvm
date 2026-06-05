@@ -83,8 +83,8 @@ releases. The resource layer decrypts on read.
 
 ```
 ┌────────────────────────────────────────────────────┐
-│  Host shell  (src/shell)                           │
-│  - Game library UI, install flow, settings         │
+│  Browser app  (src/app, src/platform, src/site)    │
+│  - Library / Explorer / Player screens (islands)   │
 │  - File System Access API, IndexedDB persistence   │
 │  - Hosts the engine in a <canvas>                  │
 └────────────────────────────────────────────────────┘
@@ -112,21 +112,21 @@ releases. The resource layer decrypts on read.
 └────────────────────────────────────────────────────┘
 ```
 
-The **host shell** and the **engine** are independent. The shell knows how to
+The **browser app** and the **engine** are independent. The app knows how to
 locate game files and persist user state; the engine knows how to take an
 opened set of game files and produce frames + audio + accept input. They
 communicate through a small `EngineSession` boundary, never through globals.
 
 `EngineSession` is a real, built object (see §5.9), not just a conceptual
-seam. It is an **engine-side factory** the shell calls with three things:
+seam. It is an **engine-side factory** the app calls with three things:
 the parsed game files, a `Renderer` (§5.4), and a `Clock`. It wires the VM,
 the frame compositor, and the renderer together and owns the per-tick game
 loop, exposing a small control surface: `play / pause / step / setRate`,
-`sendInput`, `snapshot / restore`, and an `onFrame` callback. The shell
+`sendInput`, `snapshot / restore`, and an `onFrame` callback. The app
 *hosts* a session; it does not reach into VM internals to drive it.
 
 The **clock is injected, not owned by the session.** `requestAnimationFrame`
-is a browser API and the engine must run headless in Node (§6), so the shell
+is a browser API and the engine must run headless in Node (§6), so the app
 injects the clock — `requestAnimationFrame` in the browser, a manual stepper
 in tests. This is what makes the whole game loop unit-testable: drive N ticks
 against a `MemoryRenderer` and assert on the emitted frames.
@@ -393,21 +393,26 @@ issues — never for verifying decoder correctness or VM behavior.
 
 ---
 
-## 7. Host shell — `src/shell/`
+## 7. The browser app — `src/app/` (over `src/platform/`)
 
-Vanilla TypeScript + Vite, **no framework**, plus one small primitive we own:
-a ~100-line reactive core (`signal` / `effect` / a render helper) in
-`shell/reactive/`. It exists to kill the hand-rolled per-tick DOM diffing
-that made the old shell unmaintainable — components are plain functions that
-return an element plus a cleanup, and `effect` re-runs only the bindings that
-depend on a changed signal. No dependency, fully unit-testable in Node. This
-is a deliberate amendment to the original "no framework, no reactivity" stance
-(see §11, Q9): the cost of a tiny owned primitive is far below the cost of
-manual DOM updates across a live, ticking inspector.
+The host of the engine — the interactive surface — is split into `src/app/`
+(islands + the reactive UI core), `src/platform/` (browser-API adapters and the
+install catalog), and `src/site/` (static content presentation). See §8 for the
+full layer map and import rules. Vanilla TypeScript + Vite, **no framework**,
+plus one small primitive we own: a ~100-line reactive core (`signal` / `effect`
+/ a render helper) in `app/reactive/`. It exists to kill the hand-rolled
+per-tick DOM diffing that made the old monolithic shell unmaintainable —
+components are plain functions that return an element plus a cleanup, and
+`effect` re-runs only the bindings that depend on a changed signal. No
+dependency, fully unit-testable in Node. This is a deliberate amendment to the
+original "no framework, no reactivity" stance (see §11, Q9): the cost of a tiny
+owned primitive is far below the cost of manual DOM updates across a live,
+ticking inspector.
 
-The shell has four **pages**, each a real route in a multi-page static build
-(path routing; client-only params like the game id ride in the query string —
-see §11, Q11):
+The app surface has four interactive **screens**. Each is an *island* —
+`app/<screen>/index.ts` exports `mount(el)` — hydrated into a markdown page
+that declares it via frontmatter `script:` (§8, §11 Q13). Routing is path-based
+with client-only params in the query string (§11, Q11):
 
 1. **Library** — list of installed games, "Play" / "Explore" buttons,
    "Install game" button.
@@ -439,8 +444,8 @@ visible; see the project memory note).
 - **IndexedDB** — `games` store (per-game metadata + the persisted
   `FileSystemDirectoryHandle`), `saves` store (save-state blobs).
 - Permission to the stored directory handle is requested again on each
-  session (browser security requirement). The shell handles the re-grant
-  flow before booting the engine.
+  session (browser security requirement). The app handles the re-grant
+  flow (`app/shared.ts`) before booting the engine.
 
 ### Browser API requirements
 
@@ -452,40 +457,41 @@ visible; see the project memory note).
 
 ## 8. Directory layout
 
-Every page — home, reference, and the app screens alike — is **authored as
-markdown in `docs/`**. A build-time generator renders each `.md` to a static
-HTML page wrapped in the shared site layout. A page becomes an **app page**
-purely by declaring an island in its frontmatter (`script:`), which the
-generator injects as a `<script type="module">` that Vite then bundles. There
-is no hand-authored HTML and no `pages/` directory: one source (`docs/`), one
-pipeline, one `dist/`. App and content pages differ by a single bit — whether
-the page hydrates an interactive island.
+Every page — home, the reference docs, and the app screens alike — is
+**authored as markdown under `pages/`**, and its **file path is its route**
+(`pages/index.md` → `/`, `pages/library.md` → `/library/`,
+`pages/docs/scumm-v5-room.md` → `/docs/scumm-v5-room/`). A build-time generator
+renders each `.md` to a static HTML page wrapped in the shared site layout. A
+page becomes an **app page** purely by declaring an island in its frontmatter
+(`script:`), which the generator injects as a module script that Vite then
+bundles. There is no hand-authored HTML: one source (`pages/`), one pipeline,
+one `dist/`. App and content pages differ by a single bit — whether the page
+hydrates an interactive island.
 
-> This is the **destination**. It supersedes the `src/shell` / authored-`pages/`
-> framing still described in §4 and §7, which reflect the *current* layout until
-> the migration lands — see §9 (Phase 12) for the staged path and §11 Q13 for
-> the decision.
+> See §9 (Phase 12) for the staged migration that produced this layout and §11
+> Q13 for the decision.
 
 ```
 grogvm/
 ├── ARCHITECTURE.md
-├── docs/                        # THE PAGE SOURCE — markdown + YAML frontmatter, one file per route
-│   ├── index.md                #  /            → home        (content; no island)
-│   ├── library.md              #  /library     → library     (app; script: app/library)
-│   ├── explore.md              #  /explore     → explorer    (app; script: app/explorer, reads ?game=)
-│   ├── play.md                 #  /play        → player      (app; script: app/player,  reads ?game=)
-│   └── scumm-v5-*.md, …        #  /docs/:slug  → reference   (content; the SCUMM-v5 format docs)
+├── pages/                       # THE PAGE SOURCE — markdown; file path = route
+│   ├── index.md                #  → /          home      (content; no island)
+│   ├── library.md              #  → /library/  library   (app; script: app/library)
+│   ├── explore.md              #  → /explore/  explorer  (app; script: app/explorer, reads ?game=)
+│   ├── play.md                 #  → /play/     player    (app; script: app/player,  reads ?game=)
+│   └── docs/                   #  → /docs/*    reference (content): index.md + our engine notes
+│       └── scumm/              #  → /docs/scumm/*  the SCUMM v5 format / bytecode specs
 ├── package.json
 ├── tsconfig.json
-├── vite.config.ts              # stages app pages, then Vite bundles them; root = .pages/
+├── vite.config.ts              # stages app pages, then Vite bundles them; root = .generated/
 ├── vitest.config.ts
 ├── public/
-├── .pages/                      # GENERATED, gitignored: staged app-page HTML + entry.ts (Vite root)
+├── .generated/                  # GENERATED, gitignored: staged app-page HTML + entry.ts (Vite root)
 ├── test/
 │   └── fixtures/                # synthetic binary fixtures for tests
 ├── dist/                        # single-pipeline output: bundled app pages + emitted content (no merge step)
 └── src/
-    ├── build/                   # generate.ts (md→HTML) · app-pages.ts (stage islands) · docs-plugin.ts (content)
+    ├── build/                   # generate.ts (md→HTML) · app-pages.ts (stage islands) · content-plugin.ts
     ├── site/                    # content presentation: page layout, nav, chrome, typography (no engine/platform)
     ├── styles/                  # base.css (every page; emitted asset) + per-island stylesheets
     ├── platform/                # host services — browser-API adapters + the install catalog
@@ -558,7 +564,7 @@ runnable steps. Each phase ends with something we can see/poke at.
 | **9. Shell rebuild + EngineSession** | Extract the `EngineSession` seam (§5.9) out of the inspector god-object; build the ~100-LOC reactive core; split the resource browser into a standalone **Explorer** screen; rebuild the **Player** as a game canvas + collapsible Debug drawer. No engine-logic changes. (Full Home/Reference website is deferred — §11 Q12.) |
 | **10. Audio** | iMUSE driver, AdLib (OPL3) synth, then MT-32 if appetite remains. CD redbook later still. |
 | **11. MI2 + polish** | Verify MI2 boots on the same engine; fix the inevitable v5-but-slightly-different edge cases. |
-| **12. Unified page model + content site** | Collapse onto the §8 destination: reorg `src/shell` into `platform` / `app` (islands) / `site`; add the owned markdown→HTML generator (markdown-it + gray-matter + a Vite plugin); author home + the SCUMM-v5 docs as content pages; delete `pages/` and all authored HTML. Adds the Home/Reference site deferred in §11 Q12. No engine-logic changes. |
+| **12. Unified page model + content site** | Collapse onto the §8 destination: reorg `src/shell` into `platform` / `app` (islands) / `site`; add the owned markdown→HTML generator (markdown-it + gray-matter + a Vite plugin); author home + the SCUMM-v5 docs as content pages under `pages/`; delete all hand-authored HTML. Adds the Home/Reference site deferred in §11 Q12. No engine-logic changes. |
 
 Phases are not commitments — they're the current best guess at a learning
 order. Reorder freely as we discover the territory.
@@ -576,9 +582,9 @@ throughout, and the engine is never touched.
 2. **Generator for content only (additive).** Add `src/build` (markdown-it +
    gray-matter) and `src/site` (layout/chrome), plus a Vite plugin that serves
    generated pages in dev and supplies build inputs. Render the SCUMM-v5 docs
-   and a `docs/index.md` home. The app pages remain authored HTML — the
+   and a `pages/index.md` home. The app pages remain authored HTML — the
    pipeline is proven on content with the working app untouched.
-3. **Fold the app pages into markdown.** Author `docs/{library,explore,play}.md`
+3. **Fold the app pages into markdown.** Author `pages/{library,explore,play}.md`
    with frontmatter `script: app/<island>`; the generator injects the island
    script. Move the library off `/` (home takes `/`). Delete the authored HTML
    and the `pages/` directory — now a single pipeline.
@@ -594,7 +600,7 @@ throughout, and the engine is never touched.
 - Long-circulating SCUMM reverse-engineering notes (multiple
   copies floating around the web and the Internet Archive). Useful as a
   starting point; **contain errors** — see for example the corrections
-  documented in [docs/SCUMM-V5-SMAP.md](docs/SCUMM-V5-SMAP.md). Always
+  documented in [pages/docs/scumm/smap.md](pages/docs/scumm/smap.md). Always
   validate against real game data.
 - Aric Wilmunder's published SCUMM design notes (the original engine
   author).
@@ -807,7 +813,7 @@ renderer for Reference — is flagged for then, not now.
 **Q13. One page model for everything: markdown + optional island.**
 Refines Q11/Q12. Rather than hand-authoring HTML for the app pages and
 *generating* only the content pages, **every** page — home, reference, and the
-app screens — is authored as markdown in `docs/` and rendered by one build-time
+app screens — is authored as markdown under `pages/` (file path = route) and rendered by one build-time
 generator. A page becomes an app page solely by declaring an island in its
 frontmatter (`script: app/<island>`), which the generator injects as a module
 script that Vite bundles. This is the MPA-with-islands model (the one Astro

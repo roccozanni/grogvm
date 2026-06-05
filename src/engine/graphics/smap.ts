@@ -13,7 +13,7 @@
  * inclusive), not the payload; see `readStripOffsets`.
  *
  * Full format reference (with the gotchas and corrections that took us
- * a while to figure out): docs/SCUMM-V5-SMAP.md.
+ * a while to figure out): pages/docs/scumm/smap.md.
  */
 
 export function decodeSmap(
@@ -236,7 +236,7 @@ class BitReader {
  * `sub` (the "subtraction variable") starts at 1 for each strip and is
  * reset to 1 every time the 10-branch loads a new absolute color. Method 1
  * has no run-length encoding — solid color regions are encoded as runs of
- * `0` bits, one per pixel. See docs/SCUMM-V5-SMAP.md for details.
+ * `0` bits, one per pixel. See pages/docs/scumm/smap.md for details.
  */
 function decodeStripMethod1(
   data: Uint8Array,
@@ -297,7 +297,7 @@ function decodeStripMethod1(
  * Sign of the delta is inverted relative to most circulating reverse-
  * engineering notes (which label d=0 as "Increase by 4"). Empirically —
  * verified by decoding real MI1 / MI2 room strips — the encoded data does
- * the opposite: d=0 *decreases* by 4. See docs/SCUMM-V5-SMAP.md for the
+ * the opposite: d=0 *decreases* by 4. See pages/docs/scumm/smap.md for the
  * discovery story and worked examples.
  */
 function decodeStripMethod2H(

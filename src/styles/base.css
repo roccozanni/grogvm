@@ -116,3 +116,43 @@ button.primary {
   margin: 0.5rem 0;
 }
 
+/* Shared chrome used across screens (so it loads on every app page, not just
+   the screen whose stylesheet it once lived in): the library flash banner and
+   the missing-game / permission message rendered by app/shared.ts. */
+.flash {
+  color: var(--error);
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--error);
+  border-radius: 4px;
+  margin-bottom: 1rem;
+}
+
+.page-message {
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.back-link {
+  color: var(--fg);
+}
+
+/* <a> elements styled as buttons (library Play / Explore links). */
+a.button {
+  display: inline-block;
+  font: inherit;
+  background: #1a1d28;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  padding: 0.4rem 0.8rem;
+  margin-right: 0.5rem;
+  border-radius: 4px;
+  text-decoration: none;
+  cursor: pointer;
+}
+a.button.secondary {
+  opacity: 0.85;
+}
+

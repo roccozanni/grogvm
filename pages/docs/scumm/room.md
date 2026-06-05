@@ -12,13 +12,13 @@ player moves between locations.
 This document is the top-level reference for how those pieces fit
 together. Each interesting sub-block has its own deep dive:
 
-- [`SCUMM-V5-SMAP.md`](SCUMM-V5-SMAP.md) — background bitmap encoding
+- [`smap.md`](smap.md) — background bitmap encoding
   inside `RMIM > IM00 > SMAP`.
-- [`SCUMM-V5-ZPLANE.md`](SCUMM-V5-ZPLANE.md) — z-plane masks
+- [`zplane.md`](zplane.md) — z-plane masks
   (`RMIM > IM00 > ZP##`).
-- [`SCUMM-V5-OBJECTS.md`](SCUMM-V5-OBJECTS.md) — `OBCD` + `OBIM`
+- [`objects.md`](objects.md) — `OBCD` + `OBIM`
   pairs.
-- [`SCUMM-V5-WALK-BOXES.md`](SCUMM-V5-WALK-BOXES.md) — `BOXD` and
+- [`walk-boxes.md`](walk-boxes.md) — `BOXD` and
   `BOXM`.
 
 ## Sources
@@ -45,7 +45,7 @@ A `LECF` block holds many `LFLF` bundles and each one *may* hold one
 `ROOM`. Some `LFLF`s carry only costumes / scripts / sounds with no
 room — that's fine. The mapping from room id to file offset doesn't
 go through the block tree; it lives in the `LOFF` block at the top
-of `LECF`. See [`SCUMM-V5-INDEX.md`](SCUMM-V5-INDEX.md).
+of `LECF`. See [`index-file.md`](index-file.md).
 
 ## 2. Child blocks (canonical order)
 
@@ -58,12 +58,12 @@ A real MI1 game room (id 10, the title screen) contains:
 | `CYCL` | 10    | Palette cycle table. Visual polish; GrogVM doesn't yet honour it.      |
 | `TRNS` | 10    | Transparent palette index. See §4.                                       |
 | `EPAL` | 264   | EGA palette mirror (back-compat). Ignored by the VGA path.               |
-| `BOXD` | 50    | Walk-box geometry. See [`SCUMM-V5-WALK-BOXES.md`](SCUMM-V5-WALK-BOXES.md). |
+| `BOXD` | 50    | Walk-box geometry. See [`walk-boxes.md`](walk-boxes.md). |
 | `BOXM` | 16    | Walk-box adjacency matrix. Captured but not consumed yet.                |
 | `CLUT` | 776   | Room palette — 256 RGB triples + 8-byte block header.                    |
 | `SCAL` | 40    | Per-y actor scaling slots. Not yet consumed by the compositor.           |
 | `RMIM` | big   | Room image container (SMAP + z-planes). See §5.                          |
-| `OBIM` | each  | Object image — one block per object. See [`SCUMM-V5-OBJECTS.md`](SCUMM-V5-OBJECTS.md). |
+| `OBIM` | each  | Object image — one block per object. See [`objects.md`](objects.md). |
 | `OBCD` | each  | Object code — one block per object, paired with OBIM by id.              |
 | `EXCD` | small | Bytecode that runs when the player **leaves** this room. See §6.          |
 | `ENCD` | small | Bytecode that runs when the player **enters** this room. See §6.          |

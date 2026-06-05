@@ -13,7 +13,7 @@ A room has two blocks for this:
   the original engine uses to plan walks across boxes via a graph
   search. GrogVM doesn't decode it; the included pathfinder
   works off a rasterized version of `BOXD` directly. See
-  [`PATHFINDING.md`](PATHFINDING.md).
+  [`pathfinding.md`](../pathfinding.md).
 
 ## Sources
 
@@ -115,7 +115,7 @@ inclusive *destination* range and `next` the hop. `parseBoxMatrix`
 decodes it; `getNextBox(from, to)` reads it.
 
 GrogVM routes over this graph — the faithful SCUMM approach. See
-[`PATHFINDING.md`](PATHFINDING.md) for the router, the gate
+[`pathfinding.md`](../pathfinding.md) for the router, the gate
 computation, and why it replaced the earlier grid-A*-over-a-mask.
 The inspector's walk overlay toggle draws the box outlines (one
 colour per box id) over the room canvas.
@@ -161,7 +161,7 @@ grid keeps the scale a script set — `rescaleActorForPosition` early-returns wh
 costume 40) is set `ignoreBoxes; scale 255,255` and arcs up to y≈36, where the
 box's `SCAL` slot interpolates to ~1; without the exemption the placement
 rescale shrank it to a **single dot** mid-flight. (Same off-grid principle as
-the `ignoreBoxes` z-clip rule — see [ZPLANE](SCUMM-V5-ZPLANE.md).)
+the `ignoreBoxes` z-clip rule — see [ZPLANE](zplane.md).)
 
 ## 7. Reference implementation
 

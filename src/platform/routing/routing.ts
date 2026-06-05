@@ -1,7 +1,7 @@
 /**
  * Routing for the multi-page static build (ARCHITECTURE.md §7, §11 Q11).
  *
- * Page identity is the PATH — `/` (library), `/explore/`, `/play/` are real
+ * Page identity is the PATH — `/library/`, `/explore/`, `/play/` are real
  * built HTML entries (see vite.config.ts), so refresh + deep-link work with
  * no server. The only per-client parameter, the installed-game id, rides in
  * the QUERY STRING (`?game=MI1`): the static host ignores it, the page reads
@@ -23,7 +23,8 @@ export function currentGameParam(): string | null {
   return gameParam(typeof location === 'undefined' ? '' : location.search);
 }
 
-export const homeHref = '/';
+/** The library screen — where Explore/Play return to (you install/select there first). */
+export const libraryHref = '/library/';
 
 export function playHref(game: string): string {
   return `/play/?game=${encodeURIComponent(game)}`;

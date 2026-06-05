@@ -1,6 +1,5 @@
 ---
 title: GrogVM
-route: /
 ---
 
 # GrogVM
@@ -9,9 +8,9 @@ A from-scratch TypeScript reimplementation of the SCUMM v5 engine — the one th
 ran *The Secret of Monkey Island* and *Monkey Island 2: LeChuck's Revenge* —
 running in the browser, with no server and no emulator.
 
-- **[Play](/library/)** — install a game you own from a local folder and play it.
-- **[Explore](/explore/)** — browse a game's rooms, costumes, charsets, and raw
-  resource blocks without booting the VM.
+- **[Library](/library/)** — install a game you own from a local folder, then
+  play it or explore its resources. (Everything starts here — you pick a game
+  first.)
 - **[Documentation](/docs/)** — the reverse-engineering notes behind the engine:
   resource formats, opcodes, graphics, timing, and more.
 

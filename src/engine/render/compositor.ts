@@ -344,7 +344,7 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
  * Single-plane (not cumulative) masking is what lets MI1 room 30 render:
  * its `ZP02 ⊇ ZP01` (ZP01 = the foreground barrels, ZP02 also covers the
  * loft railing/stairs), so a floor actor at clipPlane 1 must be masked by
- * ZP01 alone and walk *in front* of the stairs. See docs/SCUMM-V5-ZPLANE.md.
+ * ZP01 alone and walk *in front* of the stairs. See pages/docs/scumm/zplane.md.
  */
 function resolveClipPlane(
   actor: Actor,

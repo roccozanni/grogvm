@@ -594,14 +594,6 @@
   border: 1px solid var(--border);
 }
 
-.flash {
-  color: var(--error);
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--error);
-  border-radius: 4px;
-  margin-bottom: 1rem;
-}
-
 .block-tree {
   margin-top: 1.5rem;
 }

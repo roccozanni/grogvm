@@ -3,7 +3,7 @@
  *
  * Decodes a script's bytecode into human-readable instructions, with
  * accurate operand lengths for every opcode (per
- * docs/SCUMM-V5-OPCODE-REFERENCE.md) so it stays in sync walking a
+ * pages/docs/scumm/opcode-reference.md) so it stays in sync walking a
  * stream. This is a *static* decoder — it does not execute anything; it
  * is the read-only companion to the executing opcode table in
  * `opcodes/index.ts`.

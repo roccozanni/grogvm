@@ -1,4 +1,4 @@
-// Vite plugin for the content pages (§9 Phase 12). Content pages (docs/*.md
+// Vite plugin for the content pages (§9 Phase 12). Content pages (pages/*.md
 // without a `script:`) are static HTML wrapped in the site layout: served by
 // middleware in dev, emitted into dist/ in build. App pages (with `script:`)
 // are bundled by Vite from the staging root (see app-pages.ts) — this plugin
@@ -7,27 +7,27 @@ import type { Plugin } from 'vite';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { loadPages, renderBody, routeToOutputPath, type Page } from './generate';
-import { renderHtmlPage, renderDocsIndex } from '../site/layout';
+import { renderHtmlPage } from '../site/layout';
 import { writeAppPages } from './app-pages';
 
-export interface DocsPluginOptions {
-  docsDir: string;
+export interface ContentPluginOptions {
+  pagesDir: string;
   siteCssPath: string;
   stagingRoot: string;
 }
 
-export function docsPlugin({ docsDir, siteCssPath, stagingRoot }: DocsPluginOptions): Plugin {
+export function contentPlugin({ pagesDir, siteCssPath, stagingRoot }: ContentPluginOptions): Plugin {
   let outDir = 'dist';
   let isBuild = false;
 
-  const contentPages = (): Page[] => loadPages(docsDir).filter((p) => p.island === null);
-  const docsPages = (): Page[] => contentPages().filter((p) => p.route.startsWith('/docs/'));
+  const contentPages = (): Page[] => loadPages(pagesDir).filter((p) => p.island === null);
 
   const siteCss = (): string => readFileSync(siteCssPath, 'utf8');
-  const indexHtml = (): string =>
-    renderHtmlPage({ title: 'Documentation', bodyHtml: renderDocsIndex(docsPages()) });
   const pageHtml = (page: Page): string =>
-    renderHtmlPage({ title: page.title, bodyHtml: renderBody(readFileSync(page.file, 'utf8')) });
+    renderHtmlPage({
+      title: page.title,
+      bodyHtml: renderBody(readFileSync(page.file, 'utf8'), page.file, pagesDir),
+    });
 
   const normalize = (url: string): string => {
     const u = url.split('?')[0]!.replace(/index\.html$/, '');
@@ -35,7 +35,7 @@ export function docsPlugin({ docsDir, siteCssPath, stagingRoot }: DocsPluginOpti
   };
 
   return {
-    name: 'grogvm-docs',
+    name: 'grogvm-content',
 
     configResolved(config) {
       outDir = config.build.outDir;
@@ -51,11 +51,6 @@ export function docsPlugin({ docsDir, siteCssPath, stagingRoot }: DocsPluginOpti
           return;
         }
         const url = normalize(req.url ?? '');
-        if (url === '/docs/') {
-          res.setHeader('Content-Type', 'text/html');
-          res.end(indexHtml());
-          return;
-        }
         const page = contentPages().find((p) => p.route === url);
         if (page) {
           res.setHeader('Content-Type', 'text/html');
@@ -66,8 +61,8 @@ export function docsPlugin({ docsDir, siteCssPath, stagingRoot }: DocsPluginOpti
       });
 
       const onChange = (file: string): void => {
-        if (file.startsWith(docsDir) || file.startsWith(dirname(siteCssPath))) {
-          writeAppPages(docsDir, stagingRoot); // re-stage in case an app page's md changed
+        if (file.startsWith(pagesDir) || file.startsWith(dirname(siteCssPath))) {
+          writeAppPages(pagesDir, stagingRoot); // re-stage in case an app page's md changed
           server.ws.send({ type: 'full-reload', path: '*' });
         }
       };
@@ -85,7 +80,6 @@ export function docsPlugin({ docsDir, siteCssPath, stagingRoot }: DocsPluginOpti
         writeFileSync(path, body);
       };
       write('site.css', siteCss());
-      write('docs/index.html', indexHtml());
       for (const page of contentPages()) write(routeToOutputPath(page.route), pageHtml(page));
     },
   };

@@ -24,7 +24,7 @@
  * modifiers — verified against #2, #111, and Guybrush #1). The
  * walk/stand/turn anims prepend a 3-byte all-zero header before the
  * mask byte; see `startAnim` for the discriminator and
- * docs/SCUMM-V5-COSTUME-ANIM.md for the evidence.
+ * pages/docs/scumm/costume-anim.md for the evidence.
  *
  * # Limb numbering
  *

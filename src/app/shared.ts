@@ -7,7 +7,7 @@
 import { checkBrowserSupport, renderUnsupported } from '../platform/browser-support';
 import { ensureReadPermission } from '../platform/storage/permission';
 import { listGames, type StoredGame } from '../platform/storage/games';
-import { homeHref } from '../platform/routing/routing';
+import { libraryHref } from '../platform/routing/routing';
 
 /** Gate `root` on browser support; calls `render(root)` if OK. */
 export function mountPage(root: HTMLElement, render: (root: HTMLElement) => void): void {
@@ -74,7 +74,7 @@ export function withReadPermission(
 function backLink(): HTMLAnchorElement {
   const back = document.createElement('a');
   back.className = 'back-link';
-  back.href = homeHref;
+  back.href = libraryHref;
   back.textContent = '← Library';
   return back;
 }

@@ -30,7 +30,7 @@ the correction.
 The animation playback engine — anim record layout, per-slot
 `SlotModifier`, the cmd byte stream, and the things the wiki gets
 right and wrong — lives in a separate spike doc,
-[`SCUMM-V5-COSTUME-ANIM.md`](SCUMM-V5-COSTUME-ANIM.md). This document
+[`costume-anim.md`](costume-anim.md). This document
 focuses on the **static** parts of the format: header, palette,
 limb-image tables, picture headers, and the pixel RLE.
 
@@ -270,7 +270,7 @@ implements this — `startAnim` parses an anim record into per-slot
 playback state, `stepAnim` advances each slot's cursor every engine
 tick, and the compositor reads the cmd byte at
 `payload[slot.start + cursor]` to pick the picture index. See
-[`SCUMM-V5-COSTUME-ANIM.md`](SCUMM-V5-COSTUME-ANIM.md) for the
+[`costume-anim.md`](costume-anim.md) for the
 decoder spec and the known limitations against MI1 Guybrush's
 records.
 
@@ -645,7 +645,7 @@ Currently **deferred** until a later phase needs them:
   / `currentAnimCmd`. The decoder follows the wiki-spec layout
   (`u16 LE activeSlots + per-set-bit (u16 frameIndex + optional u8
   lengthAndFlags)`) and handles cmd-byte stepping each engine tick.
-  See [`SCUMM-V5-COSTUME-ANIM.md`](SCUMM-V5-COSTUME-ANIM.md) for the
+  See [`costume-anim.md`](costume-anim.md) for the
   full spec, the wiki's `usemask` parameter (which is a render-time
   caller flag, not a stored field), and a known limitation against
   MI1 Guybrush where some `frameIndex` values appear out-of-range

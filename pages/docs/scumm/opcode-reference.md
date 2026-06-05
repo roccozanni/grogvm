@@ -2,7 +2,7 @@
 
 Authoritative per-opcode encoding + semantics table for SCUMM v5,
 transcribed from the ScummVM wiki. This is the companion to
-[SCUMM-V5-OPCODES.md](SCUMM-V5-OPCODES.md) (which covers the *dispatch
+[opcodes.md](opcodes.md) (which covers the *dispatch
 infrastructure* — byte encoding, param-mode bits, var-ref scope, the
 expression mini-VM, branch semantics). When implementing or decoding an
 opcode, check the encoding here rather than guessing.

@@ -1661,7 +1661,7 @@ for (const op of [0x01, 0x21, 0x41, 0x61, 0x81, 0xa1, 0xc1, 0xe1]) {
 // SCUMM v5 `Actor::animateActor(anim)`. The operand is a **chore number**;
 // the chore plays for the actor's current facing, resolving to anim record
 // `chore*4 + dir(facing)` (so chore 1 = init → records 4-7, chore 2 = walk
-// → 8-11, chore 3 = stand → 12-15, …; see docs/SCUMM-V5-COSTUME-ANIM.md).
+// → 8-11, chore 3 = stand → 12-15, …; see pages/docs/scumm/costume-anim.md).
 //
 // The values **244-255 are pseudo-anims** — they carry no frame data, just
 // a direction in the low 2 bits (`dir = anim & 3`):
@@ -2389,7 +2389,7 @@ function roomOpsHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
       // change, effect numbers unchanged). We record the effect numbers;
       // the transition animations are deferred — MI1's intro path is all
       // effect 129 (instant), so there's nothing to animate against yet.
-      // See Vm.screenEffect / docs/SCUMM-V5-SCREEN-EFFECT.md.
+      // See Vm.screenEffect / pages/docs/scumm/screen-effect.md.
       const e = readVarOrWord(subop, 1, slot, vm.vars);
       if (e === 0) {
         vm.screenEffect.requestFadeIn = true;

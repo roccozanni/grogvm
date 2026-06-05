@@ -332,7 +332,7 @@ export function stepAllActorWalks(vm: Vm): void {
       applyChore(vm, actor, actor.walkFrame);
     } else if (wasMoving) {
       // Just stopped: re-point the directional limbs (esp. the head) for
-      // the final facing — see applyStandPose / SCUMM-V5-COSTUME-ANIM.md
+      // the final facing — see applyStandPose / costume-anim.md
       // §"Head re-point".
       applyStandPose(vm, actor);
     } else if (actor.costume > 0 && actor.anim.animId === 0) {

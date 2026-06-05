@@ -1,6 +1,8 @@
 // Player island — `/play?game=<id>`, the game canvas + Debug drawer.
+import '../../styles/base.css';
+import '../../styles/player.css';
 import { renderPlay } from './play/play';
-import { currentGameParam, homeHref } from '../../platform/routing/routing';
+import { currentGameParam, libraryHref } from '../../platform/routing/routing';
 import { mountPage, findInstalledByGameId, renderMissingGame, withReadPermission } from '../shared';
 
 export function mount(root: HTMLElement): void {
@@ -17,7 +19,7 @@ export function mount(root: HTMLElement): void {
         return;
       }
       withReadPermission(root, game, () => {
-        root.replaceChildren(renderPlay(game, () => location.assign(homeHref)));
+        root.replaceChildren(renderPlay(game, () => location.assign(libraryHref)));
       });
     })();
   });

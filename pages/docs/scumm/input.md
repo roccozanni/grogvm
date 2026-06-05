@@ -58,7 +58,7 @@ consult to decide whether a click should be honoured at all — a
 cutscene drops it so clicks don't pass through to the room.
 
 No script ever *writes* these variables directly; they are
-engine-maintained. (See [SCUMM-V5-CUTSCENES.md](SCUMM-V5-CUTSCENES.md)
+engine-maintained. (See [cutscenes.md](cutscenes.md)
 for how the cutscene start/end scripts drive them.)
 
 ## 2. The hover poller
@@ -277,7 +277,7 @@ the **preposition** `g110` is itself a *verb* whose name is "con" / "a"
 **separator** is string resource 49 = `" "` — `g49`'s *value* is 0, so
 reading 0x07 through the var (instead of by direct id) drops the space and
 yields "Usail pezzo". Object names splice in with their `@` padding, which
-the renderer skips ([OBJECTS §5](SCUMM-V5-OBJECTS.md)). Expansion needs the
+the renderer skips ([OBJECTS §5](objects.md)). Expansion needs the
 live VM + slot; decode a verb name without them and every code is dropped
 (blank line).
 
@@ -382,7 +382,7 @@ Two engine-level keys the player uses during scripted moments:
 - **`.` (dot) — skip the current line of speech.** The per-line analogue of
   Escape. `vm.skipText()` drains the current talk page: if the printed
   message has more sentence pages queued (split at `\xff\x03`, see §6 /
-  SCUMM-V5-CHAR) it flips to the next page; otherwise it ends the message
+  char.md) it flips to the next page; otherwise it ends the message
   (clears `VAR_HAVE_MSG`, so a `wait-for-message` releases). One press = one
   page, mirroring the talk timer's natural drain in `vm.beginTick()` — the
   two share `advanceOrEndTalk()`. A no-op when nothing is being said.

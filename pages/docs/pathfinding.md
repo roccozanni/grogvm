@@ -19,7 +19,7 @@ A room's walk geometry is two ROOM child blocks:
 - **`BOXD`** — the walk boxes. Each box is a convex quadrilateral (four
   corners UL, UR, LR, LL) plus a z-plane mask byte, a flags byte (bit
   `0x80` = invisible / non-walkable), and a `SCAL` scale slot. Parsed by
-  `parseWalkBoxes` (see [`SCUMM-V5-WALK-BOXES.md`](SCUMM-V5-WALK-BOXES.md)).
+  `parseWalkBoxes` (see [`walk-boxes.md`](scumm/walk-boxes.md)).
 - **`BOXM`** — the box matrix: SCUMM's per-box shortest-path lookup. For
   each source box it answers "to reach box *D*, which box do I step into
   next?" Parsed by `parseBoxMatrix`.

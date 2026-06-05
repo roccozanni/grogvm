@@ -4,7 +4,7 @@
  * BOXD lists the room's walkable regions as quadrilaterals — each box
  * has four corner points (UL, UR, LL, LR), a mask byte (the z-plane an
  * actor standing in the box clips against — its default `actorZ`; see
- * docs/SCUMM-V5-ZPLANE.md §"box-mask"), a flags byte (bit 0x80 =
+ * pages/docs/scumm/zplane.md §"box-mask"), a flags byte (bit 0x80 =
  * ignore-in-pathfinding "invisible" box), and a scale slot into SCAL.
  *
  * Layout (post 8-byte block header):
@@ -58,7 +58,7 @@ export interface WalkBox {
    * Z-plane clip level for an actor standing in this box. `0` = in front
    * of every plane; `N` (>0) = behind plane `N` and above. The
    * compositor maps it to `actorZ` (same as `alwaysZclip k`) when the
-   * actor has no explicit `forceClip`. See docs/SCUMM-V5-ZPLANE.md.
+   * actor has no explicit `forceClip`. See pages/docs/scumm/zplane.md.
    */
   readonly mask: number;
   /** Flags byte. Bit 0x80 set → invisible box (excluded from pathfinding). */
@@ -132,7 +132,7 @@ export function pointInBox(box: WalkBox, x: number, y: number): boolean {
  * stands on one. When boxes overlap (rare; they may share a seam) the
  * lowest-index match wins. Used by the compositor to derive an actor's
  * default z-clip from the box's `mask` when no explicit `forceClip` is
- * set. See docs/SCUMM-V5-ZPLANE.md §"box-mask".
+ * set. See pages/docs/scumm/zplane.md §"box-mask".
  */
 export function findBoxAt(
   boxes: ReadonlyArray<WalkBox>,

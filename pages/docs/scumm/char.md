@@ -31,7 +31,7 @@ Inside a SCUMM v5 resource file (`MONKEY.001` / `MONKEY2.001`):
 LECF                  top-level container
 └── LFLF              one bundle per "disk"
     ├── ROOM          (described elsewhere)
-    ├── COST          (described in SCUMM-V5-COST.md)
+    ├── COST          (described in cost.md)
     ├── CHAR          ← THIS DOCUMENT — zero or more per LFLF
     ├── CHAR
     ├── SCRP          …
@@ -465,6 +465,6 @@ Currently **deferred** until a later phase needs them:
 - **Typewriter timing.** Per-character reveal animation.
 - **MI2's 2-byte offset shift.** MI2's COST blocks need their
   offsets shifted by 2 bytes (per
-  [`SCUMM-V5-COST.md`](./SCUMM-V5-COST.md) §6); MI2 charsets may
+  [`cost.md`](./cost.md) §6); MI2 charsets may
   need the same correction. Not yet validated — Phase 4 verified
   only against MI1.

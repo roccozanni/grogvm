@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { gameParam, playHref, exploreHref, homeHref } from './routing';
+import { gameParam, playHref, exploreHref, libraryHref } from './routing';
 
 describe('gameParam', () => {
   it('extracts the game id', () => {
@@ -22,7 +22,7 @@ describe('hrefs', () => {
   it('build path-based hrefs with the game in the query', () => {
     expect(playHref('MI1')).toBe('/play/?game=MI1');
     expect(exploreHref('MI1')).toBe('/explore/?game=MI1');
-    expect(homeHref).toBe('/');
+    expect(libraryHref).toBe('/library/');
   });
 
   it('encodes special characters', () => {

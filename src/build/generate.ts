@@ -3,7 +3,7 @@
 import MarkdownIt from 'markdown-it';
 import matter from 'gray-matter';
 import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative, resolve, dirname } from 'node:path';
 
 export interface Page {
   slug: string; //   'scumm-v5-room'
@@ -13,27 +13,35 @@ export interface Page {
   file: string; //   absolute source path
 }
 
-/** `docs/SCUMM-V5-ROOM.md` → `scumm-v5-room`. */
+/** `pages/docs/scumm/room.md` → `room` (the file's basename, lowercased). */
 export function slugFor(filename: string): string {
   return filename.replace(/^.*[/\\]/, '').replace(/\.md$/i, '').toLowerCase();
 }
 
 const md: MarkdownIt = new MarkdownIt({ html: true, linkify: true });
 
-// Rewrite inter-doc links so they resolve as routes: `FOO.md#x` → `/docs/foo/#x`.
+// A markdown link to another doc (`../scumm/smap.md`) points at a
+// file; its URL is that file's route — the same "URL = file path" rule the rest
+// of the site uses (routeForFile). So: resolve the link against the current
+// file's path, then map it to a route. `currentFile`/`pagesDir` ride in
+// markdown-it's env (see renderBody); without them a .md href is left alone.
 const renderToken = (
   tokens: Parameters<NonNullable<typeof md.renderer.rules.link_open>>[0],
   idx: number,
   options: Parameters<NonNullable<typeof md.renderer.rules.link_open>>[2],
   self: Parameters<NonNullable<typeof md.renderer.rules.link_open>>[4],
 ): string => self.renderToken(tokens, idx, options);
-md.renderer.rules.link_open = (tokens, idx, options, _env, self) => {
+md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
   const href = tokens[idx]!.attrGet('href');
-  // Only rewrite *relative* doc links — skip schemes (https:, mailto:) and
-  // absolute paths (/, //) so external links survive untouched.
-  const relative = href && !/^([a-z][a-z0-9+.-]*:|\/)/i.test(href);
-  const m = relative ? /^([^#?]+)\.md(#.*)?$/i.exec(href!) : null;
-  if (m) tokens[idx]!.attrSet('href', `/docs/${slugFor(m[1]!)}/${m[2] ?? ''}`);
+  // Skip schemes (https:, mailto:) and absolute paths (/, //) — only relative
+  // .md links between docs get resolved.
+  const isRelative = href && !/^([a-z][a-z0-9+.-]*:|\/)/i.test(href);
+  const m = isRelative ? /^(.+\.md)(#.*)?$/i.exec(href!) : null;
+  const { currentFile, pagesDir } = env as { currentFile?: string; pagesDir?: string };
+  if (m && currentFile && pagesDir) {
+    const target = resolve(dirname(currentFile), m[1]!);
+    tokens[idx]!.attrSet('href', `${routeForFile(pagesDir, target)}${m[2] ?? ''}`);
+  }
   return renderToken(tokens, idx, options, self);
 };
 
@@ -46,8 +54,8 @@ export function pageTitle(source: string, slug: string): string {
 }
 
 /** Render a markdown document's body to HTML (frontmatter stripped). */
-export function renderBody(source: string): string {
-  return md.render(matter(source).content);
+export function renderBody(source: string, currentFile?: string, pagesDir?: string): string {
+  return md.render(matter(source).content, { currentFile, pagesDir });
 }
 
 /**
@@ -59,17 +67,40 @@ export function routeToOutputPath(route: string): string {
   return clean === '' ? 'index.html' : `${clean}/index.html`;
 }
 
-/** Every page in `docs/`: route from frontmatter `route`, else `/docs/<slug>/`. */
-export function loadPages(docsDir: string): Page[] {
-  return readdirSync(docsDir)
-    .filter((f) => /\.md$/i.test(f))
+function markdownFiles(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const full = join(dir, e.name);
+    if (e.isDirectory()) return markdownFiles(full);
+    return /\.md$/i.test(e.name) ? [full] : [];
+  });
+}
+
+/**
+ * Route derived from a page's path under the pages root — the file's location
+ * IS its URL: `index.md` → `/`, `library.md` → `/library/`, `docs/index.md` →
+ * `/docs/`, `docs/scumm/room.md` → `/docs/scumm/room/`.
+ */
+export function routeForFile(pagesDir: string, file: string): string {
+  const rel = relative(pagesDir, file).replace(/\\/g, '/').replace(/\.md$/i, '').toLowerCase();
+  if (rel === 'index') return '/';
+  if (rel.endsWith('/index')) return `/${rel.slice(0, -'/index'.length)}/`;
+  return `/${rel}/`;
+}
+
+/** Every page under the pages root (recursive); route comes from its path. */
+export function loadPages(pagesDir: string): Page[] {
+  return markdownFiles(pagesDir)
     .sort()
-    .map((f) => {
-      const slug = slugFor(f);
-      const file = join(docsDir, f);
-      const { data } = matter(readFileSync(file, 'utf8'));
-      const route = typeof data.route === 'string' ? data.route : `/docs/${slug}/`;
-      const island = typeof data.script === 'string' ? data.script : null;
-      return { slug, route, title: pageTitle(readFileSync(file, 'utf8'), slug), island, file };
+    .map((file) => {
+      const source = readFileSync(file, 'utf8');
+      const slug = slugFor(file);
+      const script = matter(source).data.script;
+      return {
+        slug,
+        route: routeForFile(pagesDir, file),
+        title: pageTitle(source, slug),
+        island: typeof script === 'string' ? script : null,
+        file,
+      };
     });
 }

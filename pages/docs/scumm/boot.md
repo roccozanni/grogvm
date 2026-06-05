@@ -23,7 +23,7 @@ any script runs (the scripts read, never initialise, them):
 - **Screen dimensions** — the visible resolution (320×200 for v5).
 - **Game id** — which game this is, so shared scripts can branch.
 - **`VAR_CURRENT_LIGHTS`** — seeded to the lit default so rooms aren't
-  all dark; see [SCUMM-V5-LIGHTING.md](SCUMM-V5-LIGHTING.md).
+  all dark; see [lighting.md](lighting.md).
 - **`VAR_CURSORSTATE` / `VAR_USERPUT`** — start dead/disabled; the boot
   and room scripts turn them on via `cursorCommand`.
 
@@ -81,7 +81,7 @@ Two related facts an engine must get right for this to work:
 
 The boot and intro paths exercise many of the **non-orthogonal opcode
 families** described in
-[SCUMM-V5-OPCODES.md](SCUMM-V5-OPCODES.md) — opcode bytes that share
+[opcodes.md](opcodes.md) — opcode bytes that share
 their low five bits but mean different things depending on a high bit
 (for example `0x0D` walkActorToActor vs `0x2D` putActorInRoom). Decoding
 the boot script is the quickest way to get these wrong, so it is worth

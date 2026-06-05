@@ -23,7 +23,7 @@
  * barrels and `ZP02` adds the loft railing/stairs) only render right
  * under this single-plane rule — a floor actor at clipPlane 1 must be
  * masked by `ZP01` alone, so it walks *in front* of the stairs in
- * `ZP02`. See docs/SCUMM-V5-ZPLANE.md §"the drawing rule".
+ * `ZP02`. See pages/docs/scumm/zplane.md §"the drawing rule".
  */
 
 import { COSTUME_FRAME_TRANSPARENT, decodeCostumeFrame, type DecodedCostumeFrame } from './costume-frame';

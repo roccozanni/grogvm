@@ -110,6 +110,6 @@ not.)
 | Variable | Role in cutscenes |
 |----------|-------------------|
 | `VAR_OVERRIDE` (g5) | `0` while a cutscene runs normally; set to `1` by `abortCutscene` so the skip code knows the player bailed. `beginOverride` resets it to `0`. |
-| `VAR_CURSORSTATE` (g52) / `VAR_USERPUT` (g53) | driven down by `#18`'s soft-off, back up by `#19`'s soft-on (see [SCUMM-V5-INPUT.md](SCUMM-V5-INPUT.md) §1). |
+| `VAR_CURSORSTATE` (g52) / `VAR_USERPUT` (g53) | driven down by `#18`'s soft-off, back up by `#19`'s soft-on (see [input.md](input.md) §1). |
 | `VAR_CUTSCENE_START_SCRIPT` / `VAR_CUTSCENE_END_SCRIPT` | ids of the hook scripts (`#18` / `#19` in MI1). |
 | `VAR_CUTSCENEEXIT_KEY` | the key that triggers `abortCutscene` (Escape). |

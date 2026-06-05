@@ -129,7 +129,7 @@ trailing `0x40` bytes (`il pezzo di carne@@@@…@`) up to some fixed width,
 in-game; the text renderer must skip `0x40` rather than draw it (see
 [`text.ts`](../src/engine/graphics/text.ts) `SCUMM_NAME_PAD`). Don't trim
 it out of the stored name — the substitution codes that splice names into
-the sentence line ([INPUT §6](SCUMM-V5-INPUT.md)) rely on the renderer's
+the sentence line ([INPUT §6](input.md)) rely on the renderer's
 skip, and the padded length is the original byte layout.
 
 **`setObjectName` ($54/$D4) renames in place — and that's *why* OBNA is

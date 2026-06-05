@@ -54,11 +54,3 @@ ${opts.bodyHtml ?? ''}
 </html>
 `;
 }
-
-/** The `/docs/` landing page body: a title + a list linking each doc. */
-export function renderDocsIndex(pages: ReadonlyArray<{ route: string; title: string }>): string {
-  const items = pages
-    .map((p) => `      <li><a href="${p.route}">${escapeHtml(p.title)}</a></li>`)
-    .join('\n');
-  return `<h1>Documentation</h1>\n    <ul class="doc-list">\n${items}\n    </ul>`;
-}

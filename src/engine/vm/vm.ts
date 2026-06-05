@@ -669,7 +669,7 @@ export class Vm {
    * every room's CLUT on load** ({@link enterRoom}) — the room ships a
    * placeholder VGA-16 low palette (orange #6 / teal #3) that would
    * otherwise clobber the UI colours each room change. Cleared by
-   * {@link reset}. See docs/SCUMM-V5-LIGHTING.md / the credits-colour note.
+   * {@link reset}. See pages/docs/scumm/lighting.md / the credits-colour note.
    */
   readonly uiPaletteOverrides = new Map<number, readonly [number, number, number]>();
   /**
@@ -715,7 +715,7 @@ export class Vm {
    * (instant) plus a bare `loadRoomWithEgo`, so there is no non-instant
    * transition to animate against yet, and the effect-number → animation
    * mapping can't be validated without a reachable scene that uses one.
-   * Cleared by {@link reset}. See docs/SCUMM-V5-SCREEN-EFFECT.md.
+   * Cleared by {@link reset}. See pages/docs/scumm/screen-effect.md.
    */
   readonly screenEffect = { switchRoomEffect: 0, switchRoomEffect2: 0, requestFadeIn: false };
   /**

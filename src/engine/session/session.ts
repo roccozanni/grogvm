@@ -1,6 +1,6 @@
 /**
  * EngineSession — the single object the shell holds to run a game
- * (ARCHITECTURE.md §5.9; scope contract in docs/ENGINE-SESSION.md).
+ * (ARCHITECTURE.md §5.9; scope contract in pages/docs/engine-session.md).
  *
  * Wires the VM + frame compositor + an injected Renderer + an injected Clock
  * into one control surface: play/pause/step/setRate, sendInput,
@@ -12,7 +12,7 @@
  * ported from the legacy `shell/player/vm-inspector.ts` rAF loop. That
  * inspector is deliberately NOT rewired onto this session — it is slated for
  * deletion in a later Phase-10 task, so the logic lives here as the canonical
- * copy and is duplicated there only until then. See docs/ENGINE-SESSION.md §2.
+ * copy and is duplicated there only until then. See pages/docs/engine-session.md §2.
  */
 
 import { bootGame } from '../vm/boot';

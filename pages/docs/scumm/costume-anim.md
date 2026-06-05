@@ -247,7 +247,7 @@ Under that base the `frameOffs` cycle `3 4 5 6 7 6 5 4 3 2` renders as
 **7×7 → 9×9 → 11×11 → 13×13 → 19×19 → 13 → 11 → 9 → 7 → 5** — a clean
 grow-then-shrink twinkle through 6 real frames. This is the same
 +6 "pointer lands 6 bytes into the header" convention from
-`SCUMM-V5-COST.md §4`, now appearing in frame→table indexing: a frame
+`cost.md §4`, now appearing in frame→table indexing: a frame
 index is `n`, and entry `n` lives at `tableBase − 6 + n·2`.
 
 `frameOffs` is at `animCmdOffset=0x84` = `07 06 05 04 03 02 7b …`
