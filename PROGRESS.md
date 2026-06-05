@@ -176,6 +176,14 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
   [SCREEN-EFFECT](docs/SCUMM-V5-SCREEN-EFFECT.md).
 - **Smooth `panCameraTo`** — snaps today; no intro-reachable scene uses it, so
   the pan rate has no validation target. Wire it when a scene surfaces.
+- **Costume head-limb facing — remaining edges.** The head limb is re-pointed on
+  the walk→stop transition (shipped 2026-05-31). Not yet handled: a *turn in
+  place while idle* (a script changing `facing` with no walk) — the head keeps
+  its last init-set frame; wire the same init-re-point on any at-rest facing
+  change when a scene surfaces it. Two scene-specific symptoms noted earlier and
+  **not since re-confirmed** (verify before chasing): a room-33 cliff N/S facing
+  flip-flop (likely a walk direction-picker issue, separate from the head) and a
+  room-38 entry head-loss transient. See [COSTUME-ANIM](docs/SCUMM-V5-COSTUME-ANIM.md).
 
 **Pathfinding**
 

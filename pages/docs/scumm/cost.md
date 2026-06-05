@@ -261,9 +261,9 @@ at the rate the engine drives.
 
 The animation runtime walks these records: it parses an anim record into
 per-slot playback state, advances each slot's cursor every engine tick, and
-reads the cmd byte at the slot's current cursor to pick the picture index.
-See [`costume-anim.md`](costume-anim.md) for the decoder spec and the known
-limitations against MI1 Guybrush's records.
+reads the command byte at the slot's current cursor to pick the picture index.
+See [`costume-anim.md`](costume-anim.md) for the record format, the chore model,
+and the command-byte semantics.
 
 ---
 
