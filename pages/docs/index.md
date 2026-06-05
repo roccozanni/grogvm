@@ -4,36 +4,48 @@ title: Documentation
 
 # Documentation
 
-Reverse-engineering notes behind the engine — the file formats, bytecode, and
-behavior GrogVM reimplements.
+Two halves: a reverse-engineered reference for the SCUMM v5 engine and its file
+formats, and notes on how GrogVM is built on top of it.
 
 ## SCUMM v5 reference
 
-Reverse-engineered notes on the SCUMM v5 engine and its file formats.
+How the original SCUMM v5 engine and its file formats work, reverse-engineered
+from real game data.
 
-- [Index File (`MONKEY.000`) and LOFF](scumm/index-file.md)
-- [Boot and System Variables](scumm/boot.md)
-- [Opcode Dispatch + Bytecode Conventions](scumm/opcodes.md)
+**Resources & the VM**
+
+- [Index File (`MONKEY.000`)](scumm/index-file.md)
+- [Boot & System Variables](scumm/boot.md)
+- [Opcode Dispatch & Bytecode Conventions](scumm/opcodes.md)
 - [Per-Opcode Encoding Reference](scumm/opcode-reference.md)
-- [`ROOM` Block](scumm/room.md)
-- [SMAP — Background Bitmap Format](scumm/smap.md)
-- [ZP## — Z-Plane Masks](scumm/zplane.md)
-- [Room Objects (`OBCD` + `OBIM`)](scumm/objects.md)
+
+**Rooms & graphics**
+
+- [Rooms (`ROOM`)](scumm/room.md)
+- [Background Bitmaps (`SMAP`)](scumm/smap.md)
+- [Z-Plane Masks (`ZP##`)](scumm/zplane.md)
 - [Room Lighting](scumm/lighting.md)
-- [COST — Costume Format](scumm/cost.md)
-- [Costume animation records](scumm/costume-anim.md)
-- [CHAR — Character Set (Bitmap Font) Format](scumm/char.md)
+- [Room Objects (`OBCD` + `OBIM`)](scumm/objects.md)
 - [Walk Boxes (`BOXD` + `BOXM`)](scumm/walk-boxes.md)
-- [Input, Verbs, and Sentences](scumm/input.md)
-- [Cutscenes, Freezing, and Override](scumm/cutscenes.md)
-- [Screen effects (`roomOps screenEffect`)](scumm/screen-effect.md)
-- [Timing — the jiffy / frame split](scumm/timing.md)
+
+**Actors, costumes & text**
+
+- [Costumes (`COST`)](scumm/cost.md)
+- [Costume Animation](scumm/costume-anim.md)
+- [Bitmap Fonts (`CHAR`)](scumm/char.md)
+
+**Interaction, flow & timing**
+
+- [Input, Verbs & Sentences](scumm/input.md)
+- [Cutscenes, Freezing & Override](scumm/cutscenes.md)
+- [Screen Effects](scumm/screen-effect.md)
+- [Timing — Jiffy vs. Frame](scumm/timing.md)
 
 ## Engine notes
 
-How GrogVM itself is built.
+How GrogVM itself is built on top of the reference above.
 
-- [The Engine Session — Game Loop & Runtime Control](engine/session.md)
+- [Engine Session — Game Loop & Runtime](engine/session.md)
 - [Costume Loading & Decoding](engine/costumes.md)
-- [Pathfinding — SCUMM Box-Graph Routing (BOXM)](engine/pathfinding.md)
-- [ScummVM C++ Source — Direct Exposure Audit](scummvm-cpp-exposure-audit.md)
+- [Pathfinding (Box-Graph Routing)](engine/pathfinding.md)
+- [ScummVM C++ Source — Exposure Audit](scummvm-cpp-exposure-audit.md)
