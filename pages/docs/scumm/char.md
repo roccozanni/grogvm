@@ -139,8 +139,8 @@ the offset table for MI1 charsets and signals the wrong anchor.
 `numChars` is the *table* length, not the count of usable glyphs.
 MI1's 1-bpp dialog font declares `numChars = 256` but populates only
 ~96 entries (printable ASCII plus a handful of extras); the rest are
-sentinel zeros. `GrogVM`'s charset summary reports both numbers
-(`"N populated / M slots"`) so the divergence is obvious.
+sentinel zeros. It's worth reporting both the populated count and the
+slot count, since the divergence is large.
 
 ---
 
@@ -174,9 +174,9 @@ pixel, knitting outlines together cleanly.
 
 Some character codes (typically ASCII control codes 0x01..0x1F) have
 a valid offset pointing to a 4-byte header where `width = 0` or
-`height = 0` — present but blank. `GrogVM`'s decoder returns an
-empty pixel buffer for those rather than throwing, so a string
-containing a stray control byte doesn't break rendering.
+`height = 0` — present but blank. A decoder should return an empty
+pixel buffer for those rather than throwing, so a string containing a
+stray control byte doesn't break rendering.
 
 ### Bit packing — worked example
 
@@ -190,8 +190,8 @@ byte value:                 0xA5
 ```
 
 So a single byte `0xA5` carries the whole glyph; rows do *not*
-re-align to a byte boundary between them. Our `decodeGlyph` reads
-bit-by-bit so the bpp=2 straddle case is handled the same way
+re-align to a byte boundary between them. Reading bit-by-bit (rather
+than byte-aligned per row) handles the bpp=2 straddle case the same way
 naturally.
 
 ---
@@ -213,9 +213,7 @@ meaningful entries are indices `1 .. 2^b − 1`:
 
 The "ink color" the runtime uses is whatever the script writes into
 `colorMap[1]` at runtime (the script sets actor talk colors before
-each dialog burst). `GrogVM`'s player UI exposes a number input
-that overrides slot 1 live, so we can validate the same charset
-rendering correctly in any chosen color.
+each dialog burst).
 
 Slot 0 is always transparent regardless of its value, mirroring the
 COST convention.
@@ -242,8 +240,7 @@ produces the wrong (teal-edged) text.
 
 ## 6. Text layout semantics
 
-Phase 4's renderer implements the simplest plausible single-line
-layout:
+The simplest plausible single-line layout is:
 
 ```
 cursorX, cursorY = 0, 0
@@ -274,10 +271,10 @@ box geometry are downstream concerns.
 A `print` opcode targets one of two channels by its actor id, and they
 coexist on screen:
 
-- **Actor speech** (`activeDialog`, a real actor id) — transient,
-  positioned above the speaker, auto-cleared when the talk timer drains.
-- **System text** (`systemTexts[]`, reserved ids 252–255: signs,
-  narrator, credits, part-titles) — SCUMM *blasts* it onto a single
+- **Actor speech** (a real actor id) — transient, positioned above the
+  speaker, auto-cleared when the talk timer drains.
+- **System text** (reserved ids 252–255: signs, narrator, credits,
+  part-titles) — SCUMM *blasts* it onto a single
   charset region. Its lifetime is SCUMM's **`restoreCharsetBg`**: a
   *transient* (non-keepText) print draws over a region that is restored
   (erased) exactly **once per display cycle**, lazily, just before the
@@ -305,13 +302,12 @@ Two real scenes pin down both halves of this rule:
   restore is what collapses each frame's label onto one and lets the
   hover-out space erase it — exactly the original's behaviour.
 
-Implementation: `Vm.systemTextRestorePending` is armed at the top of each
-game frame (`tick`) and consumed by the first transient `addSystemText` of
-that frame, which drops the prior frame's transient lines (keepText lines
-survive). It's transient — not part of save state; it re-arms every frame.
-System text is also **not** auto-cleared by the talk timer beyond the
-keepText rule below, and is fully erased on a **room change** / empty print
-/ reset.
+Concretely, a "restore pending" flag is armed at the top of each game
+frame and consumed by that frame's first transient print, which drops the
+prior frame's transient lines (keepText lines survive). The flag is
+transient — not part of save state; it re-arms every frame. System text is
+also **not** auto-cleared by the talk timer beyond the keepText rule below,
+and is fully erased on a **room change** / empty print / reset.
 
 ### What's not in the renderer (deliberately)
 
@@ -320,9 +316,9 @@ The SCUMM dialog system reserves a small family of byte values
 click", "play sound id N", "substitute variable N", "set color to
 N". Those are interpreted by the VM as it streams dialog through
 the text renderer; the renderer itself just sees an already-resolved
-string. Phase 4 ignores them — strings containing `0xFF` bytes will
-attempt to look up character `0xFF` in the glyph table and render or
-skip per the result.
+string. A renderer that receives an unresolved string containing `0xFF`
+bytes will attempt to look up character `0xFF` in the glyph table and
+render or skip per the result — these codes must be handled upstream.
 
 ### `@` (0x40) is name padding, not a glyph
 
@@ -331,9 +327,10 @@ later `setObjectName` can overwrite them in place with a longer string (obj
 488's verb-91 rewrites `"@@@@@ pezzi da otto@@@@"` → `"500 pezzi da otto"`).
 SCUMM's printer **skips `@` outright** — and must, because the sentence and
 dialogue fonts (charset id 1 and 2) *do* carry a visible `@` glyph yet the
-game never shows padding clutter. So `measureText`/`renderText` skip code
-0x40 unconditionally rather than leaning on a font that happens to lack the
-glyph. Symptom before the fix: "il pezzo di carne@@@@…" in the sentence line.
+game never shows padding clutter. So text measurement and rendering must
+skip code 0x40 unconditionally rather than leaning on a font that happens to
+lack the glyph — otherwise the padding leaks through, e.g. "il pezzo di
+carne@@@@…" in the sentence line.
 
 ### keepText (`\xff\x02`) vs. the talk timer
 
@@ -344,9 +341,10 @@ persists until an explicit clear (an empty/space `print` at the same anchor)
 or overwrite. Signs, credits, and the layered "Le tre prove!" title use it:
 the credit script (`#152`) prints a credit with `\xff\x02`, holds it with its
 own `delay`, then clears it with `print " "`. Modelling *all* system text as
-permanent left one-shot lines stuck on screen — e.g. the room-28 cook's
-`print a=255 "Non puoi venire di qui!"` (no keepText). `decodeScummStringPages`
-surfaces the flag; `advanceOrEndTalk` drops finished non-keepText system text.
+permanent leaves one-shot lines stuck on screen — e.g. the room-28 cook's
+`print a=255 "Non puoi venire di qui!"` (no keepText). The string decoder must
+surface the keepText flag, and the talk-advance step must drop finished
+non-keepText system text.
 
 ---
 
@@ -408,63 +406,9 @@ In rough order of "what hits you first":
    ASCII control codes 0x01..0x1F are typically present but blank.
    Return an empty bitmap, don't throw.
 7. **A char code that's invalid renders junk** → check for the
-   sentinel offset `0` *before* dereferencing. `glyphPayloadOffset`
-   returns `null` for sentinels and unknown codes.
+   sentinel offset `0` *before* dereferencing; a glyph-offset lookup
+   should return nothing for sentinels and unknown codes.
 8. **Text bounding box is too small on the right** → the cursor
    advances by `width`, but `xOffset` can extend the visible glyph
-   past `cursor + width`. `measureText` tracks the max of `cursor +
+   past `cursor + width`. Text measurement tracks the max of `cursor +
    xOffset + width` and the bare-cursor advance to size the box.
-
----
-
-## 9. Reference implementation
-
-- [`src/engine/graphics/charset.ts`](../src/engine/graphics/charset.ts)
-  — `walkCharsets`, `parseCharHeader`, `glyphPayloadOffset`,
-  `decodeGlyph`, plus the `CHARSET_TRANSPARENT` sentinel.
-- [`src/engine/graphics/text.ts`](../src/engine/graphics/text.ts) —
-  `measureText`, `renderText`. Layout policy lives here; the charset
-  module is decoder-only.
-
-Public surface, in the order a consumer typically calls them:
-
-- `walkCharsets(file) → CharsetEntry[]` — iterate every `CHAR`
-  block, tagged with its LFLF position.
-- `parseCharHeader(payload) → CharsetHeader` — fixed-position
-  fields, including the per-char `glyphOffsets[]`.
-- `glyphPayloadOffset(header, charCode) → number | null` — resolve
-  a char code to its absolute payload byte, or `null` for the
-  sentinel.
-- `decodeGlyph(payload, absOffset, bpp) → DecodedGlyph` — pull the
-  4-byte glyph header + decoded bitmap.
-- `measureText(payload, header, text) → { width, height }` — bound
-  a string without rendering.
-- `renderText(payload, header, text, colorMap) → RenderedText` —
-  produce an indexed pixel buffer.
-
-Unit tests at
-[`src/engine/graphics/charset.test.ts`](../src/engine/graphics/charset.test.ts)
-and
-[`src/engine/graphics/text.test.ts`](../src/engine/graphics/text.test.ts)
-cover the header parser, 1- and 2-bpp glyph decode (including the
-straddle case), the +21 anchor, error paths, and the layout rules
-(advance, newlines, xOffset/yOffset bounds, sentinel handling).
-Real-game correctness is verified through the player UI's charset
-inspector, where every populated glyph is rendered into a grid and
-arbitrary strings render live through the chosen charset's color
-map with an inkable slot-1 override.
-
-Currently **deferred** until a later phase needs them:
-
-- **Dialog escape codes.** `0xFF`-prefixed sequences (wait, sound,
-  variable substitution, runtime colour change) are VM concerns and
-  land alongside the SCUMM bytecode interpreter.
-- **Text-box layout.** Word wrap, multi-line alignment, and the
-  geometry of speech bubbles positioned above actors' heads —
-  downstream concerns once dialog scripting exists.
-- **Typewriter timing.** Per-character reveal animation.
-- **MI2's 2-byte offset shift.** MI2's COST blocks need their
-  offsets shifted by 2 bytes (per
-  [`cost.md`](./cost.md) §6); MI2 charsets may
-  need the same correction. Not yet validated — Phase 4 verified
-  only against MI1.

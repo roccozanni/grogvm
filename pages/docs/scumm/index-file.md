@@ -38,10 +38,13 @@ MI1's `MONKEY.000` carries eight top-level blocks in source order:
 | `DSOU` | Sound directory.                                                        |
 | `DCOS` | Costume directory.                                                      |
 | `DCHR` | Charset directory.                                                      |
-| `DOBJ` | Object table: owner, state, class flags. Phase-deferred.                |
+| `DOBJ` | Object table: initial owner, state, and class flags (own layout).     |
 
-All five `D*` directories share the lane-encoded shape in §3. `DOBJ`
-has a different layout we don't yet decode.
+The five resource directories above share the lane-encoded shape in §3.
+`DOBJ` has its own layout: a `u16` object count, then one packed
+owner/state byte per object (`owner = b & 0x0F`, `state = b >> 4`),
+then one `u32` LE class mask per object — indexed by global object id.
+These seed each object's initial owner / state / class at boot.
 
 ---
 
@@ -220,8 +223,6 @@ land on a `SCRP` tag in `.001`.
 For MI1: **178 of 199** DSCR rows resolve cleanly; the other 21 have
 `room = 0` and are correctly rejected as unused. Anything other than
 "all non-zero-room entries resolve" is a parser bug.
-
-`scratch/inspect-index.ts` carries this verification in script form.
 
 ---
 
