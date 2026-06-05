@@ -40,10 +40,13 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  actorPoint,
   driveToRoom,
   driveTicks,
   driveUntil,
+  hover,
   pickAnswer,
+  pickDialogAnswer,
   use,
   waitIdle,
   walkTo,
@@ -275,7 +278,124 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     expect(vm.haltInfo).toBeNull();
   });
 
+  beat('I · Mêlée Lookout — walk west off the cliff onto the path (38)', () => {
+    // Head west to "lo scoglio" (the cliff, x=0) and commit a Walk-to sentence
+    // on it — its exit script paths ego off-screen and loads the cliff path.
+    use(vm, VERBS.walk, ROOMS.meleeLookout.cliff);
+    expect(driveToRoom(vm, ROOMS.cliffPath.id, { maxTicks: 4000 })).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat('I · Cliff Path — take the path up to the Mêlée map (85)', () => {
+    // "il sentiero" lists verbs [90, 255] but not Walk-to (11); the sentence
+    // falls back to the 0xFF/255 default entry, which runs the exit to the map.
+    driveTicks(vm, 200);
+    use(vm, VERBS.walk, ROOMS.cliffPath.path);
+    expect(driveToRoom(vm, ROOMS.meleeMap.id, { maxTicks: 4000 })).toBe(true);
+    // On the map, control is returned with a verb armed (same shape as the
+    // intro hand-off): the player can now click a destination node.
+    expect(
+      driveUntil(vm, (v) => v.cursor.userput > 0 && [...v.verbs.values()].some((x) => x.state === 'on'), {
+        maxTicks: 2000,
+      }),
+    ).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat('I · Mêlée map — travel to the clearing (52)', () => {
+    // Each map location is a verb-11 node; clicking "la zona disboscata"
+    // walks the on-map figure there and loads the clearing.
+    use(vm, VERBS.walk, ROOMS.meleeMap.clearing);
+    expect(driveToRoom(vm, ROOMS.clearing.id, { maxTicks: 6000 })).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat('I · Clearing — enter the circus tent (51); the brothers start arguing', () => {
+    driveTicks(vm, 200);
+    const ego = vm.vars.readGlobal(VAR_EGO);
+    // WORKAROUND (box-graph-routing debt — see PROGRESS "Pathfinding"). The
+    // long route across the clearing to the tent runs through degenerate
+    // "line" walk-boxes; our grid-A*-over-mask truncates it (ego stalls
+    // partway, and in-browser can even head for the exit). So walk it in short
+    // hops — each completes — exactly as a player does by hand to get close,
+    // then enter. Drop this staging once faithful box-graph routing lands.
+    for (const wp of [{ x: 209, y: 118 }, { x: 120, y: 115 }, { x: 90, y: 92 }]) {
+      walkTo(vm, wp);
+      driveUntil(
+        vm,
+        (v) => {
+          const a = v.actors.get(ego);
+          return Math.abs(a.x - wp.x) <= 6 && Math.abs(a.y - wp.y) <= 8;
+        },
+        { maxTicks: 4000 },
+      );
+    }
+    // Walk-to the tent → the circus interior. Entry auto-starts the brothers'
+    // arguing conversation (local #207) as a (skippable) cutscene.
+    use(vm, VERBS.walk, ROOMS.clearing.circusTent);
+    expect(driveToRoom(vm, ROOMS.circus.id, { maxTicks: 6000 })).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat('I · Circus — break in (ahem) and negotiate the cannonball job', () => {
+    const A = ROOMS.circus.fettuciniAnswers;
+    // The argument plays, then the interrupt menu arms. Break in with "ahem",
+    // then walk the negotiation: ask the pay, accept, claim the helmet. Each
+    // pick is a live verb whose label we capture (build language) to prove the
+    // right option armed; the menus are sequential and separated by speech, so
+    // a recurring id (120) can't cross-match. Last pick takes the cannon-launch
+    // branch and returns control (the brothers ask for the helmet).
+    pickDialogAnswer(vm, A.ahem);
+    pickDialogAnswer(vm, A.howMuchPay);
+    pickDialogAnswer(vm, A.acceptDeal);
+    pickDialogAnswer(vm, A.haveHelmet);
+    // Control handed back in the circus, no lingering dialog menu.
+    expect(
+      driveUntil(vm, (v) => v.cursor.userput > 0 && v.activeDialog === null, { maxTicks: 8000 }),
+    ).toBe(true);
+    expect(vm.loadedRoom?.id).toBe(ROOMS.circus.id);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat('I · Circus — give the pot as a helmet; the cannon gag pays 478 pieces of eight', () => {
+    const ego = vm.vars.readGlobal(VAR_EGO);
+    expect(vm.vars.readGlobal(VARS.money)).toBe(0); // not paid yet
+
+    // The pot is the "helmet". Give it to a brother — a two-object sentence:
+    // pick the Give verb, click the pot in its inventory slot (object A), then
+    // click the brother actor (object B). The inventory lays carried items
+    // into verb slots 200+ in owning order, so resolve the pot's slot from the
+    // live inventory rather than hardcoding a position.
+    let potSlot = -1;
+    const invN = vm.inventoryCount(ego);
+    for (let i = 1; i <= invN; i++) {
+      if (vm.findInventory(ego, i) === ROOMS.kitchen.pot) potSlot = 200 + (i - 1);
+    }
+    expect(potSlot).toBeGreaterThanOrEqual(200);
+
+    waitIdle(vm);
+    vm.handleVerbClick(VERBS.give, 1);
+    driveTicks(vm, 24);
+    vm.handleVerbClick(potSlot, 1); // select the pot (object A) from inventory
+    driveTicks(vm, 24);
+    const bro = actorPoint(vm, ROOMS.circus.brotherActor); // hover the brother (object B)
+    hover(vm, bro.x, bro.y);
+    vm.handleSceneClick(1);
+
+    // Brothers accept it as a helmet and the cannon-launch cutscene plays
+    // through to the post-launch amnesia gag — answer it to reach the payout.
+    pickDialogAnswer(vm, ROOMS.circus.fettuciniAnswers.amnesia, { armTicks: 30000 });
+
+    // "Sta bene!" → the payout: object #488 (pieces of eight) runs its
+    // verb-250 script, adding 478 to the money global.
+    expect(
+      driveUntil(vm, (v) => v.vars.readGlobal(VARS.money) === 478, { maxTicks: 20000 }),
+    ).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
   // ── FRONTIER ──────────────────────────────────────────────────────────
-  // Next: out into Mêlée town for the three trials (sword, thievery,
-  // treasure). (Meat, pot, fish in inventory; trials learned; at the lookout.)
+  // Paid 478 pieces of eight at the Fettucini circus. Next: back to the map
+  // and on to the three trials (sword, thievery, treasure). (Meat + fish still
+  // in inventory; the pot became the cannonball helmet.)
 });

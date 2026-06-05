@@ -43,10 +43,8 @@
  */
 
 import type { Actor } from '../actor/actor';
-import { currentLimbPicture, COSTUME_OFFSET_ADJUST } from '../graphics/costume-anim';
-import { compositeActor, actorFramePlacement } from '../graphics/composite';
+import { compositeActor, prepareActorDraw } from '../graphics/composite';
 import type { LoadedCostume } from '../graphics/costume-loader';
-import { decodeCostumeFrame } from '../graphics/costume-frame';
 import type { LoadedObject } from '../object/loader';
 import type { LoadedRoom } from '../room/loader';
 import type { DecodedZPlane } from '../graphics/zplane';
@@ -244,86 +242,31 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
       continue;
     }
 
-    let drewLimb = false;
-    // Union of every drawn limb's room-space extent — becomes the
-    // actor's hit-test box (mirrors SCUMM's per-actor gfx-usage bits).
-    let bLeft = Infinity, bTop = Infinity, bRight = -Infinity, bBottom = -Infinity;
+    // Resolve the drawable limbs + sprite box from actor + costume state.
+    // The SAME function backs `actorFromPos` hit-testing, so what the player
+    // can click on and what gets painted can never drift apart. SCUMM picks
+    // the anim-driven picture per active limb (or frame 0 in the no-anim init
+    // pose); decode failures on active limbs surface to the inspector.
+    const prep = prepareActorDraw(actor, costume);
     const limbSkipsBefore = skippedLimbs.length;
-    // SCUMM composites the limbs the current anim activated. When the
-    // anim decoder produced at least one active limb, only those draw.
-    // Otherwise (no anim yet, or an anim record we can't decode) we fall
-    // back to a best-effort init pose — frame 0 of every limb — so a
-    // freshly-placed actor still shows its base sprite. In that fallback
-    // a limb whose frame-ptr doesn't decode is expected noise (costumes
-    // park their unused limbs on a shared dummy table), so we bypass it
-    // silently; a decode failure on an *active* limb is a real bug and
-    // is still recorded for the inspector.
-    let anyActive = false;
-    for (const l of actor.anim.limbs) {
-      if (l.active) { anyActive = true; break; }
+    for (const s of prep.skippedLimbs) {
+      skippedLimbs.push({ actorId: actor.id, limbIdx: s.limbIdx, reason: s.reason });
     }
-    // Mirror. West and East share the SAME side-view frames (proven: a
-    // walk's W and E records play the identical picture sequence), so the
-    // engine flips one of them horizontally — this is genuine engine
-    // behaviour, not a compositor shortcut. The costume's `mirrorFlag`
-    // (format bit 0x80) gives the art's native orientation: when clear
-    // (every MI1 costume) the art faces right, so we flip West; when set
-    // the art faces left, so we'd flip East instead. Only the horizontal
-    // facings flip — N/S are front/back views with their own art.
-    //   mirror = horizontal AND (facing-West XOR mirrorFlag)
-    const facing = actor.facing;
-    const horizontal = facing === 'W' || facing === 'E';
-    const mirror = horizontal && ((facing === 'W') !== costume.header.mirrorFlag);
-    for (let limbIdx = 0; limbIdx < costume.header.limbOffsets.length; limbIdx++) {
-      const tableOffset = costume.header.limbOffsets[limbIdx]!;
-      if (tableOffset === 0) continue; // unused limb
-      const limbActive = actor.anim.limbs[limbIdx]?.active ?? false;
-      // When an anim is driving, limbs it doesn't touch don't draw.
-      if (anyActive && !limbActive) continue;
-      // Active limbs resolve their picture through the anim state, which
-      // honours the per-limb "stopped" bit and skips command bytes
-      // (returns -1 = draw nothing). Inactive limbs in the init-pose
-      // fallback read frame 0.
-      let frameIdx: number;
-      if (limbActive) {
-        frameIdx = currentLimbPicture(actor.anim, limbIdx, costume.payload);
-        if (frameIdx < 0) continue;
-      } else {
-        frameIdx = 0;
-      }
-      // Limb image table is read with the v5 −6 base correction.
-      const ptrOffset = tableOffset + COSTUME_OFFSET_ADJUST + frameIdx * 2;
-      if (ptrOffset + 2 > costume.payload.length) {
-        if (limbActive) {
-          skippedLimbs.push({
-            actorId: actor.id,
-            limbIdx,
-            reason: `frame-ptr offset 0x${ptrOffset.toString(16)} past end of costume payload`,
-          });
-        }
-        continue;
-      }
-      const framePtr =
-        costume.payload[ptrOffset]! | (costume.payload[ptrOffset + 1]! << 8);
-      // Sentinels. SCUMM v5 marks an unused limb with a frame ptr
-      // that can't be a real frame: 0x0000 (explicit), 0xFFFF (end
-      // marker), and — common in practice — any value where the
-      // 12-byte header (framePtr − 6 .. framePtr + 5) doesn't fit
-      // inside the payload. MI1's Guybrush costume groups limbs 3..15
-      // under one shared "unused" table whose entries happen to read
-      // as 0xFFDD; treating those as decode failures fills the
-      // inspector skip list with noise. Silently bypass instead.
-      if (
-        framePtr === 0 ||
-        framePtr < 6 ||
-        framePtr + 6 > costume.payload.length
-      ) {
-        continue;
-      }
+    // Z-clip level is per-actor (not per-limb). SCUMM's `_forceClip`
+    // (actorOps neverZclip / alwaysZclip) decides the single z-plane that
+    // masks this actor: alwaysZclip k → ZP0k alone; not-forced → the
+    // NeverClip class (→ 0, in front) or the actor's walk-box mask. This is
+    // why the room-33 ego (mask-1 dock box) passes behind the houses while
+    // the room-38 ego (mask-0 box) stays in front of the wall. clipPlane 0 =
+    // in front of every plane; a merged drawn-object foreground (OR'd into
+    // plane 1) only occludes clipPlane-1 actors.
+    const clipPlane = resolveClipPlane(
+      actor,
+      room.walkBoxes,
+      isNeverClip ? isNeverClip(actor.id) : false,
+    );
+    for (const { limbIdx, frame } of prep.limbs) {
       try {
-        const frame = decodeCostumeFrame(costume.payload, framePtr, {
-          paletteSize: costume.header.paletteSize,
-        });
         compositeActor({
           framebuffer,
           fbWidth: room.width,
@@ -332,58 +275,27 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
           costPalette: costume.header.palette,
           actorX: actor.x,
           actorY: actor.y,
-          mirror,
-          // Z-clip level. SCUMM's `_forceClip` (actorOps neverZclip /
-          // alwaysZclip) decides which single z-plane masks the actor:
-          //   - alwaysZclip k (forceClip>0) → clipPlane = k: masked by
-          //     ZP0k alone. E.g. the Mêlée clouds (alwaysZclip 1) draw
-          //     behind the mountain plane.
-          //   - neverZclip (forceClip 0) and the unset default
-          //     (forceClip < 0) are both "not forced": the level comes
-          //     from the NeverClip class (→ 0, in front) or, failing
-          //     that, the walk box the actor stands in — see
-          //     resolveClipPlane. This is why the room-33 ego (mask-1
-          //     dock box) passes behind the houses while the room-38 ego
-          //     (mask-0 box) stays in front of the wall.
-          // clipPlane 0 = in front of every plane; a merged drawn-object
-          // foreground (OR'd into plane 1) only occludes clipPlane-1 actors.
-          clipPlane: resolveClipPlane(
-            actor,
-            room.walkBoxes,
-            isNeverClip ? isNeverClip(actor.id) : false,
-          ),
+          mirror: prep.mirror,
+          clipPlane,
           zPlanes: actorZPlanes,
-          // Actor scale (0..255, 255 = full). SCUMM scales actors by depth;
-          // the value is set by scripts (actorOps setScale) and, later, by
-          // walk-box scale data.
-          scale: actor.scale,
+          // Actor scale (0..255, 255 = full); SCUMM scales actors by depth.
+          scale: prep.scale,
         });
-        drewLimb = true;
-        // Same scaled extent compositeActor draws into — so hit-testing
-        // matches the sprite's on-screen size.
-        const place = actorFramePlacement(frame, actor.x, actor.y, mirror, actor.scale);
-        if (place.left < bLeft) bLeft = place.left;
-        if (place.top < bTop) bTop = place.top;
-        if (place.left + place.width > bRight) bRight = place.left + place.width;
-        if (place.top + place.height > bBottom) bBottom = place.top + place.height;
       } catch (err) {
-        if (limbActive) {
-          skippedLimbs.push({
-            actorId: actor.id,
-            limbIdx,
-            reason: err instanceof Error ? err.message : String(err),
-          });
-        }
+        skippedLimbs.push({
+          actorId: actor.id,
+          limbIdx,
+          reason: err instanceof Error ? err.message : String(err),
+        });
       }
     }
-    if (drewLimb) {
+    if (prep.bounds) {
       actorsDrawn++;
-      actor.drawBounds = { left: bLeft, top: bTop, right: bRight, bottom: bBottom };
+      actor.drawBounds = prep.bounds;
     } else if (skippedLimbs.length === limbSkipsBefore) {
-      // Iterated every limb, nothing drew and nothing was logged as
-      // a skip — every limb must have hit a sentinel framePtr (or
-      // had a tableOffset of 0 meaning "unused limb"). Worth
-      // surfacing so the user knows the actor was a no-op.
+      // Iterated every limb, nothing drew and nothing was logged as a skip —
+      // every limb must have hit a sentinel framePtr (or a tableOffset of 0,
+      // "unused limb"). Surface it so the user knows the actor was a no-op.
       skippedActors.push({
         actorId: actor.id,
         reason: 'all limbs had no frame data (unused / sentinel framePtr)',

@@ -51,6 +51,23 @@ export function objectPoint(vm: Vm, objId: number): { x: number; y: number } {
   return { x: x * 8 + (width * 8) / 2, y: y * 8 + (height * 8) / 2 };
 }
 
+/**
+ * Center of actor `actorId`'s on-screen sprite box, in room pixels — the
+ * point to hover so the click flow's `actorFromPos` hit-tests this actor
+ * (the actor analog of {@link objectPoint}; rooms target actors, not CDHD
+ * objects, for Talk-to / Give-to-actor). Reads the same box the hit-test
+ * uses, so a hover here is guaranteed to land on the actor. Throws if the
+ * actor isn't on screen (no costume / not in the room / nothing drawn), so
+ * a mistargeted action fails loudly.
+ */
+export function actorPoint(vm: Vm, actorId: number): { x: number; y: number } {
+  const b = vm.actorHitBounds(actorId);
+  if (!b) {
+    throw new Error(`actorPoint: actor ${actorId} is not on screen in room ${vm.currentRoom}`);
+  }
+  return { x: Math.floor((b.left + b.right) / 2), y: Math.floor((b.top + b.bottom) / 2) };
+}
+
 /** Resolve a {@link Target} to a room-pixel point. */
 const pointOf = (vm: Vm, t: Target): { x: number; y: number } =>
   typeof t === 'number' ? objectPoint(vm, t) : t;
@@ -105,4 +122,37 @@ export function use(vm: Vm, verb: number, target: Target): void {
  */
 export function pickAnswer(vm: Vm, answerVerb: number): void {
   vm.handleVerbClick(answerVerb, 1);
+}
+
+/**
+ * Follow a dialog by picking one answer, the way a player walks a conversation
+ * tree: wait for the answer verb to arm, pick it, then wait for the menu to
+ * dismiss before returning.
+ *
+ * Dialog options are live verbs whose `name` is the localized line. This:
+ *   1. waits out any line in progress, then for `answerVerb` to arm (`state ===
+ *      'on'`) within `armTicks` — throwing if it never does, so a mis-sequenced
+ *      dialog fails loudly (like {@link objectPoint} on a bad target);
+ *   2. picks it;
+ *   3. drives until the verb leaves the menu, so a verb id that **recurs across
+ *      consecutive menus** (conversation trees reuse ids) can't match this now-
+ *      stale menu on the caller's next pick.
+ *
+ * Returns the picked option's label (this build's language), so the caller can
+ * assert *what* was selected/said without hardcoding a translation. Game-
+ * agnostic: the caller supplies the answer verb id.
+ */
+export function pickDialogAnswer(
+  vm: Vm,
+  answerVerb: number,
+  { armTicks = 12000, settleTicks = 3000 }: { armTicks?: number; settleTicks?: number } = {},
+): string {
+  waitIdle(vm);
+  if (!driveUntil(vm, (v) => v.verbs.get(answerVerb)?.state === 'on', { maxTicks: armTicks })) {
+    throw new Error(`pickDialogAnswer: dialog option verb ${answerVerb} did not arm within ${armTicks} ticks`);
+  }
+  const name = vm.verbs.get(answerVerb)?.name ?? '';
+  pickAnswer(vm, answerVerb);
+  driveUntil(vm, (v) => v.verbs.get(answerVerb)?.state !== 'on', { maxTicks: settleTicks });
+  return name;
 }

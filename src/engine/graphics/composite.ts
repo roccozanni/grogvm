@@ -26,7 +26,10 @@
  * `ZP02`. See docs/SCUMM-V5-ZPLANE.md §"the drawing rule".
  */
 
-import { COSTUME_FRAME_TRANSPARENT, type DecodedCostumeFrame } from './costume-frame';
+import { COSTUME_FRAME_TRANSPARENT, decodeCostumeFrame, type DecodedCostumeFrame } from './costume-frame';
+import { currentLimbPicture, COSTUME_OFFSET_ADJUST } from './costume-anim';
+import type { LoadedCostume } from './costume-loader';
+import type { Actor } from '../actor/actor';
 import type { DecodedZPlane } from './zplane';
 
 export interface CompositeActorOptions {
@@ -91,6 +94,116 @@ export function actorFramePlacement(
   const left = mirror ? actorX - redirX - width : actorX + redirX;
   const top = actorY + redirY;
   return { left, top, width, height };
+}
+
+/** A limb that will draw this frame: its index and decoded picture. */
+export interface PreparedLimb {
+  readonly limbIdx: number;
+  readonly frame: DecodedCostumeFrame;
+}
+
+/**
+ * Everything needed to draw (and hit-test) an actor for the current frame —
+ * the decoded limbs, the shared mirror/scale, and the unioned sprite box.
+ * {@link prepareActorDraw} resolves it from actor + costume state alone, so
+ * the compositor (which blits the limbs) and a headless hit-test (which only
+ * needs `bounds`) share one source of truth and can never disagree.
+ */
+export interface ActorDrawPrep {
+  readonly mirror: boolean;
+  readonly scale: number;
+  /** Limbs to draw, in limb order, frames decoded. */
+  readonly limbs: readonly PreparedLimb[];
+  /** Active-limb decode failures (a real-bug signal for the inspector). */
+  readonly skippedLimbs: readonly { readonly limbIdx: number; readonly reason: string }[];
+  /**
+   * Union of every drawn limb's room-space extent — the actor's hit-test box
+   * (SCUMM's per-actor gfx-usage bits). `null` when no limb drew.
+   */
+  readonly bounds: { left: number; top: number; right: number; bottom: number } | null;
+}
+
+/**
+ * Resolve an actor's drawable limbs and on-screen extent from its current
+ * costume + anim + position — the geometry the compositor blits and that
+ * `actorFromPos` hit-tests against, with no framebuffer required.
+ *
+ * Mirrors SCUMM's per-frame limb walk: pick the anim-driven picture for each
+ * active limb (or frame 0 in the init-pose fallback when no anim is running),
+ * decode it, and union the scaled placements. Limbs parked on a sentinel /
+ * out-of-range frame pointer are silently bypassed (costumes share a dummy
+ * table for unused limbs); a decode failure on an *active* limb is recorded.
+ */
+export function prepareActorDraw(actor: Actor, costume: LoadedCostume): ActorDrawPrep {
+  // West and East share side-view art; the engine flips one horizontally.
+  // mirror = horizontal AND (facing-West XOR the costume's native orientation).
+  const facing = actor.facing;
+  const horizontal = facing === 'W' || facing === 'E';
+  const mirror = horizontal && (facing === 'W') !== costume.header.mirrorFlag;
+
+  // When an anim has activated any limb, only the active limbs draw; with no
+  // anim yet we fall back to frame 0 of every limb (the base sprite).
+  let anyActive = false;
+  for (const l of actor.anim.limbs) {
+    if (l.active) {
+      anyActive = true;
+      break;
+    }
+  }
+
+  const limbs: PreparedLimb[] = [];
+  const skippedLimbs: { limbIdx: number; reason: string }[] = [];
+  let bLeft = Infinity,
+    bTop = Infinity,
+    bRight = -Infinity,
+    bBottom = -Infinity;
+
+  for (let limbIdx = 0; limbIdx < costume.header.limbOffsets.length; limbIdx++) {
+    const tableOffset = costume.header.limbOffsets[limbIdx]!;
+    if (tableOffset === 0) continue; // unused limb
+    const limbActive = actor.anim.limbs[limbIdx]?.active ?? false;
+    if (anyActive && !limbActive) continue;
+    let frameIdx: number;
+    if (limbActive) {
+      frameIdx = currentLimbPicture(actor.anim, limbIdx, costume.payload);
+      if (frameIdx < 0) continue; // stopped / draw-nothing
+    } else {
+      frameIdx = 0;
+    }
+    // Limb image table is read with the v5 −6 base correction.
+    const ptrOffset = tableOffset + COSTUME_OFFSET_ADJUST + frameIdx * 2;
+    if (ptrOffset + 2 > costume.payload.length) {
+      if (limbActive) {
+        skippedLimbs.push({
+          limbIdx,
+          reason: `frame-ptr offset 0x${ptrOffset.toString(16)} past end of costume payload`,
+        });
+      }
+      continue;
+    }
+    const framePtr = costume.payload[ptrOffset]! | (costume.payload[ptrOffset + 1]! << 8);
+    // Sentinels: 0x0000, anything < 6, or a header that won't fit the payload.
+    if (framePtr === 0 || framePtr < 6 || framePtr + 6 > costume.payload.length) continue;
+    try {
+      const frame = decodeCostumeFrame(costume.payload, framePtr, {
+        paletteSize: costume.header.paletteSize,
+      });
+      limbs.push({ limbIdx, frame });
+      const place = actorFramePlacement(frame, actor.x, actor.y, mirror, actor.scale);
+      if (place.left < bLeft) bLeft = place.left;
+      if (place.top < bTop) bTop = place.top;
+      if (place.left + place.width > bRight) bRight = place.left + place.width;
+      if (place.top + place.height > bBottom) bBottom = place.top + place.height;
+    } catch (err) {
+      if (limbActive) {
+        skippedLimbs.push({ limbIdx, reason: err instanceof Error ? err.message : String(err) });
+      }
+    }
+  }
+
+  const bounds =
+    limbs.length > 0 ? { left: bLeft, top: bTop, right: bRight, bottom: bBottom } : null;
+  return { mirror, scale: actor.scale, limbs, skippedLimbs, bounds };
 }
 
 export function compositeActor(opts: CompositeActorOptions): void {

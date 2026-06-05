@@ -34,6 +34,7 @@
 import { ActorTable, DEFAULT_ACTOR_COUNT } from '../actor/actor';
 import { startWalk, stepAllActorWalks } from '../actor/walk';
 import { stepAnim } from '../graphics/costume-anim';
+import { prepareActorDraw } from '../graphics/composite';
 import { findVerbScript } from '../object/verbs';
 import { buildWalkableMask } from '../pathfinding/mask';
 import type { LoadedCostume } from '../graphics/costume-loader';
@@ -2095,7 +2096,7 @@ export class Vm {
     let hit = 0;
     for (const actor of this.actors.all()) {
       if (actor.room !== this.currentRoom || !actor.visible) continue;
-      const b = actor.drawBounds;
+      const b = this.actorHitBounds(actor.id);
       if (!b) continue;
       // Untouchable = class 32 → bit 31 of the class mask.
       if ((this.objectClasses.get(actor.id) ?? 0) & (1 << 31)) continue;
@@ -2104,6 +2105,23 @@ export class Vm {
       }
     }
     return hit;
+  }
+
+  /**
+   * An actor's on-screen sprite box in room pixels — the rectangle
+   * `actorFromPos` hit-tests against. The compositor stamps `drawBounds`
+   * each painted frame; headless (no render) it's null, so we derive the
+   * same box from the current costume+anim+pos via the shared
+   * {@link prepareActorDraw} — so an actor click resolves identically with
+   * or without a framebuffer. Returns null when the actor has no costume or
+   * nothing would draw.
+   */
+  actorHitBounds(actorId: number): { left: number; top: number; right: number; bottom: number } | null {
+    const actor = this.actors.get(actorId);
+    if (!actor) return null;
+    if (actor.drawBounds) return actor.drawBounds;
+    const costume = actor.costume > 0 ? this.getCostume(actor.costume) : null;
+    return costume ? prepareActorDraw(actor, costume).bounds : null;
   }
 
   /**

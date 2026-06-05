@@ -57,6 +57,12 @@ export const VARS = {
    * internals.
    */
   gullScare: 272,
+  /**
+   * Pieces of eight — the player's money (g195). The Fettucini brothers'
+   * human-cannonball payout adds 478 to it (object #488's verb-250 script:
+   * `g195 += 478` then the coins go to ego). 0 until that payout.
+   */
+  money: 195,
 } as const;
 
 /** Verb ids — global, not owned by any room (same in every build). */
@@ -71,6 +77,8 @@ export const VERBS = {
   pickUp: 9,
   /** "Parla" / Talk to. */
   talk: 10,
+  /** "Dai" / Give — two-object (Give X to <actor>). */
+  give: 4,
 } as const;
 
 /** Per-room ids: each room's number + the objects/scripts that live there. */
@@ -82,6 +90,94 @@ export const ROOMS = {
     poster: { x: 268, y: 104 },
     /** The SCUMM Bar door (exterior side) — walk through it to enter room 28. */
     barDoor: 428,
+    /**
+     * "lo scoglio" (the cliff) — the room's west edge (x=0). A Walk-to
+     * (verb 11) sentence on it runs the cliff's exit script → the cliff path
+     * ({@link ROOMS.cliffPath}, room 38).
+     */
+    cliff: 426,
+  },
+
+  /**
+   * The cliff path between the lookout and the Mêlée map — a short connector
+   * room (steps back down, the path up, a sentry to look at / talk to).
+   */
+  cliffPath: {
+    id: 38,
+    /**
+     * "il sentiero" (the path) — the top exit up to the Mêlée map
+     * ({@link ROOMS.meleeMap}, room 85). Its verb table is [90, 255]: a
+     * Walk-to (verb 11) isn't listed, so it falls back to the 0xFF/255
+     * default entry, which runs the exit. (See `Vm.startVerbScript`.)
+     */
+    path: 487,
+    /** "gli scalini" (the steps) — back down toward the lookout. */
+    steps: 486,
+    /** "la sentinella" (the sentry) — look-at / talk-to; not a gate. */
+    sentry: 489,
+  },
+
+  /**
+   * The Mêlée Island map — the travel hub. Each location is a verb-11 node;
+   * clicking one walks the on-map figure there and loads that area.
+   */
+  meleeMap: {
+    id: 85,
+    /** "la zona disboscata" (the clearing) — the Fettucini brothers' camp. */
+    clearing: 912,
+    /** "l'osservatorio" (the lookout) — back to the lookout area. */
+    lookout: 913,
+    /** "il bivio" (the crossroads) — the town fork. */
+    crossroads: 911,
+  },
+
+  /** The clearing (room 52) — the Fettucini circus camp. */
+  clearing: {
+    id: 52,
+    /** "il tendone del circo" (the circus tent) — Walk-to (verb 11) enters
+     *  the circus interior ({@link ROOMS.circus}, room 51). */
+    circusTent: 621,
+    /** "il sentiero" (the path) — back up to the map. */
+    pathToMap: 622,
+  },
+
+  /**
+   * The Fettucini circus interior (room 51). Entering auto-starts the
+   * brothers' arguing conversation (local script #207); the player breaks in
+   * and negotiates the human-cannonball job, ending in a 478-coin payout.
+   *
+   * Dialog answers are live verbs whose id is `120 + (optionIndex - 1)` within
+   * the *current* menu, so the SAME id (esp. 120) recurs across menus — the
+   * menus are sequential and separated by speech, so pick them in order. Each
+   * verb's `name` is the localized line; we capture it (never hardcode a
+   * translation) to prove the right option armed.
+   */
+  circus: {
+    id: 51,
+    fettuciniAnswers: {
+      /** Menu 1 (the interrupt menu): ". . .ahem. . ." — break into the argument. */
+      ahem: 120,
+      /** Menu 2: "Quanto mi pagherete?" — ask the pay. */
+      howMuchPay: 121,
+      /** Menu 3: "OK, mi sembra buono." — accept the deal. */
+      acceptDeal: 120,
+      /** Menu 4: "Certo che ho un elmetto..." — claim the helmet (the pot we
+       *  took in the kitchen); takes the cannon-launch branch. */
+      haveHelmet: 120,
+      /** Menu 5 (post-launch amnesia gag): "Sono Bobbin. Sei mia madre?" —
+       *  either option leads to the payout. */
+      amnesia: 120,
+    },
+    /**
+     * A Fettucini brother — an ACTOR (id 3; brother 4 stands beside him).
+     * After the helmet answer, control returns and the room's sentence
+     * handler (local #200) waits for the pot to be GIVEN to a brother
+     * (`actorFromPos == 3 or 4` + object 567) — that sets `bit#103` and
+     * fires the cannon launch. Either brother works.
+     */
+    brotherActor: 3,
+    /** "fuori" (outside) — the exit back to the clearing. */
+    exit: 617,
   },
 
   /** The SCUMM Bar interior (entered through the lookout's bar door). */
