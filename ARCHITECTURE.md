@@ -569,6 +569,13 @@ runnable steps. Each phase ends with something we can see/poke at.
 Phases are not commitments — they're the current best guess at a learning
 order. Reorder freely as we discover the territory.
 
+**Update (2026-06-05): forward work is no longer tracked by phase number.** The
+numbered phases above are a historical record (and match the git history), but
+they were built out of order — the unified page model ("Phase 12") shipped
+before Audio and MI2 — which is exactly when the numbering stopped earning its
+keep. What's *ahead* is now just three items, tracked in PROGRESS.md: keep
+playing MI1, **Audio**, and **MI2**. This table stays as the as-built log.
+
 ### Phase 12 — staged migration
 
 Each step is independently shippable: the library/explorer/player keep working

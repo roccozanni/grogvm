@@ -8,11 +8,11 @@ Lean tracker. Three buckets:
   material the end-of-phase doc update is written from. Don't reconstruct doc
   prose from memory later; that's how bad claims get in. A finding stays here
   until it has been written into the right `docs/` file — only then trim it.
-- **Next phases** — one-liners. Broken into tasks only when we start them.
-- **Done** — one or two lines per concluded phase. The durable knowledge lives
-  in `docs/` and the code; git has the blow-by-blow. When a phase concludes,
-  first migrate its findings from Current into the right `docs/` file, *then*
-  shrink the entry here to a line or two.
+- **Next** — the work ahead, as one-liners. Broken into tasks only when we start.
+- **Done** — one or two lines per concluded chunk of work. The durable knowledge
+  lives in `docs/` and the code; git has the blow-by-blow. When something
+  concludes, first migrate its findings from Current into the right `docs/` file,
+  *then* shrink the entry here to a line or two.
 
 ---
 
@@ -217,19 +217,23 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
 
 ---
 
-## Next phases
+## Next
 
-One-liners; broken into tasks when we start them. See ARCHITECTURE.md §9.
+Three items ahead, one of which — keep playing MI1 — is the Current section
+above. We no longer track by phase number; ARCHITECTURE §9 keeps the historical
+phase roadmap (and git matches it).
 
-- **Phase 11 — Audio.** iMUSE + AdLib first; MT-32 and CD redbook later.
-- **Phase 12 — MI2 + polish.**
+- **Audio** — iMUSE + AdLib first; MT-32 and CD redbook later.
+- **MI2** — verify it boots on the same engine; fix the v5-but-slightly-different
+  edge cases.
 
 ---
 
 ## Done
 
-- **Website — unified markdown page model** *(2026-06-05)*. ARCHITECTURE §9
-  Phase 12 (staged migration, stages 1–5). Every page — home, the SCUMM-v5 docs,
+- **Website — unified markdown page model** *(2026-06-05)*. (The page-model
+  migration; ARCHITECTURE §9 records it as "Phase 12", stages 1–5.) Every page —
+  home, the SCUMM-v5 docs,
   and the library/explore/play app screens — is authored as markdown under
   `pages/` (file path = route) and rendered by an owned generator (markdown-it +
   gray-matter + a Vite plugin) into a single `dist/` with path-based routing; no
@@ -239,7 +243,7 @@ One-liners; broken into tasks when we start them. See ARCHITECTURE.md §9.
   `.prose` (so it stays off the app screens), and the play canvas centered. Retro/
   terminal aesthetic throughout. See ARCHITECTURE §8, §9 Phase 12, §11 Q13.
 
-- **Phase 10 — Shell rebuild + EngineSession** *(2026-05-31)*. Rebuilt the shell
+- **Shell rebuild + EngineSession** *(2026-05-31)*. Rebuilt the shell
   around an `EngineSession` seam (engine owns the loop, clock injected →
   Node-testable) with a multi-page static build (`/`, `/explore`, `/play`); split
   the resource browser into a standalone Explorer and rebuilt the Player as a
@@ -252,50 +256,50 @@ One-liners; broken into tasks when we start them. See ARCHITECTURE.md §9.
   pseudo-room fallback, archived-verb render skip, DOBJ seeding + Untouchable
   class). Semantics in OPCODES / OBJECTS / ROOM / ZPLANE / CUTSCENES / INPUT.
 
-- **Phase 9 — Save states** *(2026-05-31)*. Full live-VM snapshot/restore to a
+- **Save states** *(2026-05-31)*. Full live-VM snapshot/restore to a
   versioned JSON blob (typed arrays base64); bytecode/rooms/costumes reload from
   the game files. Per-game localStorage slots + file export/import; the real-MI1
   round-trip is byte-identical. Confirmed in-app.
 
-- **Phase 8 — Polish** *(2026-05-31)*. Closed the gap from "runs without halting"
+- **Polish — first-rooms fidelity** *(2026-05-31)*. Closed the gap from "runs without halting"
   to "behaves like the original" for the first rooms: z-plane occlusion,
   jiffy/frame pacing, the magenta UI palette + sentence-line-as-verb-#100,
   costume-anim head tracking. Remaining cosmetic stubs are in Open backlog above.
 
-- **Phase 7 — Verb UI + input** *(2026-05-30)*. MI1 interactively playable boot →
+- **Verb UI + input** *(2026-05-30)*. MI1 interactively playable boot →
   intro → first room via the original's own scripts (hover poller → verb-input
   script → sentence script; cutscenes; room lighting; inventory-as-verbs). See
   [INPUT](docs/SCUMM-V5-INPUT.md), [CUTSCENES](docs/SCUMM-V5-CUTSCENES.md),
   [BOOT](docs/SCUMM-V5-BOOT.md).
 
-- **Phase 6 — Enough engine to walk** *(2026-05-28)*. 30+ opcodes, room/costume/
+- **Enough engine to walk** *(2026-05-28)*. 30+ opcodes, room/costume/
   object loaders, 13-slot actor table, pathfinding (A* over the walkable mask),
   frame compositor with z-planes, rAF main loop. Boot dispatches 3500+ opcodes
   into the title-screen idle. (Costume-anim decoder was still a known-bad spike
   here; solved in Phase 7 — see [COSTUME-ANIM](docs/SCUMM-V5-COSTUME-ANIM.md).)
 
-- **Phase 5 — VM skeleton** *(2026-05-27)*. SCUMM v5 bytecode interpreter
+- **VM skeleton** *(2026-05-27)*. SCUMM v5 bytecode interpreter
   end-to-end at the structural level: index/LOFF/script loaders, var banks, 25
   cooperative slots, an opcode dispatch table (seed set), halt-as-first-class-state,
   and a VM inspector. See [INDEX](docs/SCUMM-V5-INDEX.md),
   [OPCODES](docs/SCUMM-V5-OPCODES.md).
 
-- **Phase 4 — Text** *(2026-05-26)*. `CHAR` bitmap-font decoder at 1 and 2 bpp +
+- **Text — CHAR fonts** *(2026-05-26)*. `CHAR` bitmap-font decoder at 1 and 2 bpp +
   a string → indexed-buffer renderer; charset inspector. See
   [CHAR](docs/SCUMM-V5-CHAR.md).
 
-- **Phase 3 — Costumes** *(2026-05-26)*. Costume decode end-to-end (sub-palette,
+- **Costumes** *(2026-05-26)*. Costume decode end-to-end (sub-palette,
   image tables, RLE frames) + z-plane occlusion masks + an actor compositor. See
   [COST](docs/SCUMM-V5-COST.md), [ZPLANE](docs/SCUMM-V5-ZPLANE.md).
 
-- **Phase 2 — First pixels** *(2026-05-26)*. Room palette + background bitmap
+- **First pixels** *(2026-05-26)*. Room palette + background bitmap
   decode (full SMAP method dispatch) rendered on Canvas2D with TRNS transparency.
   See [SMAP](docs/SCUMM-V5-SMAP.md).
 
-- **Phase 1 — Resource catalog** *(2026-05-25)*. Parse MONKEY.000/.001:
+- **Resource catalog** *(2026-05-25)*. Parse MONKEY.000/.001:
   XOR-decrypt (key 0x69), recursive block-tree walk, indented tree dump with a
   tag-description catalog.
 
-- **Phase 0 — Scaffold** *(2026-05-25)*. Vite + TS + Vitest; library / install /
+- **Scaffold** *(2026-05-25)*. Vite + TS + Vitest; library / install /
   player screens; game detection; IndexedDB handle persistence; browser-support
   gate.
