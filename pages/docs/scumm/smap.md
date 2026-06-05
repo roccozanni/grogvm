@@ -21,7 +21,7 @@ the correction.
 - ScummVM Technical Reference — Image resources, at
   <https://wiki.scummvm.org/index.php?title=SCUMM/Technical_Reference/Image_resources>.
   Authoritative on block-tree placement (SMAP under `RMIM > IM00`)
-  and the v5/v6 differences we don't yet need.
+  and the v5/v6 differences.
 
 Both sources predate the corrections in §6 and §7 below — they
 describe an inverted Method 2 delta sign and a wrong `paletteBits`
@@ -373,8 +373,7 @@ Island beach, for example). Flipping the sign cleans every such
 artifact and the gradient becomes smooth.
 
 Programmatically, the working dispatch is `color += (d - 4)` for
-`d != 4`, equivalently `color -= (4 - d)`, which is what `GrogVM`'s
-decoder implements.
+`d != 4`, equivalently `color -= (4 - d)`.
 
 ### ⚠️ RLE pixel counting
 
@@ -420,24 +419,3 @@ order of "the symptom you'll see first":
    efficient for that strip's data. MI1 rooms commonly mix Method 1 V,
    Method 1 H, and Method 2 H within the same image.
 
----
-
-## 11. Reference implementation
-
-The accompanying TypeScript implementation lives at
-[`src/engine/graphics/smap.ts`](../src/engine/graphics/smap.ts).
-Public surface:
-
-- `decodeSmap(payload, roomWidth, roomHeight) → Uint8Array` — full
-  decode to a `width × height` palette-indexed bitmap.
-- `getSmapStripMethods(payload, roomWidth) → number[]` — diagnostic
-  helper returning the compression code of each strip without running
-  the full decoder. Used by the player UI to render a per-strip method
-  bar aligned with the canvas above.
-
-Unit tests in
-[`src/engine/graphics/smap.test.ts`](../src/engine/graphics/smap.test.ts)
-cover the dispatch, the uncompressed method, and the error paths
-against handcrafted synthetic fixtures. The compressed methods are
-verified against real game data via the player UI's diagnostic, since
-committing real game assets to a public repo isn't an option.

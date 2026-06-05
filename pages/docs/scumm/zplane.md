@@ -62,9 +62,9 @@ the `IM00` will contain just the `SMAP`.
 The RMIH count is what the engine *allocates* for, not necessarily
 what carries real data. A room can declare two planes but ship a
 `ZP02` whose strips are all empty (see §6 for what "empty" looks like
-on the wire). `GrogVM`'s decoder surfaces both numbers
-(`declaredCount` and the actual `planes.length`); a quick check
-against MI1 data confirms they sometimes diverge — for example MI1
+on the wire). The decoder surfaces both numbers — the declared count
+and the actual number of populated planes; a quick check against MI1
+data confirms they sometimes diverge — for example MI1
 LFLF #6 declares 2 planes but every strip of its `ZP02` is the
 all-zero sentinel encoding, so the plane occludes nothing.
 
@@ -118,10 +118,9 @@ only a single object in the corner of the room) ship with most of its
 strips as 2 bytes of offset table and no body at all, instead of
 paying for 40 strip bodies of "144 zero bytes" runs.
 
-`GrogVM`'s decoder builds a parallel `(number | null)[]` of strip
-starts: `null` is the sentinel and we just skip those entries when
-walking. Body lengths are computed by looking ahead for the next
-non-null entry, falling back to `payload.length` for the last one.
+The decoder builds a parallel list of strip starts where a sentinel
+marks an empty (skipped) strip. Body lengths come from looking ahead to
+the next real entry, falling back to the payload end for the last one.
 
 ---
 
@@ -321,43 +320,12 @@ In rough order of "what hits you first":
 
 ---
 
-## 8. Reference implementation
+## 8. Actor z-depth — `forceClip` (actorOps neverZclip / alwaysZclip)
 
-The accompanying TypeScript implementation lives at
-[`src/engine/graphics/zplane.ts`](../src/engine/graphics/zplane.ts).
-Public surface:
-
-- `decodeZPlanes(file, roomBlock, width, height) → DecodedZPlanes` —
-  walk `RMIM > IM00` for `ZP##` blocks, decode each, return them in
-  source order alongside the RMIH-declared count.
-- `decodeZPlane(payload, width, height) → DecodedZPlane` — decode one
-  block payload to a `width × height` byte mask (1 byte per pixel,
-  `0` = pass-through, `1` = occlude). Exposed publicly so synthetic-
-  fixture tests can call it directly.
-- `parseRmihPlaneCount(payload) → number` — the u16 LE field read from
-  the 2-byte `RMIH` block.
-- `zplaneBit(plane, x, y) → 0 | 1` — O(1) lookup. Out-of-bounds reads
-  return 0 (pass-through).
-
-The actor compositor lives in
-[`src/engine/graphics/composite.ts`](../src/engine/graphics/composite.ts)
-and consumes `DecodedZPlane[]` directly — see that file for the
-"any plane > actorZ" rule in code.
-
-Unit tests in
-[`src/engine/graphics/zplane.test.ts`](../src/engine/graphics/zplane.test.ts)
-cover MSB-first bit layout, literal + run ops in sequence, multi-strip
-side-by-side placement, the offset-0 sentinel, the RMIH parser, the
-bit accessor (including out-of-bounds), and the relevant error paths.
-Real-game correctness is verified through the player UI's per-plane
-overlay toggle.
-
-## Actor z-depth — `forceClip` (actorOps neverZclip / alwaysZclip)
-
-`compositeActor`'s rule is "any plane whose 1-based index > `actorZ` hides
+The compositor's rule is "any plane whose 1-based index > `actorZ` hides
 the pixel." The per-actor `actorZ` comes from the actor's **`forceClip`**
 combined with the **NeverClip class** and the **walk-box mask**. SCUMM's
-resolution order (and ours, in `resolveActorZ`) is:
+resolution order is:
 
 ```
 zbuf = _forceClip != 0 ? _forceClip
@@ -388,7 +356,7 @@ zbuf = _forceClip != 0 ? _forceClip
 > op; without the reset they inherited `forceClip = 1` from a prior occupant and
 > the left brother drew **behind the haystack crate** in ZP01. We set
 > `forceClip = 0` on init (the not-forced sentinel, ≡ the `-1` default for
-> depth). Verified by rendering room 51 (`scratch/crop51.ts`).
+> depth). Verified by rendering room 51.
 
 `alwaysZclip k` → `actorZ = k − 1` so that "plane index > actorZ" makes
 plane `k` (and higher) occlude the actor while planes below `k` don't.
@@ -396,9 +364,8 @@ The **Mêlée-island clouds** (room 10, costume 59) set `alwaysZclip 1`
 (explicit, `forceClip = 1`), so `actorZ = 0` and the single mountain
 z-plane (ZP01) draws over them — the clouds pass *behind* the mountain.
 The LucasArts sparkles stay in front via the NeverClip **class** (their
-`neverZclip` opcode only clears the clip). Verified headlessly
-(`scratch/occlusion-check.ts`): a cloud parked over the mountain peak
-draws 0 pixels where ZP01's mask is set.
+`neverZclip` opcode only clears the clip). Verified headlessly: a cloud
+parked over the mountain peak draws 0 pixels where ZP01's mask is set.
 
 ### Box-mask — the position-derived default clip
 
@@ -422,7 +389,7 @@ mask-1 dock boxes in **room 33** put it behind the houses, while its
 mask-0 box in **room 38** keeps it in front of the wall. Box masks seen
 in MI1: `0`/`1`/`2` (rooms 10/38/33).
 
-The box is resolved with **`findBoxAtOrNearest`**, not a strict
+The box is resolved with a **nearest-box** lookup, not a strict
 point-in-box test: MI1's room-33 dock is built from thin *diagonal line*
 boxes (e.g. box 4, UL==UR and LR==LL) that strictly contain no interior
 point, so a strict lookup returned `null` → front (the old occlusion
@@ -435,28 +402,27 @@ resolve to the nearest *floor* box rather than "none → front".) **Room 51's
 cannon launch is exactly that case:** the airborne actor (actor 11, costume
 40) is set `ignoreBoxes; neverZclip` and flies/falls over the tent pole at
 y≈48; geometric-nearest snapped it to box 7 (mask 1) and ZP01 (the pole)
-masked it, so Guybrush *vanished* instead of arcing in front. Fix:
-`resolveClipPlane` short-circuits an **`ignoreBoxes`** actor to the front
+masked it, so Guybrush *vanished* instead of arcing in front. Fix: the
+clip resolver short-circuits an **`ignoreBoxes`** actor to the front
 (clipPlane 0) — an actor off the box grid isn't assigned a walk box as it
 moves, so it keeps its retained init box (mask 0). An explicit `alwaysZclip`
 still wins above. (A non-`ignoreBoxes` actor standing off all boxes would
 still mis-resolve; track `_walkbox` if a scene shows it.)
 
-The compositor calls `findBoxAt(room.walkBoxes, actor.x, actor.y)` and
-`resolveActorZ` maps the resulting `mask` → `actorZ`. Validated
-headlessly (`scratch/box-clip-check.ts`): a `forceClip`-cleared actor
+The compositor resolves the actor's box from its position and maps the
+box `mask` → `actorZ`. Validated headlessly: a `forceClip`-cleared actor
 parked in any mask-1 box of room 38 draws **0 pixels over the wall mask
 (ZP01)** — occluded behind the wall — while a mask-0 box leaves it in
 front.
 
-**`pointInBox` and the two degenerate-box traps.** Walk boxes are
+**Point-in-box and the two degenerate-box traps.** Walk boxes are
 convex quads (corners UL→UR→LR→LL), so a point is inside when every
 edge cross-product shares a sign. Two MI1 realities break a naive test:
 
 - **SCUMM's invalid box 0.** MI1 ships box 0 with all four corners at
   `(-32000, -32000)` — a reserved "no box" sentinel. Every cross-product
-  reads 0, so a naive sign test claims *every* point and `findBoxAt`
-  would always resolve box 0. We detect the all-collinear case and fall
+  reads 0, so a naive sign test claims *every* point and a naive lookup
+  would always resolve box 0. Detecting the all-collinear case and falling
   back to a corners' bounding-box test, which the `(-32000)` point fails
   for any real room coordinate.
 - **Zero-area line boxes.** Room 38's box 1 is a *horizontal segment*
@@ -485,11 +451,11 @@ occludes z-clipped actors — exactly how the **MI1 title logo** (room 10,
 object #109, a 224×120 image with an 8739-bit z-plane) sits in *front* of
 the drifting cloud actors.
 
-- The object loader decodes the OR of an `IMxx`'s `ZP##` blocks into
-  `ObjectImage.zPlane` (sized to the object's `imhd.width × height`;
+- The object loader decodes the OR of an `IMxx`'s `ZP##` blocks into a
+  single object z-plane mask (sized to the object's `imhd.width × height`;
   width must be a multiple of 8, else skipped).
-- The compositor (`mergeForeground`) ORs each **drawn** object's z-plane
-  into the frontmost plane (index 1) at the object's `imhd.x / y`, then
+- The compositor ORs each **drawn** object's z-plane into the frontmost
+  plane (index 1) at the object's `imhd.x / y`, then
   composites actors against that merged set. So a z-clipped actor
   (`forceClip > 0`, `actorZ = 0`) is hidden behind the title; an
   in-front actor (`neverZclip` / default, `actorZ = effective plane
