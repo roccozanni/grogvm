@@ -7,12 +7,12 @@ Lean tracker. Three buckets:
   exact opcode numbers, semantics, the *why* — because this is the source
   material the end-of-phase doc update is written from. Don't reconstruct doc
   prose from memory later; that's how bad claims get in. A finding stays here
-  until it has been written into the right `docs/` file — only then trim it.
+  until it has been written into the right `pages/docs/` file — only then trim it.
 - **Next** — the work ahead, as one-liners. Broken into tasks only when we start.
 - **Done** — one or two lines per concluded chunk of work. The durable knowledge
-  lives in `docs/` and the code; git has the blow-by-blow. When something
-  concludes, first migrate its findings from Current into the right `docs/` file,
-  *then* shrink the entry here to a line or two.
+  lives in `pages/docs/` and the code; git has the blow-by-blow. When something
+  concludes, first migrate its findings from Current into the right `pages/docs/`
+  file, *then* shrink the entry here to a line or two.
 
 ---
 
@@ -41,7 +41,7 @@ run end-of-session / after a refactor. Design + the testkit pieces it added
 `beat()` guard, headless/from-boot/deterministic rationale) →
 [AGENTS "The harness"](AGENTS.md). Engine finding — *a printing sentence blocks
 the next one* (command mid-speech no-ops; wait for the line to clear) →
-[INPUT §5](docs/SCUMM-V5-INPUT.md). Old `playthrough.test.ts` deleted (its
+[INPUT §5](pages/docs/scumm/input.md). Old `playthrough.test.ts` deleted (its
 mechanics are now the first five beats).
 
 Beats are named `<Part> · <Room> — <what it proves>` (Part = the game's own
@@ -77,7 +77,7 @@ Next: back to the map and the three trials (sword, thievery, treasure).
 click actors for Talk-to / Give-to-actor): `prepareActorDraw` is the shared
 sprite-box source the compositor and `Vm.actorHitBounds` both use, with testkit
 `actorPoint`/`pickDialogAnswer` on top. Dialog answer-verb scheme (`120 +
-optionIndex−1`, g194, per-menu reuse) + give-to-actor → [INPUT §5](docs/SCUMM-V5-INPUT.md);
+optionIndex−1`, g194, per-menu reuse) + give-to-actor → [INPUT §5](pages/docs/scumm/input.md);
 harness helpers → [AGENTS "The harness"](AGENTS.md). **Give X to <actor>**
 (verb 4) now exercised end-to-end.
 
@@ -89,7 +89,7 @@ harness helpers → [AGENTS "The harness"](AGENTS.md). **Give X to <actor>**
   the compositor still draws it behind the foreground table z-plane. So the
   remaining slice is a z-clip/compositor bug, *not* a routing one. Chase the
   cook's resolved clip plane vs. the table band (y≈102–122); see
-  [ZPLANE](docs/SCUMM-V5-ZPLANE.md).
+  [ZPLANE](pages/docs/scumm/zplane.md).
 
 ### Tier-2 divergence checklist
 
@@ -109,7 +109,7 @@ Priority H/M/L = likelihood of biting current/near play × severity.
   object/actor-name, `0x07` string-resource all expand now.
 - [x] **M — actor names not stored** — DONE (7d3754f). `setActorName` (`0x0D`)
   now writes `actor.name`; `vm.objectName` resolves actor-or-object, actor
-  first → [INPUT §6](docs/SCUMM-V5-INPUT.md). Persists across rooms + saves.
+  first → [INPUT §6](pages/docs/scumm/input.md). Persists across rooms + saves.
 - [ ] **L/M — `print` `clipped` line-wrap bound not modelled** (`vm.ts:~524`).
   Long lines may overflow / mis-wrap vs the original's clip-X wrapping.
 - [ ] **L — camera scroll "snap both for now"** (`opcodes/index.ts:~411`) +
@@ -126,7 +126,7 @@ Priority H/M/L = likelihood of biting current/near play × severity.
   `resourceRoutines` (Out of scope — Phase 11).
 
 **Box-graph routing landed this session (2026-06-05)**, replacing
-grid-A*-over-mask — full writeup in [PATHFINDING](docs/PATHFINDING.md) (incl.
+grid-A*-over-mask — full writeup in [PATHFINDING](pages/docs/engine/pathfinding.md) (incl.
 the room-52 high/low guard §7 and the deferred line-following-walker follow-up
 §9). User-confirmed in-browser. Remaining open item is the room-28 cook z-clip
 (above) — compositor, not routing.
@@ -135,10 +135,10 @@ the room-52 high/low guard §7 and the deferred line-following-walker follow-up
 
 - Unimplemented opcodes → an unknown-opcode halt freezes the *whole* VM.
 - Object states beyond the initial `DOBJ` seed (only initial owner/state/class
-  is parsed). See [OBJECTS §7a](docs/SCUMM-V5-OBJECTS.md).
+  is parsed). See [OBJECTS §7a](pages/docs/scumm/objects.md).
 - `saveRestoreVerbs`: we render-skip archived verbs (a subset of SCUMM's
   per-verb `saveid` model); revisit if a scene re-creates a saved verb id.
-  See [INPUT §6](docs/SCUMM-V5-INPUT.md).
+  See [INPUT §6](pages/docs/scumm/input.md).
 
 **Tooling:** `scratch/dis.ts` (+ `SCAN grep=`) is the disassembler CLI — keep it
 in sync with the executing opcode table (AGENTS.md).
@@ -153,7 +153,7 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
   preposition + faithful #100 sentence line all confirmed. **Give X to
   <actor>** (verb 4) — *now done too* (Fettucini circus: give the pot to a
   brother actor). Needed headless actor hit-testing (`prepareActorDraw` /
-  `Vm.actorHitBounds` / testkit `actorPoint`) — see Current. [INPUT §5](docs/SCUMM-V5-INPUT.md).
+  `Vm.actorHitBounds` / testkit `actorPoint`) — see Current. [INPUT §5](pages/docs/scumm/input.md).
 - **Inventory scroll arrows** (verbs 208/209) for >8 items — needs a full
   inventory to exercise.
 
@@ -170,14 +170,14 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
   copy-protection wheel) — not speculatively. Option 1 is a clean subset of it.
 - **Compositor honours `VAR_CURRENT_LIGHTS`** — darken a night room via the
   lights flag, not only a dark palette (may be subtle; night rooms already ship
-  dark palettes — check it's visible first). [LIGHTING §4](docs/SCUMM-V5-LIGHTING.md).
+  dark palettes — check it's visible first). [LIGHTING §4](pages/docs/scumm/lighting.md).
 - **`screenEffect` transition animation** — state is modelled; the
   dissolve/scroll/instant *animation* is deferred (intro is all instant cuts).
-  [SCREEN-EFFECT](docs/SCUMM-V5-SCREEN-EFFECT.md).
+  [SCREEN-EFFECT](pages/docs/scumm/screen-effect.md).
 - **Palette cycling (`CYCL`) not animated** — the room's `CYCL` block is
   catalogued but the engine doesn't cycle the palette ranges, so animated
   palette effects (water shimmer, etc.) are static. No intro-path room depends
-  on it; wire it when a scene surfaces. [ROOM](docs/SCUMM-V5-ROOM.md).
+  on it; wire it when a scene surfaces. [ROOM](pages/docs/scumm/room.md).
 - **Smooth `panCameraTo`** — snaps today; no intro-reachable scene uses it, so
   the pan rate has no validation target. Wire it when a scene surfaces.
 - **Costume head-limb facing — remaining edges.** The head limb is re-pointed on
@@ -187,12 +187,12 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
   change when a scene surfaces it. Two scene-specific symptoms noted earlier and
   **not since re-confirmed** (verify before chasing): a room-33 cliff N/S facing
   flip-flop (likely a walk direction-picker issue, separate from the head) and a
-  room-38 entry head-loss transient. See [COSTUME-ANIM](docs/SCUMM-V5-COSTUME-ANIM.md).
+  room-38 entry head-loss transient. See [COSTUME-ANIM](pages/docs/scumm/costume-anim.md).
 
 **Pathfinding**
 
 - **Box-graph routing — DONE (2026-06-05).** BOXM-driven box-to-box routing
-  replaced grid-A*-over-mask; see Current + [PATHFINDING](docs/PATHFINDING.md).
+  replaced grid-A*-over-mask; see Current + [PATHFINDING](pages/docs/engine/pathfinding.md).
 - **Line-following walker (`calcMovementFactor`) + walk-box-as-state — the
   faithful follow-up, deferred.** `stepWalk` steps X/Y independently; SCUMM
   moves along the line, and tracks the actor's box as walk state (`_walkbox`)
@@ -201,7 +201,7 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
   — the room-52 single-click bridge crossing is the live symptom (staged in the
   walkthrough). Touches every walk + the stepWalk unit tests (which encode the
   current independent-step behaviour) → re-verify intro/bar/kitchen + render.
-  [PATHFINDING §9](docs/PATHFINDING.md).
+  [PATHFINDING §9](pages/docs/engine/pathfinding.md).
 
 **Stubbed opcodes (cosmetic / peripheral)**
 
@@ -245,6 +245,17 @@ phase roadmap (and git matches it).
 
 ## Done
 
+- **Documentation — reference/engine split + facts-only pass** *(2026-06-05)*.
+  Reorganised `pages/docs/` into a public SCUMM v5 reference (`scumm/`) and
+  engine notes (`engine/`); rewrote the engine-session task contract and the
+  costume-anim session journal into standing docs; scrubbed every doc of phase
+  references, fragile code/line/function pointers, and stale implementation
+  status — verifying each "we do/defer X" claim against the code first
+  (corrected DOBJ, object verb dispatch, BOXM decoding, freezeScripts, DCOS).
+  Durable engine facts moved to `engine/`; open limitations (MI2 `COST` shift,
+  `CYCL` cycling, head-limb facing) moved here. Doc-authoring conventions are
+  now in [AGENTS "Documentation"](AGENTS.md).
+
 - **Website — unified markdown page model** *(2026-06-05)*. (The page-model
   migration; ARCHITECTURE §9 records it as "Phase 12", stages 1–5.) Every page —
   home, the SCUMM-v5 docs,
@@ -262,7 +273,7 @@ phase roadmap (and git matches it).
   Node-testable) with a multi-page static build (`/`, `/explore`, `/play`); split
   the resource browser into a standalone Explorer and rebuilt the Player as a
   camera-driven canvas + always-on Debug panel; deleted both shell god-objects.
-  See [ENGINE-SESSION](docs/ENGINE-SESSION.md) + ARCHITECTURE.md §4/§7.
+  See [ENGINE-SESSION](pages/docs/engine/session.md) + ARCHITECTURE.md §4/§7.
   Engine composition + natural-play fixes landed alongside (sessions 8–11, all
   engine-faithful, user-confirmed): actor + box/`SCAL` scaling, ego box-mask
   z-occlusion, camera-follow ordering, and the SCUMM-Bar / pirate-dialog blocker
@@ -283,32 +294,32 @@ phase roadmap (and git matches it).
 - **Verb UI + input** *(2026-05-30)*. MI1 interactively playable boot →
   intro → first room via the original's own scripts (hover poller → verb-input
   script → sentence script; cutscenes; room lighting; inventory-as-verbs). See
-  [INPUT](docs/SCUMM-V5-INPUT.md), [CUTSCENES](docs/SCUMM-V5-CUTSCENES.md),
-  [BOOT](docs/SCUMM-V5-BOOT.md).
+  [INPUT](pages/docs/scumm/input.md), [CUTSCENES](pages/docs/scumm/cutscenes.md),
+  [BOOT](pages/docs/scumm/boot.md).
 
 - **Enough engine to walk** *(2026-05-28)*. 30+ opcodes, room/costume/
   object loaders, 13-slot actor table, pathfinding (A* over the walkable mask),
   frame compositor with z-planes, rAF main loop. Boot dispatches 3500+ opcodes
   into the title-screen idle. (Costume-anim decoder was still a known-bad spike
-  here; solved in Phase 7 — see [COSTUME-ANIM](docs/SCUMM-V5-COSTUME-ANIM.md).)
+  here; solved in Phase 7 — see [COSTUME-ANIM](pages/docs/scumm/costume-anim.md).)
 
 - **VM skeleton** *(2026-05-27)*. SCUMM v5 bytecode interpreter
   end-to-end at the structural level: index/LOFF/script loaders, var banks, 25
   cooperative slots, an opcode dispatch table (seed set), halt-as-first-class-state,
-  and a VM inspector. See [INDEX](docs/SCUMM-V5-INDEX.md),
-  [OPCODES](docs/SCUMM-V5-OPCODES.md).
+  and a VM inspector. See [INDEX](pages/docs/scumm/index-file.md),
+  [OPCODES](pages/docs/scumm/opcodes.md).
 
 - **Text — CHAR fonts** *(2026-05-26)*. `CHAR` bitmap-font decoder at 1 and 2 bpp +
   a string → indexed-buffer renderer; charset inspector. See
-  [CHAR](docs/SCUMM-V5-CHAR.md).
+  [CHAR](pages/docs/scumm/char.md).
 
 - **Costumes** *(2026-05-26)*. Costume decode end-to-end (sub-palette,
   image tables, RLE frames) + z-plane occlusion masks + an actor compositor. See
-  [COST](docs/SCUMM-V5-COST.md), [ZPLANE](docs/SCUMM-V5-ZPLANE.md).
+  [COST](pages/docs/scumm/cost.md), [ZPLANE](pages/docs/scumm/zplane.md).
 
 - **First pixels** *(2026-05-26)*. Room palette + background bitmap
   decode (full SMAP method dispatch) rendered on Canvas2D with TRNS transparency.
-  See [SMAP](docs/SCUMM-V5-SMAP.md).
+  See [SMAP](pages/docs/scumm/smap.md).
 
 - **Resource catalog** *(2026-05-25)*. Parse MONKEY.000/.001:
   XOR-decrypt (key 0x69), recursive block-tree walk, indented tree dump with a

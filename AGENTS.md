@@ -76,14 +76,53 @@ if violated:
   non-obvious *why*: hidden constraints, surprising invariants,
   corrections to public-format-notes (see `smap.ts`).
 
+## Documentation
+
+`pages/docs/` is the durable knowledge base **and a public website**. Two
+halves, kept separate:
+
+- **`scumm/`** — reverse-engineered reference for the SCUMM v5 engine and its
+  file formats. What the *original* does.
+- **`engine/`** — how GrogVM itself is built (the session/game-loop, costume
+  loading, pathfinding). What *we* do.
+
+Because the docs are public and double as the project's memory, hold to these
+rules when writing or editing them:
+
+- **Facts, not theories or journals.** Settled conclusions only — root cause,
+  format layout, the *why*. Never the failed hypotheses, dead ends, or
+  blow-by-blow of getting there (git keeps that). No "BREAKTHROUGH/REVERTED"
+  narration.
+- **No phases or temporary state.** No "Phase 6", "deferred until", "not yet
+  wired". The docs describe what *is*, timelessly.
+- **No fragile code pointers.** No `src/...` paths, function/symbol names, line
+  numbers, or `scratch/` scripts — they rot on the first refactor. SCUMM's own
+  opcode/routine names (`adjustXYToBeInBox`, `o5_drawObject`) are fine as
+  reference; a few coarse engine references are OK, but never point at specific
+  code locations.
+- **Verify "we do/defer X" against the code before writing it.** These claims
+  go stale silently — this session found five already false (DOBJ, object verb
+  dispatch, BOXM decoding, freezeScripts, DCOS). Recording a stale limitation
+  is worse than omitting it.
+- **Route findings by kind.** A SCUMM format/behaviour fact → `scumm/<doc>.md`;
+  a durable engine-implementation fact → `engine/<doc>.md`; an **open
+  limitation or bug → PROGRESS.md, never the docs.** Don't let a fact evaporate
+  in the gap between the two doc folders.
+- **Index titles** (`pages/docs/index.md`): descriptive Title-Case name with
+  the on-disk resource in parens where one applies — `Background Bitmaps
+  (`SMAP`)`, pairs joined ` + ` — and no tag for behaviour/subsystem docs that
+  map to no single block.
+
 ## Project structure
 
 ```
 ARCHITECTURE.md           overall design
 PROGRESS.md               phase tracker, current state
 README.md                 human-facing intro
-docs/
-  SCUMM-V5-SMAP.md        SMAP format reference
+pages/docs/               public documentation (file path = route); see ## Documentation
+  scumm/                  SCUMM v5 reference — file formats + original-engine behaviour
+  engine/                 how GrogVM itself is built (session, costumes, pathfinding)
+  index.md                docs landing page
 src/
   main.ts                 shell entry
   shell/                  host UI: library, install, player
@@ -157,7 +196,7 @@ bookkeeping) instead of re-deriving the boot boilerplate. Two layers:
     derive their hover point from the CDHD hit-box center (`objectPoint`);
     **actor** targets (Talk-to / Give-to-actor) from the sprite-box center
     (`actorPoint` → `Vm.actorHitBounds`, which works headless via
-    `prepareActorDraw` — see [INPUT §5](docs/SCUMM-V5-INPUT.md)), so the suite
+    `prepareActorDraw` — see [INPUT §5](pages/docs/scumm/input.md)), so the suite
     stays coord-free. `pickDialogAnswer(vm, verbId)` walks a conversation tree
     (wait-arm → pick → wait-dismiss; throws if the option never arms), since
     dialog answers are verbs whose ids recur per menu. The caller supplies the
@@ -237,7 +276,7 @@ freeze) that otherwise costs hours to localize.
   offset internally. Symptom of wrong handling: compression codes
   look like 255, 0, 247, … instead of the expected bands.
 - **SMAP Method 2 delta sign is inverted** vs. documented notes. The
-  working dispatch is `color -= (4 - d)`. See `docs/SCUMM-V5-SMAP.md`
+  working dispatch is `color -= (4 - d)`. See `pages/docs/scumm/smap.md`
   §9.
 - **SMAP paletteBits subtract for `0x54..0x58` is `0x50`** (not
   `0x51`). All Method 2 subtracts step by 20: `0x3C, 0x50, 0x64,
@@ -268,8 +307,8 @@ freeze) that otherwise costs hours to localize.
 6. When the user says "commit", move the phase to **Done** in
    PROGRESS.md with the full task checklist ticked, plus a notes
    section documenting design decisions and any new gotchas. Then
-   commit, with `Co-Authored-By: Claude Opus 4.7 (1M context)
-   <noreply@anthropic.com>` in the trailer.
+   commit. Do **not** add a `Co-Authored-By` / "Generated with Claude"
+   trailer — commit messages carry no assistant attribution.
 
 ## When asked to wrap a session
 
@@ -280,10 +319,14 @@ summary in chat. Do this before stopping:
 1. Re-read the notes added to **Current** this session.
 2. Extract only the **facts** — settled conclusions (root cause, opcode
    semantics, the *why*), never the failed hypotheses, dead ends, or the
-   blow-by-blow of getting there — and write them into the appropriate
-   `docs/SCUMM-V5-*.md` file. That is the durable knowledge base; git keeps
-   the blow-by-blow, so it never belongs in docs or PROGRESS.
-3. Once a finding lives in `docs/`, condense its PROGRESS.md note to **1–2
+   blow-by-blow of getting there — and write them into the right doc, routed
+   by kind (see ## Documentation): a SCUMM format/behaviour fact →
+   `pages/docs/scumm/<doc>.md`, a durable engine-implementation fact →
+   `pages/docs/engine/<doc>.md`, an open limitation/bug → it stays in
+   PROGRESS. Git keeps the blow-by-blow, so it never belongs in docs.
+   Follow the ## Documentation rules (facts-only, no phases, no fragile code
+   pointers) — and verify any "we do/defer X" claim against the code first.
+3. Once a finding lives in a doc, condense its PROGRESS.md note to **1–2
    sentences max** — a pointer + the `[DOC §N]` link, like the existing
    "Migrated to [ROOM §6]" entries — so **Current** stays lean and free of
    clutter.

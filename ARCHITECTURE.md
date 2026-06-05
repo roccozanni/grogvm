@@ -460,7 +460,7 @@ visible; see the project memory note).
 Every page — home, the reference docs, and the app screens alike — is
 **authored as markdown under `pages/`**, and its **file path is its route**
 (`pages/index.md` → `/`, `pages/library.md` → `/library/`,
-`pages/docs/scumm-v5-room.md` → `/docs/scumm-v5-room/`). A build-time generator
+`pages/docs/scumm/room.md` → `/docs/scumm/room/`). A build-time generator
 renders each `.md` to a static HTML page wrapped in the shared site layout. A
 page becomes an **app page** purely by declaring an island in its frontmatter
 (`script:`), which the generator injects as a module script that Vite then

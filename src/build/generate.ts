@@ -6,8 +6,8 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative, resolve, dirname } from 'node:path';
 
 export interface Page {
-  slug: string; //   'scumm-v5-room'
-  route: string; //  '/', '/library/', '/docs/scumm-v5-room/'
+  slug: string; //   'room'
+  route: string; //  '/', '/library/', '/docs/scumm/room/'
   title: string;
   island: string | null; // frontmatter `script` (e.g. 'app/library') → app page; else content
   file: string; //   absolute source path

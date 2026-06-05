@@ -5,7 +5,7 @@ import { writeAppPages, appPageInputs } from './src/build/app-pages';
 
 // One page model (ARCHITECTURE.md §8, §11 Q13): every page is markdown under
 // `pages/`, and its file path is its URL (`pages/index.md` → `/`,
-// `pages/docs/scumm-v5-room.md` → `/docs/scumm-v5-room/`). Pages with a
+// `pages/docs/scumm/room.md` → `/docs/scumm/room/`). Pages with a
 // `script:` are *app* pages — the generator stages a real HTML entry + entry.ts
 // under `.generated/` (gitignored) so Vite bundles the island; pages without one
 // are static content emitted by `contentPlugin`. Both land in a single `dist/`

@@ -79,13 +79,14 @@ in-memory implementation for assertion.
   layering, and the guiding principles the codebase tries to follow.
 - **[PROGRESS.md](PROGRESS.md)** — what's done, what's planned for the
   active phase, and the one-line summary of every future phase.
-- **`docs/`** — self-contained format references for every binary
-  format GrogVM has cracked open:
-  [SMAP](docs/SCUMM-V5-SMAP.md) (room backgrounds),
-  [COST](docs/SCUMM-V5-COST.md) (costumes),
-  [ZPLANE](docs/SCUMM-V5-ZPLANE.md) (occlusion masks),
-  [CHAR](docs/SCUMM-V5-CHAR.md) (bitmap fonts),
-  [INDEX](docs/SCUMM-V5-INDEX.md) (`.000` directory layout + LOFF).
+- **[`pages/docs/`](pages/docs/index.md)** — self-contained references
+  for every binary format GrogVM has cracked open:
+  [SMAP](pages/docs/scumm/smap.md) (room backgrounds),
+  [COST](pages/docs/scumm/cost.md) (costumes),
+  [ZPLANE](pages/docs/scumm/zplane.md) (occlusion masks),
+  [CHAR](pages/docs/scumm/char.md) (bitmap fonts),
+  [INDEX](pages/docs/scumm/index-file.md) (`.000` directory layout + LOFF),
+  plus engine notes under [`engine/`](pages/docs/engine/session.md).
   Each documents the corrections GrogVM needed to make over the
   long-circulating reverse-engineering notes.
 
