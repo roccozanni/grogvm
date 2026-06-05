@@ -6,7 +6,7 @@ has had — `~/.claude/projects/<…>-webscumm` and
 as **one project**, ≈30 `.jsonl` files + subagent logs).
 
 **Question answered:** Where did Claude have *direct exposure to actual ScummVM (or other
-emulator) C++ source code* — either pulled via a tool or pasted by you? Documentation, wiki
+emulator) C++ source code* — either pulled via a tool or pasted by the user? Documentation, wiki
 prose, format specs, pseudocode, ASCII tables, and the project's own TypeScript are **not**
 counted.
 
@@ -21,9 +21,9 @@ judged by hand.
   name. No new C++ exposure appears in any post-rename (`grogvm`) session.
 - **No local `.cpp`/`.h` file was ever `Read` or `cat`-ed** in any session.
 - Two mechanisms only: **(1) one session's `WebFetch` of `raw.githubusercontent.com/scummvm/…`**,
-  and **(2) two sessions where you pasted snippets yourself**.
+  and **(2) two sessions where the user pasted snippets**.
 - The session that fetched source (`ecc31fd3`) is the one whose feedback created the
-  `feedback-no-scummvm-source` memory; you interrupted ("Stop") the moment verbatim code came
+  `feedback-no-scummvm-source` memory; the user interrupted ("Stop") the moment verbatim code came
   back.
 
 ---
@@ -38,7 +38,7 @@ This is the session that established the "don't copy ScummVM source" policy.
 |---|---|---|---|---|---|
 | 1 | 2026-05-27T17:11:43 | **WebFetch** (tool_use) | `engines/scumm/script_v5.cpp` | prompt: *"Extract the C++ source for these specific opcode handlers"* | fetch issued |
 | 2 | 2026-05-27T17:12:16 | **WebFetch result** (tool_result) | `ScummEngine_v5::o5_isLess` (0x44), `o5_isGreater` (0x78), `o5_isLessEqual` (0x38, incl. ScummVM `WORKAROUND` comments), `o5_isGreaterEqual` (0x04), `o5_isEqual` (0x48), … | **VERBATIM C++ function bodies** in ```` ```cpp ```` blocks | **Full direct exposure** |
-| 3 | 2026-05-27T17:12:47 | your message | — | **"Stop"** (interrupted) | you halted use |
+| 3 | 2026-05-27T17:12:47 | the user's message | — | **"Stop"** (interrupted) | the user halted use |
 | 4 | 2026-05-28T12:53:24 | **WebFetch** (tool_use) | `engines/scumm/costume.cpp` | prompt explicitly: *"describe in PROSE … do not paste code blocks longer than 5 lines"* | fetch issued |
 | 5 | 2026-05-28T12:53:34 | WebFetch result | `ClassicCostumeLoader::costumeDecodeData` | prose only; model said source "does not contain sufficient detail" | prose, ~no verbatim |
 | 6 | 2026-05-28T12:54:11 | **WebFetch** (tool_use) | `engines/scumm/costume.cpp` (again) | prompt: describe `costumeDecodeData` logic in plain English | fetch issued |
@@ -52,7 +52,7 @@ with the given prompt, so the result is whatever that model chose to emit. For `
 bodies. For the three `costume.cpp` fetches the prompts deliberately asked for prose-only, so
 only short fragments/identifiers/one signature surfaced.
 
-**How it was used:** Immediately after the verbatim opcode bodies arrived (item 2) you issued
+**How it was used:** Immediately after the verbatim opcode bodies arrived (item 2) the user issued
 "Stop" (item 3). The `costume.cpp` prose was used to reason about the COST anim-record byte
 layout. This session's pushback is recorded as the
 `feedback-no-scummvm-source` memory (`originSessionId: ecc31fd3…`).
@@ -61,14 +61,14 @@ layout. This session's pushback is recorded as the
 
 | # | Timestamp (UTC) | Channel | Source / functions | What was provided | How used |
 |---|---|---|---|---|---|
-| 1 | 2026-05-30T09:46:15 | **Your paste** (user message) | `ScummEngine_v2::o2_cutscene()`, `o2_endCutscene()`, `o2_cursorCommand()` | **Full verbatim C++ function bodies.** Preamble: *"This is all I could find. Mind that I'm not sure they all belong to v5, you'll need to derive it empirically."* | Used to derive cutscene / cursor-command opcode semantics for the TS reimplementation |
+| 1 | 2026-05-30T09:46:15 | **User paste** (user message) | `ScummEngine_v2::o2_cutscene()`, `o2_endCutscene()`, `o2_cursorCommand()` | **Full verbatim C++ function bodies.** Preamble: *"This is all I could find. Mind that I'm not sure they all belong to v5, you'll need to derive it empirically."* | Used to derive cutscene / cursor-command opcode semantics for the TS reimplementation |
 
 ### A3 — session `5eee9037-b879-463a-95cd-878685d1a8a5`
 
 | # | Timestamp (UTC) | Channel | Source / functions | What was provided | How used |
 |---|---|---|---|---|---|
-| 1 | 2026-05-30T13:47:15 | **Your paste** (user message) | `ClassicCostumeLoader::costumeDecodeData(Actor *a, int frame, uint usemask)` | **Full verbatim C++ body.** Preamble: *"Access to code only happens through me and it's the last resort. You cannot copy it verbatim but you can use it for understanding. I'm going to find a way to release this under a compatible license."* | Claude replied *"I won't reproduce the code — just the semantics I'm deriving"* and restated the algorithm (16-bit LE limb mask, per-limb frameIndex + extra byte) in its own words |
-| 2 | 2026-05-30T13:52:08 | **Your paste** (queued user message) | `ClassicCostumeLoader::loadCostume(int id)` | **Full verbatim C++ body** (`byte *ptr = _vm->getResourceAddress(rtCostume, id)` …) | Used to correct the costume-loading / format-byte logic in the TS engine |
+| 1 | 2026-05-30T13:47:15 | **User paste** (user message) | `ClassicCostumeLoader::costumeDecodeData(Actor *a, int frame, uint usemask)` | **Full verbatim C++ body.** Preamble: *"Access to code only happens through me and it's the last resort. You cannot copy it verbatim but you can use it for understanding. I'm going to find a way to release this under a compatible license."* | Claude replied *"I won't reproduce the code — just the semantics I'm deriving"* and restated the algorithm (16-bit LE limb mask, per-limb frameIndex + extra byte) in its own words |
+| 2 | 2026-05-30T13:52:08 | **User paste** (queued user message) | `ClassicCostumeLoader::loadCostume(int id)` | **Full verbatim C++ body** (`byte *ptr = _vm->getResourceAddress(rtCostume, id)` …) | Used to correct the costume-loading / format-byte logic in the TS engine |
 
 ---
 
@@ -92,7 +92,7 @@ output. **No local `.cpp/.h` file was ever opened** in any session.
 |---|---|---|---|
 | `ecc31fd3` | Claude `WebFetch` | `script_v5.cpp` | **Yes** — full opcode-handler bodies |
 | `ecc31fd3` | Claude `WebFetch` ×3 | `costume.cpp` | Fragments only (prose-constrained prompts) |
-| `496f1c96` | Your paste | `script_v2.cpp` (`o2_cutscene`, `o2_endCutscene`, `o2_cursorCommand`) | **Yes** — full bodies |
-| `5eee9037` | Your paste | `costume.cpp` (`costumeDecodeData`, `loadCostume`) | **Yes** — full bodies |
+| `496f1c96` | User paste | `script_v2.cpp` (`o2_cutscene`, `o2_endCutscene`, `o2_cursorCommand`) | **Yes** — full bodies |
+| `5eee9037` | User paste | `costume.cpp` (`costumeDecodeData`, `loadCostume`) | **Yes** — full bodies |
 
-*Generated 2026-06-03. Function/file names and timestamps are taken directly from the JSONL transcripts; actual source text is intentionally omitted from this report.*
+*Function/file names and timestamps are taken directly from the JSONL transcripts; actual source text is intentionally omitted from this report.*
