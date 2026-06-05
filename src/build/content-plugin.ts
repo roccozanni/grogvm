@@ -3,11 +3,13 @@
 // middleware in dev, emitted into dist/ in build. App pages (with `script:`)
 // are bundled by Vite from the staging root (see app-pages.ts) — this plugin
 // only re-stages them on dev edits. The two producers write disjoint routes.
+// This plugin also owns the site-wide static files: /site.css, /favicon.svg,
+// /robots.txt, /sitemap.xml, and the build-time 404.html.
 import type { Plugin } from 'vite';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { loadPages, renderBody, routeToOutputPath, type Page } from './generate';
-import { renderDocument } from '../site/layout';
+import { renderDocument, SITE_URL } from '../site/layout';
 import { writeAppPages } from './app-pages';
 
 export interface ContentPluginOptions {
@@ -23,10 +25,42 @@ export function contentPlugin({ pagesDir, siteCssPath, stagingRoot }: ContentPlu
   const contentPages = (): Page[] => loadPages(pagesDir).filter((p) => p.island === null);
 
   const siteCss = (): string => readFileSync(siteCssPath, 'utf8');
+  const favicon = (): string => readFileSync(join(dirname(siteCssPath), 'favicon.svg'), 'utf8');
   const pageHtml = (page: Page): string =>
     renderDocument({
       title: page.title,
+      route: page.route,
+      description: page.description ?? undefined,
       bodyHtml: renderBody(readFileSync(page.file, 'utf8'), page.file, pagesDir),
+    });
+
+  // Every real route (content + app islands), in stable order, for the sitemap.
+  const sitemap = (): string => {
+    const urls = loadPages(pagesDir)
+      .map((p) => `  <url><loc>${SITE_URL}${p.route}</loc></url>`)
+      .join('\n');
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls}
+</urlset>
+`;
+  };
+
+  const robots = (): string => `User-agent: *
+Allow: /
+
+Sitemap: ${SITE_URL}/sitemap.xml
+`;
+
+  const notFoundHtml = (): string =>
+    renderDocument({
+      title: 'Not found',
+      route: '/404.html',
+      description: 'That page isn’t here.',
+      index: false,
+      bodyHtml: `<h1>Lost in the swamp</h1>
+<p>That page isn’t here. Head back to the <a href="/">home page</a>, the
+<a href="/library/">library</a>, or the <a href="/docs/">documentation</a>.</p>`,
     });
 
   const normalize = (url: string): string => {
@@ -45,9 +79,16 @@ export function contentPlugin({ pagesDir, siteCssPath, stagingRoot }: ContentPlu
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const raw = (req.url ?? '').split('?')[0];
-        if (raw === '/site.css') {
-          res.setHeader('Content-Type', 'text/css');
-          res.end(siteCss());
+        const statics: Record<string, [string, () => string]> = {
+          '/site.css': ['text/css', siteCss],
+          '/favicon.svg': ['image/svg+xml', favicon],
+          '/robots.txt': ['text/plain', robots],
+          '/sitemap.xml': ['application/xml', sitemap],
+        };
+        const asset = raw ? statics[raw] : undefined;
+        if (asset) {
+          res.setHeader('Content-Type', asset[0]);
+          res.end(asset[1]());
           return;
         }
         const url = normalize(req.url ?? '');
@@ -71,7 +112,8 @@ export function contentPlugin({ pagesDir, siteCssPath, stagingRoot }: ContentPlu
       server.watcher.on('unlink', onChange);
     },
 
-    // Runs after Vite has written the app build — append the static content pages.
+    // Runs after Vite has written the app build — append the static content
+    // pages and the site-wide files.
     closeBundle() {
       if (!isBuild) return;
       const write = (rel: string, body: string): void => {
@@ -80,6 +122,10 @@ export function contentPlugin({ pagesDir, siteCssPath, stagingRoot }: ContentPlu
         writeFileSync(path, body);
       };
       write('site.css', siteCss());
+      write('favicon.svg', favicon());
+      write('robots.txt', robots());
+      write('sitemap.xml', sitemap());
+      write('404.html', notFoundHtml());
       for (const page of contentPages()) write(routeToOutputPath(page.route), pageHtml(page));
     },
   };

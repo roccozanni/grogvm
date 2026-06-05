@@ -38,7 +38,13 @@ export function writeAppPages(pagesDir: string, stagingRoot: string): void {
     const bodyHtml = renderBody(readFileSync(page.file, 'utf8'), page.file, pagesDir).trim();
     writeFileSync(
       htmlPath,
-      renderDocument({ title: page.title, entrySrc: './entry.ts', bodyHtml: bodyHtml || undefined }),
+      renderDocument({
+        title: page.title,
+        route: page.route,
+        description: page.description ?? undefined,
+        entrySrc: './entry.ts',
+        bodyHtml: bodyHtml || undefined,
+      }),
     );
   }
 }

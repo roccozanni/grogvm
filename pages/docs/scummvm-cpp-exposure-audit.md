@@ -1,8 +1,8 @@
 # ScummVM C++ Source — Direct Exposure Audit
 
 **Scope:** All Claude session transcripts for the project, across both directory names it
-has had — `~/.claude/projects/-Users-rocco-Developer-webscumm` and
-`~/.claude/projects/-Users-rocco-Developer-grogvm` (the directory was renamed; treated here
+has had — `~/.claude/projects/<…>-webscumm` and
+`~/.claude/projects/<…>-grogvm` (the directory was renamed; treated here
 as **one project**, ≈30 `.jsonl` files + subagent logs).
 
 **Question answered:** Where did Claude have *direct exposure to actual ScummVM (or other

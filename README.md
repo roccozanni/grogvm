@@ -10,40 +10,37 @@ prioritised over performance, and the player UI deliberately exposes
 every decoder's intermediate state so the engine is also an inspection
 tool.
 
+## How this was built
+
+GrogVM was written with AI: the code is largely the work of Anthropic's
+Claude (Opus 4.8), driven through Claude Code. That's stated plainly
+because it should be — but it is the opposite of a model one-shotting a
+heap of code. Every binary format here was reverse-engineered against
+real game bytes and cross-checked behaviour-first; every engine decision
+was steered to the SCUMM-faithful answer — disassembled and verified
+against the original, not guessed. The architecture is deliberate: a
+portable engine core held at arm's length from both the browser and the
+test harness, a clock and an RNG injected so the whole loop is
+deterministic and Node-testable, decoders pinned by handcrafted byte
+fixtures, and a single seeded VM driven through the game's own solution
+as a regression net. The model did the typing; the craft is in the
+steering, the verification, and the design.
+
 ## Status
 
-**Phase 5 complete** — the VM skeleton runs SCUMM v5 bytecode at the
-structural level. Phase 6 (enough opcodes to walk) is next. No
-real-time clock, no actors moving, no audio yet. See
-[PROGRESS.md](PROGRESS.md) for the full phased roadmap.
-
-What works right now:
-
-- "Installing" an MI1 or MI2 directory via the File System Access API
-  (the directory handle is persisted in IndexedDB; the game files
-  themselves are never copied).
-- A complete tag-by-tag block-tree dump of `MONKEY.000` (index) and
-  `MONKEY.001` (resources), with a one-line description of every block
-  type that GrogVM understands.
-- A room viewer that cycles through every room and decodes its 320×N
-  background to Canvas2D at native resolution, with a per-strip SMAP
-  compression-method diagnostic bar.
-- A costume inspector with header diagnostics, palette swatches,
-  per-frame preview through the room's CLUT, z-plane overlay toggles,
-  and a live actor compositor you can drag onto the room.
-- A charset inspector with the same LFLF-scoped navigation: header,
-  CLUT-tinted color-map view, clickable glyph grid, and a live
-  text-rendering field that uses the current room's CLUT.
-- A VM inspector that loads global script #1 (boot), dispatches
-  opcodes one at a time or one tick at a time, and surfaces a halt
-  panel with bytecode-context hex highlighting the moment it hits an
-  opcode GrogVM hasn't implemented. Slots table, hex-addressed
-  globals grid, packed bit-vars grid, and a self-describing trace
-  ring round out the diagnostic surface.
+In active development: *The Secret of Monkey Island* is playable from
+the intro through the game's opening act, and every resource type
+decodes and is live-inspectable. Audio and the rest of the walkthrough
+are in progress. [PROGRESS.md](PROGRESS.md) is the live tracker — what's
+in flight, what's done, and what's next.
 
 ## Running
 
+Source: <https://github.com/roccozanni/grogvm>
+
 ```bash
+git clone https://github.com/roccozanni/grogvm
+cd grogvm
 npm install
 npm run dev
 ```
@@ -68,17 +65,14 @@ npm run typecheck  # tsc --noEmit
 npm run build      # full typecheck + production bundle
 ```
 
-272 tests across 28 files at last count. The engine layer is fully
-testable in Node (no DOM, no browser globals); decoders are exercised
-against handcrafted byte fixtures, with the renderer providing an
-in-memory implementation for assertion.
+The engine layer is fully testable in Node (no DOM, no browser
+globals); decoders are exercised against handcrafted byte fixtures,
+with the renderer providing an in-memory implementation for assertion.
 
 ## Where to read more
 
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** — the overall design,
   layering, and the guiding principles the codebase tries to follow.
-- **[PROGRESS.md](PROGRESS.md)** — what's done, what's planned for the
-  active phase, and the one-line summary of every future phase.
 - **[`pages/docs/`](pages/docs/index.md)** — self-contained references
   for every binary format GrogVM has cracked open:
   [SMAP](pages/docs/scumm/smap.md) (room backgrounds),
@@ -92,6 +86,17 @@ in-memory implementation for assertion.
 
 ## License & legality
 
-Personal learning project. No license, no warranty, no intent to ship
-a competing product. You will need to obtain MI1 / MI2 legally
-yourself; no LucasArts assets are bundled or distributed.
+GrogVM is free software, licensed under the **GNU General Public
+License, version 3 or later** (GPL-3.0-or-later) — see
+[LICENSE](LICENSE). It comes with no warranty, to the extent permitted
+by law.
+
+Portions of the engine logic were derived from
+[ScummVM](https://www.scummvm.org/) (GPLv3); GrogVM is correspondingly
+released under GPL-3.0-or-later. The
+[ScummVM source-exposure audit](pages/docs/scummvm-cpp-exposure-audit.md)
+documents that provenance in full, in the interest of transparency.
+
+This is a personal learning project with no intent to ship a competing
+product. GrogVM bundles and distributes no LucasArts assets — you must
+obtain MI1 / MI2 legally yourself.

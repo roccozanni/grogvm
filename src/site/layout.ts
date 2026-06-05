@@ -1,9 +1,14 @@
 // The shared HTML shell wrapped around every page — content (home, docs) and
-// app (library, explore, play) alike. One document, one nav, one /site.css.
-// Pure strings, primitives only — `site` imports neither engine, platform, nor
-// build.
+// app (library, explore, play) alike. One document, one nav, one footer, one
+// /site.css. Pure strings, primitives only — `site` imports neither engine,
+// platform, nor build.
 
 const SITE = 'GrogVM';
+export const SITE_URL = 'https://grogvm.dev';
+const DEFAULT_DESCRIPTION =
+  'A from-scratch TypeScript reimplementation of the SCUMM v5 engine — the one ' +
+  'behind The Secret of Monkey Island and Monkey Island 2 — running in the ' +
+  'browser, with no server and no emulator.';
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
@@ -17,22 +22,49 @@ function titleTag(title: string): string {
 /**
  * Render a full page document. Content pages pass `bodyHtml` (rendered
  * markdown); app pages pass `entrySrc` to mount their island into `#app` (and
- * optionally `bodyHtml` for prose above it). Both get the same nav, frame, and
- * /site.css. `entrySrc` is bundled by Vite from the staging root.
+ * optionally `bodyHtml` for prose above it). Both get the same head metadata,
+ * nav, footer, and /site.css. `entrySrc` is bundled by Vite from the staging
+ * root. `route` (e.g. `/docs/scumm/room/`) drives the canonical + og:url;
+ * `index: false` marks a page crawlers should skip (the 404).
  */
-export function renderDocument(opts: { title: string; bodyHtml?: string; entrySrc?: string }): string {
+export function renderDocument(opts: {
+  title: string;
+  route: string;
+  description?: string;
+  bodyHtml?: string;
+  entrySrc?: string;
+  index?: boolean;
+}): string {
   const mount = opts.entrySrc
     ? `      <div id="app"></div>\n      <script type="module" src="${opts.entrySrc}"></script>\n`
     : '';
   // `.content` is the shared frame; content pages add `.prose` for markdown
   // typography (app screens opt out so their dense layout stays untouched).
   const mainClass = opts.entrySrc ? 'content' : 'content prose';
+  const description = escapeHtml(opts.description?.trim() || DEFAULT_DESCRIPTION);
+  const url = escapeHtml(`${SITE_URL}${opts.route}`);
+  const ogTitle = escapeHtml(opts.title === SITE ? SITE : opts.title);
+  // The 404 is reachable but shouldn't be indexed or claim a canonical URL.
+  const indexable = opts.index !== false;
+  const discovery = indexable
+    ? `    <link rel="canonical" href="${url}" />\n`
+    : `    <meta name="robots" content="noindex" />\n`;
   return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>${titleTag(opts.title)}</title>
+    <meta name="description" content="${description}" />
+${discovery}    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="${SITE}" />
+    <meta property="og:title" content="${ogTitle}" />
+    <meta property="og:description" content="${description}" />
+    <meta property="og:url" content="${url}" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="${ogTitle}" />
+    <meta name="twitter:description" content="${description}" />
     <link rel="stylesheet" href="/site.css" />
   </head>
   <body>
@@ -40,6 +72,14 @@ export function renderDocument(opts: { title: string; bodyHtml?: string; entrySr
     <main class="${mainClass}">
 ${opts.bodyHtml ?? ''}
 ${mount}    </main>
+    <footer class="site-footer">
+      Free software under <a href="https://www.gnu.org/licenses/gpl-3.0.html">GPL-3.0-or-later</a> ·
+      <a href="https://github.com/roccozanni/grogvm">source</a> ·
+      engine logic derived in part from <a href="https://www.scummvm.org/">ScummVM</a>
+      (<a href="/docs/scummvm-cpp-exposure-audit/">provenance</a>) ·
+      bring your own MI1 / MI2 — no game assets bundled ·
+      <a href="/privacy/">privacy &amp; terms</a>
+    </footer>
   </body>
 </html>
 `;

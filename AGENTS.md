@@ -341,6 +341,6 @@ manual — see Durable preferences; wrapping edits files, it doesn't commit.)
 
 ```bash
 npm run typecheck     # 0 errors expected
-npm test              # 116 tests across 14 files at last count
+npm test              # full synthetic suite should pass
 npm run build         # production bundle should land < 30 KB JS
 ```

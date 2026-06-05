@@ -19,7 +19,7 @@ Lean tracker. Three buckets:
 ## Current — natural play through MI1
 
 Playing MI1 from the start and fixing each blocker as it's hit (engine-faithful,
-committed on `main`). **827 unit tests + tsc clean**, plus a data-gated
+committed on `main`). **Unit suite green + tsc clean**, plus a data-gated
 integration playthrough (`npm run test:integration`). The intro → room 33 →
 SCUMM Bar (room 28) → pirate-conversation close-up is playable end-to-end, with
 verbs, inventory, and two-object "Usa X con Y" / "Dai X a Y" working.
@@ -244,6 +244,21 @@ phase roadmap (and git matches it).
 ---
 
 ## Done
+
+- **Website — public-launch prep** *(2026-06-05)*. Licensed GPL-3.0-or-later
+  (`LICENSE` = canonical GPLv3 text; README + site footer credit the ScummVM
+  derivation, and the source-exposure audit is kept public for transparency with
+  the author name scrubbed). Added the discoverability layer to the shared shell
+  (`renderDocument`): per-page meta description, canonical, Open Graph + Twitter
+  tags, favicon, `sitemap.xml`, `robots.txt`, and a `noindex` 404 — all keyed to
+  `grogvm.dev`. Footer carries license · source · provenance · privacy; new
+  `/privacy` page (no analytics/tracking/cookies, static S3 + CloudFront with
+  access logging off, "verify it in the source"). AI-disclosure section (largely
+  Claude Opus 4.8 under human steering — craft, not one-shot). Home + docs gained
+  an accurate **Project status**; nav constrained to the content column. New
+  engine doc [HARNESS](pages/docs/engine/harness.md) on the testkit + from-boot
+  integration playthrough. Exact unit-test counts removed from all `.md`
+  (stale-prone).
 
 - **Documentation — reference/engine split + facts-only pass** *(2026-06-05)*.
   Reorganised `pages/docs/` into a public SCUMM v5 reference (`scumm/`) and

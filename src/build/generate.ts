@@ -9,6 +9,7 @@ export interface Page {
   slug: string; //   'room'
   route: string; //  '/', '/library/', '/docs/scumm/room/'
   title: string;
+  description: string | null; // frontmatter `description` → meta/OG; else site default
   island: string | null; // frontmatter `script` (e.g. 'app/library') → app page; else content
   file: string; //   absolute source path
 }
@@ -94,11 +95,12 @@ export function loadPages(pagesDir: string): Page[] {
     .map((file) => {
       const source = readFileSync(file, 'utf8');
       const slug = slugFor(file);
-      const script = matter(source).data.script;
+      const { script, description } = matter(source).data;
       return {
         slug,
         route: routeForFile(pagesDir, file),
         title: pageTitle(source, slug),
+        description: typeof description === 'string' && description.trim() ? description.trim() : null,
         island: typeof script === 'string' ? script : null,
         file,
       };
