@@ -14,9 +14,9 @@
 import { Canvas2DRenderer } from '../../../engine/render/canvas2d';
 import { createSession, type FrameInfo } from '../../../engine/session';
 import { el } from '../../reactive';
-import type { StoredGame } from '../../storage/games';
-import { loadSessionGame } from '../../storage/game-files';
-import { readSave, writeSave } from '../../storage/savegames';
+import type { StoredGame } from '../../../platform/storage/games';
+import { loadSessionGame } from '../../../platform/storage/game-files';
+import { readSave, writeSave } from '../../../platform/storage/savegames';
 import { mountPlayArea, type PlayAreaHandles } from '../play-area';
 import { mountVmFrameInput } from '../input';
 import { mountDebugPanel } from '../debug/debug';

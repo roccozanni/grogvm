@@ -1,6 +1,0 @@
-/* Per-screen stylesheets (Phase 10 task 7). Split out of the old monolith;
-   pages import this barrel, which pulls them all in. Loading them per-page
-   instead is a future option now that they're separated. */
-@import './styles/base.css';
-@import './styles/explorer.css';
-@import './styles/player.css';

@@ -11,7 +11,7 @@ import type { GameId } from '../../../engine/vm/boot';
 import { type SaveState } from '../../../engine/vm/savestate';
 import type { ScriptSlot } from '../../../engine/vm/slot';
 import type { HaltInfo, TraceEntry, Vm } from '../../../engine/vm/vm';
-import { deleteSave, listSaves, readSave, SaveStoreError, writeSave } from '../../storage/savegames';
+import { deleteSave, listSaves, readSave, SaveStoreError, writeSave } from '../../../platform/storage/savegames';
 import { type ClickEvent } from '../input';
 
 /**

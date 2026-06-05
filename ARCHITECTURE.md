@@ -452,33 +452,56 @@ visible; see the project memory note).
 
 ## 8. Directory layout
 
+Every page — home, reference, and the app screens alike — is **authored as
+markdown in `docs/`**. A build-time generator renders each `.md` to a static
+HTML page wrapped in the shared site layout. A page becomes an **app page**
+purely by declaring an island in its frontmatter (`script:`), which the
+generator injects as a `<script type="module">` that Vite then bundles. There
+is no hand-authored HTML and no `pages/` directory: one source (`docs/`), one
+pipeline, one `dist/`. App and content pages differ by a single bit — whether
+the page hydrates an interactive island.
+
+> This is the **destination**. It supersedes the `src/shell` / authored-`pages/`
+> framing still described in §4 and §7, which reflect the *current* layout until
+> the migration lands — see §9 (Phase 12) for the staged path and §11 Q13 for
+> the decision.
+
 ```
 grogvm/
 ├── ARCHITECTURE.md
-├── pages/                      # HTML entries (Vite `root`); served URLs unchanged
-│   ├── index.html              # `/`        → library page entry
-│   ├── explore/index.html      # `/explore` → explorer page entry (reads ?game=)
-│   └── play/index.html         # `/play`    → player page entry  (reads ?game=)
+├── docs/                        # THE PAGE SOURCE — markdown + YAML frontmatter, one file per route
+│   ├── index.md                #  /            → home        (content; no island)
+│   ├── library.md              #  /library     → library     (app; script: app/library)
+│   ├── explore.md              #  /explore     → explorer    (app; script: app/explorer, reads ?game=)
+│   ├── play.md                 #  /play        → player      (app; script: app/player,  reads ?game=)
+│   └── scumm-v5-*.md, …        #  /docs/:slug  → reference   (content; the SCUMM-v5 format docs)
 ├── package.json
 ├── tsconfig.json
-├── vite.config.ts              # root=pages/, alias /src; multi-page rollupOptions.input
+├── vite.config.ts              # multi-page inputs supplied by the generator (src/build); no authored HTML
 ├── vitest.config.ts
 ├── public/
 ├── test/
 │   └── fixtures/                # synthetic binary fixtures for tests
+├── dist/                        # single-pipeline output: generated HTML + bundled islands (no merge step)
 └── src/
-    ├── pages/                   # one bootstrap module per HTML entry (library/explore/play)
-    ├── shell/
-    │   ├── reactive/            # ~100-LOC signal/effect/render core (no deps)
+    ├── build/                   # docs→HTML generator + Vite plugin (dev middleware + build inputs)
+    ├── site/                    # content presentation: page layout, nav, chrome, typography (no engine/platform)
+    ├── styles/                  # base.css (every page; emitted asset) + per-island stylesheets
+    ├── platform/                # host services — browser-API adapters + the install catalog
     │   ├── routing/             # parse location.pathname + ?game= (no nav state machine)
-    │   ├── library/             # library page  ( / )
-    │   ├── install/             # install flow + game detection
+    │   ├── storage/             # IndexedDB + File System Access + localStorage
+    │   ├── detect.ts            # pure game classification + GameId (Node-tested; storage keys on it)
+    │   └── browser-support.ts   # capability gate
+    ├── app/                     # the interactive ISLANDS — each screen's index.ts exports mount(el)
+    │   ├── shared.ts            # island bootstrap: support gate, ?game= resolve, permission re-grant
+    │   ├── reactive/            # ~100-LOC signal/effect/render core (no deps, no engine)
+    │   ├── library/             # library island ( /library ): index.ts mount + App controller
+    │   ├── install/             # in-page install flow — directory picker UI (detection is platform/detect)
     │   ├── explorer/            # standalone static format browser (no session)
-    │   ├── player/              # hosts one EngineSession
-    │   │   ├── play/            # clean game canvas + minimal overlay
-    │   │   └── debug/           # live-VM inspector drawer (reads session.vm)
-    │   └── storage/             # IndexedDB wrappers
-    └── engine/
+    │   └── player/              # hosts one EngineSession
+    │       ├── play/            # clean game canvas + minimal overlay
+    │       └── debug/           # live-VM inspector drawer (reads session.vm)
+    └── engine/                  # headless domain — runs in Node, zero browser deps
         ├── resources/           # .000/.001 parsing, blocks, XOR
         ├── vm/                  # opcode dispatch, script slots, vars
         ├── graphics/            # room/costume/charset decoders, palette
@@ -494,8 +517,24 @@ Tests live next to the code they cover as `*.test.ts` files (Vitest
 default). The top-level `test/fixtures/` directory holds shared binary
 fixtures when handcrafting them inline would be unwieldy.
 
-The engine has zero imports from `shell/`. The shell imports the engine
-through a single `EngineSession` factory.
+**Dependency direction — the actual separation of concerns.** Folders are
+secondary; the contract is that each layer imports only *downward*:
+
+- **engine** — imports only engine. Headless; no DOM; runs in Node.
+- **platform** — may import `engine` (save format, game files); never `app`,
+  `site`, or `reactive`. It has no UI — only browser-API adapters.
+- **reactive** — DOM only; never engine, platform, site, or sibling app
+  screens. A leaf UI core.
+- **app islands** — may import `reactive`, `platform`, `engine`; never `site`
+  or `build`. Each screen is a module exporting `mount(el)` (a
+  framework-agnostic contract, so an island can later be wrapped by Astro or
+  any host without change — §11 Q13).
+- **site** — content presentation only; imports neither engine nor platform.
+- **build** — offline tooling; reads `docs/` + `site/`, emits HTML into the
+  Vite/`dist/` pipeline. Nothing imports `build`.
+
+The engine has zero imports from anything above it; the app hosts the engine
+through the single `EngineSession` factory (§4, §5.9).
 
 ---
 
@@ -518,9 +557,34 @@ runnable steps. Each phase ends with something we can see/poke at.
 | **9. Shell rebuild + EngineSession** | Extract the `EngineSession` seam (§5.9) out of the inspector god-object; build the ~100-LOC reactive core; split the resource browser into a standalone **Explorer** screen; rebuild the **Player** as a game canvas + collapsible Debug drawer. No engine-logic changes. (Full Home/Reference website is deferred — §11 Q12.) |
 | **10. Audio** | iMUSE driver, AdLib (OPL3) synth, then MT-32 if appetite remains. CD redbook later still. |
 | **11. MI2 + polish** | Verify MI2 boots on the same engine; fix the inevitable v5-but-slightly-different edge cases. |
+| **12. Unified page model + content site** | Collapse onto the §8 destination: reorg `src/shell` into `platform` / `app` (islands) / `site`; add the owned markdown→HTML generator (markdown-it + gray-matter + a Vite plugin); author home + the SCUMM-v5 docs as content pages; delete `pages/` and all authored HTML. Adds the Home/Reference site deferred in §11 Q12. No engine-logic changes. |
 
 Phases are not commitments — they're the current best guess at a learning
 order. Reorder freely as we discover the territory.
+
+### Phase 12 — staged migration
+
+Each step is independently shippable: the library/explorer/player keep working
+throughout, and the engine is never touched.
+
+1. **Layer reorg (no build change).** Split `src/shell/` into `src/platform/`
+   (routing, storage, browser-support), `src/app/` (reactive, library, install,
+   explorer, player), and move `styles.css` + `styles/` to `src/styles/`. Give
+   each app screen the `mount(el)` contract. The existing `pages/` HTML entries
+   stay, now thin bootstrappers that call `mount`. Pure move + import fixups.
+2. **Generator for content only (additive).** Add `src/build` (markdown-it +
+   gray-matter) and `src/site` (layout/chrome), plus a Vite plugin that serves
+   generated pages in dev and supplies build inputs. Render the SCUMM-v5 docs
+   and a `docs/index.md` home. The app pages remain authored HTML — the
+   pipeline is proven on content with the working app untouched.
+3. **Fold the app pages into markdown.** Author `docs/{library,explore,play}.md`
+   with frontmatter `script: app/<island>`; the generator injects the island
+   script. Move the library off `/` (home takes `/`). Delete the authored HTML
+   and the `pages/` directory — now a single pipeline.
+4. **Polish.** Per-page CSS scoping (each page links only `base` + its island's
+   stylesheet); verify route-level code-splitting (engine chunk loads only on
+   `/play`, `/explore`); gitignore generated output; reconcile the §4/§7 "shell"
+   prose with the new layer names.
 
 ---
 
@@ -736,3 +800,32 @@ entries when they land: `/` already exists, `/docs` + `/docs/:slug` slot into
 the same multi-page build with HTML generated from `docs/*.md` at build time.
 The one dependency that future phase would likely justify — a tiny markdown
 renderer for Reference — is flagged for then, not now.
+
+---
+
+**Q13. One page model for everything: markdown + optional island.**
+Refines Q11/Q12. Rather than hand-authoring HTML for the app pages and
+*generating* only the content pages, **every** page — home, reference, and the
+app screens — is authored as markdown in `docs/` and rendered by one build-time
+generator. A page becomes an app page solely by declaring an island in its
+frontmatter (`script: app/<island>`), which the generator injects as a module
+script that Vite bundles. This is the MPA-with-islands model (the one Astro
+formalises).
+**Status: Decided (2026-06-05, user decision).** It holds because the authored
+app HTML carried no information — the three entries differed only in `<title>`
+and one `<script src>`, both of which are frontmatter. Generating them deletes
+boilerplate, not content. Consequences: there is **no `pages/` directory and no
+authored HTML**; the two-producer "merge" from the earlier sketch collapses into
+a single source (`docs/`) and single pipeline; "app vs content" shrinks to one
+bit (does the page hydrate?). The §8 destination layout follows from this.
+*Build vs adopt:* **own a minimal generator** (markdown-it + gray-matter + a
+small Vite plugin) rather than adopt Astro now — Astro is a fast-moving
+framework that would own the build to serve a handful of pages, the maintenance
+surface this project explicitly avoids (cf. Q9). The two utility deps are
+mature, do-one-thing, slow-moving — the opposite of framework churn. Migration
+to Astro is kept cheap-and-mechanical by aligning the *authored contracts* with
+what Astro consumes: plain markdown + YAML frontmatter, file-based routing,
+islands as `mount(el)` modules resolved through one registry, a dumb layout, and
+the generator isolated in `src/build` (swap = delete `build/`, move `docs/` into
+Astro's tree, wrap the islands). Likely never needed; the compatibility costs
+essentially nothing, so it is cheap insurance. Migration steps: §9 Phase 12.

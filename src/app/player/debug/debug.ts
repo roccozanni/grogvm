@@ -12,7 +12,7 @@
  */
 import { signal, bindText, el, createRoot, onCleanup } from '../../reactive';
 import type { EngineSession } from '../../../engine/session';
-import type { GameId } from '../../install/detect';
+import type { GameId } from '../../../platform/detect';
 import type { ClickEvent } from '../input';
 import {
   renderLive,

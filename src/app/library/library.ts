@@ -1,6 +1,6 @@
-import type { App } from '../app';
-import { listGames, removeGame, type StoredGame } from '../storage/games';
-import { playHref, exploreHref } from '../routing/routing';
+import type { App } from './app';
+import { listGames, removeGame, type StoredGame } from '../../platform/storage/games';
+import { playHref, exploreHref } from '../../platform/routing/routing';
 
 export function renderLibrary(app: App, flash?: string): HTMLElement {
   const container = document.createElement('div');
@@ -68,7 +68,7 @@ function renderGameRow(app: App, game: StoredGame): HTMLElement {
   li.className = 'game-row';
   // Play / Explore are real links to the /play/ and /explore/ pages (the game
   // id rides in ?game=). The folder permission re-grant happens on the
-  // destination page (it needs a user gesture there) — see src/pages/shared.ts.
+  // destination page (it needs a user gesture there) — see pages/shared.ts.
   li.innerHTML = `
     <span class="name"></span>
     <span class="game-id"></span>

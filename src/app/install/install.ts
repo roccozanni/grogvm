@@ -1,6 +1,6 @@
-import type { App } from '../app';
-import { addGame, findInstalledGame } from '../storage/games';
-import { detectGame } from './detect';
+import type { App } from '../library/app';
+import { addGame, findInstalledGame } from '../../platform/storage/games';
+import { detectGame } from '../../platform/detect';
 
 export function renderInstall(app: App, error?: string): HTMLElement {
   const container = document.createElement('div');

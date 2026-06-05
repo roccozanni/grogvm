@@ -12,14 +12,6 @@ const entry = (path: string): string => fileURLToPath(new URL(path, import.meta.
 
 export default defineConfig({
   root: entry('./pages'),
-  // Source lives at the repo-root `src/`, outside the `pages/` doc root, so a
-  // bare `/src/...` would resolve under `pages/`. Alias `/src` back to the real
-  // tree so the HTML entries can keep stable absolute script paths.
-  resolve: {
-    alias: {
-      '/src': entry('./src'),
-    },
-  },
   server: {
     port: 5173,
   },

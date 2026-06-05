@@ -1,5 +1,5 @@
-import type { StoredGame } from '../storage/games';
-import type { GameId } from '../install/detect';
+import type { StoredGame } from '../../platform/storage/games';
+import type { GameId } from '../../platform/detect';
 import { parseResourceFile } from '../../engine/resources/file';
 import { SCUMM_V5_XOR_KEY } from '../../engine/resources/xor';
 import type { Block } from '../../engine/resources/block';

@@ -1,18 +1,16 @@
 /**
- * Shared bootstrap helpers for the multi-page entries (src/pages/*.ts).
- * Each page is a separate document (full page load), so these centralise the
- * boilerplate: browser-support gate, resolving the `?game=` install, and the
+ * Shared bootstrap helpers for the app islands (src/app/<screen>/index.ts).
+ * Each island mounts into a host element; these centralise the boilerplate:
+ * browser-support gate, resolving the `?game=` install, and the
  * folder-permission re-grant.
  */
-import { checkBrowserSupport, renderUnsupported } from '../shell/browser-support';
-import { ensureReadPermission } from '../shell/storage/permission';
-import { listGames, type StoredGame } from '../shell/storage/games';
-import { homeHref } from '../shell/routing/routing';
+import { checkBrowserSupport, renderUnsupported } from '../platform/browser-support';
+import { ensureReadPermission } from '../platform/storage/permission';
+import { listGames, type StoredGame } from '../platform/storage/games';
+import { homeHref } from '../platform/routing/routing';
 
-/** Get the #app root, gating on browser support; calls `render(root)` if OK. */
-export function mountPage(render: (root: HTMLElement) => void): void {
-  const root = document.getElementById('app');
-  if (!root) throw new Error('Missing #app root element');
+/** Gate `root` on browser support; calls `render(root)` if OK. */
+export function mountPage(root: HTMLElement, render: (root: HTMLElement) => void): void {
   const unsupported = checkBrowserSupport();
   if (unsupported) {
     root.appendChild(renderUnsupported(unsupported));

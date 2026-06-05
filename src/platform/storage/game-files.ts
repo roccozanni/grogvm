@@ -8,7 +8,7 @@ import { parseIndexFile } from '../../engine/resources/index-file';
 import { parseLoff } from '../../engine/resources/loff';
 import { SCUMM_V5_XOR_KEY } from '../../engine/resources/xor';
 import type { SessionGame } from '../../engine/session';
-import type { GameId } from '../install/detect';
+import type { GameId } from '../detect';
 import type { StoredGame } from './games';
 
 function indexFilenameFor(gameId: GameId): string {

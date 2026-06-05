@@ -1,0 +1,5 @@
+/* Per-screen stylesheets. The barrel pulls them all in; per-page loading is a
+   future option (§9 Phase 12 step 4) now that they're separated. */
+@import './base.css';
+@import './explorer.css';
+@import './player.css';

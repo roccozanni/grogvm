@@ -1,4 +1,4 @@
-import type { GameId } from '../install/detect';
+import type { GameId } from '../detect';
 
 const DB_NAME = 'grogvm';
 const DB_VERSION = 1;

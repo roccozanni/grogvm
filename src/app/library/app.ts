@@ -1,9 +1,9 @@
-import { renderLibrary } from './library/library';
-import { renderInstall } from './install/install';
+import { renderLibrary } from './library';
+import { renderInstall } from '../install/install';
 
 // Controller for the `/` page only: the library and the in-page install flow.
 // The player and explorer are now separate pages (/play/, /explore/), reached
-// by link — see src/pages/ and ARCHITECTURE.md §7 / §11 Q11.
+// by link — see pages/ and ARCHITECTURE.md §7 / §11 Q11.
 export type Screen =
   | { kind: 'library'; flash?: string }
   | { kind: 'install'; error?: string };
