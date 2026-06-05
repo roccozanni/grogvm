@@ -24,6 +24,9 @@ export function renderDocument(opts: { title: string; bodyHtml?: string; entrySr
   const mount = opts.entrySrc
     ? `      <div id="app"></div>\n      <script type="module" src="${opts.entrySrc}"></script>\n`
     : '';
+  // `.content` is the shared frame; content pages add `.prose` for markdown
+  // typography (app screens opt out so their dense layout stays untouched).
+  const mainClass = opts.entrySrc ? 'content' : 'content prose';
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -34,7 +37,7 @@ export function renderDocument(opts: { title: string; bodyHtml?: string; entrySr
   </head>
   <body>
     <header class="site-nav"><a href="/">GrogVM</a> · <a href="/library/">Library</a> · <a href="/docs/">Docs</a></header>
-    <main class="content">
+    <main class="${mainClass}">
 ${opts.bodyHtml ?? ''}
 ${mount}    </main>
   </body>
