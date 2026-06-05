@@ -150,11 +150,17 @@ bookkeeping) instead of re-deriving the boot boilerplate. Two layers:
     reuses them unchanged; unit-tested against a **synthetic VM**
     (`drive.test.ts`), runs everywhere incl. CI.
   - `actions.ts` — **game-agnostic** faithful player-action vocabulary:
-    `walkTo`/`use`/`pickAnswer`/`objectPoint`/`waitIdle`. Thin sugar over the
-    real click flow (hover poller → active-object global → `doSentence`) — no
-    sentence injection, so a playthrough built on it guards the genuine input
-    path. Object targets derive their hover point from the CDHD hit-box center
-    (`objectPoint`), so the suite stays coord-free; the caller supplies the
+    `walkTo`/`use`/`pickAnswer`/`pickDialogAnswer`/`objectPoint`/`actorPoint`/
+    `waitIdle`. Thin sugar over the real click flow (hover poller →
+    active-object global → `doSentence`) — no sentence injection, so a
+    playthrough built on it guards the genuine input path. Object targets
+    derive their hover point from the CDHD hit-box center (`objectPoint`);
+    **actor** targets (Talk-to / Give-to-actor) from the sprite-box center
+    (`actorPoint` → `Vm.actorHitBounds`, which works headless via
+    `prepareActorDraw` — see [INPUT §5](docs/SCUMM-V5-INPUT.md)), so the suite
+    stays coord-free. `pickDialogAnswer(vm, verbId)` walks a conversation tree
+    (wait-arm → pick → wait-dismiss; throws if the option never arms), since
+    dialog answers are verbs whose ids recur per menu. The caller supplies the
     game's verb/object ids. Split from `drive.ts` (which is pure/synthetic-
     testable) because these compose real input needing a booted VM.
   - `random.ts` — `makeSeededRandom(seed)` (mulberry32), an injectable entropy

@@ -19,7 +19,7 @@ Lean tracker. Three buckets:
 ## Current — natural play through MI1
 
 Playing MI1 from the start and fixing each blocker as it's hit (engine-faithful,
-committed on `main`). **826 unit tests + tsc clean**, plus a data-gated
+committed on `main`). **836 unit tests + tsc clean**, plus a data-gated
 integration playthrough (`npm run test:integration`). The intro → room 33 →
 SCUMM Bar (room 28) → pirate-conversation close-up is playable end-to-end, with
 verbs, inventory, and two-object "Usa X con Y" / "Dai X a Y" working.
@@ -59,9 +59,25 @@ floor click won't run its walk-through script) → **Kitchen** take meat #566 + 
 #567; stomp the loose board #575 3× to scare the seagull (actor #7) — fish #568 is
 grabbable only DURING the fly-away (its class-6 "the bird will peck" guard lifts
 only mid-flight), keyed off `VARS.gullScare`/g272 → retrace out (kitchen door
-#570→bar, exit door #315→lookout): the first bar exit fires a one-time Sheriff
-cutscene (through rooms 70→72) before control lands back at the Mêlée Lookout
-(33). Next: out into Mêlée town — the three trials (sword, thievery, treasure).
+#570→bar, exit door #315→lookout, one-time Sheriff cutscene 70→72) → **Mêlée
+Lookout** walk west off the cliff (#426→38) → **cliff path** take the path
+(#487, verbs [90,255] → walk-11 falls back to the 0xFF/255 default) → **Mêlée
+map** (85, verb-11 location nodes) click the clearing (#912→52) → **clearing**
+walk to the circus tent (#621→51) → **Fettucini circus** break into the
+brothers' auto-argument (local #207) with "ahem", negotiate the cannonball job
+(answer ids are `120 + optionIndex-1`, so 120 recurs per menu — sequence by
+speech), **give the pot as the helmet** (Give/verb-4 *to actor 3* — the first
+give-to-actor; sets `bit#103` → cannon launch → amnesia gag → payout) and get
+paid **478 pieces of eight** (`VARS.money`/g195 0→478, object #488 verb-250).
+Next: back to the map and the three trials (sword, thievery, treasure).
+
+**Capability landed this session — headless actor hit-testing** (so the net can
+click actors for Talk-to / Give-to-actor): `prepareActorDraw` is the shared
+sprite-box source the compositor and `Vm.actorHitBounds` both use, with testkit
+`actorPoint`/`pickDialogAnswer` on top. Dialog answer-verb scheme (`120 +
+optionIndex−1`, g194, per-menu reuse) + give-to-actor → [INPUT §5](docs/SCUMM-V5-INPUT.md);
+harness helpers → [AGENTS "The harness"](AGENTS.md). **Give X to <actor>**
+(verb 4) now exercised end-to-end.
 
 ### Open bug-report saves (reported, not yet fixed)
 
@@ -101,9 +117,19 @@ Priority H/M/L = likelihood of biting current/near play × severity.
   darkening (Rendering backlog), `saveRestoreVerbs` subset (Watch-for), audio /
   `resourceRoutines` (Out of scope — Phase 11).
 
-**Tabled:** the room-28 cook is sliced by the table z-plane while walking — a
-grid-A* vs box-graph **pathfinding route** divergence, not a clip/z-plane bug.
-[PATHFINDING §8](docs/PATHFINDING.md) + backlog below.
+**Box-graph routing — now an active known bug (was tabled).** Our grid-A*-over-
+mask diverges from SCUMM's box-graph routing wherever a route threads degenerate
+"line" walk-boxes (zero-width connector segments that are pure routing waypoints
+in SCUMM). Two confirmed bites: (1) room-28 cook sliced by the table z-plane
+(wrong route, not a clip bug); (2) **room 52 → circus**: the long route to the
+tent truncates — ego stalls partway, and *in-browser it can walk to the exit
+instead* (user-confirmed). Oddity to chase with the fix: the path completes in
+an isolated `findPath` probe but truncates live, so the **live mask differs**
+from a static `buildWalkableMask` (not box-flag overrides — `matrixOp
+setBoxFlags` only flips non-`0x80` bits here; cause still open). Worked around
+in the walkthrough beat (short hops to the tent, flagged at the call site) so
+the regression net covers the give/payout; the faithful fix is box-graph
+routing — see Pathfinding backlog. [PATHFINDING §8](docs/PATHFINDING.md).
 
 **Watch for** (recurring failure modes in newly-reached content):
 
@@ -123,10 +149,11 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
 
 **Input / UI**
 
-- **Two-object "Use X with Y" end-to-end** — *done* (see Current); A+B commit +
-  `g110` preposition + faithful #100 sentence line all confirmed. Remaining:
-  **Give X to <actor>** (verb 4) — same machinery, untested for lack of a second
-  actor in-scene. [INPUT §5](docs/SCUMM-V5-INPUT.md).
+- **Two-object "Use X with Y" end-to-end** — *done*; A+B commit + `g110`
+  preposition + faithful #100 sentence line all confirmed. **Give X to
+  <actor>** (verb 4) — *now done too* (Fettucini circus: give the pot to a
+  brother actor). Needed headless actor hit-testing (`prepareActorDraw` /
+  `Vm.actorHitBounds` / testkit `actorPoint`) — see Current. [INPUT §5](docs/SCUMM-V5-INPUT.md).
 - **Inventory scroll arrows** (verbs 208/209) for >8 items — needs a full
   inventory to exercise.
 
@@ -152,11 +179,17 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
 
 **Pathfinding**
 
-- **Box-graph routing (vs our grid-A*-over-mask)** — the two pick different
-  routes through the same geometry. Room 28's cook walks the bottom edge
-  (y=140, a degenerate line box) and gets sliced by the table z-plane;
-  ScummVM routes it higher where it clears the band. Clip + z-plane are
-  faithful, only the route differs. Tabled. [PATHFINDING §8](docs/PATHFINDING.md).
+- **Box-graph routing (vs our grid-A*-over-mask) — ACTIVE; faithful fix is the
+  likely next focused task.** The two pick different routes through the same
+  geometry, diverging on degenerate "line" boxes. Confirmed bites: room-28
+  cook sliced by the table z-plane (wrong route); **room 52 → circus** route
+  truncates / heads for the exit (in-browser, user-confirmed) — worked around
+  in the walkthrough beat. Faithful fix: SCUMM's box-graph (BOXD already
+  parsed; BOXM present-but-unparsed) — build/parse box adjacency, route
+  box→box, walk to shared-edge crossing points; the `findPath` call site is
+  designed to swap under it (mask.ts header). Touches every walk → re-verify
+  intro/bar/kitchen + render checks. Also chase the live-vs-static mask
+  divergence noted in Current. [PATHFINDING §8](docs/PATHFINDING.md).
 
 **Stubbed opcodes (cosmetic / peripheral)**
 

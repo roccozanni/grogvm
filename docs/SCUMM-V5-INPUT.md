@@ -202,6 +202,40 @@ in the game's scripts (via class checks), an engine should **not**
 hard-code a list of two-object verbs — running the verb-input script
 faithfully gets it for free.
 
+**Object B can be an actor.** "Give X to <actor>" targets an actor, not a
+CDHD object — e.g. giving the pot to a Fettucini brother (actor 3) in room
+51. Object A still comes from an inventory verb slot (inventory is verbs,
+§7); object B is resolved by the **receiving room's** sentence handler
+calling `actorFromPos(cursorX, cursorY)` (the virtual-mouse globals g20/g21)
+and matching the actor id. So clicking an actor depends on `actorFromPos`,
+which hit-tests the cursor against each actor's **sprite box**.
+
+**Actor hit-testing needs the sprite box, render or not.** SCUMM's
+`getActorFromPos` uses the actor's last-drawn gfx extent. Our compositor
+stamps `actor.drawBounds` each painted frame — but a headless driver (the
+walkthrough) paints nothing, so the box must be derivable without a
+framebuffer. `prepareActorDraw(actor, costume)` (in `graphics/composite.ts`)
+resolves the drawable limbs + their unioned sprite box from costume + anim +
+position alone; the **compositor consumes it** (blit + bounds, one decode,
+one source of truth) and `Vm.actorHitBounds(id)` derives the same box
+on demand when nothing's been drawn. So `actorFromPos` — and thus
+Talk-to / Give-to an actor — resolves identically with or without a render.
+
+### Dialog answers are verbs too
+
+A conversation menu is built from live verbs (like inventory, §7): each
+option is a verb whose `name` is the localized line, created by the
+conversation script via `verbOps`. In MI1 the option's verb id is computed
+**`120 + (optionIndex − 1)`** within the *current* menu (the script pushes
+`120, optionIndex` and the engine forms the id), and the picked verb id
+lands in **`g194`** for the script to branch on. The ids are **per-menu**:
+the same id (esp. 120, the first option) recurs across the nodes of one
+conversation, so a driver must pick options *in sequence*, letting each
+menu dismiss (the options speak between picks) before the next — id alone
+doesn't identify the node. To assert *what* was picked without hardcoding a
+translation, read the chosen verb's own `name` (the testkit's
+`pickDialogAnswer` returns it).
+
 ### The default verb (right-click)
 
 The right mouse button performs the hovered object's **default verb**
