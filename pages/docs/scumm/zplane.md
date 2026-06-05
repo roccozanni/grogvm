@@ -472,7 +472,7 @@ re-derive the box from the actor's pixel position every frame
 This holds up for z-clip in rooms with area-quad boxes, but on thin
 diagonal *connector* boxes the actor can sit a pixel or two off the box
 line and get classified into the wrong box — the same gap that makes the
-room-52 bridge crossing fragile (see [PATHFINDING §9](../pathfinding.md)).
+room-52 bridge crossing fragile (see [PATHFINDING §9](../engine/pathfinding.md)).
 The faithful fix is tracking the assigned `_walkbox` as walk state rather
 than re-deriving it; deferred with the line-following walker.
 

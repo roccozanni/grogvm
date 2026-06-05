@@ -13,7 +13,7 @@ A room has two blocks for this:
   the original engine uses to plan walks across boxes via a graph
   search. GrogVM doesn't decode it; the included pathfinder
   works off a rasterized version of `BOXD` directly. See
-  [`pathfinding.md`](../pathfinding.md).
+  [`pathfinding.md`](../engine/pathfinding.md).
 
 ## Sources
 
@@ -115,7 +115,7 @@ inclusive *destination* range and `next` the hop. `parseBoxMatrix`
 decodes it; `getNextBox(from, to)` reads it.
 
 GrogVM routes over this graph — the faithful SCUMM approach. See
-[`pathfinding.md`](../pathfinding.md) for the router, the gate
+[`pathfinding.md`](../engine/pathfinding.md) for the router, the gate
 computation, and why it replaced the earlier grid-A*-over-a-mask.
 The inspector's walk overlay toggle draws the box outlines (one
 colour per box id) over the room canvas.

@@ -33,6 +33,6 @@ Reverse-engineered notes on the SCUMM v5 engine and its file formats.
 
 How GrogVM itself is built.
 
-- [Pathfinding — SCUMM Box-Graph Routing (BOXM)](pathfinding.md)
-- [EngineSession — the app ↔ engine seam](engine-session.md)
+- [The Engine Session — Game Loop & Runtime Control](engine/session.md)
+- [Pathfinding — SCUMM Box-Graph Routing (BOXM)](engine/pathfinding.md)
 - [ScummVM C++ Source — Direct Exposure Audit](scummvm-cpp-exposure-audit.md)
