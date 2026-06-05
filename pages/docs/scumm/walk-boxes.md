@@ -9,11 +9,9 @@ A room has two blocks for this:
 
 - **`BOXD`** — *box data*. The geometry of each box (four corner
   points), plus per-box flags and a SCAL slot.
-- **`BOXM`** — *box matrix*. A compressed `N × N` adjacency table
-  the original engine uses to plan walks across boxes via a graph
-  search. GrogVM doesn't decode it; the included pathfinder
-  works off a rasterized version of `BOXD` directly. See
-  [`pathfinding.md`](../engine/pathfinding.md).
+- **`BOXM`** — *box matrix*. A compressed per-box next-hop table the
+  original engine uses to plan walks across the box graph. The router
+  follows it box-to-box; see [`pathfinding.md`](../engine/pathfinding.md).
 
 ## Sources
 
@@ -111,41 +109,34 @@ from box *S*, step into box *N* next." The engine plans a path as a
 sequence of box transitions and refines the in-box trajectory per
 hop. Format (per box, `0xFF`-terminated, whole block even-padded):
 a run of 3-byte `(from, to, next)` triples, where `[from, to]` is an
-inclusive *destination* range and `next` the hop. `parseBoxMatrix`
-decodes it; `getNextBox(from, to)` reads it.
+inclusive *destination* range and `next` the hop.
 
-GrogVM routes over this graph — the faithful SCUMM approach. See
+The engine routes over this graph — the faithful SCUMM approach. See
 [`pathfinding.md`](../engine/pathfinding.md) for the router, the gate
-computation, and why it replaced the earlier grid-A*-over-a-mask.
-The inspector's walk overlay toggle draws the box outlines (one
-colour per box id) over the room canvas.
+computation, and why it replaced an earlier grid-A*-over-a-mask.
 
 ## 5. The runtime: walk planning
 
 When a script issues `walkActorTo(id, x, y)`:
 
-1. The opcode handler in `src/engine/vm/opcodes/index.ts` calls
-   `startWalk(vm, actor, target)`.
-2. `startWalk` bails to a straight-line walk (the `walkTarget`
-   fallback in `stepWalk`) when the room has no boxes or the actor's
-   `ignoreBoxes` flag is set — SCUMM uses the latter for camera-locked
-   cinematic motion that crosses non-walkable regions.
-3. Otherwise `routeThroughBoxes(boxes, matrix, start, target)`
-   returns a gate-waypoint list (boxes carry any runtime flag
-   overrides; locked `0x80` boxes are excluded). The waypoints become
-   `actor.walkPath` — the actor's current position is not prepended.
-   `stepWalk` advances toward `walkPath[walkPathIdx]` each tick,
-   bumping the index on arrival.
+1. The walk routine plans a path from the actor's position to the target.
+2. It bails to a straight-line walk when the room has no boxes or the
+   actor's `ignoreBoxes` flag is set — SCUMM uses the latter for
+   camera-locked cinematic motion that crosses non-walkable regions.
+3. Otherwise it routes through the boxes (honoring any runtime flag
+   overrides; locked `0x80` boxes are excluded), producing a gate-waypoint
+   list. The waypoints become the actor's walk path — the actor's current
+   position is not prepended — and the walker advances toward the active
+   waypoint each tick, bumping the index on arrival.
 
 ### Perspective-scale recompute timing
 
 An actor's scale is resolved from the `SCAL` slot of the box it stands in,
 by its `y` (small at the back, full at the front). The non-obvious part is
-*when* to recompute it: on **position change**, not on every tick.
-`rescaleActorForPosition(vm, actor)` does the lookup, and it runs at two
-moments — each walk step (`stepAllActorWalks`, gated on `isMoving`), **and
-every discrete placement event**: `loadRoomWithEgo`, `putActor`,
-`putActorAtObject`. The placement rescale is load-bearing: enter a far-view
+*when* to recompute it: on **position change**, not on every tick. The
+rescale lookup runs at two moments — each walk step (while the actor is
+moving), **and every discrete placement event**: `loadRoomWithEgo`,
+`putActor`, `putActorAtObject`. The placement rescale is load-bearing: enter a far-view
 room (e.g. the street, 78) via `loadRoomWithEgo` and a *standing* ego would
 otherwise keep its pre-transition scale and render full-size until its
 first walk step. It is deliberately kept **off** the per-idle-tick path so
@@ -156,37 +147,9 @@ with no `SCAL` slot (or no box) resets the actor to full size, so a sub-255
 scale never sticks across rooms.
 
 **`ignoreBoxes` actors are exempt from box scaling.** An actor off the walk-box
-grid keeps the scale a script set — `rescaleActorForPosition` early-returns when
-`actor.ignoreBoxes`. Room 51's cannon launch is the case: the flight actor (11,
+grid keeps the scale a script set — the rescale early-returns for an
+`ignoreBoxes` actor. Room 51's cannon launch is the case: the flight actor (11,
 costume 40) is set `ignoreBoxes; scale 255,255` and arcs up to y≈36, where the
 box's `SCAL` slot interpolates to ~1; without the exemption the placement
 rescale shrank it to a **single dot** mid-flight. (Same off-grid principle as
 the `ignoreBoxes` z-clip rule — see [ZPLANE](zplane.md).)
-
-## 7. Reference implementation
-
-- Parsers: [`src/engine/pathfinding/boxes.ts`](../src/engine/pathfinding/boxes.ts)
-  — `parseWalkBoxes(payload) → WalkBox[]` (BOXD), `parseBoxMatrix(payload,
-  numBoxes)` + `getNextBox` (BOXM), `isInvisibleBox`, `findBoxAt` /
-  `findBoxAtOrNearest`.
-- Router: [`src/engine/pathfinding/boxgraph.ts`](../src/engine/pathfinding/boxgraph.ts)
-  — `routeThroughBoxes`, `gateBetween`, `closestPointInBox`.
-- Tests:
-  [`boxes.test.ts`](../src/engine/pathfinding/boxes.test.ts) (BOXD +
-  BOXM decode, point-in-box) and
-  [`boxgraph.test.ts`](../src/engine/pathfinding/boxgraph.test.ts)
-  (routing, gates, locked-box seal, target clamping).
-
-## 8. Inspector overlay
-
-The VM frame canvas has a "walk overlay" checkbox. When on, a
-transparent canvas stacked over the frame draws:
-
-- Faint green tint (alpha ~11%) on every walkable pixel.
-- One-pixel outline of each visible box, colour-keyed by box id,
-  with the id as a small label at the box's top-left.
-- Active actor walk paths as yellow polylines with waypoint dots.
-- Each actor's current position as an orange marker.
-
-Off by default — the colours add visual noise that's only useful
-while debugging walks.

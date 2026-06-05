@@ -32,8 +32,9 @@ signature of running frame work on the jiffy clock.
 
 ## The model in this engine
 
-`Vm.tick()` is the canonical per-**jiffy** driver (the shell loop and
-the headless harnesses all call it, so the model lives in one place):
+A single **per-jiffy** tick is the canonical driver — the shell loop and
+the headless harnesses all advance time through it, so the model lives in
+one place:
 
 ```
 tick():                       // one jiffy (1/60 s)
@@ -53,11 +54,11 @@ tick():                       // one jiffy (1/60 s)
 
 - Frozen slots (cutscene / `freezeScripts`) are never resumed and their
   `delay` countdown is paused — matching the original.
-- `frameInterval()` reads `VAR_TIMER_NEXT`, clamped to `[1, 60]`, with a
-  `DEFAULT_FRAME_INTERVAL = 6` fallback when it's unset/nonsensical.
-- The shell's rAF loop ticks at 60 Hz (jiffies); idle / all-dead
-  detection only evaluates on **framed** jiffies (`TickResult.framed`),
-  so a stable wait-loop isn't counted 6× per frame.
+- The frame interval is read from `VAR_TIMER_NEXT`, clamped to `[1, 60]`,
+  with a fallback of 6 jiffies when it's unset or nonsensical.
+- The shell loop ticks at 60 Hz (jiffies); idle / all-dead detection only
+  evaluates on **framed** jiffies, so a stable wait-loop isn't counted 6×
+  per frame.
 - `delay N` decrements per jiffy, so it stays wall-accurate. (ScummVM
   decrements by the elapsed-jiffy count once per frame; per-jiffy here is
   finer-grained but the wall-time result is the same.)
@@ -72,7 +73,7 @@ cutscene running 6× too fast — the same root cause. Verify visually.
 
 ## Pitfalls
 
-- Don't move `beginTick`'s timers (music / talk) onto the frame clock —
+- Don't move the per-jiffy timers (music / talk) onto the frame clock —
   they're jiffy-accurate and scripts poll `VAR_MUSIC_TIMER` to pace
   cutscenes against real time.
 - A headless harness that wants the poller / scripts to run must tick

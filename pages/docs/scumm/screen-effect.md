@@ -1,18 +1,16 @@
 # SCUMM v5 — screen effects (`roomOps screenEffect`, 0x33 sub-op 0x0A)
 
-How room-transition fades are requested, what MI1 actually uses, and
-why the *animation* is deferred while the *state* is modelled.
+How room-transition fades are requested, what MI1 actually uses, and why
+only the effect *state* — not the transition animation — is modelled.
 
 ## Sources
 
-- The MI1 bytecode itself (`scratch/dis.ts SCAN grep="fade effect"`).
+- The MI1 bytecode itself (disassembled).
 - The documented v5 opcode shape (`SO_ROOM_FADE`): a single var-or-word
   operand, split into two effect numbers.
-- The exact effect-number → animation mapping lives only in ScummVM's
-  `gfx.cpp` (`fadeIn`/`fadeOut`/`transitionEffect`/`dissolveEffect`/
-  `scrollEffect`). Per project policy we do **not** transcribe engine
-  `.cpp`; prose sources (wiki, blogs) do not document the mapping. So
-  the animation is deferred until we can validate it (see §4).
+- The exact effect-number → animation mapping is not documented in any
+  public prose source (wiki, blogs); it lives only in the original engine's
+  transition code, which project policy does not transcribe.
 
 ## 1. The opcode
 
@@ -28,10 +26,8 @@ Special case: **`a == 0`** is not "effect 0" — it is the
 "**fade the current room in NOW**" trigger. It reveals the current room
 with the pending effect and leaves the two effect numbers unchanged.
 
-This is all derivable from the opcode shape, so we model it on
-`vm.screenEffect = { switchRoomEffect, switchRoomEffect2, requestFadeIn }`
-(`src/engine/vm/opcodes/index.ts`, `roomOpsHandler` case 0x0a). It's
-surfaced in the inspector Input panel when non-default.
+This is all derivable from the opcode shape, so the engine records the two
+effect numbers plus the "fade in now" request as state.
 
 ## 2. The MI1 idiom
 
@@ -63,31 +59,16 @@ operand values ever appear:
 The `0x80`-high-bit values (128/129) dominate; effect **1** (a genuine
 transition wipe) appears only twice, in rooms not on the intro path.
 
-## 4. Why the animation is deferred (not the state)
+## 4. State modelled, animation not
 
-The **intro-reachable path** — Mêlée title (room 10) → "Le Tre Prove"
-(room 96) → first room (33) — uses only effect **129** and a bare
-`loadRoomWithEgo` (room 96 `L200` has no fade at all). So on everything
-we can actually run and watch today, transitions are **instant cuts**.
+The engine records the requested effect numbers faithfully but renders
+every transition as an **instant cut** — because the effect-number →
+animation mapping (which of 1 / 128 / 129 is an instant cut vs. a dissolve
+vs. a scroll, and the exact pattern) isn't available from any public source.
 
-That means:
-
-1. There is **no non-instant transition to validate against** yet — the
-   same situation as `panCameraTo` (see PROGRESS). Implementing a
-   dissolve/scroll animation now would be drawing pixels we can't
-   confirm against the original.
-2. The effect-number → animation mapping (which of 1 / 128 / 129 is
-   instant vs. dissolve vs. scroll, and the exact pattern) is only in
-   `gfx.cpp`, which we don't copy.
-
-So we **record** the effect numbers faithfully (correct regardless of
-the animation, removes the stub, gives the inspector something to show)
-and **defer the animation** until either:
-
-- a scene that uses a non-instant effect (1 or 128) becomes reachable,
-  giving a visual target to validate the wipe against; or
-- the `gfx.cpp` `fadeIn`/`fadeOut` effect table is available "for
-  understanding only" to pin the mapping.
-
-Until then, instant cuts are already what the engine does, so the
-intro looks correct.
+On the **intro-reachable path** — Mêlée title (room 10) → "Le Tre Prove"
+(room 96) → first room (33) — only effect **129** appears, alongside a bare
+`loadRoomWithEgo` (room 96's entry has no fade at all). So every transition
+that can currently be watched is an instant cut in the original too, and the
+instant-cut rendering matches. Validating a real wipe animation would need a
+non-instant effect (1 or 128) to reach the screen.
