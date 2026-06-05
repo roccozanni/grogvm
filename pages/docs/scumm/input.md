@@ -211,15 +211,15 @@ and matching the actor id. So clicking an actor depends on `actorFromPos`,
 which hit-tests the cursor against each actor's **sprite box**.
 
 **Actor hit-testing needs the sprite box, render or not.** SCUMM's
-`getActorFromPos` uses the actor's last-drawn gfx extent. Our compositor
-stamps `actor.drawBounds` each painted frame — but a headless driver (the
+`getActorFromPos` uses the actor's last-drawn gfx extent. The compositor
+stamps a draw-bounds box each painted frame — but a headless driver (the
 walkthrough) paints nothing, so the box must be derivable without a
-framebuffer. `prepareActorDraw(actor, costume)` (in `graphics/composite.ts`)
-resolves the drawable limbs + their unioned sprite box from costume + anim +
-position alone; the **compositor consumes it** (blit + bounds, one decode,
-one source of truth) and `Vm.actorHitBounds(id)` derives the same box
-on demand when nothing's been drawn. So `actorFromPos` — and thus
-Talk-to / Give-to an actor — resolves identically with or without a render.
+framebuffer. A preparation pass resolves the drawable limbs + their unioned
+sprite box from costume + anim + position alone; the **compositor consumes
+it** (blit + bounds, one decode, one source of truth), and the hit-test
+derives the same box on demand when nothing's been drawn. So `actorFromPos`
+— and thus Talk-to / Give-to an actor — resolves identically with or
+without a render.
 
 ### Dialog answers are verbs too
 
@@ -297,8 +297,8 @@ path. Skip storing the name and the target renders blank ("Dai la pentola a
 sentence line (`#100`) and the action verbs via `saveRestoreVerbs` (a
 non-zero `saveid`) and creates the dialog replies as their own verbs.
 SCUMM does not draw a verb carrying a non-zero saveid, so the verb-bar
-render *and* hit-test must skip any verb currently in
-`vm.savedVerbStates` — otherwise the still-"on" sentence line `#100` (at
+render *and* hit-test must skip any verb currently in the saved-verb set
+— otherwise the still-"on" sentence line `#100` (at
 y=145) draws over the first reply verb (`#120`, also y=145). The
 render-skip is the faithful low-risk subset of SCUMM's full per-verb
 saveid model.
@@ -377,17 +377,17 @@ in §5.
 Two engine-level keys the player uses during scripted moments:
 
 - **Escape — abort the cutscene.** Skips a *skippable* cutscene (one that
-  armed an `override`); `vm.abortCutscene()` jumps the cutscene script to
-  its override target. Ends the whole scene.
+  armed an `override`): the cutscene script jumps to its override target.
+  Ends the whole scene.
 - **`.` (dot) — skip the current line of speech.** The per-line analogue of
-  Escape. `vm.skipText()` drains the current talk page: if the printed
-  message has more sentence pages queued (split at `\xff\x03`, see §6 /
-  char.md) it flips to the next page; otherwise it ends the message
-  (clears `VAR_HAVE_MSG`, so a `wait-for-message` releases). One press = one
-  page, mirroring the talk timer's natural drain in `vm.beginTick()` — the
-  two share `advanceOrEndTalk()`. A no-op when nothing is being said.
+  Escape. It drains the current talk page: if the printed message has more
+  sentence pages queued (split at `\xff\x03`, see §6 / char.md) it flips to
+  the next page; otherwise it ends the message (clears `VAR_HAVE_MSG`, so a
+  `wait-for-message` releases). One press = one page, mirroring the talk
+  timer's natural drain — both share the same talk-advance step. A no-op
+  when nothing is being said.
 
-Both are routed the same way: `shell/player/input.ts` turns the keydown into
-a `session.sendInput({type:'key', key})`, and the session dispatches Escape →
-`abortCutscene`, `.` → `skipText`. They are distinct: Escape ends a scene,
-the dot ends a single spoken line.
+Both are routed the same way: the shell turns the keydown into an
+engine-level key input, and the session dispatches Escape → abort cutscene,
+`.` → skip text. They are distinct: Escape ends a scene, the dot ends a
+single spoken line.

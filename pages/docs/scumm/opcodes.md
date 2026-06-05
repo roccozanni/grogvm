@@ -258,10 +258,9 @@ completion.
 
 **Synthetic slots.** Some scripts the engine starts internally —
 the room's `ENCD` (entry script) and `EXCD` (exit script) when
-transitioning rooms — don't have a numeric script id. GrogVM
-attaches a string `label` field (e.g. `ENCD-10`, `EXCD-10`) so they
-show meaningfully in traces. Verb scripts and sentence scripts will
-benefit from the same mechanism.
+transitioning rooms — don't have a numeric script id. The engine
+attaches a string label (e.g. `ENCD-10`, `EXCD-10`) so they show
+meaningfully in traces.
 
 **Runaway-loop guard.** A step-cap on `runUntilAllYield` (~100k
 opcodes) converts the most common bug class — a tight loop with
@@ -278,11 +277,11 @@ the fresh one. Background-animation loops chain themselves to re-loop
 handler doesn't just drop one script — the unknown-opcode halt freezes
 the *whole* VM the instant anything chains.
 
-**`startScript` runs the new script *nested*, not deferred.** SCUMM's
-`runScript` → `runScriptNested` executes the started script immediately —
-to its first `breakHere`/stop — **before the caller's next opcode**, then
-returns to the caller (the child's slot stays alive and resumes normally on
-later ticks if it yielded). It is NOT queued behind the caller. This is
+**`startScript` runs the new script *nested*, not deferred.** SCUMM runs
+the started script immediately — to its first `breakHere`/stop —
+**before the caller's next opcode**, then returns to the caller (the
+child's slot stays alive and resumes normally on later ticks if it
+yielded). It is NOT queued behind the caller. This is
 load-bearing: scripts assume a script they start has already run by their
 next statement. E.g. the room-28 pirate dialog (`#220`) does `startScript
 32; <fill reply menu>` and relies on `#32` (clear the reply slots + set the
@@ -290,9 +289,9 @@ reply-Y base `g229`) running *first*; queuing `#32` let `#220` fill the
 replies first and `#32` then wiped them — an intermittent black/empty answer
 bar whose outcome depended on slot-allocation order. The same applies to the
 cutscene start/end hooks (CUTSCENES §2): `#18`'s `freezeScripts 127` and
-`#19`'s `freezeScripts 0` must execute in issue-order. Implementation: the
-`startScript` opcode handler allocates the slot then calls
-`vm.runScriptNested(child)`. (`chainScript` above is the in-place variant.)
+`#19`'s `freezeScripts 0` must execute in issue-order. The `startScript`
+handler allocates the slot then runs the child nested; `chainScript` above
+is the in-place variant.
 
 **Starting script 0 is a silent no-op.** `startScript 0` / `chainScript 0` do
 nothing — id 0 must *not* be resolved as a global, since DSCR slot 0 is an
@@ -300,29 +299,28 @@ unused entry (room 0) and resolving it would halt. The proof is in the game's
 own bytecode: this is reachable in normal play. With a "Dai"/"Usa" verb armed
 and an object held, the hover poller `#23`, when the cursor is over an **actor**
 (id < 12), starts a per-actor handler via the indexed table `g396[actorId]`
-(= `VAR(396 + actorId)`) — disassemble `#23` with `scratch/dis.ts` to see the
-`startScript g396[L0]` at pc 341. An actor with no special give/use script has
+(= `VAR(396 + actorId)`) — in `#23`'s bytecode this is a
+`startScript g396[L0]`. An actor with no special give/use script has
 a `0` there, so `#23` issues `startScript 0`; since the game does this on an
-ordinary hover, id 0 has to be a no-op rather than a halt. Guard
-at the resolution boundary (`startScriptById` returns `null` for id ≤ 0; the
-`startScript`/`chainScript` handlers then skip the nested run). Repro: give the
-pot to a pirate in room 51 → "Ah, quello sarà perfetto come elmetto!"
-(`scratch/repro-give-pot.ts`). Before the guard this halted with
+ordinary hover, id 0 has to be a no-op rather than a halt. The guard is
+at the resolution boundary: id resolution returns nothing for id ≤ 0, and
+the `startScript`/`chainScript` handlers then skip the nested run. Repro:
+give the pot to a pirate in room 51 → "Ah, quello sarà perfetto come
+elmetto!". Before the guard this halted with
 `Cannot load global script #0: unused entry (room = 0)`.
 
-**`startObject` (0x37/0x77/0xB7/0xF7) runs nested too** — same `runScript`
+**`startObject` (0x37/0x77/0xB7/0xF7) runs nested too** — the same
 mechanism, so a started object-verb script finishes (to its first
 `breakHere`/stop) before the caller's next opcode. This is load-bearing for
 the **inventory icons**: the inventory script (`#9`) loops the owner's items
 doing `startObject item 91; L4 = g376`, where each item's **verb-91** sets
 `g376` to the object whose sprite that slot should draw. Deferred, the loop
 read a stale `g376` for every slot and every item drew one identical icon;
-nested, each slot reads its own freshly-set `g376`. Handler:
-`vm.startVerbScript(...)` then `vm.runScriptNested(child)`.
+nested, each slot reads its own freshly-set `g376`.
 
 **`startObject` args map straight onto the verb body's locals** `L0, L1, …` —
 there is **no** implicit `[verb, object]` prepend. This is visible in the
-bytecode (`scratch/dis.ts`): the sentence script `#2` runs a verb as
+bytecode: the sentence script `#2` runs a verb as
 `startObject obj=L1 script=4 [L2]` (give) or the general `startObject obj=L1
 script=L0 [L2,L0]`, and the verb bodies read those positions directly — object
 `566` verb-7 tests `L0 == 574` (the second object in "Usa carne con pentola"),
@@ -349,9 +347,8 @@ The opcode byte carries two additional flags on the high bits:
 **recursive** (bit `0x40`) suppresses the "already-running" check
 that otherwise prevents the same script id from running in two
 slots at once; **freeze-resistant** (bit `0x20`) marks the new
-slot so `freezeScripts` won't pause it. Both matter once verb
-scripts and `freezeScripts` are wired; GrogVM currently ignores
-both and always picks the lowest free slot.
+slot so `freezeScripts` won't pause it. The new slot is otherwise
+the lowest free one.
 
 ## 8. Halt as a first-class state
 
@@ -410,31 +407,3 @@ the diagnostic value of "this global is non-zero, so either a
 script wrote it or the engine seeded it." Seeding only the
 variables the boot prefix actually reads keeps that signal
 intact.
-
-## 11. Reference implementation
-
-The dispatcher and every wired opcode live under
-[`src/engine/vm/`](../src/engine/vm/):
-
-- [`vm.ts`](../src/engine/vm/vm.ts) — `Vm` class, slot scheduling,
-  halt machinery, trace ring, `enterRoom` (ENCD/EXCD dispatch).
-- [`slot.ts`](../src/engine/vm/slot.ts) — `ScriptSlot` state
-  machine + the synthetic-script `label` field.
-- [`params.ts`](../src/engine/vm/params.ts) — `isVarParam`,
-  `readVarRef`, `readDestRef`, `readVarOrByte`, `readVarOrWord`,
-  `readWordVararg`, plus the scope-bit dereference logic.
-- [`expression.ts`](../src/engine/vm/expression.ts) — the `0xAC`
-  mini-VM evaluator.
-- [`opcodes/index.ts`](../src/engine/vm/opcodes/index.ts) — every
-  wired opcode handler. Family-grouped, with comments explaining
-  each opcode's quirks where they differ from the wiki.
-- [`scripts.ts`](../src/engine/vm/scripts.ts) — global script
-  loading via DSCR + LOFF.
-- [`boot.ts`](../src/engine/vm/boot.ts) — the system-var seeding
-  + resolver wiring for global scripts, rooms, costumes.
-
-Tests cover every handler family with both synthetic fixtures and
-opcode-prefix slices of the real MI1 boot script. The trace ring,
-runaway-loop guard, halt-as-first-class-state, OOB lenience, and
-indexed/array refs all have dedicated test coverage.
-
