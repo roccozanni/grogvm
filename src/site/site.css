@@ -104,6 +104,18 @@ body {
   margin: 0 0 1.25rem;
 }
 
+.prose blockquote {
+  padding: 0.7rem 1rem;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 4px 4px 0;
+  background: var(--code-bg);
+  color: var(--muted);
+}
+
+.prose blockquote > :last-child {
+  margin-bottom: 0;
+}
+
 .prose p {
   text-wrap: pretty;
 }
