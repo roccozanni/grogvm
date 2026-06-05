@@ -1,262 +1,214 @@
-# Pathfinding — Grid A* over a Walkable Mask
+# Pathfinding — SCUMM Box-Graph Routing (BOXM)
 
-GrogVM uses **grid A***, not the original SCUMM box-graph
-pathfinder. This document explains the architecture, the rationale,
-and the trade-offs.
+GrogVM routes the way the original SCUMM engine does: **across the graph
+of walk boxes**, planned through the `BOXM` matrix. (Phase 6 shipped a
+grid-A*-over-a-rasterized-mask stand-in; it was replaced by this faithful
+box-graph router because the two pick *different routes* through the same
+geometry — see §8.)
 
-The thing that walks is `Actor.walkPath`, an array of pixel
-waypoints. Pathfinding's job is to populate it given a start point,
-a target point, and the room's walk-box geometry. The walker
-(`stepWalk` in `src/engine/actor/walk.ts`) doesn't care how the
-path got there — it just steps toward the next waypoint each tick.
+The thing that walks is `Actor.walkPath`, an array of pixel waypoints.
+Pathfinding's job is to populate it given a start point, a target point,
+and the room's walk-box geometry + matrix. The walker (`stepWalk` in
+`src/engine/actor/walk.ts`) doesn't care how the path got there — it just
+steps toward the next waypoint each tick.
 
-## 1. The two ways SCUMM v5 pathfinds
+## 1. The two data blocks
 
-The original engine walks **across a graph of walk boxes**. Each
-box has a polygon outline; the `BOXM` block lists which boxes are
-directly reachable from which other boxes. A path is planned as a
-sequence of box transitions (`5 → 7 → 8`), and the in-box trajectory
-is refined per transition.
+A room's walk geometry is two ROOM child blocks:
 
-GrogVM uses a different approach: **flatten the union of all
-visible walk boxes into a binary mask, then A* over that mask**.
-The boxes are still parsed for their flags and SCAL slots (per
-[`SCUMM-V5-WALK-BOXES.md`](SCUMM-V5-WALK-BOXES.md)), but only the
-geometry is used at planning time.
+- **`BOXD`** — the walk boxes. Each box is a convex quadrilateral (four
+  corners UL, UR, LR, LL) plus a z-plane mask byte, a flags byte (bit
+  `0x80` = invisible / non-walkable), and a `SCAL` scale slot. Parsed by
+  `parseWalkBoxes` (see [`SCUMM-V5-WALK-BOXES.md`](SCUMM-V5-WALK-BOXES.md)).
+- **`BOXM`** — the box matrix: SCUMM's per-box shortest-path lookup. For
+  each source box it answers "to reach box *D*, which box do I step into
+  next?" Parsed by `parseBoxMatrix`.
 
-Reasons to prefer the grid approach:
+Many MI1 rooms include **degenerate "line" boxes** — quads collapsed to a
+zero-area segment (a staircase tread, a cliff edge, the room-52 bridge).
+They're pure routing connectors: an actor stands *on* the line, and the
+box graph threads through them. The grid-mask approach mangled these
+(A* hugged the single rasterized pixel row); the box graph routes them
+as first-class hops.
 
-- A binary mask is **straightforward to visualize** — tint
-  walkable pixels and the route options are obvious at a glance.
-- A* is **a well-known algorithm** with predictable performance
-  and known correctness, with no dependence on decoding BOXM's
-  compressed adjacency encoding.
-- The output (a list of pixel waypoints) is the same shape as the
-  box-graph approach, so the walker doesn't care which algorithm
-  produced it. A box-graph pathfinder is a drop-in replacement.
+## 2. The BOXM format
 
-Trade-off: A* paths **hug walls** (shortest grid path) while
-box-graph paths **cut diagonally through the middle of boxes**
-(each box transition is a single edge crossing). The box-graph
-version reads more like "the actor walks through the room"; the
-grid version reads more like "the actor hugs the corridor." Choose
-based on the aesthetic you want.
+Verified empirically against MI1 rooms 28/33/38/52:
 
-## 2. The mask
+```
+BOXM payload:
+  numBoxes rows, stored back-to-back in box-id order. Each row:
+    a run of 3-byte (from, to, next) triples, 0xFF-terminated.
+  The whole block is padded to even length with a trailing 0x00.
+```
 
-`buildWalkableMask(boxes, width, height)` rasterizes the union of
-all *visible* boxes (skipping any with the `0x80` flag bit set)
-into a `width × height` byte buffer. 1 = walkable, 0 = blocked.
+A triple `(from, to, next)` means "to reach any destination box in the
+inclusive range `[from, to]`, step into box `next`." `getNextBox(from, to)`
+scans `from`'s row for the triple whose range covers `to` and returns its
+`next`, or `-1` when `to` is unreachable from `from`.
 
-The rasterizer uses **convex-quad scan-line fill** since every walk
-box is a convex quadrilateral. For each row in the box's bounding
-span, it computes the left and right edge intersections by linear
-interpolation across the four edges, then fills the inclusive span.
-Cheaper than a general polygon fill, and no need for the standard
-edge-table / active-edge-list machinery a general polygon-fill
-algorithm uses.
+Example (room 38, box 1): `(1,1,1) (2,5,3)` — "to reach box 1, you're
+there; to reach any of boxes 2..5, step into box 3."
 
-The mask is cached on `LoadedRoom.walkableMask` at room-load time,
-so a path query is `findPath(mask, w, h, start, target)` with no
-per-query rasterization.
+There is no count header — `numBoxes` comes from `BOXD`. Rooms with `BOXD`
+but no `BOXM` route straight-line (none in MI1's walkable rooms).
 
-## 3. The A* search
+## 3. The router
 
-`findPath` is straight A*:
+`routeThroughBoxes(boxes, matrix, start, goal)`:
 
-- **State** — one byte per cell (the mask byte) plus per-search
-  `Float64Array` for `gScore` and `Int32Array` for `cameFrom`.
-- **Open list** — a binary min-heap keyed by `gScore + heuristic`.
-  Storing cell indices as `Int32` rather than allocating objects
-  per node keeps the hot loop allocation-free after warmup.
-- **Closed set** — a `Uint8Array` flag per cell; cells whose
-  closed flag is set are skipped when popped from the heap, which
-  handles the "stale entry" case without needing a decrease-key
-  operation.
-- **Neighbours** — 8-connectivity. Cardinal moves cost 1, diagonal
-  moves cost √2. Gives smoother paths than 4-connectivity without
-  much extra work.
-- **Heuristic** — *octile distance*: `dx + dy + (√2 - 2) ×
-  min(dx, dy)`. Admissible (never overestimates), tighter than
-  Manhattan for 8-connectivity, faster than Euclidean (no `sqrt`
-  in the inner loop).
-- **Termination** — pop until the goal is reached, the heap empties,
-  or every reachable cell has been expanded. The last case happens
-  when the goal is in a disjoint region from the start (e.g. an
-  unreachable obstacle); a partial path to the closest expanded
-  cell is returned instead.
+1. **Snap endpoints to boxes.** `startBox` / `destBox` via
+   `findBoxAtOrNearest` (nearest visible box when the point is off every
+   box — clicks land off the floor all the time).
+2. **Clamp the target into its box** (`closestPointInBox`, SCUMM's
+   `adjustXYToBeInBox`): a click off the floor walks to the nearest floor
+   point; an off-screen exit target inside a box that extends past the
+   screen edge is reached exactly (MI1 room 78's exit is at x=-25).
+3. **Follow BOXM.** `next = getNextBox(cur, destBox)` until `cur ==
+   destBox`, building the box sequence. Bounded by box count so a
+   malformed matrix can't loop forever.
+4. **Gate per transition.** For each consecutive box pair, a crossing
+   point on their shared boundary (§4); string them together, ending at
+   the (clamped) target.
 
-The output is a flat list of pixel waypoints from start to
-(best-reachable) goal. A `reachedGoal: false` flag signals that the
-requested goal proper is unreachable — the walker can still walk
-the partial path so the actor doesn't appear stuck.
+Each straight segment of the result lies inside one convex box
+(start→gate ⊆ box A, gate→nextgate ⊆ box B), so the walker can
+interpolate it directly — no per-pixel path, no mask. This is why
+box-graph paths "stride through the middle" of a room.
 
-## 4. Snapping endpoints
+`reachedGoal` is false when the box chain can't reach the target's box
+(a sealed route). The final waypoint is then clamped into the *furthest
+reachable* box, so the actor stops at the seal instead of walking straight
+through the locked region.
 
-Start or goal coordinates **off the walkable mask** are normal —
-a script can call `walkActorTo(actor, 320, 200)` with no regard
-for whether `(320, 200)` is actually a walk-box pixel. Both
-endpoints should be snapped to the nearest walkable cell via a
-bounded breadth-first search before launching A*. The snap returns
-`null` (and hence "no path") only when the entire mask is empty.
+## 4. Gate points
 
-Out-of-bounds coords should be clamped to the mask's
-`[0, width) × [0, height)` rectangle before snapping. A click
-outside the room boundary then produces a sensible target inside
-the walkable area.
+`gateBetween(a, b, target)` picks where an actor crosses from box `a` into
+adjacent box `b`. SCUMM transitions at the shared boundary; we find it as a
+**collinear, overlapping edge pair** — `a`'s edge and `b`'s edge on the same
+vertical (shared x) or horizontal (shared y) line, with an overlapping
+span. The gate is the point on that overlap closest to the target (clamped
+to the span), so the actor heads toward its goal as it crosses; the widest
+shared edge wins when several qualify.
 
-A walk-to target that legitimately sits **off the mask** must still be
-*reached*, not merely clamped. An object's `walkX/walkY` can be off-screen
-(a negative x for an edge exit); clamping the goal to `[0, width)` stops the
-actor a few px inside the boundary — short of the verb's ~16px proximity gate,
-so the exit's `loadRoom` never fires. The fix: once the actor is in the goal's
-walk-box, extend the path's final segment out to the true (off-mask) target so
-the gate is satisfied.
+Diagonal / corner-touching boxes (the staircase and cliff "line" boxes
+share an *endpoint*, not an axis-aligned edge) have no collinear edge —
+there we fall back to the midpoint of the closest pair of points between
+the two outlines (segment-segment closest point, Ericson), which resolves
+to the shared corner.
 
-Snap distance can be large (a click far from any walkable region
-snaps to the nearest edge), but it's bounded by the mask size and
-the search itself is `O(width × height)` worst case. At MI1's
-typical 320×144 = 46k pixels, the worst-case snap is
-sub-millisecond.
+> **Fidelity note.** SCUMM's exact gate routine (`findPathTowards`) is
+> engine C, not game bytecode, so it can't be ground-truthed against the
+> data files here. The collinear-edge gate is geometrically faithful and
+> validated by rendering real routes, not by claiming bit-exactness.
 
-## 5. Path simplification
+## 5. Runtime box locking (`matrixOp setBoxFlags`)
 
-Raw A* output is per-pixel — a 100-pixel diagonal walk produces
-100 waypoints. The simplifier collapses runs of waypoints that
-share a direction into single segments, so the polyline is
-**corner turns only**. A diagonal walk through an empty room
-becomes 2 waypoints (start, end). An L-shaped walk around an
-obstacle is 3 waypoints (start, corner, end).
+Walk-box flags are runtime state: a script locks a box (flag bit `0x80`)
+to seal a corridor when a door shuts, unlocks it when the door opens.
+SCUMM stores box flags in the in-memory room and resets them to disk
+values on every room load; the entry script (ENCD) re-applies the locks.
 
-This is what the walker wants — it interpolates straight-line
-motion between waypoints, so fewer waypoints means fewer
-arrival-and-advance cycles per second. The actor moves visually
-identically to the per-pixel path but with much less per-tick
-overhead.
+We mirror that with **per-box overrides** in `vm.boxFlagOverrides` (box id
+→ flags), the same pattern as `objectStates`/`objectOwners`, rather than
+mutating the readonly room:
+
+- `vm.setBoxFlags(boxId, flags)` (the `matrixOp` 0x30 sub 0x01 opcode)
+  records the override. Nothing is rebuilt — the router reads overrides
+  **live** each walk.
+- `startWalk` folds overrides into the box list (`effectiveBoxes`) before
+  routing, so `isInvisibleBox` drops a locked box from both endpoint
+  snapping and the hop chain — you can't route through a sealed corridor.
+- Overrides reset on a real room change (`enterRoom` clears them; ENCD
+  re-applies) and are saved (`SaveState.boxFlags`), because restore
+  reloads the room fresh but does not re-run ENCD.
+
+Example: room 41's door 564 — its ENCD locks boxes 4/5 when the door is
+closed, sealing the corridor behind it. `setBoxScale` (sub 0x02/0x03) and
+`createBoxMatrix` (sub 0x04) remain no-ops (scale is read from SCAL at
+load; the matrix is parsed from disk).
 
 ## 6. Walker integration
 
 When `walkActorTo(actor, x, y)` fires:
 
-1. The opcode handler in `src/engine/vm/opcodes/index.ts` calls
-   `startWalk(vm, actor, target)`.
-2. `startWalk` checks `vm.loadedRoom?.walkableMask`. If absent /
-   empty, the actor's `walkTarget` is set and `walkPath` left
-   empty — `stepWalk` then walks straight-line via the fallback.
-3. Otherwise `findPath` runs. The first waypoint (= snapped start)
-   is dropped so the actor doesn't appear to teleport onto the
-   nearest box edge; the rest become `actor.walkPath`.
-4. `actor.isMoving` flips true, `walkPathIdx` starts at 0.
+1. The opcode handler calls `startWalk(vm, actor, target)`.
+2. `startWalk` bails to a straight-line walk (via `stepWalk`'s
+   `walkTarget` fallback) when the room has no boxes or the actor's
+   `ignoreBoxes` flag is set (cutscene movement that crosses non-walkable
+   regions).
+3. Otherwise `routeThroughBoxes` runs over `effectiveBoxes`; its waypoints
+   become `actor.walkPath`. The actor's current position is *not* prepended
+   — the walker starts from where the actor already is.
 
-Per-tick, `stepWalk` advances `actor.x` / `actor.y` toward
-`walkPath[walkPathIdx]` by the actor's `walkSpeedX` / `walkSpeedY`
-(SCUMM defaults 8 / 2 — horizontal-biased to match the engine's
-perspective convention). On arrival at a waypoint the index is
-bumped; on arrival at the *final* waypoint `isMoving` flips off
-and the walk is done.
+Per tick, `stepWalk` advances `actor.x` / `actor.y` toward the active
+waypoint by `walkSpeedX` / `walkSpeedY` (SCUMM defaults 8 / 2 —
+horizontal-biased), bumps the index on arrival, and stops on the final
+waypoint. Facing follows a short look-ahead along the path.
 
-The actor's `facing` updates each tick from the dominant
-component of the step (`|dx| ≥ |dy|` → E/W, otherwise N/S).
+## 7. The room-52 high/low guard (worked example)
 
-If the actor's `ignoreBoxes` flag is set (cutscene movement
-bypass, via the `actorOps` subop `0x14`), the pathfinder is
-skipped and the actor walks straight-line. SCUMM uses this for
-camera-locked cinematic motion that needs to cross non-walkable
-regions.
+Room 52 (the Fettucini clearing) is a high zone (right, where you enter)
+and a low zone (left, the tent), joined by the diagonal bridge **box 7**.
+Local script 202 force-stops the ego whenever it's in box 7 at `x > 200`,
+so you can't walk straight across — you descend into the low zone first,
+then walk to the tent. The box-graph route threads the whole 12-box chain
+correctly; the guard is faithful game logic, and the walkthrough stages the
+walk in short hops exactly as a player clicks their way down.
 
-## 7. Performance
+## 8. Why box graph, not grid A*
 
-A* on the rasterized mask is comfortably real-time at MI1's
-resolution. A worst-case probe — 320×144 mask, start at one
-corner, goal at the opposite — completes in well under 50 ms on
-modest hardware. The dominant cost is the priority queue at high
-node counts; the binary heap with packed `Int32Array` storage
-keeps the constants small.
+Phase 6's grid-A*-over-a-rasterized-mask flattened the union of all visible
+boxes into a binary mask and ran A* over it. It worked on every room and
+was easy to visualize, but it **ignored BOXM** — A* hugged whatever pixels
+were shortest. Two confirmed divergences it caused:
 
-In practice rooms route in a few milliseconds at most. A wider
-room (640×200 for MI1's title scrolling room) doubles the worst
-case to ~100 ms which is still fine for once-per-walk planning.
+- **Room 28 cook.** Between x≈367–466 the only walk box is box 6, a
+  degenerate line at y=140. The mask had walkable pixels only there, so A*
+  routed the cook along that bottom edge, where the foreground table
+  z-plane sliced its torso. The box graph follows BOXM's intended sequence
+  instead.
+- **Room 52 → circus.** The long route to the tent threads 14 boxes,
+  several degenerate. A* over the mask truncated it (the ego stalled
+  partway, sometimes heading for the exit). The box graph walks the full
+  chain.
 
-The mask itself is computed once at room-load time and reused for
-every walk that takes place in that room.
+Trade-off inherited from the box-graph model: paths cut diagonally through
+the middle of boxes (one edge crossing per transition) rather than hugging
+walls — which reads as "the actor walks through the room," matching the
+original.
 
-## 8. BOXM-style box-graph alternative
+## 9. Known limitation — independent-axis stepping vs. line-following
 
-For the more cinematic "actor strides through the middle of the
-box" aesthetic — or to handle walk geometry that doesn't
-rasterize cleanly — a box-graph pathfinder can replace `findPath`
-without changing the call site. Both populate `actor.walkPath` with
-the same `Point[]` shape.
+`stepWalk` advances X and Y by `walkSpeedX` / `walkSpeedY`
+**independently** (each clamped to the remaining distance). SCUMM moves the
+actor *along the line* toward the waypoint (`calcMovementFactor`: dominant
+axis at full speed, the other proportional). On a near-horizontal diagonal
+connector box, our walker exhausts the small Y delta in one tick and then
+drifts straight along the wrong Y, leaving the thin box; `getActorWalkBox`
+(which re-derives the box from position) then reports the wrong box.
 
-What's needed:
-- A BOXM decoder for the per-box "next-hop" adjacency table.
-- A path-planning routine that, given start box and goal box,
-  emits the corner-to-corner waypoint sequence the actor walks.
+This is why a *single* click can't cross room 52's bridge (§7) and why thin
+diagonal connectors are fragile in general. The faithful follow-up is a
+two-part change, deferred as its own task: (a) a line-following walker
+(`calcMovementFactor` with sub-pixel accumulation), and (b) tracking the
+actor's walk-box as state updated at gate crossings (SCUMM's `_walkbox`)
+rather than re-deriving it from pixel position. Tracked in PROGRESS.
 
-The existing walk-box parser already extracts everything else
-(corners, flags, scale slots), so a box-graph pathfinder is mostly
-a routing layer on top of it.
+## 10. Reference implementation
 
-### Known divergence this would fix (deferred)
-
-Grid-A*-over-mask and SCUMM's box-graph pick **different routes** through
-the same geometry, and the difference is visible. In **room 28** (the SCUMM
-Bar) the cook (actor 6, `alwaysZclip=1`) walks across the bar; between
-x≈367–466 the only walk box is **box 6, a degenerate line at y=140** (its
-four corners all share y=140). Our mask therefore has walkable pixels *only*
-at y=140 there, so A* routes the cook along that bottom edge. At y=140 the
-room's foreground z-plane — a horizontal band at the table top (y≈102–122) —
-slices the cook's torso out (head above the band, legs below, middle hidden).
-ScummVM's box-graph routes the same walk box-to-box (nearer the box "centre"
-line), keeping the actor higher where it clears the band. The clip and the
-z-plane are both faithful; only the **route** differs. Confirmed by comparing
-our path to ScummVM's on the same save. Tabled until/unless we add the
-box-graph router above.
-
-## 9. Reference implementation
-
-- [`src/engine/pathfinding/grid.ts`](../src/engine/pathfinding/grid.ts)
-  — `findPath(mask, w, h, start, goal) → PathResult`, the binary
-  heap, the BFS snap, the simplifier.
-- [`src/engine/pathfinding/mask.ts`](../src/engine/pathfinding/mask.ts)
-  — `buildWalkableMask(boxes, w, h)` with the convex-quad scan-line
-  fill.
-- [`src/engine/actor/walk.ts`](../src/engine/actor/walk.ts) —
-  `stepWalk(actor)`, `stepAllActorWalks(vm)`, the path-following
-  state machine.
+- [`src/engine/pathfinding/boxes.ts`](../src/engine/pathfinding/boxes.ts)
+  — `parseWalkBoxes` (BOXD), `parseBoxMatrix` + `getNextBox` (BOXM),
+  `pointInBox`, `findBoxAt` / `findBoxAtOrNearest`.
+- [`src/engine/pathfinding/boxgraph.ts`](../src/engine/pathfinding/boxgraph.ts)
+  — `routeThroughBoxes`, `gateBetween`, `closestPointInBox`, the
+  segment-segment closest-point helper.
+- [`src/engine/actor/walk.ts`](../src/engine/actor/walk.ts) — `startWalk`
+  (routing + `effectiveBoxes`), `stepWalk`, the path-follow state machine.
 - Tests:
-  [`grid.test.ts`](../src/engine/pathfinding/grid.test.ts),
-  [`mask.test.ts`](../src/engine/pathfinding/mask.test.ts),
-  [`walk.test.ts`](../src/engine/actor/walk.test.ts) — synthetic
-  fixtures covering open rooms, single-obstacle routing, disjoint
-  regions, snap-to-walkable, single-pixel islands, mask-bounds
-  clipping, path-following with multi-waypoint paths.
-
-## 10. Runtime box locking (`matrixOp setBoxFlags`)
-
-Walk-box flags are **runtime state**, not just disk data: a script locks a
-box (flag bit `0x80`) to seal a corridor when a door is shut, and unlocks it
-when the door opens. SCUMM stores box flags in the in-memory room, resets
-them to disk values on every room load, and the entry script (ENCD)
-re-applies the door-state locks.
-
-We mirror that:
-- The room re-parses fresh from disk on every entry (no VM room cache), so
-  `LoadedRoom.walkBoxes` always carry the disk flags. Runtime changes layer
-  on top as **per-box overrides** in `vm.boxFlagOverrides` (box id → flags) —
-  the same pattern as `objectStates`/`objectOwners`, *not* a mutation of the
-  readonly room.
-- `vm.setBoxFlags(boxId, flags)` (called by the `matrixOp` opcode, 0x30 sub
-  0x01) records the override and rebuilds `LoadedRoom.walkableMask` in place
-  via `buildWalkableMask` with the overrides applied (`maskFromBox`/§2 already
-  drop `0x80` boxes, so the pathfinder needs no change).
-- Overrides **reset on a real room change** (`enterRoom` clears them; ENCD
-  re-applies) and are **saved** (`SaveState.boxFlags`), because restore
-  reloads the room fresh but does *not* re-run ENCD.
-
-Example: room 41's door 564 — its ENCD locks boxes 4/5 (`setBoxFlags 4,128`)
-when the door's state is closed, sealing the corridor behind it; opening it
-unlocks them. Before this landed, `matrixOp` was a no-op and you could walk
-through closed doors. `setBoxScale` (sub 0x02/0x03) and `createBoxMatrix`
-(sub 0x04) remain no-ops — scale is read from SCAL at load, and the mask is
-already rebuilt per `setBoxFlags`.
+  [`boxes.test.ts`](../src/engine/pathfinding/boxes.test.ts) (BOXD + BOXM
+  decode),
+  [`boxgraph.test.ts`](../src/engine/pathfinding/boxgraph.test.ts) (router,
+  gates, locked-box seal, box clamping),
+  [`walk.test.ts`](../src/engine/actor/walk.test.ts) (stepping, off-screen
+  box targets, scale).

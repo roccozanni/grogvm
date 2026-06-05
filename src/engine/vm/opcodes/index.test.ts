@@ -464,7 +464,7 @@ describe('seed opcodes — startScript LSCR routing', () => {
       localScripts: new Map([[201, localBytecode]]),
       objects: new Map(),
       walkBoxes: [],
-      walkableMask: new Uint8Array(0), scaleSlots: [],
+      boxMatrix: [], scaleSlots: [],
     };
     (vm as unknown as { currentRoom: number }).currentRoom = 5;
     // bytecode: startScript #201 with no args
@@ -777,7 +777,7 @@ describe('seed opcodes — verbOps state wiring', () => {
         ],
       ]),
       walkBoxes: [],
-      walkableMask: new Uint8Array(0), scaleSlots: [],
+      boxMatrix: [], scaleSlots: [],
     };
     // findObject(50, 50) — both immediate (opcode 0x35, no mode bits set)
     vm.startScript({
@@ -856,7 +856,7 @@ describe('room-entry opcodes', () => {
       transparentIndex: null, indexed: new Uint8Array(0), stripMethods: [],
       zPlanes: [], entryScript: null, exitScript: null, localScripts: new Map(),
       objects: new Map([[42, { objId: 42 }]]),
-      walkBoxes: [], walkableMask: new Uint8Array(0), scaleSlots: [],
+      walkBoxes: [], boxMatrix: [], scaleSlots: [],
     } as never;
     // Present in the room, no explicit owner → owned by the room (15). This is
     // what MI1's sentence script #2 gates the walk-to-object approach on.
@@ -993,7 +993,7 @@ describe('inventory subsystem', () => {
           images: new Map(), name: 'the meat', verbs: new Map(),
         }],
       ]),
-      walkBoxes: [], walkableMask: new Uint8Array(0), scaleSlots: [],
+      walkBoxes: [], boxMatrix: [], scaleSlots: [],
     };
     // Same hit-test predicate findObject uses (Untouchable = class 32 / bit 31).
     const at = (x: number, y: number) =>
@@ -1028,7 +1028,7 @@ describe('inventory subsystem', () => {
           verbs: new Map(),
         }],
       ]),
-      walkBoxes: [], walkableMask: new Uint8Array(0), scaleSlots: [],
+      walkBoxes: [], boxMatrix: [], scaleSlots: [],
     };
     vm.startScript({ scriptId: 1, bytecode: bytes(0x25, 0x63, 0x00, 0x00) });
     vm.step();
@@ -1104,7 +1104,7 @@ describe('inventory subsystem', () => {
           verbs: new Map([[8, new Uint8Array([0x00])]]),
         }],
       ]),
-      walkBoxes: [], walkableMask: new Uint8Array(0), scaleSlots: [],
+      walkBoxes: [], boxMatrix: [], scaleSlots: [],
     };
     // getVerbEntryPoint g0 = (obj 42, verb 8) → 1; g1 = (obj 42, verb 9) → 0.
     vm.startScript({
@@ -1144,7 +1144,7 @@ describe('inventory subsystem', () => {
           verbs: new Map([[90, new Uint8Array([0x00])], [0xff, new Uint8Array([0x00])]]),
         }],
       ]),
-      walkBoxes: [], walkableMask: new Uint8Array(0), scaleSlots: [],
+      walkBoxes: [], boxMatrix: [], scaleSlots: [],
     } as never;
     // getVerbEntryPoint g0 = (obj 857, verb 11): exit lacks 11 but has 0xFF → 1.
     vm.startScript({ scriptId: 1, bytecode: bytes(0x0b, 0x00, 0x00, 0x59, 0x03, 0x0b, 0x00, 0x00) });
@@ -1181,7 +1181,7 @@ describe('getDist + ifClassOfIs', () => {
         imhd: { objId, numImages: 0, flags: 0, x: 0, y: 0, width: 0, height: 0 },
         images: new Map(), name: 'thing', verbs: new Map(),
       }]]),
-      walkBoxes: [], walkableMask: new Uint8Array(0), scaleSlots: [],
+      walkBoxes: [], boxMatrix: [], scaleSlots: [],
     };
   }
 
@@ -1282,7 +1282,7 @@ describe('getActorWalkBox (0x7B)', () => {
       palette: new Uint8Array(768), transparentIndex: null,
       indexed: new Uint8Array(0), stripMethods: [], zPlanes: [],
       entryScript: null, exitScript: null, localScripts: new Map(), objects: new Map(),
-      walkBoxes: boxes, walkableMask: new Uint8Array(0), scaleSlots: [],
+      walkBoxes: boxes, boxMatrix: [], scaleSlots: [],
     } as never;
   }
 
@@ -1367,7 +1367,7 @@ describe('actor placement + room-transition opcodes (boot→lookout fixes)', () 
         imhd: { objId: 50, numImages: 0, flags: 0, x: 0, y: 0, width: 0, height: 0 },
         images: new Map(), name: 'thing', verbs: new Map(),
       }]]),
-      walkBoxes: [], walkableMask: new Uint8Array(0), scaleSlots: [],
+      walkBoxes: [], boxMatrix: [], scaleSlots: [],
     } as never;
     // 0x0E putActorAtObject actor=3 obj=50 (byte actor, word obj), then stop.
     vm.startScript({ scriptId: 1, bytecode: bytes(0x0e, 0x03, 0x32, 0x00, 0xa0) });
@@ -1476,7 +1476,7 @@ describe('intro-cutscene opcodes', () => {
       transparentIndex: null, indexed: new Uint8Array(0), stripMethods: [],
       zPlanes: [], entryScript: null, exitScript: null, localScripts: new Map(),
       objects: new Map([[42, { objId: 42, images: new Map([[1, {}]]) }]]),
-      walkBoxes: [], walkableMask: new Uint8Array(0), scaleSlots: [],
+      walkBoxes: [], boxMatrix: [], scaleSlots: [],
     } as never;
     expect(vm.objectDrawQueue.has(42)).toBe(false);
     // setState obj=42 state=1 (0x07 = both direct: obj word, state byte), stop.
@@ -1498,7 +1498,7 @@ describe('intro-cutscene opcodes', () => {
       transparentIndex: null, indexed: new Uint8Array(0), stripMethods: [],
       zPlanes: [], entryScript: null, exitScript: null, localScripts: new Map(),
       objects: new Map([[42, { objId: 42, images: new Map([[1, {}]]) }]]),
-      walkBoxes: [], walkableMask: new Uint8Array(0), scaleSlots: [],
+      walkBoxes: [], boxMatrix: [], scaleSlots: [],
     };
     const vm = new Vm({
       numVariables: 800, numBitVariables: 2048, handlers: SEED_OPCODES,

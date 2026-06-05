@@ -104,57 +104,38 @@ Degenerate boxes (a corner repeated, or all corners collinear like
 the box-0 sentinel) produce zero or single-pixel coverage — no
 special case needed.
 
-## 4. The walkable mask
+## 4. BOXM — the box matrix
 
-The room loader builds a `width × height` byte mask at room-load
-time by rasterizing the union of all *visible* boxes. Each byte is
-`1` (walkable) or `0` (blocked). Cached on the `LoadedRoom` as
-`walkableMask`.
+`BOXM` is SCUMM's per-box shortest-path lookup: "to reach box *D*
+from box *S*, step into box *N* next." The engine plans a path as a
+sequence of box transitions and refines the in-box trajectory per
+hop. Format (per box, `0xFF`-terminated, whole block even-padded):
+a run of 3-byte `(from, to, next)` triples, where `[from, to]` is an
+inclusive *destination* range and `next` the hop. `parseBoxMatrix`
+decodes it; `getNextBox(from, to)` reads it.
 
-This mask is what the A* pathfinder operates on. See
-[`PATHFINDING.md`](PATHFINDING.md) for the search algorithm. The
-inspector's walk overlay toggle draws the mask as a faint green
-tint over the room canvas, plus the individual box outlines (one
-colour per box id) on top.
+GrogVM routes over this graph — the faithful SCUMM approach. See
+[`PATHFINDING.md`](PATHFINDING.md) for the router, the gate
+computation, and why it replaced the earlier grid-A*-over-a-mask.
+The inspector's walk overlay toggle draws the box outlines (one
+colour per box id) over the room canvas.
 
-## 5. BOXM — adjacency matrix
-
-`BOXM` encodes "which boxes you can walk from box A to box B
-*directly*" — the SCUMM v5 engine uses this to build paths as a
-sequence of box transitions, then refines the in-box trajectory.
-Compressed format: per box, a list of `(toBox, viaBox)` runs
-terminated by `0xFF`.
-
-GrogVM currently doesn't decode BOXM. A grid A* pathfinder over
-the rasterized mask handles every routing case the original
-box-graph would, with slightly different aesthetics (grid paths
-hug walls; box-graph paths cut diagonally through the middle of
-boxes). A box-graph implementation can replace the grid one
-without changing the `walkActorTo` call site — both populate
-`actor.walkPath`.
-
-## 6. The runtime: walk planning
+## 5. The runtime: walk planning
 
 When a script issues `walkActorTo(id, x, y)`:
 
 1. The opcode handler in `src/engine/vm/opcodes/index.ts` calls
    `startWalk(vm, actor, target)`.
-2. `startWalk` checks `vm.loadedRoom?.walkableMask`. If absent or
-   empty (rooms without `BOXD`), the actor walks straight-line
-   toward the target via the `walkTarget` fallback in `stepWalk`.
-3. Otherwise it calls `findPath(mask, width, height, start,
-   target)` from the A* module, which returns a waypoint list. The
-   first waypoint (= snapped-to-walkable start) is dropped so the
-   actor doesn't appear to teleport onto the nearest box edge.
-4. The remaining waypoints become `actor.walkPath`. `stepWalk`
-   advances toward `walkPath[walkPathIdx]` each tick, bumping the
-   index on arrival.
-
-If the actor's `ignoreBoxes` flag is set (cutscene movement bypass,
-set by `actorOps` subop `0x14` / `SO_IGNORE_BOXES`), the pathfinder
-is skipped entirely and the actor walks straight-line. SCUMM uses
-this for camera-locked cinematic motion where the actor needs to
-cross non-walkable regions.
+2. `startWalk` bails to a straight-line walk (the `walkTarget`
+   fallback in `stepWalk`) when the room has no boxes or the actor's
+   `ignoreBoxes` flag is set — SCUMM uses the latter for camera-locked
+   cinematic motion that crosses non-walkable regions.
+3. Otherwise `routeThroughBoxes(boxes, matrix, start, target)`
+   returns a gate-waypoint list (boxes carry any runtime flag
+   overrides; locked `0x80` boxes are excluded). The waypoints become
+   `actor.walkPath` — the actor's current position is not prepended.
+   `stepWalk` advances toward `walkPath[walkPathIdx]` each tick,
+   bumping the index on arrival.
 
 ### Perspective-scale recompute timing
 
@@ -184,15 +165,17 @@ the `ignoreBoxes` z-clip rule — see [ZPLANE](SCUMM-V5-ZPLANE.md).)
 
 ## 7. Reference implementation
 
-- Parser: [`src/engine/pathfinding/boxes.ts`](../src/engine/pathfinding/boxes.ts)
-  — `parseWalkBoxes(payload) → WalkBox[]` + `isInvisibleBox(box)`.
-- Rasterizer: [`src/engine/pathfinding/mask.ts`](../src/engine/pathfinding/mask.ts)
-  — `buildWalkableMask(boxes, w, h) → Uint8Array`.
+- Parsers: [`src/engine/pathfinding/boxes.ts`](../src/engine/pathfinding/boxes.ts)
+  — `parseWalkBoxes(payload) → WalkBox[]` (BOXD), `parseBoxMatrix(payload,
+  numBoxes)` + `getNextBox` (BOXM), `isInvisibleBox`, `findBoxAt` /
+  `findBoxAtOrNearest`.
+- Router: [`src/engine/pathfinding/boxgraph.ts`](../src/engine/pathfinding/boxgraph.ts)
+  — `routeThroughBoxes`, `gateBetween`, `closestPointInBox`.
 - Tests:
-  [`boxes.test.ts`](../src/engine/pathfinding/boxes.test.ts) and
-  [`mask.test.ts`](../src/engine/pathfinding/mask.test.ts) — synthetic
-  fixtures: single rectangle, overlapping boxes, invisible-flag skip,
-  trapezoid scan-line fill, mask-bounds clipping.
+  [`boxes.test.ts`](../src/engine/pathfinding/boxes.test.ts) (BOXD +
+  BOXM decode, point-in-box) and
+  [`boxgraph.test.ts`](../src/engine/pathfinding/boxgraph.test.ts)
+  (routing, gates, locked-box seal, target clamping).
 
 ## 8. Inspector overlay
 

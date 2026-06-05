@@ -181,6 +181,62 @@ export function findBoxAtOrNearest(
   return best;
 }
 
+/**
+ * One BOXM row: the routing triples for a single source box. Each triple
+ * `{from, to, next}` says "to reach any destination box in `[from, to]`,
+ * step into box `next`". A `next === sourceId` triple means the destination
+ * is the source box itself (you're already there).
+ */
+export type BoxMatrixRow = ReadonlyArray<{ readonly from: number; readonly to: number; readonly next: number }>;
+
+/**
+ * The decoded BOXM box-matrix: one {@link BoxMatrixRow} per box, indexed by
+ * source box id. This is SCUMM's shortest-path lookup — `getNextBox(from, to)`
+ * reads it to walk the box graph one hop at a time.
+ */
+export type BoxMatrix = ReadonlyArray<BoxMatrixRow>;
+
+/**
+ * Parse a BOXM payload into the per-box routing table.
+ *
+ * Layout: `numBoxes` rows stored back to back in box-id order. Each row is a
+ * run of 3-byte `(from, to, next)` triples terminated by a `0xFF` byte; the
+ * whole block is padded to even length with a trailing `0x00` (SCUMM block
+ * alignment). Verified against MI1 rooms 28/33/38/52 — the per-box triple
+ * ranges cover every destination box reachable from that source.
+ */
+export function parseBoxMatrix(payload: Uint8Array, numBoxes: number): BoxMatrix {
+  const rows: BoxMatrixRow[] = [];
+  let off = 0;
+  for (let b = 0; b < numBoxes; b++) {
+    const row: { from: number; to: number; next: number }[] = [];
+    while (off < payload.length && payload[off] !== 0xff) {
+      // A truncated final triple (row ran off the end) is dropped rather than
+      // read past the buffer — degrades to "no hop", not a crash.
+      if (off + 2 >= payload.length) { off = payload.length; break; }
+      row.push({ from: payload[off]!, to: payload[off + 1]!, next: payload[off + 2]! });
+      off += 3;
+    }
+    off++; // skip the 0xff terminator
+    rows.push(row);
+  }
+  return rows;
+}
+
+/**
+ * The next box to step into when routing from box `from` toward box `to`,
+ * or `-1` when `to` is unreachable from `from`. Scans `from`'s BOXM row for
+ * the triple whose destination range covers `to` and returns its `next`.
+ */
+export function getNextBox(matrix: BoxMatrix, from: number, to: number): number {
+  const row = matrix[from];
+  if (!row) return -1;
+  for (const t of row) {
+    if (to >= t.from && to <= t.to) return t.next;
+  }
+  return -1;
+}
+
 export function parseWalkBoxes(payload: Uint8Array): WalkBox[] {
   if (payload.length < 2) {
     throw new WalkBoxParseError(`payload too short: ${payload.length} B (need ≥ 2 for count)`);

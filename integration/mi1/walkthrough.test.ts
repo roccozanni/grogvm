@@ -278,33 +278,30 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     expect(vm.haltInfo).toBeNull();
   });
 
-  beat('I · Mêlée Lookout — walk west off the cliff onto the path (38)', () => {
-    // Head west to "lo scoglio" (the cliff, x=0) and commit a Walk-to sentence
-    // on it — its exit script paths ego off-screen and loads the cliff path.
+  beat('I · Mêlée Lookout — off the cliff, up the path, across the map to the clearing (52)', () => {
+    // Lookout → cliff path: head west to "lo scoglio" (the cliff, x=0) and
+    // commit a Walk-to sentence on it — its exit script paths ego off-screen
+    // and loads the cliff path (38).
     use(vm, VERBS.walk, ROOMS.meleeLookout.cliff);
     expect(driveToRoom(vm, ROOMS.cliffPath.id, { maxTicks: 4000 })).toBe(true);
-    expect(vm.haltInfo).toBeNull();
-  });
 
-  beat('I · Cliff Path — take the path up to the Mêlée map (85)', () => {
-    // "il sentiero" lists verbs [90, 255] but not Walk-to (11); the sentence
-    // falls back to the 0xFF/255 default entry, which runs the exit to the map.
+    // Cliff path → Mêlée map: "il sentiero" lists verbs [90, 255] but not
+    // Walk-to (11); the sentence falls back to the 0xFF/255 default entry,
+    // which runs the exit to the map (85).
     driveTicks(vm, 200);
     use(vm, VERBS.walk, ROOMS.cliffPath.path);
     expect(driveToRoom(vm, ROOMS.meleeMap.id, { maxTicks: 4000 })).toBe(true);
-    // On the map, control is returned with a verb armed (same shape as the
-    // intro hand-off): the player can now click a destination node.
+
+    // On the map, control returns with a verb armed (the intro hand-off shape)
+    // before a destination node can be clicked.
     expect(
       driveUntil(vm, (v) => v.cursor.userput > 0 && [...v.verbs.values()].some((x) => x.state === 'on'), {
         maxTicks: 2000,
       }),
     ).toBe(true);
-    expect(vm.haltInfo).toBeNull();
-  });
 
-  beat('I · Mêlée map — travel to the clearing (52)', () => {
-    // Each map location is a verb-11 node; clicking "la zona disboscata"
-    // walks the on-map figure there and loads the clearing.
+    // Map → clearing: each location is a verb-11 node; clicking "la zona
+    // disboscata" walks the on-map figure there and loads the clearing (52).
     use(vm, VERBS.walk, ROOMS.meleeMap.clearing);
     expect(driveToRoom(vm, ROOMS.clearing.id, { maxTicks: 6000 })).toBe(true);
     expect(vm.haltInfo).toBeNull();
@@ -313,12 +310,12 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
   beat('I · Clearing — enter the circus tent (51); the brothers start arguing', () => {
     driveTicks(vm, 200);
     const ego = vm.vars.readGlobal(VAR_EGO);
-    // WORKAROUND (box-graph-routing debt — see PROGRESS "Pathfinding"). The
-    // long route across the clearing to the tent runs through degenerate
-    // "line" walk-boxes; our grid-A*-over-mask truncates it (ego stalls
-    // partway, and in-browser can even head for the exit). So walk it in short
-    // hops — each completes — exactly as a player does by hand to get close,
-    // then enter. Drop this staging once faithful box-graph routing lands.
+    // Room 52 is a high zone (right, where you enter) and a low zone (left,
+    // the tent). You can't walk straight across: local script 202 force-stops
+    // the ego whenever it's in box 7 (the diagonal bridge) at x>200, so a
+    // single click on the tent stalls at the high/low boundary. The faithful
+    // play is to descend into the low zone first, then walk to the tent —
+    // staged here in short hops exactly as a player clicks their way down.
     for (const wp of [{ x: 209, y: 118 }, { x: 120, y: 115 }, { x: 90, y: 92 }]) {
       walkTo(vm, wp);
       driveUntil(
@@ -330,8 +327,6 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
         { maxTicks: 4000 },
       );
     }
-    // Walk-to the tent → the circus interior. Entry auto-starts the brothers'
-    // arguing conversation (local #207) as a (skippable) cutscene.
     use(vm, VERBS.walk, ROOMS.clearing.circusTent);
     expect(driveToRoom(vm, ROOMS.circus.id, { maxTicks: 6000 })).toBe(true);
     expect(vm.haltInfo).toBeNull();

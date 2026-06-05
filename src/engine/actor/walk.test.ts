@@ -1,31 +1,30 @@
 import { describe, expect, it } from 'vitest';
 import { ActorTable, createActor, DEFAULT_WALK_SPEED_X, DEFAULT_WALK_SPEED_Y } from './actor';
 import { applyStandPose, startWalk, stepAllActorWalks, stepWalk, rescaleActorForPosition } from './walk';
-import { buildWalkableMask } from '../pathfinding/mask';
 import { currentLimbPicture } from '../graphics/costume-anim';
 import type { CostumeHeader } from '../graphics/costume';
 
-describe('startWalk — off-mask box targets', () => {
+describe('startWalk — off-screen box targets', () => {
   // A floor box that extends off the left screen edge (x -25..120), like
-  // MI1 room 78's exit box. The walkable mask only covers [0,width).
-  const W = 120, H = 100;
+  // MI1 room 78's exit box. Box id 0 (== array index) so the matrix is moot.
   const box = {
-    id: 1, ulx: -25, uly: 90, urx: 120, ury: 90, lrx: 120, lry: 99, llx: -25, lly: 99,
+    id: 0, ulx: -25, uly: 90, urx: 120, ury: 90, lrx: 120, lry: 99, llx: -25, lly: 99,
     mask: 1, flags: 0, scale: 0,
   };
   function vm(): Parameters<typeof startWalk>[0] {
-    const mask = buildWalkableMask([box], W, H);
     return {
       actors: new ActorTable(3),
-      loadedRoom: { id: 78, width: W, height: H, walkBoxes: [box], walkableMask: mask, scaleSlots: [] },
+      boxFlagOverrides: new Map(),
+      loadedRoom: { id: 78, width: 120, height: 100, walkBoxes: [box], boxMatrix: [[]], scaleSlots: [] },
     } as unknown as Parameters<typeof startWalk>[0];
   }
 
-  it('walks all the way to an off-mask target inside a visible box', () => {
+  it('walks all the way to an off-screen target inside a visible box', () => {
     // Regression (MI1 room 78 "can't exit"): the exit walk-to point sits at
-    // x=-25, off the rasterized mask. Without extending the path the ego
-    // stops at the screen edge (x=0), 25px short of the 16px proximity gate
-    // → "non riesco ad arrivarci". The true target must be appended.
+    // x=-25, off-screen. The box-graph router walks in box space, so a target
+    // inside a visible box is reached exactly (clamped into the box, which is
+    // a no-op here since it's already inside) — 25px past the screen edge, so
+    // the exit's 16px proximity gate fires.
     const v = vm();
     const a = v.actors.get(1);
     a.x = 60; a.y = 95;
@@ -34,14 +33,15 @@ describe('startWalk — off-mask box targets', () => {
     expect(last).toEqual({ x: -25, y: 95 });
   });
 
-  it('does NOT append a target that lies outside every visible box', () => {
+  it('clamps a target that lies outside every visible box into the dest box', () => {
     const v = vm();
     const a = v.actors.get(1);
     a.x = 60; a.y = 95;
-    // (-25, 5) is off-mask AND outside the box (box is y 90..99) → no append.
+    // (-25, 5) is outside the box (box is y 90..99) → SCUMM clamps it to the
+    // nearest in-box point (-25, 90), not the raw request.
     startWalk(v as never, a, { x: -25, y: 5 });
     const last = a.walkPath[a.walkPath.length - 1];
-    expect(last).not.toEqual({ x: -25, y: 5 });
+    expect(last).toEqual({ x: -25, y: 90 });
   });
 });
 

@@ -19,7 +19,7 @@ Lean tracker. Three buckets:
 ## Current — natural play through MI1
 
 Playing MI1 from the start and fixing each blocker as it's hit (engine-faithful,
-committed on `main`). **836 unit tests + tsc clean**, plus a data-gated
+committed on `main`). **827 unit tests + tsc clean**, plus a data-gated
 integration playthrough (`npm run test:integration`). The intro → room 33 →
 SCUMM Bar (room 28) → pirate-conversation close-up is playable end-to-end, with
 verbs, inventory, and two-object "Usa X con Y" / "Dai X a Y" working.
@@ -69,6 +69,8 @@ brothers' auto-argument (local #207) with "ahem", negotiate the cannonball job
 speech), **give the pot as the helmet** (Give/verb-4 *to actor 3* — the first
 give-to-actor; sets `bit#103` → cannon launch → amnesia gag → payout) and get
 paid **478 pieces of eight** (`VARS.money`/g195 0→478, object #488 verb-250).
+The room-52 clearing crossing is staged (descend to the low zone first — local
+script 202's high/low guard, not a routing workaround; see Pathfinding).
 Next: back to the map and the three trials (sword, thievery, treasure).
 
 **Capability landed this session — headless actor hit-testing** (so the net can
@@ -81,7 +83,13 @@ harness helpers → [AGENTS "The harness"](AGENTS.md). **Give X to <actor>**
 
 ### Open bug-report saves (reported, not yet fixed)
 
-*(none open)*
+- **Room 28 cook drawn behind the table (compositor, not pathfinding).**
+  With box-graph routing the cook (actor 6, `alwaysZclip=1`) now walks a
+  natural path (no longer the y=140 line) — user-confirmed 2026-06-05 — but
+  the compositor still draws it behind the foreground table z-plane. So the
+  remaining slice is a z-clip/compositor bug, *not* a routing one. Chase the
+  cook's resolved clip plane vs. the table band (y≈102–122); see
+  [ZPLANE](docs/SCUMM-V5-ZPLANE.md).
 
 ### Tier-2 divergence checklist
 
@@ -117,19 +125,32 @@ Priority H/M/L = likelihood of biting current/near play × severity.
   darkening (Rendering backlog), `saveRestoreVerbs` subset (Watch-for), audio /
   `resourceRoutines` (Out of scope — Phase 11).
 
-**Box-graph routing — now an active known bug (was tabled).** Our grid-A*-over-
-mask diverges from SCUMM's box-graph routing wherever a route threads degenerate
-"line" walk-boxes (zero-width connector segments that are pure routing waypoints
-in SCUMM). Two confirmed bites: (1) room-28 cook sliced by the table z-plane
-(wrong route, not a clip bug); (2) **room 52 → circus**: the long route to the
-tent truncates — ego stalls partway, and *in-browser it can walk to the exit
-instead* (user-confirmed). Oddity to chase with the fix: the path completes in
-an isolated `findPath` probe but truncates live, so the **live mask differs**
-from a static `buildWalkableMask` (not box-flag overrides — `matrixOp
-setBoxFlags` only flips non-`0x80` bits here; cause still open). Worked around
-in the walkthrough beat (short hops to the tent, flagged at the call site) so
-the regression net covers the give/payout; the faithful fix is box-graph
-routing — see Pathfinding backlog. [PATHFINDING §8](docs/PATHFINDING.md).
+**Box-graph routing — LANDED (2026-06-05), replacing grid-A*-over-mask.** The
+faithful SCUMM pathfinder: parse `BOXM` (per-box `(from,to,next)` triples,
+`0xFF`-term, even-pad), follow it box-to-box (`getNextBox`), gate each
+transition on the shared edge, clamp the target into its box
+(`adjustXYToBeInBox`). Locked boxes (`0x80` overrides) excluded live per walk;
+sealed routes stop at the furthest reachable box. Deleted `grid.ts` + `mask.ts`
++ `walkableMask` + `rebuildWalkableMask` (the call site swapped under it as
+designed). The room-52→circus long route now threads its full 12-box chain;
+the room-28 cook follows BOXM's sequence, not the y=140 line. New decode +
+router → [PATHFINDING](docs/PATHFINDING.md) (full rewrite). **827 unit tests**
+(grid/mask tests removed, boxgraph/boxm added), tsc clean, 16 integration beats.
+
+*Walker-physics follow-up (deferred, see backlog + [PATHFINDING §9](docs/PATHFINDING.md)).*
+`stepWalk` steps X/Y at independent speeds; SCUMM moves along the line
+(`calcMovementFactor`). On thin diagonal connector boxes the actor drifts off
+the box, and `getActorWalkBox` (re-derives box from position) then reports the
+wrong box — which is why a *single* click can't cross room 52's high/low bridge
+(local script 202 force-stops the ego in box 7 at x>200). The faithful play is
+staged (descend to the low zone first), so the walkthrough stages it in short
+hops — matching how a player clicks down, *not* a workaround. Full fix:
+line-following walker + walk-box-as-state (SCUMM `_walkbox`).
+
+**Room 52 high/low geometry (user-confirmed 2026-06-05):** right = high zone
+(entry), left = low zone (tent); you can't walk straight, must descend first.
+Local script 202 enforces it (stop if box 7 & x>200); scripts 201 (camera pan)
+/ 203 (per-region stepDist) co-run.
 
 **Watch for** (recurring failure modes in newly-reached content):
 
@@ -179,17 +200,17 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
 
 **Pathfinding**
 
-- **Box-graph routing (vs our grid-A*-over-mask) — ACTIVE; faithful fix is the
-  likely next focused task.** The two pick different routes through the same
-  geometry, diverging on degenerate "line" boxes. Confirmed bites: room-28
-  cook sliced by the table z-plane (wrong route); **room 52 → circus** route
-  truncates / heads for the exit (in-browser, user-confirmed) — worked around
-  in the walkthrough beat. Faithful fix: SCUMM's box-graph (BOXD already
-  parsed; BOXM present-but-unparsed) — build/parse box adjacency, route
-  box→box, walk to shared-edge crossing points; the `findPath` call site is
-  designed to swap under it (mask.ts header). Touches every walk → re-verify
-  intro/bar/kitchen + render checks. Also chase the live-vs-static mask
-  divergence noted in Current. [PATHFINDING §8](docs/PATHFINDING.md).
+- **Box-graph routing — DONE (2026-06-05).** BOXM-driven box-to-box routing
+  replaced grid-A*-over-mask; see Current + [PATHFINDING](docs/PATHFINDING.md).
+- **Line-following walker (`calcMovementFactor`) + walk-box-as-state — the
+  faithful follow-up, deferred.** `stepWalk` steps X/Y independently; SCUMM
+  moves along the line, and tracks the actor's box as walk state (`_walkbox`)
+  rather than re-deriving it from pixel position. Without this, thin diagonal
+  connector boxes are fragile (actor drifts off; `getActorWalkBox` mis-reports)
+  — the room-52 single-click bridge crossing is the live symptom (staged in the
+  walkthrough). Touches every walk + the stepWalk unit tests (which encode the
+  current independent-step behaviour) → re-verify intro/bar/kitchen + render.
+  [PATHFINDING §9](docs/PATHFINDING.md).
 
 **Stubbed opcodes (cosmetic / peripheral)**
 

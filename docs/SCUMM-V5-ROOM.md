@@ -226,8 +226,8 @@ the close-up renders blank.
 - `entryScript` / `exitScript` (ENCD / EXCD payloads)
 - `localScripts` (LSCR id → bytecode)
 - `objects` (id → LoadedObject; see OBJECTS doc)
-- `walkBoxes`, `walkableMask` (BOXD parsed + rasterised; see
-  WALK-BOXES doc)
+- `walkBoxes`, `boxMatrix` (BOXD + BOXM parsed; the box-graph
+  pathfinder routes over them — see WALK-BOXES / PATHFINDING docs)
 
 The loader resolves the room via LOFF (room id → `ROOM` block file
 offset) and walks the block tree to find the ROOM at that offset.

@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LoadedObject } from '../object/loader';
 import type { LoadedRoom } from '../room/loader';
-import type { WalkBox } from '../pathfinding/boxes';
-import { buildWalkableMask } from '../pathfinding/mask';
 import { NUM_SLOTS, UnknownOpcodeError, Vm, type HangInfo, type OpcodeHandler } from './vm';
 
 function makeVm(handlers: Record<number, OpcodeHandler> = {}): Vm {
@@ -45,7 +43,7 @@ function roomWithObjects(
     localScripts: new Map(),
     objects: new Map(objects.map((o) => [o.objId, o])),
     walkBoxes: [],
-    walkableMask: new Uint8Array(0), scaleSlots: [],
+    boxMatrix: [], scaleSlots: [],
   };
 }
 
@@ -75,57 +73,29 @@ function objWithVerbs(
   };
 }
 
-/** An axis-aligned rectangular walk box spanning [x0,x1] × [y0,y1]. */
-function rectBox(id: number, x0: number, y0: number, x1: number, y1: number, flags = 0): WalkBox {
-  return { id, ulx: x0, uly: y0, urx: x1, ury: y0, lrx: x1, lry: y1, llx: x0, lly: y1, mask: 0, flags, scale: 0 };
-}
-
-/** A LoadedRoom with real walk boxes + a mask built from them. */
-function roomWithBoxes(id: number, w: number, h: number, boxes: WalkBox[]): LoadedRoom {
-  return {
-    ...roomWithObjects(id, []),
-    width: w,
-    height: h,
-    walkBoxes: boxes,
-    walkableMask: buildWalkableMask(boxes, w, h),
-  };
-}
-
 describe('Vm — setBoxFlags (matrixOp box locking)', () => {
-  // Two side-by-side boxes filling a 10×10 room: box 0 = left (x 0..4),
-  // box 1 = right (x 5..9). A point in each.
-  const LEFT = 2;
-  const RIGHT = 7;
-  const at = (mask: Uint8Array, x: number, y = 5) => mask[y * 10 + x];
+  // setBoxFlags records a runtime box-flag override; the box-graph pathfinder
+  // reads it live (excluding 0x80 boxes from routing — see boxgraph.test.ts).
 
-  function vmWithTwoBoxes(): Vm {
+  it('records a box-flag override', () => {
     const vm = makeVm();
-    vm.loadedRoom = roomWithBoxes(1, 10, 10, [rectBox(0, 0, 0, 4, 9), rectBox(1, 5, 0, 9, 9)]);
-    return vm;
-  }
-
-  it('locking a box (0x80) drops its pixels from the walkable mask', () => {
-    const vm = vmWithTwoBoxes();
-    expect(at(vm.loadedRoom!.walkableMask, RIGHT)).toBe(1);
     vm.setBoxFlags(1, 0x80);
-    expect(at(vm.loadedRoom!.walkableMask, RIGHT)).toBe(0); // locked box removed
-    expect(at(vm.loadedRoom!.walkableMask, LEFT)).toBe(1); // other box untouched
+    expect(vm.boxFlagOverrides.get(1)).toBe(0x80);
   });
 
-  it('clearing the lock (flag 0) makes the box walkable again', () => {
-    const vm = vmWithTwoBoxes();
+  it('clearing the lock (flag 0) overwrites the override', () => {
+    const vm = makeVm();
     vm.setBoxFlags(1, 0x80);
     vm.setBoxFlags(1, 0x00);
-    expect(at(vm.loadedRoom!.walkableMask, RIGHT)).toBe(1);
+    expect(vm.boxFlagOverrides.get(1)).toBe(0x00);
   });
 
-  it('accumulates overrides across calls (locking box 0 keeps box 1 locked)', () => {
-    const vm = vmWithTwoBoxes();
+  it('accumulates overrides across calls', () => {
+    const vm = makeVm();
     vm.setBoxFlags(1, 0x80);
     vm.setBoxFlags(0, 0x80);
-    const m = vm.loadedRoom!.walkableMask;
-    expect(at(m, LEFT)).toBe(0);
-    expect(at(m, RIGHT)).toBe(0);
+    expect(vm.boxFlagOverrides.get(0)).toBe(0x80);
+    expect(vm.boxFlagOverrides.get(1)).toBe(0x80);
   });
 });
 
@@ -791,7 +761,7 @@ describe('Vm — enterRoom + ENCD/EXCD', () => {
       localScripts: new Map(),
       objects: new Map(),
       walkBoxes: [],
-      walkableMask: new Uint8Array(0), scaleSlots: [],
+      boxMatrix: [], scaleSlots: [],
     };
   }
 

@@ -464,17 +464,17 @@ edge cross-product shares a sign. Two MI1 realities break a naive test:
   lines. The same bounding-box fallback keeps on-segment points inside
   while rejecting off-line points (mixed cross-product signs).
 
-**Known limitation — thin boxes + per-frame lookup.** SCUMM assigns an
-actor a specific `_walkbox` while walking and reuses that box's mask;
-we instead re-test point-in-box every frame. The rasterized *walkable*
-mask (`buildWalkableMask`) is deliberately lenient — it keeps a centre
-pixel for thin/line boxes so pathfinding stays connected — so an actor
-can stand on a walkable pixel that no box *strictly* contains. There
-`findBoxAt` returns `null` and the actor falls back to the front band.
-In rooms with proper area-quad boxes this never bites; room 38's
-line boxes are the stress case. A nearest-box fallback (mirroring
-SCUMM's `adjustXYToBeInBox`) or tracking the assigned `_walkbox` would
-close it — deferred until a real scene shows the gap.
+**Known limitation — thin boxes + per-frame box lookup.** SCUMM assigns
+an actor a specific `_walkbox` while walking and reuses it; we instead
+re-derive the box from the actor's pixel position every frame
+(`findBoxAtOrNearest` — a nearest-box fallback that mirrors SCUMM's
+`adjustXYToBeInBox`, so a point off every box still resolves to one).
+This holds up for z-clip in rooms with area-quad boxes, but on thin
+diagonal *connector* boxes the actor can sit a pixel or two off the box
+line and get classified into the wrong box — the same gap that makes the
+room-52 bridge crossing fragile (see [PATHFINDING §9](PATHFINDING.md)).
+The faithful fix is tracking the assigned `_walkbox` as walk state rather
+than re-deriving it; deferred with the line-following walker.
 
 ## Per-object z-planes — drawn objects occlude actors
 

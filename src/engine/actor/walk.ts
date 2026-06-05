@@ -21,8 +21,8 @@
 
 import { DEFAULT_SCALE, type Actor, type Facing } from './actor';
 import type { Vm } from '../vm/vm';
-import { findPath } from '../pathfinding/grid';
-import { findBoxAt, findBoxAtOrNearest } from '../pathfinding/boxes';
+import { routeThroughBoxes } from '../pathfinding/boxgraph';
+import { findBoxAtOrNearest, type WalkBox } from '../pathfinding/boxes';
 import { resolveScale } from '../pathfinding/scale';
 import { startAnim } from '../graphics/costume-anim';
 
@@ -104,13 +104,19 @@ export function applyStandPose(vm: Vm, actor: Actor): void {
 }
 
 /**
- * Set up an actor's walk: store the target, compute a waypoint path
- * through the current room's walkable mask (or straight-line fall-back
- * when there's no mask), and flip `isMoving` on. Shared by the
- * `walkActorTo` opcode family, `vm.walkActorTo`, and click-to-walk.
+ * Set up an actor's walk: store the target, route a gate-waypoint path over
+ * the current room's walk-box graph (or straight-line fall-back when the room
+ * has no boxes), and flip `isMoving` on. Shared by the `walkActorTo` opcode
+ * family, `vm.walkActorTo`, and click-to-walk.
  *
- * The actor's `ignoreBoxes` flag bypasses pathfinding — used for
- * cutscene movement that can cross non-walkable regions.
+ * The actor's `ignoreBoxes` flag bypasses pathfinding — used for cutscene
+ * movement that can cross non-walkable regions.
+ *
+ * The router walks in box space, so a target inside a visible box is reached
+ * exactly even when it lies off-screen — boxes legitimately extend past the
+ * screen edges for room exits (MI1 room 78's exit walk-to is x=-25, inside
+ * its [-25..345] floor box). The final waypoint is the true target, so the
+ * exit sentence's ~16px proximity gate is satisfied and the room loads.
  */
 export function startWalk(
   vm: Vm,
@@ -122,42 +128,31 @@ export function startWalk(
   actor.walkPathIdx = 0;
   actor.isMoving = true;
 
-  const mask = vm.loadedRoom?.walkableMask;
-  if (!mask || mask.length === 0 || actor.ignoreBoxes) {
+  const room = vm.loadedRoom;
+  if (!room || room.walkBoxes.length === 0 || actor.ignoreBoxes) {
     // No pathfinding context — actor walks the straight line via
     // stepWalk's walkTarget fall-back.
     return;
   }
-  const room = vm.loadedRoom!;
-  const path = findPath(mask, room.width, room.height, { x: actor.x, y: actor.y }, target);
-  if (path.waypoints.length === 0) return;
-  // The first waypoint is the snapped start position — drop it so we
-  // don't make the actor "teleport" to the box edge before walking.
-  // Keep all the rest, including the (possibly snapped) final waypoint.
-  const waypoints = path.waypoints.slice(1);
-
-  // Off-mask box targets: SCUMM walks in box space, so a target inside a
-  // visible walk box is reachable even when it lies off the rasterized
-  // [0,width)×[0,height) mask — boxes legitimately extend past the screen
-  // edges for room exits (MI1 room 78's exit walk-to is x=-25, inside its
-  // [-25..345] floor box). findPath snaps such a goal to the nearest
-  // in-bounds walkable pixel (the screen edge), leaving the ego ~25px short
-  // — past the exit sentence's 16px proximity gate, so it answers "non
-  // riesco ad arrivarci" and never loads the next room. When the true
-  // target sits in a visible box that the snapped endpoint also belongs to,
-  // the final straight segment stays inside that convex (walkable) box, so
-  // append the exact target and let the ego finish the approach onto it.
-  const targetBox = findBoxAt(room.walkBoxes, target.x, target.y);
-  if (targetBox) {
-    const end = waypoints.length > 0 ? waypoints[waypoints.length - 1]! : { x: actor.x, y: actor.y };
-    const atTarget = end.x === target.x && end.y === target.y;
-    if (!atTarget && findBoxAtOrNearest(room.walkBoxes, end.x, end.y)?.id === targetBox.id) {
-      waypoints.push({ x: target.x, y: target.y });
-    }
-  }
-
-  actor.walkPath = waypoints;
+  // Fold runtime box-flag overrides (locked doors) into the box list so the
+  // router excludes 0x80 boxes from both endpoint snapping and the hop chain.
+  const boxes = effectiveBoxes(vm, room.walkBoxes);
+  const path = routeThroughBoxes(boxes, room.boxMatrix, { x: actor.x, y: actor.y }, target);
+  actor.walkPath = [...path.waypoints];
   actor.walkPathIdx = 0;
+}
+
+/**
+ * The room's walk boxes with {@link Vm.boxFlagOverrides} applied — a box whose
+ * flags were locked at runtime (a closed door's `0x80`) carries the override
+ * so the router treats it as invisible. Returns the original array unchanged
+ * when there are no overrides (the common case).
+ */
+function effectiveBoxes(vm: Vm, walkBoxes: ReadonlyArray<WalkBox>): ReadonlyArray<WalkBox> {
+  if (vm.boxFlagOverrides.size === 0) return walkBoxes;
+  return walkBoxes.map((b) =>
+    vm.boxFlagOverrides.has(b.id) ? { ...b, flags: vm.boxFlagOverrides.get(b.id)! } : b,
+  );
 }
 
 /**

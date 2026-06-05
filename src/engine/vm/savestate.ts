@@ -365,9 +365,9 @@ export function restoreVm(vm: Vm, state: SaveState): void {
   for (const id of state.objectDrawQueue) vm.objectDrawQueue.add(id);
 
   // Room / camera. Set currentRoom + pseudoRooms + UI overrides + box flags
-  // BEFORE reloading room resources so the overrides re-apply over the CLUT
-  // and the freshly-decoded walkable mask (reloadCurrentRoomResources →
-  // applyRoomResources → rebuildWalkableMask reads boxFlagOverrides).
+  // BEFORE reloading room resources so the CLUT overrides re-apply over the
+  // freshly-decoded palette. Box-flag locks are consulted live by the
+  // box-graph pathfinder, so restoring them into boxFlagOverrides is enough.
   vm.currentRoom = state.currentRoom;
   for (const [box, flags] of state.boxFlags ?? []) vm.boxFlagOverrides.set(box, flags);
   for (const [k, v] of state.pseudoRooms) vm.pseudoRooms.set(k, v);

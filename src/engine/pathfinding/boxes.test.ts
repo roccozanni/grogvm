@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   findBoxAt,
   findBoxAtOrNearest,
+  getNextBox,
   isInvisibleBox,
+  parseBoxMatrix,
   parseWalkBoxes,
   pointInBox,
   WalkBoxParseError,
@@ -222,5 +224,47 @@ describe('findBoxAtOrNearest', () => {
     expect(
       findBoxAtOrNearest([wb([0, 0, 10, 0, 10, 10, 0, 10], { id: 0, flags: 0x80 })], 99, 99),
     ).toBeNull();
+  });
+});
+
+describe('parseBoxMatrix + getNextBox', () => {
+  // MI1 room 38's real BOXM (6 boxes), trailing 0x00 pad byte included.
+  const ROOM38 = new Uint8Array([
+    0x00, 0x00, 0x00, 0xff,
+    0x01, 0x01, 0x01, 0x02, 0x05, 0x03, 0xff,
+    0x01, 0x01, 0x03, 0x02, 0x02, 0x02, 0x03, 0x04, 0x03, 0x05, 0x05, 0x05, 0xff,
+    0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x03, 0x03, 0x03, 0x04, 0x04, 0x04, 0x05, 0x05, 0x02, 0xff,
+    0x01, 0x03, 0x03, 0x04, 0x04, 0x04, 0x05, 0x05, 0x03, 0xff,
+    0x01, 0x04, 0x02, 0x05, 0x05, 0x05, 0xff,
+    0x00,
+  ]);
+
+  it('decodes one row per box as (from,to,next) triples', () => {
+    const m = parseBoxMatrix(ROOM38, 6);
+    expect(m).toHaveLength(6);
+    expect(m[1]).toEqual([{ from: 1, to: 1, next: 1 }, { from: 2, to: 5, next: 3 }]);
+    expect(m[5]).toEqual([{ from: 1, to: 4, next: 2 }, { from: 5, to: 5, next: 5 }]);
+  });
+
+  it('getNextBox returns the next hop for a destination in range', () => {
+    const m = parseBoxMatrix(ROOM38, 6);
+    expect(getNextBox(m, 1, 5)).toBe(3); // box1: to reach 2..5, hop to 3
+    expect(getNextBox(m, 1, 1)).toBe(1); // self
+    expect(getNextBox(m, 5, 4)).toBe(2); // box5: to reach 1..4, hop to 2
+    expect(getNextBox(m, 3, 5)).toBe(2); // box3: to reach box5, hop to 2
+  });
+
+  it('getNextBox returns -1 for an unreachable / out-of-range destination', () => {
+    const m = parseBoxMatrix(ROOM38, 6);
+    expect(getNextBox(m, 1, 0)).toBe(-1); // box 0 in no range
+    expect(getNextBox(m, 99, 1)).toBe(-1); // no such source row
+  });
+
+  it('tolerates a truncated final triple without reading past the buffer', () => {
+    // Row for box 0 then a row that runs off the end mid-triple.
+    const m = parseBoxMatrix(new Uint8Array([0x00, 0x00, 0x00, 0xff, 0x01, 0x02]), 2);
+    expect(m).toHaveLength(2);
+    expect(m[0]).toEqual([{ from: 0, to: 0, next: 0 }]);
+    expect(m[1]).toEqual([]); // truncated triple dropped
   });
 });

@@ -36,7 +36,6 @@ import { startWalk, stepAllActorWalks } from '../actor/walk';
 import { stepAnim } from '../graphics/costume-anim';
 import { prepareActorDraw } from '../graphics/composite';
 import { findVerbScript } from '../object/verbs';
-import { buildWalkableMask } from '../pathfinding/mask';
 import type { LoadedCostume } from '../graphics/costume-loader';
 import type { CharsetHeader } from '../graphics/charset';
 import type { LoadedRoom } from '../room/loader';
@@ -385,9 +384,9 @@ export class Vm {
    * `walkBoxes` carry the disk flags), and the flags are runtime state, so we
    * layer the changes here instead of mutating the room. Reset on a real room
    * change ({@link enterRoom}) — SCUMM resets box flags on reload and the
-   * entry script re-applies them — and applied into {@link LoadedRoom.walkableMask}
-   * by {@link rebuildWalkableMask}. Saved so a restore (which does NOT re-run
-   * the entry script) reproduces the locked passages.
+   * entry script re-applies them — and consulted live by the box-graph
+   * pathfinder ({@link startWalk}'s `effectiveBoxes`). Saved so a restore
+   * (which does NOT re-run the entry script) reproduces the locked passages.
    */
   readonly boxFlagOverrides = new Map<number, number>();
   /**
@@ -1050,41 +1049,16 @@ export class Vm {
       }
     }
 
-    // Re-apply any box-flag overrides onto the freshly-decoded mask. No-op on
-    // a normal room change (enterRoom cleared them; ENCD repopulates after);
-    // on a reload/restore the room is parsed fresh from disk so the locks must
-    // be layered back on.
-    this.rebuildWalkableMask();
   }
 
   /**
-   * Set walk-box `boxId`'s flags (matrixOp setBoxFlags) and recompute the
-   * current room's walkable mask. Bit 0x80 locks the box — the pathfinder's
-   * mask excludes it, so a closed door's corridor becomes impassable. No-op
-   * with no room loaded.
+   * Set walk-box `boxId`'s flags (matrixOp setBoxFlags). Bit 0x80 locks the
+   * box — the box-graph pathfinder excludes locked boxes, so a closed door's
+   * corridor becomes impassable. The override is read live by each walk (see
+   * {@link startWalk}'s `effectiveBoxes`), so nothing needs rebuilding here.
    */
   setBoxFlags(boxId: number, flags: number): void {
     this.boxFlagOverrides.set(boxId, flags);
-    this.rebuildWalkableMask();
-  }
-
-  /**
-   * Rebuild {@link LoadedRoom.walkableMask} in place from the room's walk
-   * boxes with {@link boxFlagOverrides} layered on. Mutates the mask's bytes
-   * (its length is fixed at width×height) rather than reassigning the readonly
-   * field. No-op when the room has no boxes (the empty mask means "walk
-   * anywhere" — see the loader).
-   */
-  private rebuildWalkableMask(): void {
-    const room = this.loadedRoom;
-    if (!room || room.walkBoxes.length === 0 || room.walkableMask.length === 0) return;
-    const boxes =
-      this.boxFlagOverrides.size === 0
-        ? room.walkBoxes
-        : room.walkBoxes.map((b) =>
-            this.boxFlagOverrides.has(b.id) ? { ...b, flags: this.boxFlagOverrides.get(b.id)! } : b,
-          );
-    room.walkableMask.set(buildWalkableMask(boxes, room.width, room.height));
   }
 
   /**
