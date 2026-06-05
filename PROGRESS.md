@@ -174,6 +174,10 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
 - **`screenEffect` transition animation** — state is modelled; the
   dissolve/scroll/instant *animation* is deferred (intro is all instant cuts).
   [SCREEN-EFFECT](docs/SCUMM-V5-SCREEN-EFFECT.md).
+- **Palette cycling (`CYCL`) not animated** — the room's `CYCL` block is
+  catalogued but the engine doesn't cycle the palette ranges, so animated
+  palette effects (water shimmer, etc.) are static. No intro-path room depends
+  on it; wire it when a scene surfaces. [ROOM](docs/SCUMM-V5-ROOM.md).
 - **Smooth `panCameraTo`** — snaps today; no intro-reachable scene uses it, so
   the pan rate has no validation target. Wire it when a scene surfaces.
 - **Costume head-limb facing — remaining edges.** The head limb is re-pointed on

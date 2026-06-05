@@ -126,8 +126,7 @@ empty OBNA payloads or none at all.
 **`@` (0x40) is name padding, not text.** Many names are padded with
 trailing `0x40` bytes (`il pezzo di carne@@@@…@`) up to some fixed width,
 *before* any NUL. SCUMM renders it as a blank glyph, so it's invisible
-in-game; the text renderer must skip `0x40` rather than draw it (see
-[`text.ts`](../src/engine/graphics/text.ts) `SCUMM_NAME_PAD`). Don't trim
+in-game; the text renderer must skip `0x40` rather than draw it. Don't trim
 it out of the stored name — the substitution codes that splice names into
 the sentence line ([INPUT §6](input.md)) rely on the renderer's
 skip, and the padded length is the original byte layout.
@@ -139,46 +138,38 @@ it must be consumed with the same reader as `print`, not byte-scanned — a
 short read leaves the PC mid-string and the next byte decodes as a bogus
 opcode). SCUMM overwrites the OBNA buffer where it sits, so the trailing
 `@` padding is the slack a longer replacement uses (obj 488's verb-91:
-`@@@@@ pezzi da otto@@@@` → `500 pezzi da otto`). We model the overwrite as
-an `objectNameOverrides` map that wins over both the room OBNA and the
-pickup-time inventory snapshot in `objectName()`, and persist it in the
-save state. Handler: [`opcodes/index.ts`](../src/engine/vm/opcodes/index.ts)
-`setObjectNameHandler`.
+`@@@@@ pezzi da otto@@@@` → `500 pezzi da otto`). The overwrite is modelled
+as a name-override that wins over both the room OBNA and the pickup-time
+inventory snapshot, and is persisted in the save state.
 
 ## 6. VERB — verb-id → script-offset table
 
 The OBCD's `VERB` block holds the **verb scripts** that fire when
 the player performs verb actions on this object. One sub-script per
 supported verb, typically `Look at`, `Open`, `Pick up`, `Use`,
-`Talk to`. GrogVM captures the block on parse but verb dispatch
-is not yet wired.
+`Talk to`. Each is keyed by verb id; performing a verb action on the
+object runs the matching script.
 
 ## 7. The runtime: state tracking + draw queue
 
-Three pieces of VM state govern object rendering:
+Two pieces of runtime state govern object rendering:
 
-- **`vm.objectStates`** — `Map<obj_id, state>`. Written by the
-  `setState` opcode (`0x07` / `0x47` / `0x87` / `0xC7`). Defaults to
-  state 1 for objects that have an image but no explicit state set —
-  the "default state is the first variant" convention from the
-  format spec.
-- **`vm.objectStates.get(obj_id) === 0`** means the object is
-  hidden, even if it's queued for drawing.
-- **`vm.objectDrawQueue`** — `Set<obj_id>`. The `drawObject`
-  opcode (`0x05` / `0x25` / …) adds an object's id to this set.
-  `vm.enterRoom` clears it on room change — a fresh room starts
-  with an empty queue, and the new `ENCD` decides what to redraw.
+- **Object state** — a per-object-id state value, written by the
+  `setState` opcode (`0x07` / `0x47` / `0x87` / `0xC7`). Objects that have
+  an image but no explicit state default to **state 1** — the "default
+  state is the first variant" convention from the format spec. **State 0
+  means hidden**, even if the object is queued for drawing.
+- **The draw queue** — the set of object ids to composite. The
+  `drawObject` opcode (`0x05` / `0x25` / …) adds an id; a room change
+  clears the queue, so a fresh room starts empty and its new `ENCD`
+  decides what to redraw.
 
-The frame compositor (`composeFrame` in
-`src/engine/render/compositor.ts`) iterates the queue in id order
-between background and actors. For each id it looks up the loaded
-object, picks the IMxx matching the current state, and blits at
-the IMHD's `(x, y)` with TRNS-indexed transparency.
-
-Skipped objects are surfaced in `ComposeFrameResult.skippedObjects`
-with a reason — "not present in room", "state 0 (hidden)", "no image
-for state N" — so the inspector can explain why an expected object
-didn't appear.
+The frame compositor iterates the queue in id order between background and
+actors. For each id it looks up the loaded object, picks the `IMxx`
+matching the current state, and blits at the `IMHD`'s `(x, y)` with
+TRNS-indexed transparency. Skipped objects are surfaced with a reason
+("not present in room", "state 0 (hidden)", "no image for state N") so a
+diagnostic can explain why an expected object didn't appear.
 
 **`drawObject` always sets state.** `o5_drawObject`'s whole job is to
 make an object visible, so it sets `state = 1` by default (only
@@ -204,10 +195,9 @@ fixture untouched.
 
 **`setState` renders too.** Setting an object's state to a non-zero,
 image-backed value marks it dirty in SCUMM → it redraws. So `setState`
-queues a current-room object, and `applyRoomResources` queues every
-object already in a non-zero image-backed state at room (re)entry — that
-keeps an opened door drawn open when you leave and return, and across
-save/restore.
+queues a current-room object, and room (re)entry queues every object
+already in a non-zero image-backed state — that keeps an opened door drawn
+open when you leave and return, and across save/restore.
 
 **`pickupObject` is four steps, not one.** `o5_pickupObject` does *all* of:
 `putOwner(obj, VAR_EGO)` (inventory membership = ownership, INPUT §7),
@@ -240,9 +230,9 @@ Three per-object attributes drive interaction, seeded from the index
   object becomes interactive. Both the engine's `findObject` and the
   shell's hover pass must honour it.
 
-`parseDobj` decodes `DOBJ → {owner, state, classMask}` per global id;
-boot seeds the non-default rows (owner≠15 / state≠0 / class≠0). The
-seeded maps are captured in the save snapshot and re-applied on restore.
+`DOBJ` decodes to `{owner, state, classMask}` per global id; boot seeds the
+non-default rows (owner≠15 / state≠0 / class≠0). The seeded maps are
+captured in the save snapshot and re-applied on restore.
 
 **Distance uses the walk-to point, not the image.** `getObjectXYPos`
 (and the proximity gate for "is the ego close enough to act?") reads the
@@ -263,23 +253,7 @@ a held item: it isn't in the current room's table, so it resolves to "far"
 actor-table size (e.g. `OF_OWNER_ROOM` = 15) are not actors → the normal
 room/walk-to branch.
 
-## 8. Reference implementation
-
-- Parser:
-  [`src/engine/object/loader.ts`](../src/engine/object/loader.ts) —
-  `parseCDHD`, `parseIMHD`, `parseRoomObjects(file, roomBlock) →
-  Map<obj_id, LoadedObject>`.
-- Pairing logic: walks the ROOM's children once to index OBIMs by id
-  (via their IMHD), then walks again iterating OBCDs and pairing by
-  CDHD's id. Orphans on either side are silently dropped.
-- Per-state image decoding via the existing `decodeSmap` from the
-  background loader.
-- Tests:
-  [`src/engine/object/loader.test.ts`](../src/engine/object/loader.test.ts)
-  — synthetic OBCD/OBIM fixtures covering happy path, multi-state
-  variants, orphans, missing OBNA, empty rooms.
-
-## 9. Pitfalls cheat-sheet
+## 8. Pitfalls cheat-sheet
 
 1. **Forgetting that `IM00` is reserved for the room background** —
    it's a child of `RMIM`, never an OBIM child. Object state 0 is

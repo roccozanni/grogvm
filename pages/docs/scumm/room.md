@@ -55,11 +55,11 @@ A real MI1 game room (id 10, the title screen) contains:
 | Tag    | Bytes | Purpose                                                                  |
 |--------|-------|--------------------------------------------------------------------------|
 | `RMHD` | 14    | Room header — width, height, num-objects. See §3.                        |
-| `CYCL` | 10    | Palette cycle table. Visual polish; GrogVM doesn't yet honour it.      |
+| `CYCL` | 10    | Palette cycle table — animated palette ranges (visual polish).           |
 | `TRNS` | 10    | Transparent palette index. See §4.                                       |
-| `EPAL` | 264   | EGA palette mirror (back-compat). Ignored by the VGA path.               |
+| `EPAL` | 264   | EGA palette mirror. Ignored by the VGA path.                             |
 | `BOXD` | 50    | Walk-box geometry. See [`walk-boxes.md`](walk-boxes.md). |
-| `BOXM` | 16    | Walk-box adjacency matrix. Captured but not consumed yet.                |
+| `BOXM` | 16    | Walk-box adjacency matrix (next-hop routing). See [`walk-boxes.md`](walk-boxes.md). |
 | `CLUT` | 776   | Room palette — 256 RGB triples + 8-byte block header.                    |
 | `SCAL` | 40    | Per-y actor scaling slots. Not yet consumed by the compositor.           |
 | `RMIM` | big   | Room image container (SMAP + z-planes). See §5.                          |
@@ -136,9 +136,9 @@ in trace output.
 
 **EXCD and ENCD run NESTED — to their first yield — inside the
 `loadRoom` opcode, before it returns to the calling script.** SCUMM's
-`startScene` invokes `runExitScript()` / `runEntryScript()` (→ `runScript`
-→ `runScriptNested`) synchronously, so the script that issued `loadRoom`
-observes the room as the exit/entry scripts left it. They are NOT
+`startScene` invokes `runExitScript()` / `runEntryScript()` synchronously
+and nested, so the script that issued `loadRoom` observes the room as the
+exit/entry scripts left it. They are NOT
 deferred slots picked up on a later tick — that would let the caller's
 own *next* opcodes run first and then get clobbered by the room script.
 
@@ -150,10 +150,9 @@ EXCD's `g32 = 4` happens *during* `loadRoom` and #93's `g32 = 14` sticks.
 Run deferred, EXCD fired after #93's frame and overwrote 14 with 4, so
 dialog-answer clicks routed to #4 (which only *arms* a verb, never commits
 a dialog pick) and the conversation hung — answers highlighted on hover but
-clicking did nothing. `runScriptNested` stops at the first `breakHere`, so
-an ENCD that spans frames still yields back to the scheduler after its
-prologue — exactly the original. (Guarded by `vm.test.ts` "runs ENCD/EXCD
-NESTED …" + the MI1-smoke pirate-conversation regression.)
+clicking did nothing. The nested run stops at the first `breakHere`, so an
+ENCD that spans frames still yields back to the scheduler after its prologue
+— exactly the original.
 
 **A room change stops the old room's scripts.** SCUMM's `startScene`
 kills every room-local (`WIO_ROOM`) and object/verb (`WIO_FLOBJECT`)
@@ -213,30 +212,3 @@ the close-up renders blank.
   they walk toward / away from the camera. Walk boxes reference one
   of these slots via `box.scaleSlot`. Without it, actors render at
   100% scale regardless of room depth.
-
-## 9. Reference implementation
-
-[`src/engine/room/loader.ts`](../src/engine/room/loader.ts) exposes
-`loadRoom(file, loff, roomId)` returning a `LoadedRoom` struct with:
-
-- `width`, `height`, `numObjects` from RMHD
-- `palette` from CLUT, `transparentIndex` from TRNS
-- `indexed` (decoded SMAP background)
-- `zPlanes` (decoded ZP##)
-- `entryScript` / `exitScript` (ENCD / EXCD payloads)
-- `localScripts` (LSCR id → bytecode)
-- `objects` (id → LoadedObject; see OBJECTS doc)
-- `walkBoxes`, `boxMatrix` (BOXD + BOXM parsed; the box-graph
-  pathfinder routes over them — see WALK-BOXES / PATHFINDING docs)
-
-The loader resolves the room via LOFF (room id → `ROOM` block file
-offset) and walks the block tree to find the ROOM at that offset.
-`RoomLoadError` flags missing rooms, decode failures, and the
-room-0 sentinel that scripts use as "no room loaded" between
-transitions.
-
-Tests in
-[`src/engine/room/loader.test.ts`](../src/engine/room/loader.test.ts)
-cover synthetic LECF/LFLF/ROOM fixtures with every combination of
-optional children, ENCD/EXCD capture, LSCR collection, and the
-error paths.
