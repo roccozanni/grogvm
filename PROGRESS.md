@@ -120,37 +120,16 @@ Priority H/M/L = likelihood of biting current/near play × severity.
 - [ ] **? — `actorOps` subop `0x0f` treated as no-arg no-op "for now"**
   (`opcodes/index.ts:~1874`; seen in MI1 boot after setCostume, not in the
   wiki). Assess whether it affects behaviour or is genuinely inert.
-- Already tracked elsewhere (cross-ref, not duplicated here): box-graph routing
-  (Pathfinding backlog), `screenEffect` animation + `VAR_CURRENT_LIGHTS`
+- Already tracked elsewhere (cross-ref, not duplicated here): line-following
+  walker (Pathfinding backlog), `screenEffect` animation + `VAR_CURRENT_LIGHTS`
   darkening (Rendering backlog), `saveRestoreVerbs` subset (Watch-for), audio /
   `resourceRoutines` (Out of scope — Phase 11).
 
-**Box-graph routing — LANDED (2026-06-05), replacing grid-A*-over-mask.** The
-faithful SCUMM pathfinder: parse `BOXM` (per-box `(from,to,next)` triples,
-`0xFF`-term, even-pad), follow it box-to-box (`getNextBox`), gate each
-transition on the shared edge, clamp the target into its box
-(`adjustXYToBeInBox`). Locked boxes (`0x80` overrides) excluded live per walk;
-sealed routes stop at the furthest reachable box. Deleted `grid.ts` + `mask.ts`
-+ `walkableMask` + `rebuildWalkableMask` (the call site swapped under it as
-designed). The room-52→circus long route now threads its full 12-box chain;
-the room-28 cook follows BOXM's sequence, not the y=140 line. New decode +
-router → [PATHFINDING](docs/PATHFINDING.md) (full rewrite). **827 unit tests**
-(grid/mask tests removed, boxgraph/boxm added), tsc clean, 16 integration beats.
-
-*Walker-physics follow-up (deferred, see backlog + [PATHFINDING §9](docs/PATHFINDING.md)).*
-`stepWalk` steps X/Y at independent speeds; SCUMM moves along the line
-(`calcMovementFactor`). On thin diagonal connector boxes the actor drifts off
-the box, and `getActorWalkBox` (re-derives box from position) then reports the
-wrong box — which is why a *single* click can't cross room 52's high/low bridge
-(local script 202 force-stops the ego in box 7 at x>200). The faithful play is
-staged (descend to the low zone first), so the walkthrough stages it in short
-hops — matching how a player clicks down, *not* a workaround. Full fix:
-line-following walker + walk-box-as-state (SCUMM `_walkbox`).
-
-**Room 52 high/low geometry (user-confirmed 2026-06-05):** right = high zone
-(entry), left = low zone (tent); you can't walk straight, must descend first.
-Local script 202 enforces it (stop if box 7 & x>200); scripts 201 (camera pan)
-/ 203 (per-region stepDist) co-run.
+**Box-graph routing landed this session (2026-06-05)**, replacing
+grid-A*-over-mask — full writeup in [PATHFINDING](docs/PATHFINDING.md) (incl.
+the room-52 high/low guard §7 and the deferred line-following-walker follow-up
+§9). User-confirmed in-browser. Remaining open item is the room-28 cook z-clip
+(above) — compositor, not routing.
 
 **Watch for** (recurring failure modes in newly-reached content):
 
