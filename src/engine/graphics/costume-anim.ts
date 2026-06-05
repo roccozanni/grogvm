@@ -11,40 +11,40 @@
  *
  * # Anim definition layout
  *
- *   [00 00 00]           // optional 3-byte prefix (extended form only)
- *   u8 limbMask
- *   for each set bit in limbMask (MSB → LSB):
- *     u16 LE frameIndex  // offset into the anim cmds array
+ * Each record sits at `animOffsets[animId]` (read with the
+ * COSTUME_OFFSET_ADJUST −6 base) and is variable-length:
+ *
+ *   u16 LE mask            // which limbs this anim drives; MSB-first
+ *   for each set bit (high → low):
+ *     u16 LE frameIndex    // start index into the anim-cmd array
  *     if frameIndex != 0xFFFF:
  *       u8 lengthAndFlags  // bit 7 = no-loop, bits 0..6 = (length - 1)
  *     else:
  *       (no length byte — the disabled-limb marker is 2 bytes total)
  *
- * The mask is ONE byte in MI1 costumes (a u16 mask mis-aligns the
- * modifiers — verified against #2, #111, and Guybrush #1). The
- * walk/stand/turn anims prepend a 3-byte all-zero header before the
- * mask byte; see `startAnim` for the discriminator and
- * pages/docs/scumm/costume-anim.md for the evidence.
+ * Limbs NOT named by the mask are left untouched, so e.g. a talk anim can
+ * drive the head while the body holds the pose a walk left it in. See
+ * pages/docs/scumm/costume-anim.md for the format derivation.
  *
  * # Limb numbering
  *
- * bit 7 of the mask → limb 0, bit 6 → limb 1, … bit 0 → limb 7. We
- * iterate the bits MSB → LSB so the per-bit modifier bytes are read in
- * the order the costume encodes them.
+ * The mask is processed MSB-first: bit 15 (0x8000) → limb 0, bit 14 →
+ * limb 1, … so limb `i` is bit `15 - i`. The per-bit modifier bytes are
+ * read in that order.
  *
  * # Anim cmds
  *
- * `header.animCmdOffset` points at a flat byte array of frame
- * indices interleaved with a tiny command set (0x71-0x78 add sound,
- * 0x79 stop, 0x7A start, 0x7B hide, 0x7C skipFrame). Per-limb
- * playback walks a window of this array: starting at the limb's
- * `start` offset, advancing one byte per tick, looping back to
- * `start` after `length` bytes (unless the no-loop flag is set,
- * in which case it stops on the last byte).
+ * `header.animCmdOffset` points at a flat byte array of frame indices
+ * interleaved with a tiny command set (0x71-0x7C). `0x79` stops a limb
+ * and `0x7A` un-stops it (a persistent per-limb bit, see AnimState.stopped);
+ * the rest (sound / hide / skip) aren't drawable pictures. Per-limb
+ * playback walks a window of this array: starting at the limb's `start`
+ * offset, advancing one byte per tick, looping back to `start` after
+ * `length` bytes (unless the no-loop flag is set, in which case it stops
+ * on the last byte).
  *
- * Currently we ignore the sound/skip commands — they don't affect
- * which picture composites — and just pick the first non-command
- * byte as the active frame index.
+ * Command bytes don't composite a picture — playback skips past them to
+ * the next real frame index in the window.
  */
 
 import type { CostumeHeader } from './costume';

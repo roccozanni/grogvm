@@ -104,12 +104,28 @@ special case needed.
 
 ## 4. BOXM — the box matrix
 
-`BOXM` is SCUMM's per-box shortest-path lookup: "to reach box *D*
-from box *S*, step into box *N* next." The engine plans a path as a
-sequence of box transitions and refines the in-box trajectory per
-hop. Format (per box, `0xFF`-terminated, whole block even-padded):
-a run of 3-byte `(from, to, next)` triples, where `[from, to]` is an
-inclusive *destination* range and `next` the hop.
+`BOXM` is SCUMM's per-box shortest-path lookup: "to reach box *D* from box
+*S*, step into box *N* next." The payload is `numBoxes` rows, stored
+back-to-back in box-id order; each row is a run of 3-byte `(from, to, next)`
+triples, `0xFF`-terminated, and the whole block is padded to even length
+with a trailing `0x00`:
+
+```
+BOXM payload:
+  numBoxes rows, in box-id order. Each row:
+    a run of 3-byte (from, to, next) triples, 0xFF-terminated.
+  Block padded to even length with a trailing 0x00.
+```
+
+A triple `(from, to, next)` means "to reach any destination box in the
+inclusive range `[from, to]`, step into box `next`." A next-hop lookup scans
+the source box's row for the triple whose range covers the destination.
+Example (room 38, box 1): `(1,1,1) (2,5,3)` — "to reach box 1 you're already
+there; to reach any of boxes 2..5, step into box 3."
+
+There is **no count header** — `numBoxes` comes from `BOXD`. A room with
+`BOXD` but no `BOXM` routes straight-line (none in MI1's walkable rooms).
+Verified empirically against MI1 rooms 28/33/38/52.
 
 The engine routes over this graph — the faithful SCUMM approach. See
 [`pathfinding.md`](../engine/pathfinding.md) for the router, the gate

@@ -12,46 +12,28 @@ target point, and the room's walk-box geometry + matrix. The walker doesn't
 care how the path got there — it just steps toward the next waypoint each
 tick.
 
-## 1. The two data blocks
+## 1. The inputs
 
-A room's walk geometry is two ROOM child blocks:
-
-- **`BOXD`** — the walk boxes. Each box is a convex quadrilateral (four
-  corners UL, UR, LR, LL) plus a z-plane mask byte, a flags byte (bit
-  `0x80` = invisible / non-walkable), and a `SCAL` scale slot. See
-  [`walk-boxes.md`](../scumm/walk-boxes.md).
-- **`BOXM`** — the box matrix: SCUMM's per-box shortest-path lookup. For
-  each source box it answers "to reach box *D*, which box do I step into
-  next?"
+A room's walk geometry is two `ROOM` child blocks: **`BOXD`**, the walk
+boxes (convex quads with a flags byte, z-plane mask, and scale slot), and
+**`BOXM`**, the box matrix — SCUMM's per-box "to reach box *D*, step into
+box *N* next" lookup. Their wire formats are in
+[`walk-boxes.md`](../scumm/walk-boxes.md); this doc is about turning them
+into a walk path.
 
 Many MI1 rooms include **degenerate "line" boxes** — quads collapsed to a
 zero-area segment (a staircase tread, a cliff edge, the room-52 bridge).
 They're pure routing connectors: an actor stands *on* the line, and the
-box graph threads through them. The grid-mask approach mangled these
-(A* hugged the single rasterized pixel row); the box graph routes them
-as first-class hops.
+box graph threads through them as first-class hops. The grid-mask approach
+mangled these (A* hugged the single rasterized pixel row).
 
-## 2. The BOXM format
+## 2. Reading the matrix
 
-Verified empirically against MI1 rooms 28/33/38/52:
-
-```
-BOXM payload:
-  numBoxes rows, stored back-to-back in box-id order. Each row:
-    a run of 3-byte (from, to, next) triples, 0xFF-terminated.
-  The whole block is padded to even length with a trailing 0x00.
-```
-
-A triple `(from, to, next)` means "to reach any destination box in the
-inclusive range `[from, to]`, step into box `next`." `getNextBox(from, to)`
-scans `from`'s row for the triple whose range covers `to` and returns its
-`next`, or `-1` when `to` is unreachable from `from`.
-
-Example (room 38, box 1): `(1,1,1) (2,5,3)` — "to reach box 1, you're
-there; to reach any of boxes 2..5, step into box 3."
-
-There is no count header — `numBoxes` comes from `BOXD`. Rooms with `BOXD`
-but no `BOXM` route straight-line (none in MI1's walkable rooms).
+The router consumes `BOXM` as a next-hop oracle: given the current box and a
+destination box, it returns the box to step into next (or "unreachable").
+Following that from the start box to the destination box yields the box
+sequence to traverse. The matrix encodes shortest paths directly, so no
+search is needed at routing time — just the chain of lookups.
 
 ## 3. The router
 
