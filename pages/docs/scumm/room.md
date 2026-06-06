@@ -191,16 +191,20 @@ finishes.
 
 ## 7b. Pseudo-rooms (a `loadRoom` *fallback*, not an override)
 
-The `pseudoRoom` opcode (`0xCC`) builds an alias map — MI1 boot does
-`pseudoRoom 58 [201,202,203] …`, aliasing a span of logical room ids onto
-one physical room (rooms 73–92 → 58, a shared close-up stage). The trap:
-the alias is a **fallback for ids that have no physical room of their
-own**, *not* a blanket override. `loadRoom N` must resolve **N's own
-ROOM first**, and only consult the alias map when N has no physical room.
-Rooms 73–90 physically exist with their own art (room 82 = an orange
-pirate close-up); only the genuinely-absent ids (91/92) fall through to
-58. Remapping *every* id sends `loadRoom 82` to the all-black room 58 and
-the close-up renders blank.
+The `pseudoRoom` opcode (`0xCC`) aliases high-numbered logical room ids
+onto one physical room's resources. MI1 boot declares the **forest maze**,
+`201–220 → 58`, plus `130–132 → 1`. The game uses these ids *verbatim* —
+`VAR_ROOM` cycles through 201–220 (one logical "screen" per id) and room
+58's entry script branches on `VAR_ROOM == 201..220` to compose each screen
+from a shared tile set — so the raw id has to reach the engine intact (it is
+**not** collapsed to `id & 0x7F`). Room 58 is the single shared forest
+background.
+
+The alias is a **fallback for ids with no physical room of their own**,
+*not* a blanket override: `loadRoom N` resolves **N's own `ROOM` first** and
+consults the alias map only when N is absent. Pseudo ids are always ≥ 128,
+so they never collide with a real room (1–127) — the direct-first order is
+belt-and-braces, and a real room always loads its own art.
 
 ## 8. CYCL, SCAL — not yet consumed
 

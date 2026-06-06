@@ -115,18 +115,6 @@ export interface ComposeFrameInput {
    * Defaults to "no actor is NeverClip".
    */
   readonly isNeverClip?: (actorId: number) => boolean;
-  /**
-   * Whether a drawn object's z-plane should occlude actors. MI1 controls this
-   * with **class 32** (bit 31), toggled per object via `setClass`: room 58's
-   * scenery foliage (objs 671/673 — ego walks *behind* it) keeps class 32, while
-   * the touchable "il sentiero" path trunks (685/686/687 — ego walks *in front*)
-   * have it cleared by the entry scripts. Both carry a full ZP01, so only this
-   * flag separates them. Typically:
-   *   `isObjectOccluder: (id) => ((vm.objectClasses.get(id) ?? 0) & (1 << 31)) !== 0`
-   * Defaults to "every drawn z-plane occludes" (unchanged for callers that
-   * don't track classes).
-   */
-  readonly isObjectOccluder?: (objectId: number) => boolean;
 }
 
 /** Reason an entire actor didn't draw — surfaced for diagnostics. */
@@ -155,7 +143,7 @@ export interface ComposeFrameResult {
 }
 
 export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
-  const { room, framebuffer, actors, getCostume, objectDrawQueue, getObjectState, getObjectPosition, isNeverClip, isObjectOccluder } = input;
+  const { room, framebuffer, actors, getCostume, objectDrawQueue, getObjectState, getObjectPosition, isNeverClip } = input;
   const skippedActors: SkippedActor[] = [];
   const skippedLimbs: SkippedLimb[] = [];
   const skippedObjects: SkippedObject[] = [];
@@ -219,12 +207,11 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
       const left = pos?.x ?? obj.imhd.x;
       const top = pos?.y ?? obj.imhd.y;
       drawObjectImage(framebuffer, room.width, room.height, obj, image.indexed, room.transparentIndex, left, top);
-      // The object draws regardless, but its z-plane only occludes actors when
-      // the object is flagged a foreground occluder (MI1 class 32) — see
-      // isObjectOccluder. Forest path trunks draw but don't bury ego.
-      if (image.zPlane && (isObjectOccluder?.(objId) ?? true)) {
-        fgPlanes.push({ x: left, y: top, plane: image.zPlane });
-      }
+      // The object draws regardless; its z-plane (if any) makes it a foreground
+      // that occludes actors. A fully-set mask is a solid-fill placeholder, not
+      // a silhouette, and the loader drops it (image.zPlane === null) so the
+      // forest path trunks don't bury ego — see the object z-plane decoder.
+      if (image.zPlane) fgPlanes.push({ x: left, y: top, plane: image.zPlane });
       objectsDrawn++;
     }
   }

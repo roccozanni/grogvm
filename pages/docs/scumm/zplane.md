@@ -317,6 +317,14 @@ In rough order of "what hits you first":
    `ZP0k` **alone** — never by `ZP0(k+1)` and up. A floor actor at
    level 1 in a room where `ZP02 ⊇ ZP01` must stay in front of the
    `ZP02`-only geometry (MI1 room 30 stairs).
+9. **A drawn object occludes the actor in the wrong place** → its
+   z-plane was applied at the object's design `imhd.x/y` instead of its
+   current (SO_AT) position. Object z-planes move with the object (see
+   "Per-object z-planes").
+10. **A drawn object buries the actor everywhere it overlaps** → the
+    object's z-plane is fully set (a solid-fill mask, not a silhouette)
+    and wasn't dropped. The loader drops all-1s **object** z-planes; only
+    shaped masks occlude. Room 58's path trunks are the case.
 
 ---
 
@@ -449,21 +457,48 @@ than re-deriving it; deferred with the line-following walker.
 
 Objects carry their own z-planes too: ~half of MI1's `OBIM` blocks
 contain a `ZP##` inside their `IMxx` image. When a script `drawObject`s
-such an object, that z-plane makes the object a **foreground** that
+such an object, that z-plane can make the object a **foreground** that
 occludes z-clipped actors — exactly how the **MI1 title logo** (room 10,
-object #109, a 224×120 image with an 8739-bit z-plane) sits in *front* of
-the drifting cloud actors.
+object #109, a 224×120 image with an 8739-bit z-plane, ~33% set) sits in *front*
+of the drifting cloud actors (room 10's costume-59 clouds at
+`forceClip = 1` → `actorZ = 0`, hidden where the logo's mask is set).
 
 - The object loader decodes the OR of an `IMxx`'s `ZP##` blocks into a
   single object z-plane mask (sized to the object's `imhd.width × height`;
   width must be a multiple of 8, else skipped).
 - The compositor ORs each **drawn** object's z-plane into the frontmost
-  plane (index 1) at the object's `imhd.x / y`, then
-  composites actors against that merged set. So a z-clipped actor
-  (`forceClip > 0`, `actorZ = 0`) is hidden behind the title; an
-  in-front actor (`neverZclip` / default, `actorZ = effective plane
-  count`) is not.
+  plane (index 1), then composites actors against that merged set. A
+  z-clipped actor (`forceClip > 0` / box-mask ≥ 1, `actorZ = 0`) is hidden
+  behind it; an in-front actor (`neverZclip` class / `actorZ = effective
+  plane count`) is not.
 - The z-plane — not the object's image opacity — is the occlusion
   authority (faithful to SCUMM), so a few title *edge* pixels the
   authored mask doesn't cover can still show a cloud; that matches the
   original's masking.
+
+### At the object's *current* position, not its design x/y
+
+The mask is applied at the object's **runtime** position. `drawObject …
+at x,y` (SO_AT) moves an object — both operands are in **strips**, so the
+position is `(x·8, y·8)` — and the image, *its z-plane*, the hit-box, and
+the walk-to point all move with it (see [OBJECTS §7](objects.md)). MI1's
+forest maze (room 58) is the case that forces this: each "screen" is
+composed by repositioning a shared set of tile objects, so an object's
+z-plane must occlude where the object actually draws, not at its design
+`imhd.x/y`.
+
+### A fully-set mask doesn't occlude — it's a solid fill, not a silhouette
+
+A genuine foreground occluder is a *shaped* mask (the title logo is ~33%
+set; the forest's foreground foliage ~40–53%) — it has transparency
+around the silhouette. An object z-plane that is **fully set** (every bit
+1, the whole bounding box) is not a silhouette but a solid-fill
+placeholder, and the loader **drops it** (decodes to no z-plane) so it
+never occludes actors. Room 58's "il sentiero" path trunks (objs
+685/686/687) carry exactly such all-1s masks: ego walks *in front* of
+them, while the shaped foliage masks (671/673) still occlude it. Without
+the drop, every path trunk buried ego wherever it overlapped.
+
+> This drop applies to **object** z-planes only. Room z-planes (`ZP01`…)
+> are the room's authored foreground and are never dropped — a room plane
+> can legitimately be dense.

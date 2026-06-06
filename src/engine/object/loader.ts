@@ -279,6 +279,12 @@ function decodeImages(
  * 8 (the z-plane RLE is strip-based and requires it). A z-plane decode
  * failure is swallowed — the object still draws, just without occluding
  * actors.
+ *
+ * A **fully-set** mask (every bit 1, covering the whole bounding box) is also
+ * dropped: that's a solid-fill placeholder, not a foreground silhouette, so it
+ * must not occlude actors. MI1's forest (room 58) "il sentiero" path trunks
+ * carry such masks — ego walks *in front* of them — whereas genuine foreground
+ * occluders (the forest foliage, the title logo) ship shaped, partial masks.
  */
 function decodeObjectZPlane(
   file: ResourceFile,
@@ -300,5 +306,6 @@ function decodeObjectZPlane(
       // Skip an unparsable plane; keep any others.
     }
   }
+  if (merged && merged.mask.every((b) => b !== 0)) return null;
   return merged;
 }

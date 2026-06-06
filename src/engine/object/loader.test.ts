@@ -99,6 +99,28 @@ function smapBody(width: number, height: number, fillIndex: number): Uint8Array 
   return out;
 }
 
+/**
+ * Minimal `ZP##` payload: every strip is one packbits run of `height` copies
+ * of `rowByte` (one row = 8 columns, MSB-first). `0xFF` = a fully-set column
+ * band, `0xF0` = left-4 columns only, `0x00` = empty. Header-inclusive strip
+ * offsets, per the ZP## layout.
+ */
+function zpBody(width: number, height: number, rowByte: number): Uint8Array {
+  const stripCount = width / 8;
+  if (!Number.isInteger(stripCount)) throw new Error('width must be a multiple of 8');
+  if (height > 127) throw new Error('helper only emits a single run per strip');
+  const stripBody = [0x80 | height, rowByte]; // run of `height` × rowByte
+  const offsetsSize = stripCount * 2;
+  const out = new Uint8Array(offsetsSize + stripCount * stripBody.length);
+  for (let i = 0; i < stripCount; i++) {
+    const offset = 8 + offsetsSize + i * stripBody.length; // header-inclusive
+    out[i * 2 + 0] = offset & 0xff;
+    out[i * 2 + 1] = (offset >>> 8) & 0xff;
+    out.set(stripBody, offsetsSize + i * stripBody.length);
+  }
+  return out;
+}
+
 // ─── CDHD / IMHD parsers ──────────────────────────────────────────────
 
 describe('parseCDHD', () => {
@@ -198,6 +220,33 @@ describe('parseRoomObjects', () => {
     expect(obj.images.size).toBe(2);
     expect(obj.images.get(1)!.indexed[0]).toBe(0x10);
     expect(obj.images.get(2)!.indexed[0]).toBe(0x20);
+  });
+
+  it('keeps a shaped object z-plane (a partial mask occludes actors)', () => {
+    const obim = block('OBIM', concat(
+      block('IMHD', imhdBody({ objId: 70, numImages: 1, x: 0, y: 0, width: 8, height: 4 })),
+      block('IM01', concat(block('SMAP', smapBody(8, 4, 0x10)), block('ZP01', zpBody(8, 4, 0xf0)))),
+    ));
+    const obcd = block('OBCD', block('CDHD', cdhdBody({ objId: 70 })));
+    const file = makeFile(block('ROOM', concat(obim, obcd)));
+    const obj = parseRoomObjects(file, file.tree[0]!).get(70)!;
+    const zp = obj.images.get(1)!.zPlane;
+    expect(zp).not.toBeNull();
+    expect(zp!.mask[0]).toBe(1); // left columns set
+    expect(zp!.mask[7]).toBe(0); // right columns clear
+  });
+
+  it('drops a fully-set object z-plane (solid fill is not a silhouette)', () => {
+    // MI1's forest "il sentiero" path trunks ship an all-1s ZP## — ego walks in
+    // front of them, so the loader must not turn it into an actor occluder.
+    const obim = block('OBIM', concat(
+      block('IMHD', imhdBody({ objId: 71, numImages: 1, x: 0, y: 0, width: 8, height: 4 })),
+      block('IM01', concat(block('SMAP', smapBody(8, 4, 0x10)), block('ZP01', zpBody(8, 4, 0xff)))),
+    ));
+    const obcd = block('OBCD', block('CDHD', cdhdBody({ objId: 71 })));
+    const file = makeFile(block('ROOM', concat(obim, obcd)));
+    const obj = parseRoomObjects(file, file.tree[0]!).get(71)!;
+    expect(obj.images.get(1)!.zPlane).toBeNull();
   });
 
   it('skips orphan OBCD without a matching OBIM', () => {

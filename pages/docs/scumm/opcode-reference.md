@@ -122,7 +122,7 @@ variants of the same base instruction — dispatch is per full byte.)
 - **loadRoom** `$72` `opcode room[p8]` · **loadRoomWithEgo** `$24` `opcode object[p16] room[p8] x[16] y[16]`.
 - **roomOps** `$33` — `opcode sub-opcode`. Subops incl. `$01 minX maxX` scroll, `$03 b h` screen, `$04` palette, `$05/$06` shake on/off, `$0A effect[p16]` fade, `$10 colindex delay` cycle-speed (see source for full list).
 - **lights** `$70` — `opcode arg1[p8] arg2[8] arg3[8]`.
-- **pseudoRoom** `$CC` — `opcode val[8] res[8]... $00`. For each `res` with high bit set: `_resourceMapper[res & $7F] := val`.
+- **pseudoRoom** `$CC` — `opcode val[8] res[8]... $00`. For each `res` with the high bit set, aliases room id `res` → physical room `val`, keyed by the **raw** id (the high bit is kept, *not* masked to `res & $7F`) since the game references these ids verbatim (`VAR_ROOM` holds them). MI1: 201–220 → 58 (forest maze), 130–132 → 1.
 
 ### Verbs / cursor / text
 - **verbOps** `$7A` — `opcode verbID[p8] sub-opcode... $FF`. Subops: `$01 object[p16]` image, `$02 name[c]...$00`, `$03` color, `$04` hicolor, `$05 left top` at, `$06` on, `$07` off, `$08` delete, `$09` new, `$10` dimcolor, `$11` dim, `$12 key`, `$13` center, `$14 stringID[p16]` name-str, `$16 object[p16] room[p8]` assign-object, `$17` back-color.

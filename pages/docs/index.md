@@ -70,4 +70,5 @@ How GrogVM itself is built on top of the reference above.
 - [Engine Session — Game Loop & Runtime](engine/session.md)
 - [Costume Loading & Decoding](engine/costumes.md)
 - [Pathfinding (Box-Graph Routing)](engine/pathfinding.md)
+- [Room Transitions (Entering & Leaving)](engine/room-transitions.md)
 - [Test Harness & Integration Playthroughs](engine/harness.md)

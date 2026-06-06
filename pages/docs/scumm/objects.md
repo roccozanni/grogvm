@@ -168,10 +168,24 @@ Two pieces of runtime state govern object rendering:
 
 The frame compositor iterates the queue in id order between background and
 actors. For each id it looks up the loaded object, picks the `IMxx`
-matching the current state, and blits at the `IMHD`'s `(x, y)` with
-TRNS-indexed transparency. Skipped objects are surfaced with a reason
-("not present in room", "state 0 (hidden)", "no image for state N") so a
-diagnostic can explain why an expected object didn't appear.
+matching the current state, and blits at the object's **current position**
+(see SO_AT below; the `IMHD` `(x, y)` is the default) with TRNS-indexed
+transparency. Skipped objects are surfaced with a reason ("not present in
+room", "state 0 (hidden)", "no image for state N") so a diagnostic can
+explain why an expected object didn't appear.
+
+**`drawObject … at x,y` (SO_AT) repositions the object.** Both operands
+are in **strips**, so the object moves to `(x·8, y·8)` and draws there
+until the next reposition (a bare/`SO_IMAGE` draw keeps the last position).
+This runtime position — not the `IMHD` default — is the single source of
+truth for everything tied to the object: the image blit, its z-plane
+occlusion ([ZPLANE](zplane.md)), the hit-box (`findObject`, §7a), and the
+walk-to point (`getObjectXYPos`, §7a). MI1's forest maze (room 58) leans on
+it hard: each screen is built by repositioning ~10 shared tile objects, and
+the floor bands of one screen are a top tile (height 88) at strip-y 0 plus a
+bottom tile (height 56) at strip-y 11 → 88px, which butt together to fill
+the 144-row room. (Treating the y operand as pixels collapses the screen
+into its top ~99 rows.)
 
 **`drawObject` always sets state.** `o5_drawObject`'s whole job is to
 make an object visible, so it sets `state = 1` by default (only
@@ -242,7 +256,11 @@ object's **walk-to point** (`walkX/walkY` from the OBCD) — the exact spot
 `walkActorToObject` sends the ego — *not* the image's top-left. They can
 differ by tens of pixels (a door image at `(696,80)` with walk-to
 `(715,130)`), so measuring against the image makes the ego arrive yet
-still read as too far away.
+still read as too far away. The walk-to point also **follows a SO_AT
+reposition** (§7): it's shifted by the object's draw displacement, so for a
+repositioned forest tile the ego walks to where the tile *is*, not its
+design x. The hit-box (`findObject`) shifts by the same displacement — so
+hover/click resolve where the object draws.
 
 **A held item's position is its holder's position.** `getObjectOrActorXY`
 has a `WIO_INVENTORY` case: for an object in someone's inventory it returns

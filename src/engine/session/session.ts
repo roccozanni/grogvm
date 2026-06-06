@@ -191,9 +191,6 @@ export function createSession(
       getObjectPosition: (id) => vm.objectDrawPositions.get(id),
       // NeverClip class (20, bit 19) → actor always in front of z-planes.
       isNeverClip: (id) => ((vm.objectClasses.get(id) ?? 0) & (1 << 19)) !== 0,
-      // Class 32 (bit 31) → object's z-plane occludes actors (MI1's foreground
-      // flag; cleared on the forest path trunks so ego draws in front of them).
-      isObjectOccluder: (id) => ((vm.objectClasses.get(id) ?? 0) & (1 << 31)) !== 0,
     });
 
     // Extract the camera slice. When the viewport spans the whole room (the
