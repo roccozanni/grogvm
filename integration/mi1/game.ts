@@ -69,9 +69,7 @@ export const VARS = {
 export const VERBS = {
   /** "Esamina" / Look at. */
   look: 8,
-  /** Default walk-to / use verb committed by a scene click. */
-  walk: 11,
-  /** "Open"-style verb (e.g. push the bar door before walking through). */
+  /** "Apri" / Open (e.g. the bar door before walking through). */
   open: 2,
   /** "Prendi" / Pick up. */
   pickUp: 9,
@@ -79,6 +77,8 @@ export const VERBS = {
   talk: 10,
   /** "Dai" / Give — two-object (Give X to <actor>). */
   give: 4,
+  /** "Premi" / Push — e.g. ring the general-store bell. */
+  push: 5,
 } as const;
 
 /** Per-room ids: each room's number + the objects/scripts that live there. */
@@ -96,6 +96,12 @@ export const ROOMS = {
      * ({@link ROOMS.cliffPath}, room 38).
      */
     cliff: 426,
+    /**
+     * "l'arco" (the arch) — the room's far-east edge (x≈984; room 33 is a
+     * wide scrolling room). Clicking it carries ego east through into the
+     * Mêlée town street ({@link ROOMS.meleeStreet}, room 35).
+     */
+    townArch: 427,
   },
 
   /**
@@ -129,6 +135,14 @@ export const ROOMS = {
     lookout: 913,
     /** "il bivio" (the crossroads) — the town fork. */
     crossroads: 911,
+    /**
+     * "il villaggio" (the village). The node's verb-11 script branches on
+     * story progress (g196 / a clutch of plot bits); early on — g196 still 0
+     * through the trials — it lands ego in the lookout/town room 33, from
+     * whose east arch ({@link ROOMS.meleeLookout}'s `townArch`) the town
+     * street is reached. (Later progress reroutes it to the docks, room 83.)
+     */
+    village: 917,
   },
 
   /** The clearing (room 52) — the Fettucini circus camp. */
@@ -176,8 +190,6 @@ export const ROOMS = {
      * fires the cannon launch. Either brother works.
      */
     brotherActor: 3,
-    /** "fuori" (outside) — the exit back to the clearing. */
-    exit: 617,
   },
 
   /** The SCUMM Bar interior (entered through the lookout's bar door). */
@@ -209,9 +221,9 @@ export const ROOMS = {
     },
     /**
      * Right-hand door → the kitchen ({@link ROOMS.kitchen}). The cook leaves
-     * it open, so entry is a plain Walk-to (verb 11): its script runs the
-     * walk-through transition (room-28 local #218 → `loadRoomWithEgo` 41).
-     * Must be a verb sentence on the door — a bare floor click won't run it.
+     * it open, so a click on it walks ego through (its default action runs the
+     * room-28 local #218 → `loadRoomWithEgo` 41 transition). The click must
+     * land on the door object — a bare floor click beside it won't run it.
      */
     kitchenDoor: 316,
     /**
@@ -277,5 +289,104 @@ export const ROOMS = {
        */
       goodbye: 124,
     },
+  },
+
+  /**
+   * The Mêlée town street (room 35) — the shop-lined Low Street reached from
+   * the lookout's east arch. Here the player buys the treasure map off a
+   * citizen and ducks into the Voodoo Lady's; two arches lead on (west back
+   * to the lookout, north-east to the general-store street, room 34).
+   */
+  meleeStreet: {
+    id: 35,
+    /**
+     * "Il cittadino di Mêlée" (the Mêlée citizen) — an OBJECT (#441), not an
+     * actor. Talk to (verb 10) runs his conversation (#218); the right opener
+     * gets him to sell the treasure map.
+     */
+    citizen: 441,
+    citizenAnswers: {
+      /**
+       * "No, ma una volta avevo un barbiere chiamato Dominique." — the cousin-
+       * Dominique opener; it turns the chat to the map he's holding and arms
+       * the buy menu. (The other openers dead-end.)
+       */
+      dominique: 123,
+      /** "La prendo. Sarà un regalo stupendo." — buy it; the map (#442) goes
+       *  to ego for 100 pieces of eight. */
+      takeMap: 121,
+    },
+    /** "la mappa" (the map) — enters inventory when the citizen sells it. */
+    map: 442,
+    /**
+     * "la porta" (#444) → the Voodoo Lady ({@link ROOMS.voodooShop}, room 29).
+     * Open it (verb 2) then click it to walk through, like the bar door.
+     */
+    voodooDoor: 444,
+    /** "l'arco" (#451) → the general-store street ({@link ROOMS.storeStreet},
+     *  room 34); click to walk through. */
+    storeArch: 451,
+  },
+
+  /** The Voodoo Lady's shop (room 29), entered through the street's
+   *  `voodooDoor`. */
+  voodooShop: {
+    id: 29,
+    /** "il pollo" (the chicken, #377) — Pick up (verb 9) flips it to ego. */
+    chicken: 377,
+    /** "la porta" (#367) → back out to the street (room 35); click to exit. */
+    door: 367,
+  },
+
+  /**
+   * The general-store street (room 34) — a wide scrolling street off the
+   * town's north-east arch, with the store, the Governor's-mansion approach
+   * and an alley. We only transit it to the store and back.
+   */
+  storeStreet: {
+    id: 34,
+    /**
+     * "la porta" (#437) → the general store ({@link ROOMS.store}, room 30).
+     * Approach it, Open it (verb 2 — its handler only fires with ego at the
+     * door), then click it to walk through.
+     */
+    storeDoor: 437,
+  },
+
+  /**
+   * The general store (room 30). The sword and shovel sit out on display;
+   * grabbing them and ringing the bell brings the shopkeeper, who makes you
+   * pay through a buy conversation.
+   */
+  store: {
+    id: 30,
+    /** "la spada" (the sword, #388) — Pick up (verb 9). */
+    sword: 388,
+    /** "la pala" (the shovel, #396) — Pick up (verb 9). */
+    shovel: 396,
+    /** "il campanello" (the bell, #399) — Push (verb 5) summons the
+     *  shopkeeper out. */
+    bell: 399,
+    /** "il negoziante" (the shopkeeper, #394) — an OBJECT. Talk to (verb 10)
+     *  opens the buy conversation. */
+    shopkeeper: 394,
+    /**
+     * Buy-conversation answer verb ids. The menu reuses ids across stages
+     * (120/121 recur), so pick them in order — the harness sequences by the
+     * verb leaving the menu between picks. Sword costs 100, shovel 75.
+     */
+    buyAnswers: {
+      /** Top menu: "Si tratta della spada^" — bring up the sword. */
+      aboutSword: 120,
+      /** Top menu: "Si tratta della pala^" — bring up the shovel. */
+      aboutShovel: 121,
+      /** Sub-menu: "La voglio." — buy the item just brought up. */
+      wantIt: 120,
+      /** "Vorrei dare un'occhiata in giro." — ends the chat, control back. */
+      lookAround: 125,
+    },
+    /** "la porta" (#387) → back out to the street (room 34); Open (verb 2)
+     *  then click to walk through. */
+    door: 387,
   },
 } as const;

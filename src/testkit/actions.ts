@@ -14,10 +14,14 @@
  * directly — a playthrough built on these exercises (and regression-guards)
  * the genuine input machinery, not a shortcut.
  *
- * Each helper performs the input and runs a short *settle* so the poller /
- * sentence commit fires, then returns; it does NOT wait for the outcome — the
- * caller drives until its own assertion holds (`driveUntil`), keeping "what I
- * did" and "what I expect" separate.
+ * Each helper first waits for the game to settle ({@link waitReady} — control
+ * back, ego stopped, no line/cutscene in flight) so it can't fire into a
+ * half-loaded room or a still-walking ego; it then performs the input and runs
+ * a short settle so the poller / sentence commit fires, and returns. It does
+ * NOT wait for the *outcome* — the caller drives until its own assertion holds
+ * (`driveUntil`), keeping "what I did" and "what I expect" separate. Because the
+ * wait is built in, beats read as a plain sequence of actions, with no guessed
+ * `driveTicks` pauses between them.
  *
  * Split from `drive.ts` (not folded in) because those drivers are pure and
  * synthetic-testable, whereas these compose real input that needs a booted VM
@@ -26,6 +30,7 @@
  * tested here.
  */
 import { driveTicks, driveUntil, hover } from './drive';
+import { VAR_EGO } from '../engine/vm/vars';
 import type { Vm } from '../engine/vm/vm';
 
 /** A room-pixel point, or an object id whose hit-box center we hover. */
@@ -85,14 +90,90 @@ export function waitIdle(vm: Vm, maxTicks = 6000): void {
 }
 
 /**
- * Walk ego toward a floor point (or an object's hit-box center). A bare
- * scene click carries no object id, so the engine's default walk verb
- * paths ego to the cursor — the faithful "click the floor to move" flow.
- * Settles a few jiffies so the click commits; the caller drives until ego
- * actually arrives / the room changes.
+ * Drive until the VM is ready for the next player input: control is back
+ * (`userput > 0`), no line is printing, no cutscene is running, and ego has
+ * finished walking. This is the faithful "let the game settle before I click
+ * again" that a player does without thinking — and it's the ONE condition the
+ * scattered `driveTicks(<guess>)` pauses were all approximating: the lag after
+ * a room change (the entry script hands control back), after `open` (ego walks
+ * to the door and it swings open), and after any walk (ego arrives). {@link use}
+ * and {@link walkTo} wait on it before acting, so beats don't pad with magic
+ * tick counts. Best-effort like {@link waitIdle} (no throw); the caller's
+ * assertion is what proves the outcome. Returns at once when already ready.
+ */
+export function waitReady(vm: Vm, maxTicks = 6000): void {
+  driveUntil(
+    vm,
+    (v) => {
+      const ego = v.vars.readGlobal(VAR_EGO);
+      return (
+        v.cursor.userput > 0 &&
+        v.activeDialog === null &&
+        v.cutsceneStack.length === 0 &&
+        (ego <= 0 || !v.actors.get(ego).isMoving)
+      );
+    },
+    { maxTicks },
+  );
+}
+
+/**
+ * Drive until ego owns `obj` — i.e. a Pick up / Give has landed it in the
+ * inventory. Returns whether it happened in budget, so it reads as a one-line
+ * assertion: `expect(waitPickedUp(vm, ROOMS.kitchen.meat)).toBe(true)`. The
+ * inventory/ownership sibling of {@link driveToRoom}.
+ */
+export function waitPickedUp(vm: Vm, obj: number, maxTicks = 6000): boolean {
+  const ego = vm.vars.readGlobal(VAR_EGO);
+  return driveUntil(vm, (v) => v.getObjectOwner(obj) === ego, { maxTicks });
+}
+
+/**
+ * Drive until story global `varId` equals `value` — a puzzle flag flipping or a
+ * counter settling (e.g. the money total after a payout, the trials-learned
+ * stage). Returns whether it reached the value in budget. Assert the *mechanic*
+ * with this, not localized text.
+ */
+export function waitGlobal(vm: Vm, varId: number, value: number, maxTicks = 6000): boolean {
+  return driveUntil(vm, (v) => v.vars.readGlobal(varId) === value, { maxTicks });
+}
+
+/**
+ * Drive until the player can act again: control is back (`userput > 0`), no line
+ * is printing, and the verb bar is live (some verb armed). The "a cutscene has
+ * released / a conversation has ended and the game handed control back" check a
+ * beat makes after such a transition. Returns whether it became playable in
+ * budget. Unlike {@link waitReady} (the internal pre-action settle, which also
+ * wants ego stopped + no cutscene but does NOT require an armed verb), this
+ * asserts the verb bar specifically — that the player has regained the controls.
+ */
+export function waitPlayable(vm: Vm, maxTicks = 6000): boolean {
+  return driveUntil(
+    vm,
+    (v) =>
+      v.cursor.userput > 0 &&
+      v.activeDialog === null &&
+      [...v.verbs.values()].some((verb) => verb.state === 'on'),
+    { maxTicks },
+  );
+}
+
+/**
+ * A bare click — hover the target, then a scene click with NO verb armed, so
+ * the engine runs its DEFAULT action. This is the faithful "just click where
+ * you want to go" input, which covers both senses of moving:
+ *   • a floor point → ego walks to the cursor;
+ *   • an object (door, arch, map node) → the poller picks it up and the click
+ *     commits its default-verb sentence — i.e. how a player walks through a
+ *     door (enter if open, stop in front if closed) without ever arming a
+ *     "Walk to" verb (in SCUMM v5 "Walk to" is the default, not a button).
+ * Waits for the game to settle first ({@link waitReady}), so a walk issued
+ * right after a room change / an `open` doesn't fire early; settles a few
+ * jiffies so the click commits, then the caller drives until ego arrives /
+ * the room changes.
  */
 export function walkTo(vm: Vm, target: Target, settle = VERB_ARM_TICKS): void {
-  waitIdle(vm);
+  waitReady(vm);
   const { x, y } = pointOf(vm, target);
   hover(vm, x, y);
   vm.handleSceneClick(1);
@@ -103,13 +184,48 @@ export function walkTo(vm: Vm, target: Target, settle = VERB_ARM_TICKS): void {
  * Apply `verb` to `target`: click the verb, hover the target so the poller
  * loads it into the active-object global, then a scene click commits
  * `doSentence`. This is the one-object sentence ("Look at X", "Open X",
- * "Pick up X").
+ * "Pick up X"). Waits for the game to settle first ({@link waitReady}) so it
+ * doesn't fire into a not-yet-ready room / a still-walking ego.
  */
 export function use(vm: Vm, verb: number, target: Target): void {
-  waitIdle(vm);
+  waitReady(vm);
   vm.handleVerbClick(verb, 1);
   driveTicks(vm, VERB_ARM_TICKS);
   const { x, y } = pointOf(vm, target);
+  hover(vm, x, y);
+  vm.handleSceneClick(1);
+}
+
+/**
+ * Give a carried item to an actor — the two-object "Dai X a ⟨actor⟩" sentence.
+ * Faithful flow: arm the Give verb, click the item in the inventory panel, then
+ * click the actor. Carried items render as verb slots `invBase`+ in owning
+ * order (200 is the SCUMM v5 inventory verb-slot base), so the caller passes
+ * the item's *object id* and we resolve its panel slot from ego's live
+ * inventory — throwing if it isn't carried, so a mistargeted give fails loudly.
+ */
+export function give(
+  vm: Vm,
+  giveVerb: number,
+  item: number,
+  actorId: number,
+  invBase = 200,
+): void {
+  waitReady(vm);
+  const ego = vm.vars.readGlobal(VAR_EGO);
+  let slot = -1;
+  for (let i = 1, n = vm.inventoryCount(ego); i <= n; i++) {
+    if (vm.findInventory(ego, i) === item) {
+      slot = invBase + (i - 1);
+      break;
+    }
+  }
+  if (slot < 0) throw new Error(`give: item ${item} is not in ego's inventory`);
+  vm.handleVerbClick(giveVerb, 1);
+  driveTicks(vm, VERB_ARM_TICKS);
+  vm.handleVerbClick(slot, 1); // select the item (object A) from the inventory panel
+  driveTicks(vm, VERB_ARM_TICKS);
+  const { x, y } = actorPoint(vm, actorId); // hover the actor (object B)
   hover(vm, x, y);
   vm.handleSceneClick(1);
 }

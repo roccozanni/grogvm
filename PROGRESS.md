@@ -41,8 +41,25 @@ run end-of-session / after a refactor. Design + the testkit pieces it added
 `beat()` guard, headless/from-boot/deterministic rationale) →
 [AGENTS "The harness"](AGENTS.md). Engine finding — *a printing sentence blocks
 the next one* (command mid-speech no-ops; wait for the line to clear) →
-[INPUT §5](pages/docs/scumm/input.md). Old `playthrough.test.ts` deleted (its
-mechanics are now the first five beats).
+[INPUT §5](pages/docs/scumm/input.md). The beats carry **zero `driveTicks`**:
+each `use`/`walkTo`/`give` first waits on `waitReady` (control back + ego
+stopped + no line/cutscene — the one condition all the old magic-number
+"settles" were approximating), and outcomes are asserted with named
+condition-waiters beside `driveToRoom` — `waitPickedUp` (ego owns an object),
+`waitGlobal` (a story flag/counter hits a value), `waitPlayable` (control +
+verb bar back) — falling back to a raw `driveUntil` only for bespoke predicates
+(cook sweep, gull bolt, staged crossings) and to the real signal for genuine
+event-waits (e.g. the dock door's state flipping to open, `vm.objectStates`).
+So beats read as a plain action sequence, and comments are pruned to only what
+explains a game mechanic / puzzle (the cook window, the room-52 high/low guard,
+the cannon-gag auto-return, the store-door open-handler quirk, …) — the helper
+calls speak for themselves. Old `playthrough.test.ts` deleted (its
+mechanics are now the first five beats). The final beat snapshots the end state
+to `saves/MI1-walkthrough-frontier.websave.json` (gitignored, regenerated every
+green run so it can't drift): the net itself always runs from boot, but the *next*
+beat can be developed by `restoreSave`-ing the frontier instead of re-driving the
+whole game — the buggy `Italiano-2-post-fettuccini` save is **not** trustworthy
+(broken actor scale from the `ignoreBoxes` bug), so generate from the run.
 
 Beats are named `<Part> · <Room> — <what it proves>` (Part = the game's own
 part; I = "The Three Trials"), **no ordinal** — file order *is* run order.
@@ -70,8 +87,22 @@ speech), **give the pot as the helmet** (Give/verb-4 *to actor 3* — the first
 give-to-actor; sets `bit#103` → cannon launch → amnesia gag → payout) and get
 paid **478 pieces of eight** (`VARS.money`/g195 0→478, object #488 verb-250).
 The room-52 clearing crossing is staged (descend to the low zone first — local
-script 202's high/low guard, not a routing workaround; see Pathfinding).
-Next: back to the map and the three trials (sword, thievery, treasure).
+script 202's high/low guard, not a routing workaround; see Pathfinding) →
+**back to the Mêlée town** (one grouped travel beat): circus exit #617→52, climb
+back to the high zone, path #622→map, the map's *village* node #917 (its verb-11
+branches on g196 — still 0 this early, so it lands in the wide lookout/town room
+33, not the docks 83), then room-33 east arch #427→**Mêlée town street 35** →
+**buy the treasure map** off citizen #441 (an *object*, talk #218; the cousin-
+Dominique opener #123 then "take it" #121 → map #442 to ego, g195 478→378) →
+**Voodoo Lady 29** (open+walk door #444, pocket the rubber chicken #377, back out
+#367) → **general store** (arch #451→street 34, then the store door #437 — its
+open handler only takes with ego *standing at it*, so approach→open→enter, unlike
+the bar/voodoo doors) → **buy the sword #388 + shovel #396** (grab both off the
+shelf first, then ring the bell — Push/verb-5 #399 — and settle up with shopkeeper
+#394: buy menu reuses ids, sequence `aboutSword 120 → wantIt 120 → aboutShovel
+121 → wantIt 120 → lookAround 125`; g195 378→203) → exit #387 back to street 34.
+Next: the three trials proper — swordfighting (the *house* map node → Captain
+Smirk → fight pirates for insults → the Sword Master node #918), thievery, treasure.
 
 **Capability landed this session — headless actor hit-testing** (so the net can
 click actors for Talk-to / Give-to-actor): `prepareActorDraw` is the shared
