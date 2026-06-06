@@ -114,6 +114,7 @@ export interface SaveState {
   readonly objectNameOverrides?: ReadonlyArray<[number, string]>;
   readonly objectClasses: ReadonlyArray<[number, number]>;
   readonly objectDrawQueue: ReadonlyArray<number>;
+  readonly objectDrawPositions: ReadonlyArray<[number, { x: number; y: number }]>;
 
   // ── Room / camera ───────────────────────────────────────────────
   readonly currentRoom: number;
@@ -280,6 +281,7 @@ export function snapshotVm(vm: Vm, meta?: { game?: string; label?: string; saved
     objectNameOverrides: [...vm.objectNameOverrides],
     objectClasses: [...vm.objectClasses],
     objectDrawQueue: [...vm.objectDrawQueue],
+    objectDrawPositions: [...vm.objectDrawPositions].map(([id, p]) => [id, { ...p }]),
 
     currentRoom: vm.currentRoom,
     boxFlags: [...vm.boxFlagOverrides],
@@ -363,6 +365,7 @@ export function restoreVm(vm: Vm, state: SaveState): void {
     vm.objectNameOverrides.set(id, name);
   for (const [id, v] of state.objectClasses) vm.objectClasses.set(id, v);
   for (const id of state.objectDrawQueue) vm.objectDrawQueue.add(id);
+  for (const [id, p] of state.objectDrawPositions) vm.objectDrawPositions.set(id, { ...p });
 
   // Room / camera. Set currentRoom + pseudoRooms + UI overrides + box flags
   // BEFORE reloading room resources so the CLUT overrides re-apply over the

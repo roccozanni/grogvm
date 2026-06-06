@@ -49,21 +49,24 @@ function run(vm: Vm, code: Uint8Array): void {
 }
 
 describe('phase 8 — pseudoRoom (0xCC)', () => {
-  it('maps high-bit aliases to the real room and ignores the rest', () => {
+  it('maps high-bit aliases by their raw value and ignores the rest', () => {
     const vm = makeVm();
-    // realRoom=10, aliases 5 (0x85) and 7 (0x87); a plain 0x03 is ignored.
+    // realRoom=10; aliases keep their raw byte as the key (0x85=133, 0x87=135)
+    // — the game references pseudo rooms by that literal (MI1's forest cycles
+    // VAR_ROOM through 201–220, not 73–92). A plain 0x03 (no high bit) is
+    // ignored.
     run(vm, bytes(0xcc, 0x0a, 0x85, 0x03, 0x87, 0x00));
-    expect(vm.pseudoRooms.get(5)).toBe(10);
-    expect(vm.pseudoRooms.get(7)).toBe(10);
+    expect(vm.pseudoRooms.get(0x85)).toBe(10);
+    expect(vm.pseudoRooms.get(0x87)).toBe(10);
     expect(vm.pseudoRooms.has(3)).toBe(false);
     expect(vm.haltInfo).toBeNull();
   });
 
   it('enterRoom loads an existing room directly, ignoring its pseudo alias', () => {
-    // A room that physically exists must load its OWN data even when the
-    // pseudoRoom table aliases it (MI1 aliases the close-ups 73–90 → 58, yet
-    // each is its own scene — room 82 is the pirate close-up, not the black
-    // stage 58). The alias is a fallback, not an override.
+    // A room that physically exists must load its OWN data even if the
+    // pseudoRoom table happens to alias the same id. The alias is a fallback,
+    // not an override. (In MI1 the two never collide — pseudo ids are ≥ 128
+    // and real rooms ≤ 99 — but the precedence is still asserted here.)
     const resolved: number[] = [];
     const vm = makeVm((id) => {
       resolved.push(id);
@@ -77,18 +80,19 @@ describe('phase 8 — pseudoRoom (0xCC)', () => {
   });
 
   it('enterRoom falls back to the pseudo alias when the room does not exist', () => {
-    // A logical id with no physical room (MI1 91/92 → 58) resolves through the
-    // alias. The resolver throws for the missing id, succeeds for the alias.
+    // A logical id with no physical room (MI1's forest maze: 218 → 58)
+    // resolves through the alias. The resolver throws for the missing id,
+    // succeeds for the alias.
     const resolved: number[] = [];
     const vm = makeVm((id) => {
       resolved.push(id);
-      if (id === 91) throw new Error('room 91 not present');
+      if (id === 218) throw new Error('room 218 not present');
       return fakeRoom(id);
     });
-    vm.pseudoRooms.set(91, 58);
-    vm.enterRoom(91);
+    vm.pseudoRooms.set(218, 58);
+    vm.enterRoom(218);
     expect(vm.loadedRoom?.id).toBe(58); // fell back to the alias
-    expect(vm.currentRoom).toBe(91); // logical id unchanged
+    expect(vm.currentRoom).toBe(218); // logical id unchanged
     expect(vm.haltInfo).toBeNull();
   });
 

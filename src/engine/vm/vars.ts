@@ -77,7 +77,14 @@ export const VAR_INVENTORY_SCRIPT = 34;
 export const VAR_CUTSCENE_START_SCRIPT = 35;
 export const VAR_CUTSCENE_END_SCRIPT = 36;
 export const VAR_CHARINC = 37;
-export const VAR_WALKTO_OBJ = 38;
+/**
+ * Object the ego is entering through — `loadRoomWithEgo` sets it across the
+ * room change so the new room's ENCD can branch on which object/edge ego came
+ * in via (room 58's forest gates a `walkActorTo ego` on it: `g113 == 687/688`).
+ * MI1's slot is **113** (verified from that gate); the generic SCUMM tables
+ * list 38, but MI1 reassigns it.
+ */
+export const VAR_WALKTO_OBJ = 113;
 export const VAR_DEBUGMODE = 39;
 export const VAR_HEAPSPACE = 40;
 export const VAR_RESTART_KEY = 42;

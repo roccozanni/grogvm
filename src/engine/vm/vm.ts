@@ -398,6 +398,17 @@ export class Vm {
    */
   readonly objectDrawQueue = new Set<number>();
   /**
+   * Runtime object positions set by `drawObject … at x,y` (SO_AT). SCUMM's
+   * `o5_drawObject` moves the object to `(x * 8, y)` (x is in strips, y in
+   * pixels) and draws there until the next reposition; a bare/SO_IMAGE draw
+   * keeps the last position. The compositor reads this in preference to the
+   * IMHD default. MI1's forest maze (room 58) is the case that needs it: each
+   * "screen" is composed by repositioning a shared set of tile objects
+   * (656–688) — without the move they all stack at their IMHD x and the
+   * screen renders mostly black. Cleared on room change with the draw queue.
+   */
+  readonly objectDrawPositions = new Map<number, { x: number; y: number }>();
+  /**
    * Currently-loaded room id (per the VM's view). Set by `loadRoom`
    * (0x72/0xF2) and related opcodes; consumed by the room-render path
    * once the compositor lands. Zero = no room yet.
@@ -917,6 +928,7 @@ export class Vm {
     // their state, but the queue itself starts empty — the new room's
     // ENCD repopulates it for objects that should be visible.
     this.objectDrawQueue.clear();
+    this.objectDrawPositions.clear();
     // Redrawing the screen for a new room erases any blasted system text
     // (signs / part-titles / credits) from the old one — they live on the
     // framebuffer, not in a persistent layer. Cleared here, before the
@@ -1003,14 +1015,13 @@ export class Vm {
    * sentence colours every room change. Shared by {@link enterRoom} and
    * {@link reloadCurrentRoomResources}; does NOT run entry/exit scripts.
    *
-   * Pseudo-rooms (0xCC) are a **fallback**: a logical id that doesn't
-   * physically exist (MI1 maps 73–92 → 58, but only 91/92 are absent) aliases
-   * onto another room's resources. A room that DOES exist must load its own
-   * data — the dialog close-ups 73–90 are listed in that same pseudoRoom
-   * table yet each is a distinct scene (room 82 is the pirate close-up, NOT
-   * the shared black stage 58). So we resolve the requested id first and only
-   * consult the alias when the direct load fails. (Applying the alias to
-   * every room is what replaced the pirate close-up with a black screen.)
+   * Pseudo-rooms (0xCC) are a **fallback**: a high-numbered alias id that
+   * doesn't physically exist (MI1's forest maze aliases 201–220 → 58, and
+   * 130–132 → 1) loads another room's resources. A room that DOES exist must
+   * load its own data, so we resolve the requested id first and only consult
+   * the alias when the direct load fails. Pseudo ids are always ≥ 128, so they
+   * never shadow a real room (1–127) — the direct-first order is belt-and-
+   * braces, not a collision guard.
    */
   private applyRoomResources(roomId: number): void {
     if (this.resolveRoom) {
@@ -2141,6 +2152,7 @@ export class Vm {
     this.objectClasses.clear();
     this.boxFlagOverrides.clear();
     this.objectDrawQueue.clear();
+    this.objectDrawPositions.clear();
     this.currentRoom = 0;
     this.frameAccumulator = 0;
     this.loadedRoom = null;

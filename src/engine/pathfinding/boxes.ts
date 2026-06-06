@@ -147,6 +147,40 @@ export function findBoxAt(
 }
 
 /**
+ * Clamp a point into the walkable area: if it already sits in a box, return it
+ * unchanged; otherwise return the closest point on the nearest visible box's
+ * bounding rect. SCUMM's `adjustXYToBeInBox` does this when placing an actor
+ * at an object's walk-to point — MI1's forest path objects (room 58) put their
+ * walk points just past the box edges (e.g. SO_AT-shifted x=338 against a box
+ * that ends at 322), and unclamped that lands the actor a few pixels
+ * off-screen. Returns the point unchanged when there are no usable boxes.
+ */
+export function clampPointToBoxes(
+  boxes: ReadonlyArray<WalkBox>,
+  x: number,
+  y: number,
+): { x: number; y: number } {
+  if (findBoxAt(boxes, x, y)) return { x, y };
+  let best: { x: number; y: number } | null = null;
+  let bestDist = Infinity;
+  for (const box of boxes) {
+    if (isInvisibleBox(box)) continue;
+    const minX = Math.min(box.ulx, box.urx, box.lrx, box.llx);
+    const maxX = Math.max(box.ulx, box.urx, box.lrx, box.llx);
+    const minY = Math.min(box.uly, box.ury, box.lry, box.lly);
+    const maxY = Math.max(box.uly, box.ury, box.lry, box.lly);
+    const cx = Math.max(minX, Math.min(maxX, x));
+    const cy = Math.max(minY, Math.min(maxY, y));
+    const dist = (x - cx) ** 2 + (y - cy) ** 2;
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = { x: cx, y: cy };
+    }
+  }
+  return best ?? { x, y };
+}
+
+/**
  * Like {@link findBoxAt}, but when no box strictly contains the point, return
  * the *nearest* visible box (by distance to its bounding rect) instead of
  * `null`. The walkable mask is rasterised leniently and MI1's cliff boxes are

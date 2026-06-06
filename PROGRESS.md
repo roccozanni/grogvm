@@ -112,6 +112,99 @@ optionIndex−1`, g194, per-menu reuse) + give-to-actor → [INPUT §5](pages/do
 harness helpers → [AGENTS "The harness"](AGENTS.md). **Give X to <actor>**
 (verb 4) now exercised end-to-end.
 
+### Forest maze (room 58) — "the fork" black-room fix (2026-06-06, awaiting in-browser confirm)
+
+Clicking **il bivio** (map node #911, `loadRoomWithEgo room=218`) landed in a
+fully-black room. Two independent bugs, both now fixed (pending user verify):
+
+1. **pseudoRoom (0xCC) keyed by `j & 0x7F` instead of the raw byte.** MI1's
+   forest maze is a single shared background (room **58**) reused as logical
+   "screens" **201–220**, declared via `pseudoRoom` blocks (`201–220 → 58`,
+   `130–132 → 1`). The game keeps the high bit live: room 58's ENCD branches on
+   `VAR_ROOM == 201..215+` and scripts call `loadRoom 130` directly, so
+   `VAR_ROOM`/`currentRoom` legitimately hold 218. Masking to `j & 0x7F` stored
+   keys 73–92 — which never match the raw request **and** would collide with the
+   real dialog-close-up rooms 73–90. Fix: store the raw byte (`pseudoRooms.set(j,
+   id)`); pseudo ids are always ≥ 128 so they never shadow a real room, and the
+   "direct room first, alias as fallback" order in `applyRoomResources` is now
+   belt-and-braces, not a collision guard. (The old 73–90 close-up collision
+   story was an artifact of the masking bug.) → doc target [OBJECTS]/[ROOM].
+2. **`drawObject … at x,y` (SO_AT) reposition was a no-op.** room 58 has **no
+   background bitmap** (all index-0) — each screen is composed entirely by
+   repositioning a shared set of scenery tiles (objs 656–688) via SO_AT. We drew
+   every object at its IMHD default (all piled at x=0), so even with room 58
+   loaded the screen was ~87% black. Fix: SO_AT now moves the object to
+   `(x * 8, y * 8)` — **both** operands in strips — stored in
+   `vm.objectDrawPositions` (cleared on room change, persisted in the save as a
+   **required** field), read by the compositor in preference to IMHD. Evidence
+   the units are strips on both axes: `cdhd.width * 8 == imhd.width`; the
+   `x=100`→800px "park offscreen" idiom; and the vertical tiling — each forest
+   screen is a top band (objs h=88) at strip-y 0 and a bottom band (h=56) at
+   strip-y 11 → 88px, which butt together to exactly fill the 144-row room.
+   Treating y as pixels stacks the bands at y=11, collapsing the scene into the
+   top ~99 rows (the "squashed, only-upper-part" symptom).
+   drawObject's same-box eviction now compares effective (runtime) boxes so
+   distinct tiles sharing an IMHD origin aren't falsely evicted. Renders as a
+   proper framed forest now. → doc target [OBJECTS] (drawObject) / [SMAP] (a
+   no-background room is legal). Only rooms **39** and **58** use SO_AT in room
+   scripts (object-script SO_AT unscanned); confirmed-path rooms (28/33/51/29…)
+   don't, so no visual regression there — unit (859) + integration (21) green.
+   **Watch:** forest navigation objects — the repositioned tiles are class-32
+   Untouchable (skipped in hit-testing), so clicks route via separate exits, but
+   if any *clickable* object is ever SO_AT-moved, `hittest.ts` (uses `cdhd.x*8`,
+   the design hotspot) won't follow it. Not exercised yet.
+
+3. **Ego entered on the wrong side (left, x=42) instead of the right.** The
+   fork node #911 does `loadRoomWithEgo obj=687`, and `loadRoomWithEgo` /
+   `putActorAtObject` placed ego at the object's **static** `cdhd.walkX/walkY` —
+   but 687 (the right-edge path/trunk) is SO_AT-moved to x=296, so its walk-to
+   point moves with it. Fix: a shared `objectWalkPoint(vm, obj)` (SCUMM's
+   `getObjectXYPos`) shifts the CDHD walk point by the object's SO_AT
+   displacement `(drawPos − imhd)` and clamps into the walk boxes
+   (`clampPointToBoxes`, SCUMM's adjustXYToBeInBox). Ego now enters at the right
+   edge (behind the front trunk, symmetric to the left path's off-edge entry)
+   and the player walks it into the clearing. → doc target [INPUT]/[PATHFINDING].
+4. **SO_AT runtime position was applied inconsistently — the real root.** A
+   `drawObject … at` reposition must move *everything* tied to the object:
+   image (compositor), z-plane (occlusion), hotspot (hit-test), and walk-to
+   (getObjectXYPos). We'd taught only the compositor + walk-to about it, so the
+   forest tiles' hit boxes stayed pinned at their design x=0 (visible in the
+   "Hit areas" overlay — the tell that surfaced this) and object occlusion was
+   briefly mis-modelled. Fix: one displacement `(drawPos − imhd)` applied at
+   every site — the **`findObject` opcode** (the script-facing hit-test the
+   hover-poller/click run; the one that left the mouse reacting at x=0 while the
+   overlay already rendered correctly), `pickObject`/`objectHitBox` + the
+   hit-area overlay, `objActPos` (getObjectXYPos, so getDist proximity +
+   `walkActorToObject` + face all follow), and `objectDrawPositions` feeds the
+   compositor's `mergeForeground` at runtime positions. A drawn object's z-plane
+   occludes actors only when the object is flagged a foreground occluder —
+   **class 32** (bit 31), which MI1 toggles per object via `setClass`: room 58's
+   scenery foliage (671/673, ego walks *behind*) keeps it; the touchable
+   "il sentiero" path trunks (685/686/687, ego walks *in front*) have it cleared
+   by the ENCD/local #204. Both carry a full ZP01 at the same index, so that
+   class flag is the only thing separating them (the z-plane index can't — they're
+   all ZP01). `composeFrame.isObjectOccluder` gates it; room z-planes still always
+   apply (the room-28 table / room-33 houses are room planes, untouched).
+   → doc target [ZPLANE]/[OBJECTS].
+
+5. **Ego didn't walk in on entry — `VAR_WALKTO_OBJ` was the wrong slot.**
+   The forest's ENCD walks ego in from the entry edge via a `walkActorTo ego`
+   gated on `g113 == <entry object>` (e.g. 687 from the map's fork node, 688/685
+   between screens), fired after the ENCD's first `breakHere`. `g113` is
+   `VAR_WALKTO_OBJ`, which `loadRoomWithEgo` sets to the entry object — but our
+   `VAR_WALKTO_OBJ` was defined as **38** (the generic SCUMM table value, never
+   exercised) when MI1's slot is **113**. Fixes: corrected `VAR_WALKTO_OBJ` to
+   113; `loadRoomWithEgo` now sets it to the entry object (kept set across the
+   room change — the next loadRoomWithEgo overwrites it). Ordering: ego is placed
+   at the entry object's (SO_AT-displaced) walk-to *after* `enterRoom` runs the
+   ENCD's first slice (so it lands at the entry edge, ~322), then the ENCD's
+   post-breakHere walk pulls it inward (to 294 for the fork) — so ego enters from
+   the right edge, walks in, and stops, matching the original. → doc target
+   [INPUT]/[BOOT].
+
+Note: this was **not** the deferred `VAR_CURRENT_LIGHTS` darkening item —
+`g9` was 7 (lit) the whole time; the room simply wasn't loading/composing.
+
 ### Open bug-report saves (reported, not yet fixed)
 
 - **Room 28 cook drawn behind the table (compositor, not pathfinding).**

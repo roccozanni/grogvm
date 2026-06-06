@@ -98,6 +98,13 @@ export interface ComposeFrameInput {
    */
   readonly getObjectState?: (objectId: number) => number;
   /**
+   * Runtime draw position for an object set by `drawObject … at x,y` (SO_AT),
+   * or `undefined` to fall back to the object's IMHD position. Drives both the
+   * blit position and the object's z-plane placement. Typically:
+   *   `getObjectPosition: (id) => vm.objectDrawPositions.get(id),`
+   */
+  readonly getObjectPosition?: (objectId: number) => { x: number; y: number } | undefined;
+  /**
    * Whether an actor is in SCUMM's **NeverClip** object class (class 20,
    * bit 19) — set by `setClass`. Such actors always draw in front of every
    * z-plane regardless of the walk box they stand in, matching SCUMM's
@@ -108,6 +115,18 @@ export interface ComposeFrameInput {
    * Defaults to "no actor is NeverClip".
    */
   readonly isNeverClip?: (actorId: number) => boolean;
+  /**
+   * Whether a drawn object's z-plane should occlude actors. MI1 controls this
+   * with **class 32** (bit 31), toggled per object via `setClass`: room 58's
+   * scenery foliage (objs 671/673 — ego walks *behind* it) keeps class 32, while
+   * the touchable "il sentiero" path trunks (685/686/687 — ego walks *in front*)
+   * have it cleared by the entry scripts. Both carry a full ZP01, so only this
+   * flag separates them. Typically:
+   *   `isObjectOccluder: (id) => ((vm.objectClasses.get(id) ?? 0) & (1 << 31)) !== 0`
+   * Defaults to "every drawn z-plane occludes" (unchanged for callers that
+   * don't track classes).
+   */
+  readonly isObjectOccluder?: (objectId: number) => boolean;
 }
 
 /** Reason an entire actor didn't draw — surfaced for diagnostics. */
@@ -136,7 +155,7 @@ export interface ComposeFrameResult {
 }
 
 export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
-  const { room, framebuffer, actors, getCostume, objectDrawQueue, getObjectState, isNeverClip } = input;
+  const { room, framebuffer, actors, getCostume, objectDrawQueue, getObjectState, getObjectPosition, isNeverClip, isObjectOccluder } = input;
   const skippedActors: SkippedActor[] = [];
   const skippedLimbs: SkippedLimb[] = [];
   const skippedObjects: SkippedObject[] = [];
@@ -169,8 +188,9 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
 
   // Objects — drawn between bg and actors. SCUMM uses TRNS-indexed
   // transparency on object SMAPs (same convention as the room bg).
-  // A drawn object's own z-plane (if any) makes it a foreground that
-  // occludes z-clipped actors — collected here, merged below.
+  // A drawn object's own z-plane (if any) makes it a foreground that occludes
+  // actors behind it (the rock/trunks in room 58, the title logo) — collected
+  // here at the object's runtime position, merged into the room planes below.
   const fgPlanes: Array<{ x: number; y: number; plane: DecodedZPlane }> = [];
   if (objectDrawQueue) {
     for (const objId of objectDrawQueue) {
@@ -195,8 +215,16 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
         });
         continue;
       }
-      drawObjectImage(framebuffer, room.width, room.height, obj, image.indexed, room.transparentIndex);
-      if (image.zPlane) fgPlanes.push({ x: obj.imhd.x, y: obj.imhd.y, plane: image.zPlane });
+      const pos = getObjectPosition?.(objId);
+      const left = pos?.x ?? obj.imhd.x;
+      const top = pos?.y ?? obj.imhd.y;
+      drawObjectImage(framebuffer, room.width, room.height, obj, image.indexed, room.transparentIndex, left, top);
+      // The object draws regardless, but its z-plane only occludes actors when
+      // the object is flagged a foreground occluder (MI1 class 32) — see
+      // isObjectOccluder. Forest path trunks draw but don't bury ego.
+      if (image.zPlane && (isObjectOccluder?.(objId) ?? true)) {
+        fgPlanes.push({ x: left, y: top, plane: image.zPlane });
+      }
       objectsDrawn++;
     }
   }
@@ -205,13 +233,9 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
     return { actorsDrawn, skippedActors, skippedLimbs, objectsDrawn, skippedObjects };
   }
 
-  // Effective z-planes for actor occlusion: the room's planes, with each
-  // drawn object's z-plane OR'd into the frontmost plane (index 1) at the
-  // object's position. So a drawn foreground object (e.g. the MI1 title
-  // logo) occludes z-clipped actors (the drifting clouds) just as the
-  // room's static foreground does. Actors' `actorZ` is still computed
-  // against `room.zPlanes.length` (below), so neverZclip / default actors
-  // — at or above the room's plane count — are untouched.
+  // Drawn-object z-planes OR'd into the room's foreground, at each object's
+  // runtime position — so a foreground object (rock, trunk, title logo)
+  // occludes actors behind it.
   const actorZPlanes = fgPlanes.length > 0 ? mergeForeground(room, fgPlanes) : room.zPlanes;
 
   // Render actors back-to-front by room y (SCUMM's actor sort): an actor
@@ -367,6 +391,12 @@ function resolveClipPlane(
   return box ? box.mask : 0;
 }
 
+/**
+ * OR each drawn object's z-plane into the room's frontmost plane at the
+ * object's (runtime) position, returning the effective plane stack for actor
+ * occlusion. A box-mask / forceClip actor at clip level 1 is then masked by the
+ * room foreground PLUS the drawn foreground (rock, trunks, logo).
+ */
 function mergeForeground(
   room: LoadedRoom,
   fgPlanes: ReadonlyArray<{ x: number; y: number; plane: DecodedZPlane }>,
@@ -403,9 +433,9 @@ function drawObjectImage(
   obj: LoadedObject,
   indexed: Uint8Array,
   transparentIndex: number | null,
+  left: number,
+  top: number,
 ): void {
-  const left = obj.imhd.x;
-  const top = obj.imhd.y;
   const w = obj.imhd.width;
   const h = obj.imhd.height;
   if (w === 0 || h === 0) return;

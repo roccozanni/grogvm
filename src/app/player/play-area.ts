@@ -30,7 +30,7 @@ import {
   type CharsetHeader,
 } from '../../engine/graphics/charset';
 import { measureText, renderText, wrapText } from '../../engine/graphics/text';
-import { pickObject } from '../../engine/object/hittest';
+import { objectHitBox, pickObject } from '../../engine/object/hittest';
 import type { ResourceFile } from '../../engine/resources/tree';
 import type { Vm, VerbSlot } from '../../engine/vm/vm';
 import { VAR_EGO } from '../../engine/vm/vars';
@@ -533,8 +533,9 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
           const w = obj.cdhd.width * 8;
           const h = obj.cdhd.height * 8;
           if (w <= 0 || h <= 0) continue;
-          const left = obj.cdhd.x * 8;
-          const top = obj.cdhd.y * 8;
+          // SO_AT-repositioned objects (room 58's forest tiles) draw away from
+          // their design x; track the hotspot to where the object actually is.
+          const { left, top } = objectHitBox(obj, vm.objectDrawPositions.get(obj.objId));
           c.strokeStyle = HIT_AREA_COLOR;
           c.strokeRect(left + 0.5, top + 0.5, w - 1, h - 1);
           labelAt(c, obj.objId, left + 2, top + 1, HIT_AREA_COLOR);
@@ -676,6 +677,7 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
       // Untouchable class (32) → not hoverable (e.g. the not-yet-docked
       // ship in room 33). Matches the engine's findObject.
       isUntouchable: (id) => ((vm.objectClasses.get(id) ?? 0) & (1 << 31)) !== 0,
+      getObjectPosition: (id) => vm.objectDrawPositions.get(id),
     });
     if (objHit !== null) {
       hoveredObject = objHit;

@@ -647,9 +647,9 @@ describe('composeFrame — actor z-clip (forceClip)', () => {
 });
 
 describe('composeFrame — drawn-object z-planes occlude z-clipped actors', () => {
-  // A drawn foreground object (e.g. the MI1 title logo) carries a ZP
-  // mask; a z-clipped actor (forceClip>0, the drifting clouds) must be
-  // occluded where the object's z-plane is set, even with no room plane.
+  // A drawn foreground object (a rock/trunk in room 58, the title logo) carries
+  // a ZP mask; a z-clipped actor (forceClip>0) must be occluded where the
+  // object's z-plane is set, even with no room plane.
   it('a drawn object with a z-plane hides a forceClip actor behind it', () => {
     const room = makeRoom(8, 4, 0x10); // no room z-planes
     const zMask = new Uint8Array(8 * 4); zMask.fill(1);

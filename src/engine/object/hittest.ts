@@ -63,10 +63,18 @@ export interface PickObjectArgs {
    * `(id) => ((vm.objectClasses.get(id) ?? 0) & (1 << 31)) !== 0`.
    */
   readonly isUntouchable?: (objId: number) => boolean;
+  /**
+   * Runtime draw position set by `drawObject … at` (SO_AT), or `undefined` for
+   * the IMHD default. The hotspot moves with the object: room 58's forest tiles
+   * share a design origin but are repositioned per screen, so without this the
+   * hit boxes stay pinned at the design x while the object draws elsewhere.
+   * Typically `(id) => vm.objectDrawPositions.get(id)`.
+   */
+  readonly getObjectPosition?: (objId: number) => { x: number; y: number } | undefined;
 }
 
 export function pickObject(args: PickObjectArgs): number | null {
-  const { objects, drawQueue, x, y, isUntouchable } = args;
+  const { objects, drawQueue, x, y, isUntouchable, getObjectPosition } = args;
   const untouchable = (id: number): boolean => (isUntouchable ? isUntouchable(id) : false);
 
   // 1. Drawn objects, reverse insertion order = topmost first.
@@ -75,7 +83,7 @@ export function pickObject(args: PickObjectArgs): number | null {
     const obj = objects.get(id);
     if (!obj) continue;
     if (untouchable(id)) continue;
-    if (containsPoint(obj, x, y)) return id;
+    if (containsPoint(obj, x, y, getObjectPosition?.(id))) return id;
   }
 
   // 2. Un-drawn objects in OBCD source order (the loader populates the
@@ -84,17 +92,33 @@ export function pickObject(args: PickObjectArgs): number | null {
   for (const obj of objects.values()) {
     if (drawQueue.has(obj.objId)) continue;
     if (untouchable(obj.objId)) continue;
-    if (containsPoint(obj, x, y)) return obj.objId;
+    if (containsPoint(obj, x, y, getObjectPosition?.(obj.objId))) return obj.objId;
   }
 
   return null;
 }
 
-function containsPoint(obj: LoadedObject, x: number, y: number): boolean {
+/**
+ * The object's hotspot box in current room coords. The CDHD box is the design
+ * box; a SO_AT reposition shifts it by the object's draw displacement
+ * `(pos − imhd)`, so the box tracks where the object actually draws.
+ */
+export function objectHitBox(
+  obj: LoadedObject,
+  pos?: { x: number; y: number },
+): { left: number; top: number; right: number; bottom: number } {
+  const left = obj.cdhd.x * 8 + (pos ? pos.x - obj.imhd.x : 0);
+  const top = obj.cdhd.y * 8 + (pos ? pos.y - obj.imhd.y : 0);
+  return { left, top, right: left + obj.cdhd.width * 8, bottom: top + obj.cdhd.height * 8 };
+}
+
+function containsPoint(
+  obj: LoadedObject,
+  x: number,
+  y: number,
+  pos?: { x: number; y: number },
+): boolean {
   if (obj.cdhd.flags & UNTOUCHABLE_FLAG) return false;
-  const left = obj.cdhd.x * 8;
-  const top = obj.cdhd.y * 8;
-  const right = left + obj.cdhd.width * 8;
-  const bottom = top + obj.cdhd.height * 8;
+  const { left, top, right, bottom } = objectHitBox(obj, pos);
   return x >= left && x < right && y >= top && y < bottom;
 }

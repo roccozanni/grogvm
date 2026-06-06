@@ -33,11 +33,11 @@ import {
   type Actor,
 } from '../../actor/actor';
 import { startWalk, startActorChore, applyStandPose, reapplyChoreForFacing, FACING_FROM_OLD, rescaleActorForPosition } from '../../actor/walk';
-import { findBoxAtOrNearest } from '../../pathfinding/boxes';
+import { clampPointToBoxes, findBoxAtOrNearest } from '../../pathfinding/boxes';
 import { pickObject } from '../../object/hittest';
 import { evalExpression } from '../expression';
 import { SENTENCE_CLEAR_VERB } from '../sentence';
-import { VAR_CURRENT_LIGHTS, VAR_CURSORSTATE, VAR_HAVE_MSG, VAR_OVERRIDE, VAR_USERPUT } from '../vars';
+import { VAR_CURRENT_LIGHTS, VAR_CURSORSTATE, VAR_HAVE_MSG, VAR_OVERRIDE, VAR_USERPUT, VAR_WALKTO_OBJ } from '../vars';
 import {
   derefRead,
   formatRefLabel,
@@ -1103,9 +1103,16 @@ function drawObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
     case 0x01: {
       const x = readVarOrWord(sub, 1, slot, vm.vars);
       const y = readVarOrWord(sub, 2, slot, vm.vars);
-      // Object reposition isn't honoured yet — we draw at the
-      // IMHD-recorded position. Recorded here for a useful trace only.
-      ops.push(`at(${x},${y})`);
+      // SO_AT moves the object to (x * 8, y * 8) — both operands are in strips
+      // — and it draws there until the next reposition. The compositor reads
+      // this override in preference to the IMHD default. (See
+      // objectDrawPositions.) Strips on BOTH axes is what makes room 58's
+      // forest tile vertically: each screen is a top band (h=88) at y=0 and a
+      // bottom band (h=56) at strip-y 11 → 88px, which butt together to fill
+      // the 144-row room. Treating y as pixels stacks them at y=11 and the
+      // scene collapses into the top ~99 rows.
+      vm.objectDrawPositions.set(obj, { x: x * 8, y: y * 8 });
+      ops.push(`at(${x * 8},${y * 8})`);
       break;
     }
     case 0x02: {
@@ -1138,11 +1145,20 @@ function drawObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   // distinct object — an item resting over a larger fixture — untouched.
   const drawn = vm.loadedRoom?.objects.get(obj);
   if (drawn) {
-    const { x, y, width, height } = drawn.imhd;
+    // Compare effective (runtime SO_AT, else IMHD) boxes — the forest tiles
+    // share an IMHD origin (0,0) but are repositioned to distinct spots, so
+    // an IMHD-only match would wrongly evict siblings of the same size.
+    const box = (id: number, imhd: { x: number; y: number; width: number; height: number }) => {
+      const p = vm.objectDrawPositions.get(id);
+      return { x: p?.x ?? imhd.x, y: p?.y ?? imhd.y, width: imhd.width, height: imhd.height };
+    };
+    const b = box(obj, drawn.imhd);
     for (const otherId of [...vm.objectDrawQueue]) {
       if (otherId === obj) continue;
-      const o = vm.loadedRoom?.objects.get(otherId)?.imhd;
-      if (o && o.x === x && o.y === y && o.width === width && o.height === height) {
+      const other = vm.loadedRoom?.objects.get(otherId);
+      if (!other) continue;
+      const o = box(otherId, other.imhd);
+      if (o.x === b.x && o.y === b.y && o.width === b.width && o.height === b.height) {
         vm.objectDrawQueue.delete(otherId);
       }
     }
@@ -1228,6 +1244,10 @@ function findObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
       y,
       // Untouchable class (32, bit 31) → not hit-testable (SCUMM findObject).
       isUntouchable: (id) => ((vm.objectClasses.get(id) ?? 0) & (1 << 31)) !== 0,
+      // SO_AT-repositioned objects (room 58's forest tiles) — the hotspot moves
+      // with the drawn object, so the script's findObject(mouseX,mouseY) resolves
+      // where the object actually is, not its design x.
+      getObjectPosition: (id) => vm.objectDrawPositions.get(id),
     });
     if (hit !== null) objId = hit;
   }
@@ -1275,7 +1295,14 @@ function objActPos(vm: Vm, id: number): { x: number; y: number } | null {
   // but its image sits at (696,80) — the gap made every "open the door" abort
   // with "Non riesco ad arrivarci". Mirroring walkActorToObject (no image-pos
   // fallback) also keeps the two consistent for walk-to-less objects.
-  return { x: obj.cdhd.walkX, y: obj.cdhd.walkY };
+  //
+  // SO_AT-repositioned objects (room 58's forest tiles) carry their walk-to
+  // point with them: shift by the object's draw displacement `(pos − imhd)`.
+  const pos = vm.objectDrawPositions.get(id);
+  return {
+    x: obj.cdhd.walkX + (pos ? pos.x - obj.imhd.x : 0),
+    y: obj.cdhd.walkY + (pos ? pos.y - obj.imhd.y : 0),
+  };
 }
 function getDistHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const dest = readDestRef(slot, vm.vars);
@@ -1464,9 +1491,9 @@ function putActorAtObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void
   const objId = readVarOrWord(opcode, 2, slot, vm.vars);
   const actor = actorOrNull(vm, id);
   if (actor) {
-    const obj = vm.loadedRoom?.objects.get(objId);
-    const x = obj ? obj.cdhd.walkX : 240;
-    const y = obj ? obj.cdhd.walkY : 120;
+    const walk = objectWalkPoint(vm, objId);
+    const x = walk ? walk.x : 240;
+    const y = walk ? walk.y : 120;
     actorPut(actor, x, y, actor.room);
     // Rescale for the new position so an idle, just-placed actor renders at
     // the right floor scale immediately (not one stale frame until it walks).
@@ -1502,9 +1529,9 @@ function walkToObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const id = readVarOrByte(opcode, 1, slot, vm.vars);
   const objId = readVarOrWord(opcode, 2, slot, vm.vars);
   const actor = actorOrNull(vm, id);
-  const obj = vm.loadedRoom?.objects.get(objId);
-  if (actor && obj) {
-    startWalk(vm, actor, { x: obj.cdhd.walkX, y: obj.cdhd.walkY });
+  const target = objActPos(vm, objId);
+  if (actor && target) {
+    startWalk(vm, actor, target);
   }
   vm.annotate(`walkActorToObject actor=${id} obj=${objId}`);
 }
@@ -1530,8 +1557,9 @@ function faceActorHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
     } else {
       const obj = vm.loadedRoom?.objects.get(targetId);
       if (obj) {
-        tx = obj.cdhd.x * 8;
-        ty = obj.cdhd.y * 8;
+        const pos = vm.objectDrawPositions.get(targetId);
+        tx = obj.cdhd.x * 8 + (pos ? pos.x - obj.imhd.x : 0);
+        ty = obj.cdhd.y * 8 + (pos ? pos.y - obj.imhd.y : 0);
       }
     }
     if (tx !== null) {
@@ -1601,6 +1629,17 @@ function startObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
 }
 for (const op of [0x37, 0x77, 0xb7, 0xf7]) register(op, startObjectHandler);
 
+// Ego's *placement* point for loadRoomWithEgo / putActorAtObject: the object's
+// walk-to point ({@link objActPos}, which already follows a SO_AT reposition),
+// clamped into the walk boxes (SCUMM's adjustXYToBeInBox) since placement is
+// instant and must land in a valid box. (walkActorToObject doesn't clamp — its
+// pathfinder handles an off-box target.)
+function objectWalkPoint(vm: Vm, objId: number): { x: number; y: number } | null {
+  const target = objActPos(vm, objId);
+  if (!target) return null;
+  return clampPointToBoxes(vm.loadedRoom?.walkBoxes ?? [], target.x, target.y);
+}
+
 // ─── loadRoomWithEgo (0x24/0xA4) ─────────────────────────────────────
 // `object[p16] (bit 0x80) room[p8] x[16] y[16]`. Enter `room`, place ego
 // at `object`'s walk-to point there, and — when x != -1 — start ego
@@ -1612,21 +1651,29 @@ function loadRoomWithEgoHandler(vm: Vm, slot: ScriptSlot, opcode: number): void 
   const room = readVarOrByte(opcode, 2, slot, vm.vars);
   const x = readI16(slot);
   const y = readI16(slot);
+  // SCUMM sets VAR_WALKTO_OBJ to the entry object so the new room's ENCD can
+  // branch on which object/edge ego came in through and walk it in. Room 58's
+  // forest maze gates a `walkActorTo ego` on it (`g113 == 687/688`), fired after
+  // the ENCD's first breakHere — so it must stay set across the room change (it
+  // gets overwritten by the next loadRoomWithEgo).
+  vm.vars.writeGlobal(VAR_WALKTO_OBJ, objId);
   vm.enterRoom(room);
   const ego = actorOrNull(vm, 0);
   if (ego) {
     ego.room = room;
-    const obj = vm.loadedRoom?.objects.get(objId);
-    if (obj) {
-      ego.x = obj.cdhd.walkX;
-      ego.y = obj.cdhd.walkY;
+    // Place ego at the entry object's walk-to point. This runs AFTER the ENCD's
+    // first slice (so SO_AT has repositioned the object — ego lands at the entry
+    // edge, not the design x) but BEFORE the ENCD's post-breakHere entry walk,
+    // which then pulls ego in from that edge.
+    const walk = objectWalkPoint(vm, objId);
+    if (walk) {
+      ego.x = walk.x;
+      ego.y = walk.y;
     }
-    // Rescale for the entry position in the newly-loaded room, so ego
-    // renders at the right floor scale on the first frame — not full size
-    // until it walks. Matters for far-view rooms like the street (78),
-    // entered from a building via this op. Done before the optional walk
-    // (the walk step would otherwise be the first thing to fix the scale).
+    // Rescale for the entry position in the newly-loaded room, so ego renders at
+    // the right floor scale on the first frame — not full size until it walks.
     rescaleActorForPosition(vm, ego);
+    // An explicit walk target (x != -1) overrides the ENCD's entry walk.
     if (x !== -1) startWalk(vm, ego, { x, y });
   }
   vm.annotate(`loadRoomWithEgo obj=${objId} room=${room} (${x},${y})`);
@@ -2286,13 +2333,21 @@ function decodeScummStringPages(
 }
 
 // ─── 0xCC  pseudoRoom ────────────────────────────────────────────────
-// Register "pseudo-room" mappings — alias room numbers that share a
-// real room's resources (used in MI1 for music-track selection).
-// Layout: byte `id` (the real room), then a 0x00-terminated sequence
-// of alias bytes. Each alias `j` with the high bit set maps pseudo
-// room `j & 0x7F → id`; aliases without the high bit are ignored
-// (matches the original's `_resourceMapper` fill). `enterRoom` reads
-// the map to translate a requested id to its physical room.
+// Register "pseudo-room" mappings — high-numbered alias rooms that share
+// a real room's resources. MI1's forest maze is the live case: VAR_ROOM
+// cycles through 201–220 (one logical "screen" each) and all of them
+// alias onto room 58's single shared background; 130–132 alias onto 1.
+// Layout: byte `id` (the real room), then a 0x00-terminated sequence of
+// alias bytes, each with the high bit set (pseudo rooms are always ≥ 128,
+// which is how they stay distinct from real rooms 1–127).
+//
+// The alias key is the **raw byte** (e.g. 218), NOT `j & 0x7F`: the game
+// keeps the high bit live everywhere — room 58's ENCD branches on
+// `VAR_ROOM == 201..220` and scripts call `loadRoom 130` directly — so
+// `VAR_ROOM`/`currentRoom` legitimately hold 218 and the mapper must
+// resolve that literal. (Masking to 73–92 both misses every raw request
+// AND collides with the real dialog-close-up rooms 73–90.) `applyRoomResources`
+// tries the literal room first, then falls back to this alias.
 register(0xcc, (vm, slot) => {
   const id = readU8(slot);
   const mapped: number[] = [];
@@ -2300,9 +2355,8 @@ register(0xcc, (vm, slot) => {
     const j = readU8(slot);
     if (j === 0) break;
     if (j >= 0x80) {
-      const alias = j & 0x7f;
-      vm.pseudoRooms.set(alias, id);
-      mapped.push(alias);
+      vm.pseudoRooms.set(j, id);
+      mapped.push(j);
     }
   }
   vm.annotate(`pseudoRoom realRoom=${id} aliases=[${mapped.join(',')}]`);
