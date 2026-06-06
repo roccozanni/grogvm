@@ -911,6 +911,31 @@ describe('room-entry opcodes', () => {
     expect(vm.vars.readGlobal(0)).toBe(120);
   });
 
+  it('getActorFacing returns the old-direction integer (0=W 1=E 2=S 3=N)', () => {
+    const vm = makeVm();
+    const a = vm.actors.get(5);
+    a.room = 1;
+    a.facing = 'E';
+    // getActorFacing g0 = facing(actor 5) — 0x63, dest word, actor p8.
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x63, 0x00, 0x00, 0x05) });
+    vm.step();
+    expect(vm.vars.readGlobal(0)).toBe(1);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  it('getActorCostume reads the actor costume id into a result var', () => {
+    const vm = makeVm();
+    const a = vm.actors.get(5);
+    a.room = 1;
+    a.costume = 7;
+    // getActorCostume g0 = costume(actor 5) — 0x71, dest word, actor immediate
+    // byte (bit 0x80 clear; the 0xf1 variant reads the actor from a var-ref).
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x71, 0x00, 0x00, 0x05) });
+    vm.step();
+    expect(vm.vars.readGlobal(0)).toBe(7);
+    expect(vm.haltInfo).toBeNull();
+  });
+
   it('isSoundRunning always returns 0 (audio stubbed)', () => {
     const vm = makeVm();
     vm.startScript({ scriptId: 1, bytecode: bytes(0x7c, 0x00, 0x00, 0x09) });

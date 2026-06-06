@@ -1409,6 +1409,18 @@ register(0x23, makeActorReadOp('getActorY', (a) => a.y, true));
 register(0xa3, makeActorReadOp('getActorY', (a) => a.y, true));
 register(0x43, makeActorReadOp('getActorX', (a) => a.x, true));
 register(0xc3, makeActorReadOp('getActorX', (a) => a.x, true));
+// getActorFacing returns the old-direction integer (0=W 1=E 2=S 3=N —
+// the index into FACING_FROM_OLD), NOT an angle. Scripts feed it straight
+// back into animateActor's direction pseudo-anims: global #35 spawns an
+// effect actor and orients it with `animateActor (getActorFacing(ego)+248)`
+// — only valid because facing+248 lands in the 244-251 "turn to dir" range.
+register(0x63, makeActorReadOp('getActorFacing', (a) => FACING_FROM_OLD.indexOf(a.facing)));
+register(0xe3, makeActorReadOp('getActorFacing', (a) => FACING_FROM_OLD.indexOf(a.facing)));
+// getActorCostume (0x71/0xF1) — low5=0x11 like animateActor, but bits 5+6
+// set select this op. Returns the actor's costume id; scripts gate on it
+// (global #110: `if getActorCostume(ego) != 1` → "can't pull it out here").
+register(0x71, makeActorReadOp('getActorCostume', (a) => a.costume));
+register(0xf1, makeActorReadOp('getActorCostume', (a) => a.costume));
 // getActorWalkBox (0x7B/0xFB) — same non-orthogonal low-5-bits family
 // as multiply/getActorScale/divide. Returns the id of the walk box the
 // actor stands in (0 when no room/boxes). Resolved from the actor's
@@ -1758,8 +1770,9 @@ function animateActorHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   vm.annotate(`animateActor actor=${id} anim=${anim}`);
 }
 // actor = bit 0x80, anim = bit 0x40 → variants 0x11/0x51/0x91/0xD1.
-// (0x31 getInventoryCount and 0x71 getActorCostume share low5=0x11 but
-// are different opcodes — not registered here.)
+// (0x31 getInventoryCount and 0x71/0xF1 getActorCostume share low5=0x11
+// but are different opcodes — getActorCostume is registered with the
+// actor-read family above; getInventoryCount elsewhere.)
 register(0x11, animateActorHandler);
 register(0x51, animateActorHandler);
 register(0x91, animateActorHandler);
