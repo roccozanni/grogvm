@@ -119,7 +119,7 @@ async function mountGame(game: StoredGame, main: HTMLElement, onBack: () => void
 
   // The Debug panel shares this session (live VM inspection below the game,
   // always visible — it's a learning tool).
-  const debug = mountDebugPanel(session, game.id, game.variant);
+  const debug = mountDebugPanel(session, game.id, `${game.gameId}-${game.variant}`);
 
   // Overlays are re-mounted on a dimension change OR when the session swaps in
   // a new VM (quick-load / reboot adopt a fresh VM). The overlays + input
