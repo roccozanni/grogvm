@@ -591,6 +591,37 @@ describe('seed opcodes — actorOps init (SO_DEFAULT)', () => {
     vm.step();
     expect(vm.actors.get(3).forceClip).toBe(0);
   });
+
+  it('init clears a stuck ignoreBoxes + resets scale (initActor defaults)', () => {
+    // A cutscene that set ignoreBoxes (the credits montage repurposes actors as
+    // free-moving puppets) and was then ESC-skipped never runs its own
+    // followBoxes; the actor's game-start init is what clears the stuck flag.
+    // Left set, it froze perspective scaling across every room (the box rescale
+    // bails on ignoreBoxes). initActor resets both to SCUMM's defaults.
+    const vm = makeVm();
+    const a = vm.actors.get(3);
+    a.ignoreBoxes = true;
+    a.scale = 100; // stuck small/large from a prior scene
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x13, 0x03, 0x08, 0xff, 0x00) });
+    vm.step();
+    expect(vm.actors.get(3).ignoreBoxes).toBe(false);
+    expect(vm.actors.get(3).scale).toBe(0xff);
+  });
+
+  it('a later ignoreBoxes/scale subop still wins over the init reset', () => {
+    // Room 51's cannon flight actor is `init; ...; ignoreBoxes; scale 255,255`
+    // in one actorOps — the init reset must not clobber the explicit ops that
+    // follow it in the same instruction.
+    const vm = makeVm();
+    // actorOps 3 { init(0x08); ignoreBoxes(0x14); scale 200,200 (0x11) }, 0xFF.
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(0x13, 0x03, 0x08, 0x14, 0x11, 0xc8, 0xc8, 0xff, 0x00),
+    });
+    vm.step();
+    expect(vm.actors.get(3).ignoreBoxes).toBe(true);
+    expect(vm.actors.get(3).scale).toBe(200);
+  });
 });
 
 describe('seed opcodes — verbOps state wiring', () => {

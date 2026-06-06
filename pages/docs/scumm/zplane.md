@@ -356,7 +356,10 @@ zbuf = _forceClip != 0 ? _forceClip
 > op; without the reset they inherited `forceClip = 1` from a prior occupant and
 > the left brother drew **behind the haystack crate** in ZP01. We set
 > `forceClip = 0` on init (the not-forced sentinel, ≡ the `-1` default for
-> depth). Verified by rendering room 51.
+> depth). Verified by rendering room 51. (`initActor` likewise resets
+> `ignoreBoxes = false` and scale to `0xFF` — the same "clear stale per-actor
+> flags" rule; a stuck `ignoreBoxes` otherwise froze perspective scaling across
+> rooms, see [WALK-BOXES](walk-boxes.md).)
 
 `alwaysZclip k` → `actorZ = k − 1` so that "plane index > actorZ" makes
 plane `k` (and higher) occlude the actor while planes below `k` don't.

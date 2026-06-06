@@ -24,6 +24,7 @@
 import {
   putActor as actorPut,
   setActorCostume as actorSetCostume,
+  DEFAULT_SCALE,
   DEFAULT_WALK_FRAME,
   DEFAULT_STAND_FRAME,
   DEFAULT_INIT_FRAME,
@@ -1813,6 +1814,17 @@ function actorOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
           actor.walkPath = [];
           actor.walkPathIdx = 0;
           actor.isMoving = false;
+          // initActor resets the box-following + perspective scale to their
+          // defaults (SCUMM: `_ignoreBoxes = 0`, `_scalex = _scaley = 0xFF`).
+          // Critical for recovery: a cutscene that set `ignoreBoxes` (the
+          // credits montage repurposes the actors as free-moving puppets) and
+          // was then ESC-skipped never runs its own `followBoxes`; the actor's
+          // game-start `init` is what clears the otherwise-stuck flag, which
+          // had frozen perspective scaling across every room (rescale bails on
+          // ignoreBoxes). A later `ignoreBoxes`/`scale` subop in the same
+          // actorOps still wins (e.g. the room-51 cannon flight actor).
+          actor.ignoreBoxes = false;
+          actor.scale = DEFAULT_SCALE;
           // initActor clears the forced z-clip (forceClip 0 = "not forced",
           // depth then comes from the NeverClip class or the walk-box mask).
           // Without this, an actor reusing a slot left at `alwaysZclip k` by an

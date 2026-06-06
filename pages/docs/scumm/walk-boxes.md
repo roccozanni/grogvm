@@ -171,3 +171,18 @@ costume 40) is set `ignoreBoxes; scale 255,255` and arcs up to y≈36, where the
 box's `SCAL` slot interpolates to ~1; without the exemption the placement
 rescale shrank it to a **single dot** mid-flight. (Same off-grid principle as
 the `ignoreBoxes` z-clip rule — see [ZPLANE](zplane.md).)
+
+**`initActor` (`actorOps SO_DEFAULT`, 0x08) must clear `ignoreBoxes` + reset
+scale.** Because the exemption above freezes scaling, a *stuck* `ignoreBoxes`
+flag freezes the actor at a fixed size across every room. The intro credits
+(room-10 #203) repurpose actors 1–9 — Guybrush included — as free-moving
+montage puppets (`ignoreBoxes`), clearing `followBoxes` only at the end of each
+one's segment. Skipping the credits with **Escape** jumps the cutscene to its
+override (see [CUTSCENES](cutscenes.md)), so #203's `followBoxes` never runs and
+the room change then kills #203 — leaving Guybrush stuck `ignoreBoxes`, rendered
+full-size from the cliff onward. SCUMM's `initActor` resets `_ignoreBoxes = 0`
+and `_scalex/y = 0xFF`, so the ego's game-start `init` is what clears the
+otherwise-stuck flag; a later `ignoreBoxes`/`scale` subop in the *same*
+`actorOps` still wins (the cannon flight actor). We omitted both resets
+originally — verified by ESC-skipping the intro (ego reached the cliff at scale
+255 instead of 210) and fixed in the `init` handler.
