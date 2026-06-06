@@ -357,11 +357,10 @@
   color: #ffd6a8;
 }
 
-.vm-frame-canvas {
-  /* CSS width/height set inline per render so the canvas displays at
-     2× the native room dimensions. Native bitmap stays in canvas
-     `width`/`height` attributes. Same approach as the room viewer's
-     room-canvas. */
+/* The unified play screen: ONE canvas holding the room slice + verb panel.
+   CSS width/height are set inline per render (native bitmap stays in the
+   canvas width/height attributes) so it displays at the fixed upscale. */
+.vm-screen-canvas {
   image-rendering: pixelated;
   image-rendering: crisp-edges;
   border: 1px solid var(--border);
@@ -374,27 +373,6 @@
     linear-gradient(-45deg, transparent 75%, #2a2a34 75%);
   background-size: 16px 16px;
   background-position: 0 0, 0 8px, 8px -8px, -8px 0;
-}
-
-.vm-frame-stack {
-  position: relative;
-  display: block;
-}
-
-.vm-frame-stack .vm-frame-canvas {
-  position: absolute;
-  inset: 0;
-}
-
-.vm-frame-overlay {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
-  /* Border still belongs to the underlying frame canvas — overlay
-     sits flush. */
-  border: 1px solid transparent;
 }
 
 .vm-frame-toggles {
@@ -530,29 +508,6 @@
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
-
-.vm-frame-stack .vm-frame-cursor {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
-  border: 1px solid transparent;
-  /* Painted on top of frame + walk overlay. */
-  z-index: 2;
-}
-
-.vm-verb-bar {
-  box-sizing: border-box;
-  display: block;
-  margin: 0.25rem 0 0;
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
-  border: 1px solid var(--border);
-  background: #000;
-  cursor: pointer;
-}
-
 
 /* Play surface. */
 .play-screen {

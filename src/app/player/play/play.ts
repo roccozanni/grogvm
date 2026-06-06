@@ -1,24 +1,27 @@
 /**
- * The Play surface (ARCHITECTURE.md §7) — the clean game: a 320×200-class
- * canvas fed by `session.onFrame`, the cursor / verb-bar / sentence / talk
- * overlays, and a minimal save / load / exit bar. Built on the EngineSession
- * (task 1); no VM internals here (that's the Debug drawer, task 6).
+ * The Play surface (ARCHITECTURE.md §7) — the clean game: ONE 320×200-class
+ * canvas holding the whole screen, plus a minimal save / load / debug bar.
+ * Built on the EngineSession; no VM internals here (that's the Debug drawer).
  *
- * The room background + actors + objects are composited by the SESSION and
- * presented to the frame canvas (Canvas2DRenderer). The overlays are the
- * existing `play-area.ts` (reused, reading `session.vm`); room input is the
- * existing `mountVmFrameInput`. Both are re-mounted only when the room's
- * dimensions change — the frame canvas element is reused so the renderer stays
- * bound to it and clicks don't drop.
+ * The screen is a single canvas. Each frame the caller clears it, blits the
+ * room slice (composited by the SESSION into the renderer's OFFSCREEN canvas)
+ * into the top rows, then `play-area.ts` paints the verb panel, debug overlay,
+ * dialog, and cursor crosshair onto the same surface below + over it. A single
+ * `mountScreenInput` drives the lot in unified screen coordinates, so the
+ * cursor glides continuously from the room into the inventory with no seam.
+ *
+ * The play area + input are re-mounted only when the room's dimensions change
+ * (or the session swaps in a new VM); the screen canvas element is reused.
  */
 import { Canvas2DRenderer } from '../../../engine/render/canvas2d';
 import { createSession, type FrameInfo } from '../../../engine/session';
+import { VIEWPORT_W } from '../../../engine/graphics/viewport';
 import { el } from '../../reactive';
 import type { StoredGame } from '../../../platform/storage/games';
 import { loadSessionGame } from '../../../platform/storage/game-files';
 import { readSave, writeSave } from '../../../platform/storage/savegames';
-import { mountPlayArea, type PlayAreaHandles } from '../play-area';
-import { mountVmFrameInput } from '../input';
+import { mountPlayArea, SCREEN_HEIGHT, type PlayAreaHandles } from '../play-area';
+import { mountScreenInput } from '../input';
 import { mountDebugPanel } from '../debug/debug';
 import { RafClock } from '../raf-clock';
 
@@ -85,17 +88,26 @@ async function mountGame(game: StoredGame, main: HTMLElement, onBack: () => void
     return;
   }
 
-  // Frame canvas: created once, the session presents into it and resizes it
-  // as rooms change. Initial size is a placeholder; the first frame resizes.
-  // Reuses the legacy `vm-frame-*` classes for the proven canvas-stacking CSS
-  // (cursor overlay absolutely positioned over the frame).
-  const frameCanvas = el('canvas', { class: 'vm-frame-canvas' });
-  const renderer = new Canvas2DRenderer(frameCanvas, 320, 200);
+  // The screen: ONE visible canvas holding the whole 320×200-class screen
+  // (room slice on top, verb panel below). Created once, resized on a room
+  // change; the renderer + play area + input re-bind to it.
+  const screenCanvas = el('canvas', { class: 'vm-screen-canvas' }) as HTMLCanvasElement;
+  const screenCtx = screenCanvas.getContext('2d')!;
+  screenCtx.imageSmoothingEnabled = false;
+
+  // The room is composited by the session into the renderer's OWN canvas, kept
+  // offscreen (never added to the DOM). Each frame we blit it onto the screen
+  // canvas — so the renderer + compositor stay untouched while the screen is a
+  // single surface. Initial size is a placeholder; the first frame resizes it.
+  const roomCanvas = document.createElement('canvas');
+  const renderer = new Canvas2DRenderer(roomCanvas, 320, 200);
   const clock = new RafClock();
   const session = createSession(sessionGame, renderer, clock, { autoPauseOnIdle: false });
 
   const gameArea = el('div', { class: 'play-game' });
-  const stack = el('div', { class: 'vm-frame-stack' });
+  // Current screen surface dimensions (native pixels), set on each remount.
+  let screenW = 0;
+  let screenH = 0;
 
   // Live debug-overlay state, restored from localStorage. Mutated in place by
   // the toggle buttons and re-applied to the play area (which is re-created on
@@ -125,39 +137,72 @@ async function mountGame(game: StoredGame, main: HTMLElement, onBack: () => void
 
   const remount = (frame: FrameInfo): void => {
     mounted?.disposeInput();
-    // The stack's children are absolutely positioned (inset:0), so the stack
-    // itself must carry the display size.
-    stack.style.width = `${frame.width * SCALE}px`;
-    stack.style.height = `${frame.height * SCALE}px`;
-    frameCanvas.style.width = `${frame.width * SCALE}px`;
-    frameCanvas.style.height = `${frame.height * SCALE}px`;
+    // frame.width is the room camera-window (slice) width; the verb panel is a
+    // 320-wide screen strip, so the screen is at least that wide.
+    const viewportW = frame.width;
+    const roomH = frame.height;
+    screenW = Math.max(viewportW, VIEWPORT_W);
+    // The screen is the fixed 320×200 SCUMM surface: a 144-tall gameplay room
+    // leaves the bottom rows for the verb panel; a full-screen 200-tall cutscene
+    // room fills it with no panel below. (max() only grows it for the
+    // pathological case of a room taller than the screen, to avoid clipping.)
+    screenH = Math.max(roomH, SCREEN_HEIGHT);
+    screenCanvas.width = screenW;
+    screenCanvas.height = screenH;
+    screenCanvas.style.width = `${screenW * SCALE}px`;
+    screenCanvas.style.height = `${screenH * SCALE}px`;
+    // Resizing the canvas resets context state — re-apply the pixel-art flag.
+    screenCtx.imageSmoothingEnabled = false;
     const play = mountPlayArea({
       resourceFile: sessionGame.resourceFile,
       vm: session.vm,
-      roomWidth: frame.width,
-      roomHeight: frame.height,
+      ctx: screenCtx,
+      roomWidth: viewportW,
+      roomHeight: roomH,
+      screenWidth: screenW,
+      screenHeight: screenH,
       palette: frame.palette,
       transparentIndex: frame.transparentIndex,
       debug: overlayFlags,
       onCommit: () => {},
     });
-    stack.replaceChildren(frameCanvas, play.debugOverlay, play.cursorOverlay);
-    const input = mountVmFrameInput({
-      canvas: frameCanvas,
+    const input = mountScreenInput({
+      canvas: screenCanvas,
       vm: session.vm,
-      // frame.width is the camera VIEWPORT width (the canvas size); the real
-      // room width + camera offset are read live from the VM inside the input.
-      viewportWidth: frame.width,
-      roomWidth: frame.width,
-      roomHeight: frame.height,
-      onMove: () => play.onPointerMove(),
-      onLeftClick: (e) => debug.recordClick(e, play.onRoomClick('left').objId),
-      onRightClick: (e) => debug.recordClick(e, play.onRoomClick('right').objId),
+      // viewportWidth is the room slice width (the real room width + camera
+      // offset are read live from the VM inside the input).
+      viewportWidth: viewportW,
+      screenWidth: screenW,
+      roomHeight: roomH,
+      screenHeight: screenH,
+      onMove: (p) => {
+        play.onPointerMove(p);
+        refresh();
+      },
+      onLeftClick: (e) => {
+        debug.recordClick(e, play.onScreenClick(e, 'left').objId);
+        refresh();
+      },
+      onRightClick: (e) => {
+        debug.recordClick(e, play.onScreenClick(e, 'right').objId);
+        refresh();
+      },
       onEscape: () => session.sendInput({ type: 'key', key: 'Escape' }),
       onSkipLine: () => session.sendInput({ type: 'key', key: '.' }),
     });
-    gameArea.replaceChildren(stack, play.verbBar);
-    mounted = { width: frame.width, height: frame.height, vm: session.vm, play, disposeInput: input.dispose };
+    gameArea.replaceChildren(screenCanvas);
+    mounted = { width: viewportW, height: roomH, vm: session.vm, play, disposeInput: input.dispose };
+  };
+
+  // Compose one frame onto the screen: clear, blit the room slice into the top
+  // rows, then paint the play-area layers (verb panel / debug / dialog / cursor)
+  // on top. Called every engine frame AND on every pointer move, so the cursor
+  // stays smooth and a stale crosshair never lingers under the new one.
+  const refresh = (): void => {
+    if (!mounted) return;
+    screenCtx.clearRect(0, 0, screenW, screenH);
+    screenCtx.drawImage(roomCanvas, 0, 0);
+    mounted.play.redraw();
   };
 
   session.onFrame((frame) => {
@@ -169,7 +214,7 @@ async function mountGame(game: StoredGame, main: HTMLElement, onBack: () => void
     ) {
       remount(frame);
     }
-    mounted!.play.redraw();
+    refresh();
   });
 
   const save = (): void => {

@@ -74,7 +74,9 @@ Each produced frame, the session:
    dimensions, current room id, the palette, a copy of the presented
    framebuffer, and compositor diagnostics (how many actors were drawn or
    skipped). Overlays — cursor, verb bar, sentence line, talk text — are *not*
-   part of this framebuffer; the shell draws them on separate layers above it.
+   part of this framebuffer; the shell blits the presented room slice onto its
+   single screen canvas and paints the overlays on top (the verb panel below the
+   room, the cursor over both — one continuous surface).
 
 ## 5. Lifecycle
 

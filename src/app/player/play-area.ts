@@ -1,29 +1,25 @@
 /**
- * Phase 7 "play area" — the part of the inspector that simulates the
- * actual game UI: cursor overlay, hover highlight on interactable
- * objects, sentence-line preview, verb bar.
+ * The play area — the game UI painted on top of the room: the cursor
+ * crosshair, dialog/system text, the verb + inventory panel with its hover
+ * highlight, the sentence line, and the walk-box / hit-area debug overlays.
  *
  * # Architecture
  *
- * The inspector calls {@link mountPlayArea} after building the frame
- * canvas. The play area:
- *   - takes ownership of a cursor-overlay canvas it stacks above the
- *     frame canvas (pointer-events: none so clicks pass through),
- *   - subscribes to pointermove via the existing
- *     {@link mountVmFrameInput} callback (so the input layer stays the
- *     single source of truth for coordinate translation),
- *   - keeps the verb bar + sentence line as sibling DOM nodes the
- *     caller appends below the frame stack,
- *   - updates the cursor, hover highlight, and sentence line directly
- *     on every move WITHOUT triggering a full inspector repaint.
- *     The verb bar's hover/click state IS repainted on each click
- *     (less frequent — full repaint is cheap there).
+ * The room slice and the verb panel share ONE canvas (ARCHITECTURE §7): rows
+ * `0..roomHeight-1` are the room camera window (blitted by the caller from the
+ * engine compositor), rows `roomHeight..` are the verb panel. {@link
+ * mountPlayArea} is handed that canvas's 2D context and paints every layer
+ * onto it, in order, after the caller has cleared the surface and blitted the
+ * room. A single {@link mountScreenInput} feeds it pointer moves / clicks in
+ * unified screen coordinates, so the cursor crosshair glides continuously from
+ * the room into the inventory with no seam.
  *
- * The crosshair / hover/sentence/verb-bar visuals are deliberately
- * minimal first-pass — getting click+verb+object flow visible matters
- * more than visual fidelity to the original game. Custom-cursor-image
- * decoding (the charset-glyph-as-cursor convention from
- * `setCursorImage`) is a polish item for later.
+ * The crosshair / dialog / verb-panel visuals are a minimal first pass —
+ * getting the click+verb+object flow right matters more than pixel-fidelity to
+ * the original. Custom-cursor-image decoding (the charset-glyph-as-cursor
+ * convention from `setCursorImage`) is a polish item for later; moving the
+ * verb-panel rendering into the engine compositor (the fully faithful
+ * end-state) is the deferred Phase B in PROGRESS.md.
  */
 
 import {
@@ -39,18 +35,27 @@ import type { ResourceFile } from '../../engine/resources/tree';
 import type { Vm, VerbSlot } from '../../engine/vm/vm';
 import { VAR_EGO } from '../../engine/vm/vars';
 import { VIEWPORT_W, viewportLeft } from '../../engine/graphics/viewport';
+import type { ScreenPoint } from './input';
 
 /**
  * MI1 verb area starts at screen y = 144 (rooms are 200 tall total,
  * verb area = 56 lines). Verb x/y from scripts are screen-space —
- * subtract this to get verb-bar-local y.
+ * subtract this to get verb-panel-local y.
  *
  * v5 games other than MI1 may use different layouts; revisit when MI2
  * boot exercises the verb bar.
  */
 const VERB_BAR_START_Y = 144;
+/** Height of the verb panel in native pixels (the bottom strip of the screen). */
 const VERB_BAR_HEIGHT = 56;
-const CSS_SCALE = 2.5;
+/**
+ * The SCUMM v5 virtual screen height. Fixed at 200 regardless of room height:
+ * a 144-tall gameplay room leaves the bottom 56 rows for the verb panel; a
+ * 200-tall cutscene room fills the whole screen with no panel below it. (The
+ * canvas only grows past this for the pathological case of a room taller than
+ * the screen — see play.ts.)
+ */
+export const SCREEN_HEIGHT = VERB_BAR_START_Y + VERB_BAR_HEIGHT;
 
 /**
  * On-screen viewport width. The room canvas is drawn at the full room
@@ -97,15 +102,13 @@ const CURSOR_COLOR_NORMAL = 15; // bright white
  */
 const G_ACTIVE_VERB = 107;
 const VERB_WALK_TO = 11;
-// Screen-space cursor vars the game's input scripts poll (SCUMM 44/45).
-// MI1's hover poller #23 reads these to hit-test the bottom panel: when
-// the cursor is over the inventory (g45 ≥ 152, g44 ≥ 160) it arms the
-// item's default verb (g107 ← Look at, saving the prior verb in g394 to
-// restore on hover-out) and sets the object-under-cursor (g108). Our room
-// canvas writes these as room coords (y < 152); the verb bar feeds its own
-// screen coords so #23 sees the inventory like the original single screen.
-const VAR_MOUSE_X = 44;
-const VAR_MOUSE_Y = 45;
+// MI1's hover poller #23 reads the screen-space cursor VARs (44/45) to hit-test
+// the bottom panel: over the inventory (g45 ≥ 152, g44 ≥ 160) it arms the item's
+// default verb (g107 ← Look at, saving the prior verb in g394 to restore on
+// hover-out) and sets the object-under-cursor (g108). The unified input layer
+// writes the true screen position to 44/45 on every move — including the verb
+// band — so #23 sees the inventory exactly as on the original single screen,
+// with no shell-side coordinate feed.
 function armedVerb(vm: Vm): number | null {
   const v = vm.vars.readGlobal(G_ACTIVE_VERB);
   return v > 0 && v !== VERB_WALK_TO ? v : null;
@@ -122,8 +125,20 @@ export interface DebugOverlayFlags {
 export interface PlayAreaArgs {
   readonly resourceFile: ResourceFile;
   readonly vm: Vm;
+  /**
+   * The shared screen 2D context. Every layer is painted onto this; the caller
+   * clears it and blits the room slice before calling {@link
+   * PlayAreaHandles.redraw}.
+   */
+  readonly ctx: CanvasRenderingContext2D;
+  /** Room camera-window width (the room slice; ≤ screenWidth). */
   readonly roomWidth: number;
+  /** Room playfield height — the verb panel begins at this canvas row. */
   readonly roomHeight: number;
+  /** Full screen canvas native width. */
+  readonly screenWidth: number;
+  /** Full screen canvas native height (roomHeight + verb panel height). */
+  readonly screenHeight: number;
   /** CLUT palette of the current room — used to tint cursor + text. */
   readonly palette: Uint8Array;
   /** TRNS index for the current room, for the verb-bar background. */
@@ -131,43 +146,32 @@ export interface PlayAreaArgs {
   /** Initial debug-overlay flags (default both off). */
   readonly debug?: DebugOverlayFlags;
   /**
-   * Called when the user clicks the verb bar or selects an object —
-   * triggers a full inspector repaint so the verb-bar hover/selected
-   * state + sentence panel update.
+   * Called when the user clicks a verb or selects an object — lets the caller
+   * react (e.g. log / repaint) after the engine has handled the click.
    */
   readonly onCommit: () => void;
 }
 
 export interface PlayAreaHandles {
-  /** Append this above the frame canvas inside `.vm-frame-stack`. */
-  readonly cursorOverlay: HTMLCanvasElement;
-  /** Walk-path / hit-area debug overlay — stack between the frame and cursor. */
-  readonly debugOverlay: HTMLCanvasElement;
   /**
-   * The verb panel. Append below the frame stack. Its top black band is
-   * MI1's sentence line (verb #100) — drawn inside this canvas, not a
-   * separate element.
+   * Call from {@link mountScreenInput}'s `onMove` — records the cursor
+   * position and recomputes hover. The actual repaint is the caller's
+   * `refresh()` (clear + blit room + {@link PlayAreaHandles.redraw}).
    */
-  readonly verbBar: HTMLCanvasElement;
+  readonly onPointerMove: (p: ScreenPoint) => void;
   /**
-   * Call from {@link mountVmFrameInput}'s `onMove` — drives live
-   * cursor + hover + sentence updates without a full repaint.
+   * Call from `onLeftClick` / `onRightClick`. Routes the click to the verb
+   * panel or the room depending on the band, and returns the object id under a
+   * room click (or null) so the caller can log it.
    */
-  readonly onPointerMove: () => void;
+  readonly onScreenClick: (p: ScreenPoint, button: 'left' | 'right') => { objId: number | null };
   /**
-   * Call from `onLeftClick` / `onRightClick`. Returns the object id
-   * under the click (or null) so the inspector can route the sentence
-   * dispatch in future tasks.
-   */
-  readonly onRoomClick: (button: 'left' | 'right') => { objId: number | null };
-  /**
-   * Per-tick redraw of every overlay canvas (cursor, verb bar) plus
-   * the sentence line. Called by the inspector from its rAF loop —
-   * unlike a full re-mount, this only updates canvas pixels so the
-   * DOM elements survive across ticks and clicks don't drop.
+   * Paint every layer (verb panel, debug overlay, dialog, crosshair) onto the
+   * shared context, in order. The caller clears the surface and blits the room
+   * slice first; this draws on top.
    */
   readonly redraw: () => void;
-  /** Update which debug overlays are drawn and repaint immediately. */
+  /** Update which debug overlays are drawn. */
   readonly setDebugFlags: (flags: DebugOverlayFlags) => void;
 }
 
@@ -203,42 +207,16 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
   };
   const activeCharset = (): ActiveCharset | null => charsetById(vm.currentCharset);
 
-  // ─── cursor overlay ───
-  const cursorOverlay = document.createElement('canvas');
-  cursorOverlay.className = 'vm-frame-cursor';
-  cursorOverlay.width = roomWidth;
-  cursorOverlay.height = roomHeight;
-  cursorOverlay.style.width = `${roomWidth * CSS_SCALE}px`;
-  cursorOverlay.style.height = `${roomHeight * CSS_SCALE}px`;
-  const cctx = cursorOverlay.getContext('2d');
-
-  // ─── debug overlay (walk paths / hit areas) ───
-  // A separate transparent canvas under the cursor; painted each frame from
-  // the live VM so room/actor changes refresh it. Toggled from the play bar.
-  const debugOverlay = document.createElement('canvas');
-  debugOverlay.className = 'vm-frame-overlay';
-  debugOverlay.width = roomWidth;
-  debugOverlay.height = roomHeight;
-  debugOverlay.style.width = `${roomWidth * CSS_SCALE}px`;
-  debugOverlay.style.height = `${roomHeight * CSS_SCALE}px`;
-  const dctx = debugOverlay.getContext('2d');
+  // The shared screen context. The room slice fills rows 0..roomHeight-1 (blitted
+  // by the caller); the verb panel fills the strip below it, starting at `verbTop`.
+  const ctx = args.ctx;
+  const { screenWidth, screenHeight } = args;
+  const verbTop = roomHeight;
+  const verbBarHeight = screenHeight - roomHeight;
   let debugFlags: DebugOverlayFlags = args.debug ?? { walk: false, hit: false };
 
-  // ─── verb bar ───
-  // The sentence line is NOT a separate element — MI1 draws it as verb
-  // #100 in the top black band of the verb panel, so it's rendered inside
-  // the verb-bar canvas below (see paintVerbBar).
-  // The verb bar is a fixed 320-wide screen element (verbs are placed in
-  // screen-space coords), so its backing canvas is VIEWPORT_W — not the
-  // room width, which would over-size it on wide/scrolling rooms.
-  const verbBar = document.createElement('canvas');
-  verbBar.className = 'vm-verb-bar';
-  verbBar.width = VIEWPORT_W;
-  verbBar.height = VERB_BAR_HEIGHT;
-  verbBar.style.width = `${VIEWPORT_W * CSS_SCALE}px`;
-  verbBar.style.height = `${VERB_BAR_HEIGHT * CSS_SCALE}px`;
-  const vbctx = verbBar.getContext('2d');
-
+  /** Last pointer position (unified screen coords); null until the first move. */
+  let cursor: ScreenPoint | null = null;
   /** Most recently computed hovered object id (or null). */
   let hoveredObject: number | null = null;
   /** Most recently computed hovered verb id (or null). */
@@ -246,34 +224,32 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
   /** Inventory item under the cursor when hovering an inventory slot (or null). */
   let hoveredInvItem: number | null = null;
 
-  const drawCursor = (): void => {
-    if (!cctx) return;
-    cctx.clearRect(0, 0, roomWidth, roomHeight);
+  /**
+   * Run `paint` with the context clipped to the room region and translated by
+   * the camera's left edge — so room-space geometry (dialog, walk boxes) maps
+   * to the on-screen slice and never bleeds into the verb panel below.
+   */
+  const inRoomSpace = (paint: (c: CanvasRenderingContext2D) => void): void => {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, screenWidth, roomHeight);
+    ctx.clip();
+    ctx.translate(-cameraLeftPx(), 0);
+    paint(ctx);
+    ctx.restore();
+  };
 
-    // The overlay is a fixed camera window; everything below is in ROOM
-    // coordinates, so translate by the camera's left edge to map room → screen
-    // (same slice the session draws into the frame canvas). Off-camera content
-    // falls outside the canvas and isn't shown.
-    const cameraLeft = cameraLeftPx();
-    cctx.save();
-    cctx.translate(-cameraLeft, 0);
-
-    // Active dialog text (from `print` / `printEgo`). Painted before
-    // the cursor so the crosshair stays on top.
-    drawDialog(cctx);
-
-    // Crosshair at the cursor's room position. (Drawn unconditionally for
-    // input diagnosis even when the game would hide it; `vm.cursor` truth is
-    // in the Input panel.) Interaction targets are no longer highlighted on the
-    // cursor — that's the "Hit areas" debug toggle's job now.
-    const cx = vm.mouseRoomX;
-    const cy = vm.mouseRoomY;
-    cctx.fillStyle = clutCss(palette, CURSOR_COLOR_NORMAL);
+  // The crosshair is drawn in SCREEN space (not room space), so it glides
+  // continuously across the room and the verb panel as one surface. Drawn last,
+  // on top of everything. Skipped until the first pointer move.
+  const drawCrosshair = (): void => {
+    if (!cursor) return;
+    const cx = cursor.x;
+    const cy = cursor.y;
+    ctx.fillStyle = clutCss(palette, CURSOR_COLOR_NORMAL);
     // 7×1 horizontal + 1×7 vertical centred at (cx, cy).
-    cctx.fillRect(cx - 3, cy, 7, 1);
-    cctx.fillRect(cx, cy - 3, 1, 7);
-
-    cctx.restore();
+    ctx.fillRect(cx - 3, cy, 7, 1);
+    ctx.fillRect(cx, cy - 3, 1, 7);
   };
 
   /**
@@ -307,8 +283,8 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
     charset: ActiveCharset,
     d: NonNullable<typeof vm.activeDialog>,
   ): void => {
-    // The overlay context is translated by `-cameraLeft` (see drawCursor),
-    // so we compute positions in ROOM coordinates here. SCUMM print `at(x, y)`
+    // The context is translated by `-cameraLeft` (see inRoomSpace), so we
+    // compute positions in ROOM coordinates here. SCUMM print `at(x, y)`
     // is in SCREEN coords, so add `cameraLeft` to get room space; actor-
     // overhead positions are already room-space. Uses the SAME clamped
     // `cameraLeft` as the frame slice so text and pixels line up.
@@ -431,7 +407,7 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
     destX: number,
     destY: number,
   ): void => {
-    if (!vbctx || !imgCtx) return;
+    if (!imgCtx) return;
     const srcRoom = resolveRoomCached(image.room);
     const obj = srcRoom?.objects.get(image.obj);
     if (!srcRoom || !obj) return;
@@ -459,25 +435,24 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
       id.data[o + 3] = 255;
     }
     imgCtx.putImageData(id, 0, 0);
-    vbctx.drawImage(imgCanvas, destX, destY);
+    ctx.drawImage(imgCanvas, destX, destY);
   };
 
   const paintVerbBar = (): void => {
-    if (!vbctx) return;
     const charset = activeCharset();
-    vbctx.clearRect(0, 0, VIEWPORT_W, VERB_BAR_HEIGHT);
 
-    // Panel background fill. See VERB_BAR_BG_COLOR — flat black for now; the
-    // correct MI1 look (dark sentence band + magenta behind the verbs) needs
-    // the per-region layout, not a single rect fill.
-    vbctx.fillStyle = clutCss(palette, VERB_BAR_BG_COLOR);
-    vbctx.fillRect(0, 0, VIEWPORT_W, VERB_BAR_HEIGHT);
+    // Panel background fill (the bottom strip below the room). See
+    // VERB_BAR_BG_COLOR — flat black for now; the correct MI1 look (dark
+    // sentence band + magenta behind the verbs) needs the per-region layout,
+    // not a single rect fill.
+    ctx.fillStyle = clutCss(palette, VERB_BAR_BG_COLOR);
+    ctx.fillRect(0, verbTop, screenWidth, verbBarHeight);
 
     if (!charset) {
-      vbctx.fillStyle = '#888';
-      vbctx.font = '8px monospace';
-      vbctx.fillText('(no charset loaded)', 4, 12);
-      drawVerbsFallback(vbctx, vm);
+      ctx.fillStyle = '#888';
+      ctx.font = '8px monospace';
+      ctx.fillText('(no charset loaded)', 4, verbTop + 12);
+      drawVerbsFallback(ctx, vm, verbTop);
       return;
     }
 
@@ -490,8 +465,11 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
       // the sentence line draws across the first reply (overlap).
       if (vm.savedVerbStates.has(v.id)) continue;
       const x = v.x;
-      const y = v.y - VERB_BAR_START_Y;
-      if (y < 0 || y >= VERB_BAR_HEIGHT) continue;
+      // Verb y is screen-space (144+); map it into the panel strip on the
+      // shared canvas (which starts at `verbTop`).
+      const local = v.y - VERB_BAR_START_Y;
+      if (local < 0 || local >= verbBarHeight) continue;
+      const y = verbTop + local;
       // Image verbs (inventory slots) draw an object sprite; text verbs
       // draw their name. A verb is one or the other.
       if (v.image) {
@@ -516,7 +494,7 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
       // MI1's charsetColor map ([0,6,2]) gives glyph value 2 (the shadow) its
       // dark-magenta CLUT index — use it for the verb panel's coloured shadow.
       const shadow = vm.charsetColorMap[2];
-      drawText(vbctx, vCharset, text, x, y, palette, ink, v.centered, shadow);
+      drawText(ctx, vCharset, text, x, y, palette, ink, v.centered, shadow);
     }
   };
 
@@ -534,99 +512,153 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
   };
 
   const drawDebugOverlay = (): void => {
-    if (!dctx) return;
-    dctx.clearRect(0, 0, roomWidth, roomHeight);
     const room = vm.loadedRoom;
     if (!room || (!debugFlags.walk && !debugFlags.hit)) return;
 
-    // Same camera translate as the cursor overlay — geometry below is in ROOM
-    // coords; the overlay is a fixed viewport window.
-    dctx.save();
-    dctx.translate(-cameraLeftPx(), 0);
-    dctx.lineWidth = 1;
-    dctx.font = '7px monospace';
-    dctx.textBaseline = 'top';
+    // Geometry below is in ROOM coords; inRoomSpace clips to the room region
+    // and translates by the camera's left edge to map it onto the slice.
+    inRoomSpace((c) => {
+      c.lineWidth = 1;
+      c.font = '7px monospace';
+      c.textBaseline = 'top';
 
-    if (debugFlags.hit) {
-      for (const obj of room.objects.values()) {
-        // Only what's interactable right now: skip the static untouchable flag
-        // and the runtime Untouchable class (class 32) — the same gates the
-        // engine's findObject / pickObject use, so the overlay shows real
-        // targets, not every box defined in the room.
-        if (obj.cdhd.flags & 0x80) continue;
-        if ((vm.objectClasses.get(obj.objId) ?? 0) & (1 << 31)) continue;
-        const w = obj.cdhd.width * 8;
-        const h = obj.cdhd.height * 8;
-        if (w <= 0 || h <= 0) continue;
-        const left = obj.cdhd.x * 8;
-        const top = obj.cdhd.y * 8;
-        dctx.strokeStyle = HIT_AREA_COLOR;
-        dctx.strokeRect(left + 0.5, top + 0.5, w - 1, h - 1);
-        labelAt(dctx, obj.objId, left + 2, top + 1, HIT_AREA_COLOR);
-      }
-    }
-
-    if (debugFlags.walk) {
-      for (const box of room.walkBoxes) {
-        const color = WALK_BOX_COLORS[box.id % WALK_BOX_COLORS.length]!;
-        dctx.strokeStyle = color;
-        dctx.beginPath();
-        dctx.moveTo(box.ulx + 0.5, box.uly + 0.5);
-        dctx.lineTo(box.urx + 0.5, box.ury + 0.5);
-        dctx.lineTo(box.lrx + 0.5, box.lry + 0.5);
-        dctx.lineTo(box.llx + 0.5, box.lly + 0.5);
-        dctx.closePath();
-        dctx.stroke();
-        labelAt(dctx, box.id, Math.min(box.ulx, box.llx) + 2, Math.min(box.uly, box.ury) + 1, color);
-      }
-      // Active actor walk paths (waypoint polyline, or a dashed straight-line
-      // fallback when no path was planned) + a marker on the actor.
-      for (const actor of vm.actors.inRoom(vm.currentRoom)) {
-        if (!actor.isMoving) continue;
-        dctx.strokeStyle = '#ffd54a';
-        if (actor.walkPath.length > 0) {
-          dctx.beginPath();
-          dctx.moveTo(actor.x + 0.5, actor.y + 0.5);
-          for (let i = actor.walkPathIdx; i < actor.walkPath.length; i++) {
-            const p = actor.walkPath[i]!;
-            dctx.lineTo(p.x + 0.5, p.y + 0.5);
-          }
-          dctx.stroke();
-          dctx.fillStyle = '#ffd54a';
-          for (let i = actor.walkPathIdx; i < actor.walkPath.length; i++) {
-            const p = actor.walkPath[i]!;
-            dctx.fillRect(p.x - 1, p.y - 1, 3, 3);
-          }
-        } else if (actor.walkTarget) {
-          dctx.setLineDash([2, 2]);
-          dctx.beginPath();
-          dctx.moveTo(actor.x + 0.5, actor.y + 0.5);
-          dctx.lineTo(actor.walkTarget.x + 0.5, actor.walkTarget.y + 0.5);
-          dctx.stroke();
-          dctx.setLineDash([]);
+      if (debugFlags.hit) {
+        for (const obj of room.objects.values()) {
+          // Only what's interactable right now: skip the static untouchable flag
+          // and the runtime Untouchable class (class 32) — the same gates the
+          // engine's findObject / pickObject use, so the overlay shows real
+          // targets, not every box defined in the room.
+          if (obj.cdhd.flags & 0x80) continue;
+          if ((vm.objectClasses.get(obj.objId) ?? 0) & (1 << 31)) continue;
+          const w = obj.cdhd.width * 8;
+          const h = obj.cdhd.height * 8;
+          if (w <= 0 || h <= 0) continue;
+          const left = obj.cdhd.x * 8;
+          const top = obj.cdhd.y * 8;
+          c.strokeStyle = HIT_AREA_COLOR;
+          c.strokeRect(left + 0.5, top + 0.5, w - 1, h - 1);
+          labelAt(c, obj.objId, left + 2, top + 1, HIT_AREA_COLOR);
         }
-        dctx.fillStyle = '#ff6b3a';
-        dctx.fillRect(actor.x - 1, actor.y - 1, 3, 3);
       }
-    }
 
-    dctx.restore();
+      if (debugFlags.walk) {
+        for (const box of room.walkBoxes) {
+          const color = WALK_BOX_COLORS[box.id % WALK_BOX_COLORS.length]!;
+          c.strokeStyle = color;
+          c.beginPath();
+          c.moveTo(box.ulx + 0.5, box.uly + 0.5);
+          c.lineTo(box.urx + 0.5, box.ury + 0.5);
+          c.lineTo(box.lrx + 0.5, box.lry + 0.5);
+          c.lineTo(box.llx + 0.5, box.lly + 0.5);
+          c.closePath();
+          c.stroke();
+          labelAt(c, box.id, Math.min(box.ulx, box.llx) + 2, Math.min(box.uly, box.ury) + 1, color);
+        }
+        // Active actor walk paths (waypoint polyline, or a dashed straight-line
+        // fallback when no path was planned) + a marker on the actor.
+        for (const actor of vm.actors.inRoom(vm.currentRoom)) {
+          if (!actor.isMoving) continue;
+          c.strokeStyle = '#ffd54a';
+          if (actor.walkPath.length > 0) {
+            c.beginPath();
+            c.moveTo(actor.x + 0.5, actor.y + 0.5);
+            for (let i = actor.walkPathIdx; i < actor.walkPath.length; i++) {
+              const p = actor.walkPath[i]!;
+              c.lineTo(p.x + 0.5, p.y + 0.5);
+            }
+            c.stroke();
+            c.fillStyle = '#ffd54a';
+            for (let i = actor.walkPathIdx; i < actor.walkPath.length; i++) {
+              const p = actor.walkPath[i]!;
+              c.fillRect(p.x - 1, p.y - 1, 3, 3);
+            }
+          } else if (actor.walkTarget) {
+            c.setLineDash([2, 2]);
+            c.beginPath();
+            c.moveTo(actor.x + 0.5, actor.y + 0.5);
+            c.lineTo(actor.walkTarget.x + 0.5, actor.walkTarget.y + 0.5);
+            c.stroke();
+            c.setLineDash([]);
+          }
+          c.fillStyle = '#ff6b3a';
+          c.fillRect(actor.x - 1, actor.y - 1, 3, 3);
+        }
+      }
+    });
   };
 
   const setDebugFlags = (flags: DebugOverlayFlags): void => {
     debugFlags = flags;
-    drawDebugOverlay();
   };
 
   const drawAll = (): void => {
-    drawDebugOverlay();
-    drawCursor();
-    // The sentence line lives in the verb-bar canvas (verb #100), so a
-    // hover change that alters the sentence repaints the bar too.
+    // Paint order on the shared surface (room already blitted by the caller):
+    // verb panel (its own strip), then debug overlay + dialog in the room
+    // region, then the crosshair on top of everything.
     paintVerbBar();
+    drawDebugOverlay();
+    inRoomSpace(drawDialog);
+    drawCrosshair();
+  };
+  // ─── verb hit-test (screen coords) ───
+  const verbAt = (sx: number, sy: number): VerbSlot | null => {
+    const charset = activeCharset();
+    // Verb y is screen-space (144+); the cursor is screen-space too. Map both
+    // into the panel-local space the slot layout uses.
+    const localY = sy - verbTop;
+    // Prefer an interactive ('on') hit over a 'dim' one. MI1's verb panel
+    // background is itself a (dim) image verb (verb 1, obj 1030, 144×48) that
+    // covers the whole command-verb region — without this preference it would
+    // shadow every command verb and swallow clicks.
+    let dimHit: VerbSlot | null = null;
+    for (const v of vm.verbs.values()) {
+      if (v.state !== 'on' && v.state !== 'dim') continue;
+      if (vm.savedVerbStates.has(v.id)) continue; // archived → not hittable
+      const y = v.y - VERB_BAR_START_Y;
+      let hit = false;
+      if (v.image) {
+        // Image verbs (inventory slots / arrows / panel bg): bbox is the
+        // sprite's own dimensions starting at (x, y). No charset needed.
+        const obj = imageVerbObject(v.image);
+        if (!obj) continue;
+        hit =
+          sx >= v.x &&
+          sx < v.x + obj.imhd.width &&
+          localY >= y &&
+          localY < y + obj.imhd.height;
+      } else {
+        // Text verbs: bbox is the measured name width × fontHeight.
+        // centred verbs shift left by half the measured width.
+        if (!charset || !v.name) continue;
+        const measured = measureName(charset, v.name);
+        const x = v.centered ? v.x - Math.floor(measured.width / 2) : v.x;
+        hit =
+          sx >= x &&
+          sx < x + measured.width &&
+          localY >= y &&
+          localY < y + measured.height;
+      }
+      if (!hit) continue;
+      if (v.state === 'on') return v; // interactive wins immediately
+      dimHit ??= v; // remember the first dim match as a fallback
+    }
+    return dimHit;
   };
 
   const recomputeHover = (): void => {
+    // In the verb band the cursor hovers a verb / inventory slot, never a room
+    // object. The mouse VARs (44/45) already carry the true screen position, so
+    // the hover poller #23 arms an inventory item itself — no shell-side feed.
+    if (cursor?.inVerbBand) {
+      hoveredObject = null;
+      const v = verbAt(cursor.x, cursor.y);
+      hoveredVerb = v?.id ?? null;
+      hoveredInvItem = v ? inventoryItemForVerb(v.id) : null;
+      return;
+    }
+    hoveredVerb = null;
+    hoveredInvItem = null;
+
     const room = vm.loadedRoom;
     if (!room) {
       hoveredObject = null;
@@ -657,155 +689,51 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
     hoveredObject = actorHit !== 0 && actorHit !== ego ? actorHit : null;
   };
 
-  const onPointerMove = (): void => {
+  const onPointerMove = (p: ScreenPoint): void => {
+    cursor = p;
     recomputeHover();
-    drawAll();
   };
 
-  // Initial paint.
-  recomputeHover();
-  paintVerbBar();
-  drawAll();
-
-  // ─── verb-bar input ───
-  const verbAt = (canvasX: number, canvasY: number): VerbSlot | null => {
-    const charset = activeCharset();
-    // Prefer an interactive ('on') hit over a 'dim' one. MI1's verb
-    // panel background is itself a (dim) image verb (verb 1, obj 1030,
-    // 144×48) that covers the whole command-verb region — without this
-    // preference it would shadow every command verb and swallow clicks.
-    let dimHit: VerbSlot | null = null;
-    for (const v of vm.verbs.values()) {
-      if (v.state !== 'on' && v.state !== 'dim') continue;
-      if (vm.savedVerbStates.has(v.id)) continue; // archived → not hittable
-      const y = v.y - VERB_BAR_START_Y;
-      let hit = false;
-      if (v.image) {
-        // Image verbs (inventory slots / arrows / panel bg): bbox is the
-        // sprite's own dimensions starting at (x, y). No charset needed.
-        const obj = imageVerbObject(v.image);
-        if (!obj) continue;
-        hit =
-          canvasX >= v.x &&
-          canvasX < v.x + obj.imhd.width &&
-          canvasY >= y &&
-          canvasY < y + obj.imhd.height;
-      } else {
-        // Text verbs: bbox is the measured name width × fontHeight.
-        // centred verbs shift left by half the measured width.
-        if (!charset || !v.name) continue;
-        const measured = measureName(charset, v.name);
-        const x = v.centered ? v.x - Math.floor(measured.width / 2) : v.x;
-        hit =
-          canvasX >= x &&
-          canvasX < x + measured.width &&
-          canvasY >= y &&
-          canvasY < y + measured.height;
+  // ─── click routing ───
+  // A click in the verb band fires the verb-input script with the slot's verb
+  // id (command verb OR inventory item 200..207 — #4 reads the mapping). A
+  // click in the room band routes into the engine's scene-click handler, which
+  // fires MI1's verb-input script #4: with a verb armed + an object hit it
+  // builds the sentence (#2 walks-to/faces/acts), and on a bare floor click it
+  // walks ego to the clicked point (it reads the mouse-coord VARs the input
+  // layer wrote). Both paths gate on user-input being enabled (vm.cursor.userput),
+  // so a cutscene (`userputSoftOff`) can't let a click walk ego or arm a verb.
+  const onScreenClick = (p: ScreenPoint, button: 'left' | 'right'): { objId: number | null } => {
+    cursor = p;
+    recomputeHover();
+    const btn = button === 'right' ? 2 : 1;
+    if (p.inVerbBand) {
+      if (vm.cursor.userput <= 0) return { objId: null };
+      const v = verbAt(p.x, p.y);
+      if (v && v.state === 'on') {
+        vm.handleVerbClick(v.id, btn);
+        args.onCommit();
       }
-      if (!hit) continue;
-      if (v.state === 'on') return v; // interactive wins immediately
-      dimHit ??= v; // remember the first dim match as a fallback
+      return { objId: null };
     }
-    return dimHit;
-  };
-
-  const localToCanvas = (ev: { clientX: number; clientY: number }): { x: number; y: number } => {
-    const rect = verbBar.getBoundingClientRect();
-    const sx = rect.width > 0 ? rect.width / VIEWPORT_W : 1;
-    const sy = rect.height > 0 ? rect.height / VERB_BAR_HEIGHT : 1;
-    return {
-      x: Math.floor((ev.clientX - rect.left) / sx),
-      y: Math.floor((ev.clientY - rect.top) / sy),
-    };
-  };
-
-  verbBar.addEventListener('pointermove', (ev) => {
-    const { x, y } = localToCanvas(ev);
-    const v = verbAt(x, y);
-    const newHover = v?.id ?? null;
-    const newInv = v ? inventoryItemForVerb(v.id) : null;
-    // Feed the running hover poller (#23) the screen-space cursor when over
-    // an inventory slot, so it arms the item's default verb + sets g108 —
-    // exactly as it does on the original's single 320×200 screen. Screen Y
-    // = canvas Y + the panel's screen origin (so it lands in #23's g45 ≥ 152
-    // inventory band). Scoped to inventory: feeding for command verbs could
-    // drive #23's room branch off stale g20/g21. The verb stays armed until
-    // the cursor re-enters the room (the room canvas writes y < 152, which
-    // makes #23 restore the saved verb from g394).
-    if (newInv !== null) {
-      vm.vars.writeGlobal(VAR_MOUSE_X, x);
-      vm.vars.writeGlobal(VAR_MOUSE_Y, y + VERB_BAR_START_Y);
-    }
-    if (newHover !== hoveredVerb || newInv !== hoveredInvItem) {
-      hoveredVerb = newHover;
-      hoveredInvItem = newInv;
-      paintVerbBar();
-    }
-  });
-  verbBar.addEventListener('pointerleave', () => {
-    if (hoveredVerb !== null || hoveredInvItem !== null) {
-      hoveredVerb = null;
-      hoveredInvItem = null;
-      paintVerbBar();
-    }
-  });
-  verbBar.addEventListener('pointerdown', (ev) => {
-    // Same user-input gate as the scene: a cutscene (userput off) must
-    // not let verb-bar clicks arm verbs / fire the input script.
-    if (vm.cursor.userput <= 0) return;
-    const { x, y } = localToCanvas(ev);
-    const v = verbAt(x, y);
-    if (!v || v.state !== 'on') return;
-    // Every verb-bar slot — command verb OR inventory item (verbs
-    // 200..207) — is a verb click in checkExecVerbs terms: fire the
-    // verb-input script with the slot's verb id. #4 arms it / reads the
-    // inventory mapping itself.
-    vm.handleVerbClick(v.id, ev.button === 2 ? 2 : 1);
-    paintVerbBar();
-    args.onCommit();
-  });
-
-  // ─── room-click handler (wired from the inspector's pointerdown).
-  //     Routes the click into the engine's scene-click handler, which
-  //     fires MI1's verb-input script (VAR_VERB_SCRIPT = #4 in room 33).
-  //     That script does the faithful work for BOTH cases: with a verb
-  //     armed + an object hit it builds the sentence (#2 walks-to/faces/
-  //     acts), and on a bare floor click it walks ego to the clicked
-  //     point itself — it reads the mouse-coord vars the input layer
-  //     wrote. Confirmed in scratch/inspect-walk-click.ts: ego walks to
-  //     the click with no engine-side walkActorTo shortcut. Returns the
-  //     hit-tested object id so the inspector can still log the click.
-  const onRoomClick = (button: 'left' | 'right'): { objId: number | null } => {
-    recomputeHover();
-    // The engine only accepts scene input while user-input is enabled
-    // (VAR_USERPUT / vm.cursor.userput). Cutscenes turn it off via #18's
-    // `userputSoftOff`, so this gate stops a floor click from walking
-    // ego — or an object click from firing a verb — mid-cutscene. We
-    // still return the hover so the inspector can log the click.
     if (vm.cursor.userput <= 0) return { objId: hoveredObject };
-    const btn = button === 'left' ? 1 : 2;
     vm.handleSceneClick(btn);
+    args.onCommit();
     return { objId: hoveredObject };
   };
 
-  /**
-   * Full per-tick refresh: recompute hover (in case the engine
-   * shifted objects / drawObject queue), repaint cursor + dialog,
-   * repaint the verb bar (catches name / state / colour changes
-   * from verbOps that ran since the last paint), refresh sentence
-   * line text.
-   */
+  // Per-tick refresh: recompute hover (the engine may have shifted objects /
+  // the drawObject queue) and repaint every layer onto the shared surface
+  // (catches verbOps name / state / colour changes since the last paint). The
+  // caller clears the surface + blits the room slice before calling this.
   const redraw = (): void => {
     recomputeHover();
     drawAll();
   };
 
   return {
-    cursorOverlay,
-    debugOverlay,
-    verbBar,
     onPointerMove,
-    onRoomClick,
+    onScreenClick,
     redraw,
     setDebugFlags,
   };
@@ -975,10 +903,10 @@ function glyphScratch(
  * the charset lookup fails (broken resource file, etc.). Uses the
  * browser's built-in text — no CLUT tinting, just legibility.
  */
-function drawVerbsFallback(ctx: CanvasRenderingContext2D, vm: Vm): void {
+function drawVerbsFallback(ctx: CanvasRenderingContext2D, vm: Vm, yOffset: number): void {
   ctx.fillStyle = '#dde';
   ctx.font = '10px monospace';
-  let yi = 24;
+  let yi = yOffset + 24;
   for (const v of vm.verbs.values()) {
     if (v.state === 'deleted' || v.state === 'off') continue;
     if (!v.name) continue;

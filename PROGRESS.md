@@ -159,15 +159,21 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
 
 **Rendering**
 
-- **Unify the render surface (Option 2 — the faithful end-state for the UI).**
-  Today the room is one canvas (engine compositor) and the verb/inventory bar is
-  a second, shell-painted canvas; input was bridged by feeding screen coords
-  (Option 1, done). The faithful design is one 320×200 surface — room slice
-  (rows 0–143) + verb panel (144–199) — composited by the engine with 1:1 coords,
-  and the sentence line as engine verb #100 assembled from `0xFF NN` substitution
-  codes. Eliminates the coordinate seam entirely. Take it on when a *render-side*
-  reason appears (verb #100 codes, mid-string dialogue colours `0x0E`, the
-  copy-protection wheel) — not speculatively. Option 1 is a clean subset of it.
+- **Unify the render surface — Phase A done; Phase B (engine-side) remaining.**
+  Phase A (done): the room slice and the verb/inventory panel now share ONE
+  visible canvas. The engine compositor presents the room into the renderer's
+  *offscreen* canvas; the shell blits it into the top rows of the screen canvas
+  and paints the verb panel + overlays below/over it. A single `mountScreenInput`
+  drives the lot in unified screen coords (true screen position → VARs 44/45,
+  room coords → 20/21), so the cursor glides continuously from the room into the
+  inventory and #23 sees the inventory band natively — the dual-write coordinate
+  bridge is gone. Phase B (the fully faithful end-state, deferred): move the
+  verb-panel rendering *into* the engine compositor so it emits the whole 320×200
+  framebuffer with 1:1 coords (the sentence line is already engine verb #100,
+  assembled from `0xFF NN` substitution codes). All of Phase A's canvas / input /
+  cursor plumbing is reused unchanged — only the verb-pixel source swaps. Take it
+  on when a *render-side* reason appears (mid-string dialogue colours `0x0E`, the
+  copy-protection wheel) — not speculatively.
 - **Compositor honours `VAR_CURRENT_LIGHTS`** — darken a night room via the
   lights flag, not only a dark palette (may be subtle; night rooms already ship
   dark palettes — check it's visible first). [LIGHTING §4](pages/docs/scumm/lighting.md).
