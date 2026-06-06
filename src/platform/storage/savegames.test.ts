@@ -1,7 +1,14 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { SaveState } from '../../engine/vm/savestate';
 import { SAVE_VERSION } from '../../engine/vm/savestate';
-import { deleteSave, listSaves, readSave, SaveStoreError, writeSave } from './savegames';
+import {
+  deleteAllSaves,
+  deleteSave,
+  listSaves,
+  readSave,
+  SaveStoreError,
+  writeSave,
+} from './savegames';
 
 /** Minimal in-memory localStorage for the node test environment. */
 class MemStorage {
@@ -78,6 +85,20 @@ describe('savegames storage', () => {
     deleteSave('MI1', 'a');
     expect(listSaves('MI1').map((s) => s.name)).toEqual(['b']);
     expect(readSave('MI1', 'a')).toBeNull();
+  });
+
+  it('deleteAllSaves clears every slot for one game, leaving others intact', () => {
+    writeSave('inst-1', 'a', fakeState(1, 1000));
+    writeSave('inst-1', 'b', fakeState(2, 2000));
+    writeSave('inst-2', 'a', fakeState(3, 3000));
+
+    deleteAllSaves('inst-1');
+
+    expect(listSaves('inst-1')).toEqual([]);
+    expect(readSave('inst-1', 'a')).toBeNull();
+    expect(readSave('inst-1', 'b')).toBeNull();
+    // A different install's saves are untouched.
+    expect(listSaves('inst-2').map((s) => s.name)).toEqual(['a']);
   });
 
   it('throws SaveStoreError when storage is unavailable', () => {

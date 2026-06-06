@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { slugFor, pageTitle, renderBody, routeForFile } from './generate';
+import {
+  slugFor,
+  pageTitle,
+  renderBody,
+  routeForFile,
+  composeIslandBody,
+  ISLAND_MARKER,
+} from './generate';
 
 describe('routeForFile (file path = route)', () => {
   const root = '/repo/pages';
@@ -63,5 +70,33 @@ describe('renderBody', () => {
   });
   it('leaves .md links untouched without file context', () => {
     expect(renderBody('[x](smap.md)')).toContain('href="smap.md"');
+  });
+});
+
+describe('composeIslandBody', () => {
+  it('splits at the marker: prose wraps the parts, #app sits between them', () => {
+    const out = composeIslandBody(`<h1>Library</h1>\n${ISLAND_MARKER}\n<p>footnote</p>`);
+    expect(out).toBe(
+      '<div class="prose">\n<h1>Library</h1>\n</div>\n' +
+        '<div id="app"></div>\n' +
+        '<div class="prose">\n<p>footnote</p>\n</div>\n',
+    );
+  });
+
+  it('keeps the #app mount outside .prose', () => {
+    const out = composeIslandBody(`<p>intro</p>\n${ISLAND_MARKER}`);
+    // The mount is its own top-level div, never nested in a prose block.
+    expect(out).toContain('</div>\n<div id="app"></div>');
+    expect(out).not.toContain('<div class="prose">\n<div id="app">');
+  });
+
+  it('drops empty prose segments (no marker → just the prose then the mount)', () => {
+    expect(composeIslandBody('<p>only intro</p>')).toBe(
+      '<div class="prose">\n<p>only intro</p>\n</div>\n<div id="app"></div>\n',
+    );
+  });
+
+  it('an empty body yields just the mount (play/explore full-bleed)', () => {
+    expect(composeIslandBody('')).toBe('<div id="app"></div>\n');
   });
 });

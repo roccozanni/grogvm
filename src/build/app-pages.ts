@@ -5,7 +5,7 @@
 // thin caller the old pages/**/index.ts used — just generated, not authored.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { loadPages, routeToOutputPath, renderBody, type Page } from './generate';
+import { loadPages, routeToOutputPath, renderBody, composeIslandBody, type Page } from './generate';
 import { renderDocument } from '../site/layout';
 import { readFileSync } from 'node:fs';
 
@@ -35,7 +35,9 @@ export function writeAppPages(pagesDir: string, stagingRoot: string): void {
     const htmlPath = join(stagingRoot, routeToOutputPath(page.route));
     mkdirSync(dirname(htmlPath), { recursive: true });
     writeFileSync(join(dirname(htmlPath), 'entry.ts'), entrySource(page));
-    const bodyHtml = renderBody(readFileSync(page.file, 'utf8'), page.file, pagesDir).trim();
+    const bodyHtml = composeIslandBody(
+      renderBody(readFileSync(page.file, 'utf8'), page.file, pagesDir),
+    );
     writeFileSync(
       htmlPath,
       renderDocument({
@@ -43,7 +45,7 @@ export function writeAppPages(pagesDir: string, stagingRoot: string): void {
         route: page.route,
         description: page.description ?? undefined,
         entrySrc: './entry.ts',
-        bodyHtml: bodyHtml || undefined,
+        bodyHtml,
       }),
     );
   }

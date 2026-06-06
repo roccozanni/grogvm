@@ -2,53 +2,17 @@ import type { App } from '../library/app';
 import { addGame, findGameByHash } from '../../platform/storage/games';
 import { detectGame, identifyVariant, INDEX_FILENAME } from '../../platform/detect';
 
-export function renderInstall(app: App, error?: string): HTMLElement {
-  const container = document.createElement('div');
-  container.className = 'install';
-  container.innerHTML = `
-    <header>
-      <h1>Install game</h1>
-      <p class="subtitle">Point me at a directory containing the game files.</p>
-    </header>
-    <main></main>
-  `;
-
-  const main = container.querySelector('main')!;
-
-  if (error) {
-    const errBox = document.createElement('div');
-    errBox.className = 'error';
-    errBox.textContent = error;
-    main.appendChild(errBox);
-  }
-
-  const pick = document.createElement('button');
-  pick.className = 'primary';
-  pick.textContent = 'Choose directory…';
-  pick.addEventListener('click', () => {
-    void pickDirectory(app);
-  });
-  main.appendChild(pick);
-
-  const cancel = document.createElement('button');
-  cancel.className = 'secondary';
-  cancel.textContent = 'Cancel';
-  cancel.addEventListener('click', () => app.navigate({ kind: 'library' }));
-  main.appendChild(cancel);
-
-  return container;
-}
-
-async function pickDirectory(app: App): Promise<void> {
+// The "Install game…" button calls this directly — it opens the OS directory
+// picker (a user gesture, so it must run straight off the click), detects and
+// identifies the game, stores it, and re-renders the library. Any failure
+// re-renders the library with a flash; a cancelled picker is a silent no-op.
+export async function installGame(app: App): Promise<void> {
   let handle: FileSystemDirectoryHandle;
   try {
     handle = await window.showDirectoryPicker({ mode: 'read' });
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') return;
-    app.navigate({
-      kind: 'install',
-      error: `Could not open directory: ${(err as Error).message}`,
-    });
+    app.navigate({ flash: `Could not open directory: ${(err as Error).message}` });
     return;
   }
 
@@ -57,8 +21,7 @@ async function pickDirectory(app: App): Promise<void> {
 
   if (!detected) {
     app.navigate({
-      kind: 'install',
-      error:
+      flash:
         `"${handle.name}" doesn't look like a supported game directory. ` +
         `Expected MONKEY.000 + MONKEY.001 (MI1) or MONKEY2.000 + MONKEY2.001 (MI2).`,
     });
@@ -67,10 +30,7 @@ async function pickDirectory(app: App): Promise<void> {
 
   const indexBytes = await readIndexBytes(handle, INDEX_FILENAME[detected.gameId]);
   if (!indexBytes) {
-    app.navigate({
-      kind: 'install',
-      error: `Could not read ${INDEX_FILENAME[detected.gameId]} in "${handle.name}".`,
-    });
+    app.navigate({ flash: `Could not read ${INDEX_FILENAME[detected.gameId]} in "${handle.name}".` });
     return;
   }
   const { contentHash, variant } = await identifyVariant(indexBytes);
@@ -80,8 +40,7 @@ async function pickDirectory(app: App): Promise<void> {
   const existing = await findGameByHash(contentHash);
   if (existing) {
     app.navigate({
-      kind: 'install',
-      error:
+      flash:
         `That exact copy is already installed as "${existing.variant}" ` +
         `(source: "${existing.directoryHandle.name}"). Remove it first to re-install.`,
     });
@@ -96,7 +55,7 @@ async function pickDirectory(app: App): Promise<void> {
     directoryHandle: handle,
   });
 
-  app.navigate({ kind: 'library' });
+  app.navigate();
 }
 
 async function readIndexBytes(

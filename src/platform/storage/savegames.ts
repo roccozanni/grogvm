@@ -99,6 +99,28 @@ export function writeSave(gameId: string, name: string, state: SaveState): void 
   writeIndex(gameId, index);
 }
 
+/**
+ * Remove every slot for `gameId` and its index — used when a game is
+ * uninstalled. Saves are keyed by the (random) install id, so once the install
+ * is gone they're unreachable; clearing them here avoids leaking dead storage.
+ */
+export function deleteAllSaves(gameId: string): void {
+  const ls = store();
+  if (!ls) return;
+  for (const meta of readIndex(gameId)) {
+    try {
+      ls.removeItem(slotKey(gameId, meta.name));
+    } catch {
+      /* best-effort */
+    }
+  }
+  try {
+    ls.removeItem(indexKey(gameId));
+  } catch {
+    /* best-effort */
+  }
+}
+
 /** Remove a slot and its index entry. No-op if it doesn't exist. */
 export function deleteSave(gameId: string, name: string): void {
   const ls = store();

@@ -1,30 +1,26 @@
 import type { App } from './app';
+import { installGame } from '../install/install';
 import { listGames, removeGame, type StoredGame } from '../../platform/storage/games';
+import { deleteAllSaves } from '../../platform/storage/savegames';
 import { playHref, exploreHref } from '../../platform/routing/routing';
 
+// The page chrome — title, intro, the "Your installed games" heading — is prose
+// authored in pages/library.md; this island renders only the interactive widget
+// (the game list + Install button) into the page's #app mount.
 export function renderLibrary(app: App, flash?: string): HTMLElement {
   const container = document.createElement('div');
   container.className = 'library';
-  container.innerHTML = `
-    <header>
-      <h1>GrogVM</h1>
-      <p class="subtitle">your installed games</p>
-    </header>
-    <main></main>
-  `;
-
-  const main = container.querySelector('main')!;
 
   if (flash) {
     const flashBox = document.createElement('div');
     flashBox.className = 'flash';
     flashBox.textContent = flash;
-    main.appendChild(flashBox);
+    container.appendChild(flashBox);
   }
 
   const listContainer = document.createElement('div');
   listContainer.textContent = 'Loading…';
-  main.appendChild(listContainer);
+  container.appendChild(listContainer);
 
   listGames()
     .then((games) => {
@@ -57,7 +53,7 @@ function renderGameList(app: App, games: StoredGame[]): HTMLElement {
   const install = document.createElement('button');
   install.className = 'primary';
   install.textContent = 'Install game…';
-  install.addEventListener('click', () => app.navigate({ kind: 'install' }));
+  install.addEventListener('click', () => void installGame(app));
   wrap.appendChild(install);
 
   return wrap;
@@ -82,9 +78,19 @@ function renderGameRow(app: App, game: StoredGame): HTMLElement {
   li.querySelector<HTMLAnchorElement>('.explore')!.href = exploreHref(game.id);
 
   li.querySelector('.remove')!.addEventListener('click', () => {
+    // Removing forgets the install (IndexedDB record + folder handle) and clears
+    // its in-browser saves — but never touches the files on disk. Spell that out
+    // so the prompt is clear about what's lost and what isn't.
+    const ok = window.confirm(
+      `Remove "${game.displayName}" (${game.variant}) from your library?\n\n` +
+        `This also deletes its saved games in this browser. Your game files on ` +
+        `disk are left untouched.`,
+    );
+    if (!ok) return;
     void (async () => {
       await removeGame(game.id);
-      app.navigate({ kind: 'library' });
+      deleteAllSaves(game.id);
+      app.navigate();
     })();
   });
 

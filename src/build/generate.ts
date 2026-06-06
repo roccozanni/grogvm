@@ -60,6 +60,28 @@ export function renderBody(source: string, currentFile?: string, pagesDir?: stri
 }
 
 /**
+ * The island mount marker. An app page authors this (on its own line) in its
+ * markdown to say where the island's `#app` div goes; markdown-it passes it
+ * through verbatim as an HTML block, so it survives into the rendered body.
+ */
+export const ISLAND_MARKER = '<!--island-->';
+
+/**
+ * Compose an app page's `<main>` body: the authored markdown around the island.
+ * Prose segments are wrapped in `.prose` so they get the shared typography; the
+ * `#app` mount lands at the marker (or after the prose if none) and stays
+ * OUTSIDE `.prose` so the island keeps its own dense, purpose-built layout.
+ */
+export function composeIslandBody(renderedHtml: string): string {
+  const i = renderedHtml.indexOf(ISLAND_MARKER);
+  const before = i === -1 ? renderedHtml : renderedHtml.slice(0, i);
+  const after = i === -1 ? '' : renderedHtml.slice(i + ISLAND_MARKER.length);
+  const prose = (html: string): string =>
+    html.trim() ? `<div class="prose">\n${html.trim()}\n</div>\n` : '';
+  return `${prose(before)}<div id="app"></div>\n${prose(after)}`;
+}
+
+/**
  * The output path for a route: `/` → `index.html`, `/library/` →
  * `library/index.html`, `/docs/x/` → `docs/x/index.html`.
  */

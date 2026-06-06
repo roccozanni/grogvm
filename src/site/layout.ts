@@ -20,9 +20,10 @@ function titleTag(title: string): string {
 }
 
 /**
- * Render a full page document. Content pages pass `bodyHtml` (rendered
- * markdown); app pages pass `entrySrc` to mount their island into `#app` (and
- * optionally `bodyHtml` for prose above it). Both get the same head metadata,
+ * Render a full page document. Both content and app pages pass `bodyHtml`: for
+ * content pages it's the rendered markdown; for app pages it's the island body
+ * from composeIslandBody (prose blocks around the `#app` mount), plus an
+ * `entrySrc` that loads the island's bundle. Both get the same head metadata,
  * nav, footer, and /site.css. `entrySrc` is bundled by Vite from the staging
  * root. `route` (e.g. `/docs/scumm/room/`) drives the canonical + og:url;
  * `index: false` marks a page crawlers should skip (the 404).
@@ -35,11 +36,15 @@ export function renderDocument(opts: {
   entrySrc?: string;
   index?: boolean;
 }): string {
+  // App pages compose their own body (prose blocks + the `#app` mount, via
+  // composeIslandBody); here we only load the island's bundle. Content pages
+  // have no entrySrc.
   const mount = opts.entrySrc
-    ? `      <div id="app"></div>\n      <script type="module" src="${opts.entrySrc}"></script>\n`
+    ? `      <script type="module" src="${opts.entrySrc}"></script>\n`
     : '';
   // `.content` is the shared frame; content pages add `.prose` for markdown
-  // typography (app screens opt out so their dense layout stays untouched).
+  // typography. App pages keep `.content` only and wrap their own prose blocks,
+  // so the `#app` island stays outside `.prose` with its dense layout intact.
   const mainClass = opts.entrySrc ? 'content' : 'content prose';
   const description = escapeHtml(opts.description?.trim() || DEFAULT_DESCRIPTION);
   const url = escapeHtml(`${SITE_URL}${opts.route}`);
