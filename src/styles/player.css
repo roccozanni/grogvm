@@ -558,15 +558,42 @@
 .play-screen {
   padding: 0.75rem;
 }
-.play-bar {
+.play-variant {
+  margin-left: 0.6rem;
+  font-size: 0.85rem;
+  font-weight: normal;
+  color: var(--muted);
+}
+/* Control bar below the play area: game actions on the left, debug on the right. */
+.play-controls {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+.play-controls-group {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-bottom: 0.75rem;
 }
-.play-status {
-  opacity: 0.7;
-  font-size: 0.9em;
+.play-controls-group button {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.play-controls-group svg {
+  display: block;
+}
+/* A debug toggle that's currently ON — yellow highlight. */
+.play-toggle.is-on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #000;
+}
+.play-toggle.is-on:hover {
+  background: var(--accent);
 }
 .play-game {
   display: flex;

@@ -22,8 +22,52 @@ import { mountVmFrameInput } from '../input';
 import { mountDebugPanel } from '../debug/debug';
 import { RafClock } from '../raf-clock';
 
-const SCALE = 2;
+const SCALE = 2.5;
 const QUICK_SLOT = 'quicksave';
+
+// Debug-overlay toggles persist across reloads and are NOT game-specific.
+const WALK_PATHS_KEY = 'grogvm:debug:walk-paths';
+const HIT_AREAS_KEY = 'grogvm:debug:hit-areas';
+
+function readFlag(key: string): boolean {
+  try {
+    return globalThis.localStorage?.getItem(key) === '1';
+  } catch {
+    return false;
+  }
+}
+function writeFlag(key: string, on: boolean): void {
+  try {
+    globalThis.localStorage?.setItem(key, on ? '1' : '0');
+  } catch {
+    /* ignore — a missing localStorage just means the toggle won't persist */
+  }
+}
+
+// Inline glyphs for the play-bar buttons (no emoji — see code conventions).
+// All stroke in currentColor so they inherit the button/bar text colour.
+const ICON_ATTRS = `width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"`;
+const SAVE_ICON_SVG = `<svg viewBox="0 0 24 24" ${ICON_ATTRS}>
+  <path d="M4 4h13l3 3v13H4z" /><path d="M8 4v5h6V4" /><rect x="8" y="13" width="8" height="6" />
+</svg>`;
+const LOAD_ICON_SVG = `<svg viewBox="0 0 24 24" ${ICON_ATTRS}>
+  <path d="M4 6h5l2 2h7v3H4z" /><path d="M4 11h17l-2 7H6z" />
+</svg>`;
+const BUG_ICON_SVG = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+  <line x1="10" y1="4" x2="11.5" y2="6.5" /><line x1="14" y1="4" x2="12.5" y2="6.5" />
+  <circle cx="12" cy="7.5" r="1.8" />
+  <ellipse cx="12" cy="14" rx="4" ry="5.5" />
+  <line x1="8" y1="12" x2="4.5" y2="10.5" /><line x1="8" y1="14.5" x2="4" y2="14.5" /><line x1="8" y1="17" x2="4.5" y2="18.5" />
+  <line x1="16" y1="12" x2="19.5" y2="10.5" /><line x1="16" y1="14.5" x2="20" y2="14.5" /><line x1="16" y1="17" x2="19.5" y2="18.5" />
+</svg>`;
+
+/** A span holding an inline SVG glyph, for use as button/label content. */
+function iconEl(svg: string, className = 'btn-icon'): HTMLElement {
+  const span = document.createElement('span');
+  span.className = className;
+  span.innerHTML = svg;
+  return span;
+}
 
 export function renderPlay(game: StoredGame, onBack: () => void): HTMLElement {
   const main = el('div', { class: 'play-main' }, el('div', { class: 'loading' }, 'Loading game files…'));
@@ -52,7 +96,14 @@ async function mountGame(game: StoredGame, main: HTMLElement, onBack: () => void
 
   const gameArea = el('div', { class: 'play-game' });
   const stack = el('div', { class: 'vm-frame-stack' });
-  const status = el('span', { class: 'play-status' });
+
+  // Live debug-overlay state, restored from localStorage. Mutated in place by
+  // the toggle buttons and re-applied to the play area (which is re-created on
+  // each room change).
+  const overlayFlags = {
+    walk: readFlag(WALK_PATHS_KEY),
+    hit: readFlag(HIT_AREAS_KEY),
+  };
 
   // The Debug panel shares this session (live VM inspection below the game,
   // always visible — it's a learning tool).
@@ -87,9 +138,10 @@ async function mountGame(game: StoredGame, main: HTMLElement, onBack: () => void
       roomHeight: frame.height,
       palette: frame.palette,
       transparentIndex: frame.transparentIndex,
+      debug: overlayFlags,
       onCommit: () => {},
     });
-    stack.replaceChildren(frameCanvas, play.cursorOverlay);
+    stack.replaceChildren(frameCanvas, play.debugOverlay, play.cursorOverlay);
     const input = mountVmFrameInput({
       canvas: frameCanvas,
       vm: session.vm,
@@ -120,38 +172,56 @@ async function mountGame(game: StoredGame, main: HTMLElement, onBack: () => void
     mounted!.play.redraw();
   });
 
-  const exit = (): void => {
-    debug.dispose();
-    session.dispose();
-    onBack();
-  };
   const save = (): void => {
     writeSave(game.id, QUICK_SLOT, session.snapshot(QUICK_SLOT));
-    status.textContent = 'Quick-saved.';
   };
   const load = (): void => {
     const snap = readSave(game.id, QUICK_SLOT);
-    if (!snap) {
-      status.textContent = 'No quicksave yet.';
-      return;
-    }
+    if (!snap) return;
     session.restore(snap);
-    status.textContent = 'Quick-loaded.';
   };
 
-  const bar = el(
+  // A control bar sits below the play area, split into two groups: "game"
+  // actions (save/load and the like) on the left, "debug" toggles on the right.
+  const gameGroup = el(
     'div',
-    { class: 'play-bar' },
-    el('button', { class: 'secondary', onClick: exit }, '← Library'),
-    el('button', { class: 'secondary', onClick: save }, 'Quick save'),
-    el('button', { class: 'secondary', onClick: load }, 'Quick load'),
-    status,
+    { class: 'play-controls-group play-controls-game' },
+    el('button', { class: 'secondary', onClick: save }, iconEl(SAVE_ICON_SVG), 'Quick save'),
+    el('button', { class: 'secondary', onClick: load }, iconEl(LOAD_ICON_SVG), 'Quick load'),
+  );
+
+  // A debug toggle: yellow when on, persisted, applied live to the play area.
+  const toggle = (label: string, key: string, get: () => boolean, set: (v: boolean) => void): HTMLElement => {
+    const btn = el('button', { class: 'secondary play-toggle' }, iconEl(BUG_ICON_SVG), label);
+    btn.classList.toggle('is-on', get());
+    btn.addEventListener('click', () => {
+      set(!get());
+      writeFlag(key, get());
+      btn.classList.toggle('is-on', get());
+      mounted?.play.setDebugFlags(overlayFlags);
+    });
+    return btn;
+  };
+  const debugGroup = el(
+    'div',
+    { class: 'play-controls-group play-controls-debug' },
+    toggle('Walk paths', WALK_PATHS_KEY, () => overlayFlags.walk, (v) => (overlayFlags.walk = v)),
+    toggle('Hit areas', HIT_AREAS_KEY, () => overlayFlags.hit, (v) => (overlayFlags.hit = v)),
+  );
+  const controls = el('div', { class: 'play-controls' }, gameGroup, debugGroup);
+
+  // Wrap the title in .prose so it gets the exact content-page <h1> styling
+  // (the rest of the play screen stays outside .prose with its dense layout).
+  const title = el(
+    'div',
+    { class: 'prose' },
+    el('h1', {}, game.displayName, el('span', { class: 'play-variant' }, game.variant)),
   );
 
   // Debug panel sits BELOW the play area (full width) so its panels/grids
   // have room — beside the fixed-width canvas they collapsed into a squeezed
   // column.
-  main.replaceChildren(bar, gameArea, debug.element);
+  main.replaceChildren(title, gameArea, controls, debug.element);
 
   // Present one frame immediately (populates the overlays), then run.
   session.step();

@@ -50,7 +50,7 @@ import { VIEWPORT_W, viewportLeft } from '../../engine/graphics/viewport';
  */
 const VERB_BAR_START_Y = 144;
 const VERB_BAR_HEIGHT = 56;
-const CSS_SCALE = 2;
+const CSS_SCALE = 2.5;
 
 /**
  * On-screen viewport width. The room canvas is drawn at the full room
@@ -86,9 +86,8 @@ const DEFAULT_VERB_DIM_COLOR = 8; // dark grey
  *  needs the per-region layout worked out, not a single fill. */
 const VERB_BAR_BG_COLOR = 0;
 
-/** Cursor crosshair colours (CLUT indices). */
+/** Cursor crosshair colour (CLUT index). */
 const CURSOR_COLOR_NORMAL = 15; // bright white
-const CURSOR_COLOR_HOVER_OBJECT = 14; // yellow when over an interactable
 
 /**
  * MI1 game global holding the active (armed) verb, set by the verb-input
@@ -112,6 +111,14 @@ function armedVerb(vm: Vm): number | null {
   return v > 0 && v !== VERB_WALK_TO ? v : null;
 }
 
+/** Debug visualisations drawn over the frame (toggled from the play bar). */
+export interface DebugOverlayFlags {
+  /** Walk-box outlines + ids, plus any active actor walk paths. */
+  readonly walk: boolean;
+  /** Object CDHD hit-area rectangles + ids. */
+  readonly hit: boolean;
+}
+
 export interface PlayAreaArgs {
   readonly resourceFile: ResourceFile;
   readonly vm: Vm;
@@ -121,6 +128,8 @@ export interface PlayAreaArgs {
   readonly palette: Uint8Array;
   /** TRNS index for the current room, for the verb-bar background. */
   readonly transparentIndex: number | null;
+  /** Initial debug-overlay flags (default both off). */
+  readonly debug?: DebugOverlayFlags;
   /**
    * Called when the user clicks the verb bar or selects an object —
    * triggers a full inspector repaint so the verb-bar hover/selected
@@ -132,6 +141,8 @@ export interface PlayAreaArgs {
 export interface PlayAreaHandles {
   /** Append this above the frame canvas inside `.vm-frame-stack`. */
   readonly cursorOverlay: HTMLCanvasElement;
+  /** Walk-path / hit-area debug overlay — stack between the frame and cursor. */
+  readonly debugOverlay: HTMLCanvasElement;
   /**
    * The verb panel. Append below the frame stack. Its top black band is
    * MI1's sentence line (verb #100) — drawn inside this canvas, not a
@@ -156,6 +167,8 @@ export interface PlayAreaHandles {
    * DOM elements survive across ticks and clicks don't drop.
    */
   readonly redraw: () => void;
+  /** Update which debug overlays are drawn and repaint immediately. */
+  readonly setDebugFlags: (flags: DebugOverlayFlags) => void;
 }
 
 /**
@@ -199,6 +212,18 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
   cursorOverlay.style.height = `${roomHeight * CSS_SCALE}px`;
   const cctx = cursorOverlay.getContext('2d');
 
+  // ─── debug overlay (walk paths / hit areas) ───
+  // A separate transparent canvas under the cursor; painted each frame from
+  // the live VM so room/actor changes refresh it. Toggled from the play bar.
+  const debugOverlay = document.createElement('canvas');
+  debugOverlay.className = 'vm-frame-overlay';
+  debugOverlay.width = roomWidth;
+  debugOverlay.height = roomHeight;
+  debugOverlay.style.width = `${roomWidth * CSS_SCALE}px`;
+  debugOverlay.style.height = `${roomHeight * CSS_SCALE}px`;
+  const dctx = debugOverlay.getContext('2d');
+  let debugFlags: DebugOverlayFlags = args.debug ?? { walk: false, hit: false };
+
   // ─── verb bar ───
   // The sentence line is NOT a separate element — MI1 draws it as verb
   // #100 in the top black band of the verb panel, so it's rendered inside
@@ -237,44 +262,13 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
     // the cursor so the crosshair stays on top.
     drawDialog(cctx);
 
-    // Hover feedback (highlight box + crosshair colour) marks a *named*
-    // interaction target — something the player can perceive as a "thing".
-    //
-    // `findObject` (and so `hoveredObject`) also returns nameless hotspots:
-    // e.g. room 28's object #320 is a real object with only a walk-to verb
-    // (#11) and no OBNA — a floor connector you click to cross the bar. The
-    // original game treats it like bare floor (sentence shows just the verb,
-    // no highlight — MI1 has no hover cursor at all). So we light the overlay
-    // only when the hover yields a name; the click still routes through the
-    // engine regardless, and the raw object id is in the Input debug panel.
-    const hoverBox = ((): { left: number; top: number; w: number; h: number } | null => {
-      if (hoveredObject === null) return null;
-      const obj = vm.loadedRoom?.objects.get(hoveredObject);
-      if (obj) {
-        if (!obj.name) return null; // nameless hotspot → behaves like floor
-        return { left: obj.cdhd.x * 8, top: obj.cdhd.y * 8, w: obj.cdhd.width * 8, h: obj.cdhd.height * 8 };
-      }
-      // Actor fall-back (Talk-to target): box its last-drawn bounds.
-      if (hoveredObject >= 1 && hoveredObject <= vm.actors.capacity) {
-        const b = vm.actors.get(hoveredObject).drawBounds;
-        if (b) return { left: b.left, top: b.top, w: b.right - b.left, h: b.bottom - b.top };
-      }
-      return null;
-    })();
-    if (hoverBox) {
-      cctx.strokeStyle = clutCss(palette, CURSOR_COLOR_HOVER_OBJECT);
-      cctx.lineWidth = 1;
-      cctx.strokeRect(hoverBox.left + 0.5, hoverBox.top + 0.5, hoverBox.w - 1, hoverBox.h - 1);
-    }
-
     // Crosshair at the cursor's room position. (Drawn unconditionally for
     // input diagnosis even when the game would hide it; `vm.cursor` truth is
-    // in the Input panel.) Colour matches the hover feedback above so the
-    // crosshair and box agree — both light only over a named target.
+    // in the Input panel.) Interaction targets are no longer highlighted on the
+    // cursor — that's the "Hit areas" debug toggle's job now.
     const cx = vm.mouseRoomX;
     const cy = vm.mouseRoomY;
-    const color = hoverBox ? CURSOR_COLOR_HOVER_OBJECT : CURSOR_COLOR_NORMAL;
-    cctx.fillStyle = clutCss(palette, color);
+    cctx.fillStyle = clutCss(palette, CURSOR_COLOR_NORMAL);
     // 7×1 horizontal + 1×7 vertical centred at (cx, cy).
     cctx.fillRect(cx - 3, cy, 7, 1);
     cctx.fillRect(cx, cy - 3, 1, 7);
@@ -526,7 +520,106 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
     }
   };
 
+  // Debug overlay colours: one per walk box (cycled), a single hue for hit
+  // areas, and the warm pair the original used for actor paths / positions.
+  const WALK_BOX_COLORS = ['#3ec1c1', '#c1973e', '#a13ec1', '#3e5dc1', '#c13e6a', '#7ec13e'];
+  const HIT_AREA_COLOR = '#ff66cc';
+
+  const labelAt = (ctx: CanvasRenderingContext2D, id: number, x: number, y: number, color: string): void => {
+    const txt = String(id);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    ctx.fillRect(x, y, txt.length * 5 + 2, 8);
+    ctx.fillStyle = color;
+    ctx.fillText(txt, x + 1, y + 1);
+  };
+
+  const drawDebugOverlay = (): void => {
+    if (!dctx) return;
+    dctx.clearRect(0, 0, roomWidth, roomHeight);
+    const room = vm.loadedRoom;
+    if (!room || (!debugFlags.walk && !debugFlags.hit)) return;
+
+    // Same camera translate as the cursor overlay — geometry below is in ROOM
+    // coords; the overlay is a fixed viewport window.
+    dctx.save();
+    dctx.translate(-cameraLeftPx(), 0);
+    dctx.lineWidth = 1;
+    dctx.font = '7px monospace';
+    dctx.textBaseline = 'top';
+
+    if (debugFlags.hit) {
+      for (const obj of room.objects.values()) {
+        // Only what's interactable right now: skip the static untouchable flag
+        // and the runtime Untouchable class (class 32) — the same gates the
+        // engine's findObject / pickObject use, so the overlay shows real
+        // targets, not every box defined in the room.
+        if (obj.cdhd.flags & 0x80) continue;
+        if ((vm.objectClasses.get(obj.objId) ?? 0) & (1 << 31)) continue;
+        const w = obj.cdhd.width * 8;
+        const h = obj.cdhd.height * 8;
+        if (w <= 0 || h <= 0) continue;
+        const left = obj.cdhd.x * 8;
+        const top = obj.cdhd.y * 8;
+        dctx.strokeStyle = HIT_AREA_COLOR;
+        dctx.strokeRect(left + 0.5, top + 0.5, w - 1, h - 1);
+        labelAt(dctx, obj.objId, left + 2, top + 1, HIT_AREA_COLOR);
+      }
+    }
+
+    if (debugFlags.walk) {
+      for (const box of room.walkBoxes) {
+        const color = WALK_BOX_COLORS[box.id % WALK_BOX_COLORS.length]!;
+        dctx.strokeStyle = color;
+        dctx.beginPath();
+        dctx.moveTo(box.ulx + 0.5, box.uly + 0.5);
+        dctx.lineTo(box.urx + 0.5, box.ury + 0.5);
+        dctx.lineTo(box.lrx + 0.5, box.lry + 0.5);
+        dctx.lineTo(box.llx + 0.5, box.lly + 0.5);
+        dctx.closePath();
+        dctx.stroke();
+        labelAt(dctx, box.id, Math.min(box.ulx, box.llx) + 2, Math.min(box.uly, box.ury) + 1, color);
+      }
+      // Active actor walk paths (waypoint polyline, or a dashed straight-line
+      // fallback when no path was planned) + a marker on the actor.
+      for (const actor of vm.actors.inRoom(vm.currentRoom)) {
+        if (!actor.isMoving) continue;
+        dctx.strokeStyle = '#ffd54a';
+        if (actor.walkPath.length > 0) {
+          dctx.beginPath();
+          dctx.moveTo(actor.x + 0.5, actor.y + 0.5);
+          for (let i = actor.walkPathIdx; i < actor.walkPath.length; i++) {
+            const p = actor.walkPath[i]!;
+            dctx.lineTo(p.x + 0.5, p.y + 0.5);
+          }
+          dctx.stroke();
+          dctx.fillStyle = '#ffd54a';
+          for (let i = actor.walkPathIdx; i < actor.walkPath.length; i++) {
+            const p = actor.walkPath[i]!;
+            dctx.fillRect(p.x - 1, p.y - 1, 3, 3);
+          }
+        } else if (actor.walkTarget) {
+          dctx.setLineDash([2, 2]);
+          dctx.beginPath();
+          dctx.moveTo(actor.x + 0.5, actor.y + 0.5);
+          dctx.lineTo(actor.walkTarget.x + 0.5, actor.walkTarget.y + 0.5);
+          dctx.stroke();
+          dctx.setLineDash([]);
+        }
+        dctx.fillStyle = '#ff6b3a';
+        dctx.fillRect(actor.x - 1, actor.y - 1, 3, 3);
+      }
+    }
+
+    dctx.restore();
+  };
+
+  const setDebugFlags = (flags: DebugOverlayFlags): void => {
+    debugFlags = flags;
+    drawDebugOverlay();
+  };
+
   const drawAll = (): void => {
+    drawDebugOverlay();
     drawCursor();
     // The sentence line lives in the verb-bar canvas (verb #100), so a
     // hover change that alters the sentence repaints the bar too.
@@ -709,10 +802,12 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
 
   return {
     cursorOverlay,
+    debugOverlay,
     verbBar,
     onPointerMove,
     onRoomClick,
     redraw,
+    setDebugFlags,
   };
 }
 
