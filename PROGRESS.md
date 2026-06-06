@@ -115,7 +115,8 @@ harness helpers → [AGENTS "The harness"](AGENTS.md). **Give X to <actor>**
 ### Forest maze (room 58) — "the fork" black-room fix (2026-06-06, awaiting in-browser confirm)
 
 Clicking **il bivio** (map node #911, `loadRoomWithEgo room=218`) landed in a
-fully-black room. Two independent bugs, both now fixed (pending user verify):
+fully-black room. Five bugs, all now fixed (pending in-browser verify of the
+fork entry):
 
 1. **pseudoRoom (0xCC) keyed by `j & 0x7F` instead of the raw byte.** MI1's
    forest maze is a single shared background (room **58**) reused as logical
@@ -148,7 +149,7 @@ fully-black room. Two independent bugs, both now fixed (pending user verify):
    proper framed forest now. → doc target [OBJECTS] (drawObject) / [SMAP] (a
    no-background room is legal). Only rooms **39** and **58** use SO_AT in room
    scripts (object-script SO_AT unscanned); confirmed-path rooms (28/33/51/29…)
-   don't, so no visual regression there — unit (859) + integration (21) green.
+   don't, so no visual regression there — unit + integration green.
    **Watch:** forest navigation objects — the repositioned tiles are class-32
    Untouchable (skipped in hit-testing), so clicks route via separate exits, but
    if any *clickable* object is ever SO_AT-moved, `hittest.ts` (uses `cdhd.x*8`,
@@ -176,16 +177,19 @@ fully-black room. Two independent bugs, both now fixed (pending user verify):
    overlay already rendered correctly), `pickObject`/`objectHitBox` + the
    hit-area overlay, `objActPos` (getObjectXYPos, so getDist proximity +
    `walkActorToObject` + face all follow), and `objectDrawPositions` feeds the
-   compositor's `mergeForeground` at runtime positions. A drawn object's z-plane
-   occludes actors only when the object is flagged a foreground occluder —
-   **class 32** (bit 31), which MI1 toggles per object via `setClass`: room 58's
-   scenery foliage (671/673, ego walks *behind*) keeps it; the touchable
-   "il sentiero" path trunks (685/686/687, ego walks *in front*) have it cleared
-   by the ENCD/local #204. Both carry a full ZP01 at the same index, so that
-   class flag is the only thing separating them (the z-plane index can't — they're
-   all ZP01). `composeFrame.isObjectOccluder` gates it; room z-planes still always
-   apply (the room-28 table / room-33 houses are room planes, untouched).
-   → doc target [ZPLANE]/[OBJECTS].
+   compositor's `mergeForeground` at runtime positions. Which drawn objects
+   occlude is decided by the **mask shape**, not any class: a *shaped* object
+   z-plane occludes, but a **fully-set (all-1s) mask is dropped by the loader**
+   and never occludes. Room 58's "il sentiero" path trunks (685/686/687) carry
+   all-1s masks → ego walks *in front*; the shaped foliage masks (671/673)
+   occlude → ego walks *behind*. (Game-wide this is a clean split: object
+   z-planes are either shaped <95% or solid 100%, nothing between; the 36 solid
+   ones are all items/doors/levers/close-up elements + the forest path — never
+   walk-behind scenery.) The `setClass` calls the ENCD makes on the trunks
+   toggle **class 32 = Untouchable**, i.e. *clickability* (the path is a
+   clickable exit), **not** occlusion — the compositor has no class gate. Room
+   z-planes always apply (the room-28 table / room-33 houses are room planes,
+   untouched). → doc target [ZPLANE]/[OBJECTS].
 
 5. **Ego didn't walk in on entry — `VAR_WALKTO_OBJ` was the wrong slot.**
    The forest's ENCD walks ego in from the entry edge via a `walkActorTo ego`
@@ -204,6 +208,18 @@ fully-black room. Two independent bugs, both now fixed (pending user verify):
 
 Note: this was **not** the deferred `VAR_CURRENT_LIGHTS` darkening item —
 `g9` was 7 (lit) the whole time; the room simply wasn't loading/composing.
+
+### Object z-planes target their own plane, `ZP0k → plane k` (2026-06-06)
+
+Object z-planes follow the same per-plane single-plane rule as room planes:
+the loader keeps each `ZP0k` in its own `ObjectImage.zPlanes[]` slot (all-1s
+drop per-plane), and `mergeForeground` ORs each `ZP0k` into room plane `k`,
+extending the stack if an object out-ranks the room's planes. Replaces the old
+collapse-into-plane-1, which clipped the clip-1 ego behind the general-store
+wall items (room 30 sword #388 / shovel #396 / safe #389 — mask only in
+`ZP02`, `ZP01` empty) and never occluded the clip-2 shopkeeper. ~80
+multi-`ZP##` objects (rooms 7/8/30/59/69/70); single-`ZP01` objects unchanged.
+→ [ZPLANE "Per-object z-planes"].
 
 ### Open bug-report saves (reported, not yet fixed)
 

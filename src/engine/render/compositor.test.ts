@@ -5,6 +5,7 @@ import type { LoadedCostume } from '../graphics/costume-loader';
 import type { LoadedRoom } from '../room/loader';
 import type { LoadedObject } from '../object/loader';
 import type { WalkBox } from '../pathfinding/boxes';
+import type { DecodedZPlane } from '../graphics/zplane';
 import { ComposeError, composeFrame } from './compositor';
 
 function makeRoom(width: number, height: number, fill: number): LoadedRoom {
@@ -416,16 +417,19 @@ describe('composeFrame — actor compositing', () => {
 
 function makeObject(
   id: number, x: number, y: number, w: number, h: number, fillIdx: number,
-  state = 1, zMask?: Uint8Array,
+  state = 1, zMask?: Uint8Array, planeIndex = 0,
 ): LoadedObject {
   const indexed = new Uint8Array(w * h);
   indexed.fill(fillIdx);
-  const zPlane = zMask ? { width: w, height: h, mask: zMask } : null;
+  // A single mask targets plane `planeIndex` (ZP0(planeIndex+1)); default 0 =
+  // ZP01 = clip level 1, the title-logo/foliage case.
+  const zPlanes: Array<DecodedZPlane | null> = [];
+  if (zMask) zPlanes[planeIndex] = { width: w, height: h, mask: zMask };
   return {
     objId: id,
     cdhd: { objId: id, x: 0, y: 0, width: w / 8, height: h / 8, flags: 0, parent: 0, walkX: 0, walkY: 0, actorDir: 0 },
     imhd: { objId: id, numImages: 1, flags: 0, x, y, width: w, height: h },
-    images: new Map([[state, { state, indexed, zPlane }]]),
+    images: new Map([[state, { state, indexed, zPlanes }]]),
     name: `obj${id}`,
     verbs: new Map(),
   };
@@ -687,5 +691,42 @@ describe('composeFrame — drawn-object z-planes occlude z-clipped actors', () =
       objectDrawQueue: [1], getObjectState: () => 1,
     });
     expect(fb[1 * 8 + 1]).toBe(0x99); // actor drew over the object
+  });
+
+  it('an object z-plane targets its own plane: ZP02 occludes clip-2, not clip-1', () => {
+    // MI1 general store: the sword's mask lives only in ZP02 (plane 2). The
+    // clip-1 ego at the shelf must pass IN FRONT of it; the clip-2 shopkeeper
+    // behind. Collapsing both into plane 1 (the old bug) clipped the ego.
+    const zMask = new Uint8Array(8 * 4); zMask.fill(1);
+    const makeRoomWithSword = () => {
+      const room = makeRoom(8, 4, 0x10); // no room planes of its own
+      const obj = makeObject(1, 0, 0, 8, 4, 0x20, 1, zMask, /*planeIndex*/ 1); // ZP02
+      (room.objects as Map<number, LoadedObject>).set(1, obj);
+      return room;
+    };
+
+    // clip-1 actor (ego) — tests plane 1, which the object never touches → drawn.
+    const fb1 = new Uint8Array(8 * 4);
+    const ego = makeActorAt(2, 1, 1, 1);
+    ego.anim = activeLimb0Anim();
+    ego.forceClip = 1;
+    composeFrame({
+      room: makeRoomWithSword(), framebuffer: fb1, actors: [ego],
+      getCostume: () => makeOneFrameCostume({ frameW: 2, frameH: 2, pixelIdx: 1, clutIdx: 0x99 }),
+      objectDrawQueue: [1], getObjectState: () => 1,
+    });
+    expect(fb1[1 * 8 + 1]).toBe(0x99); // ego drew in front of the ZP02 sword
+
+    // clip-2 actor (shopkeeper) — tests plane 2, where the sword's mask sits → hidden.
+    const fb2 = new Uint8Array(8 * 4);
+    const shopkeeper = makeActorAt(3, 1, 1, 1);
+    shopkeeper.anim = activeLimb0Anim();
+    shopkeeper.forceClip = 2;
+    composeFrame({
+      room: makeRoomWithSword(), framebuffer: fb2, actors: [shopkeeper],
+      getCostume: () => makeOneFrameCostume({ frameW: 2, frameH: 2, pixelIdx: 1, clutIdx: 0x99 }),
+      objectDrawQueue: [1], getObjectState: () => 1,
+    });
+    expect([...fb2].some((v) => v === 0x99)).toBe(false); // shopkeeper hidden by ZP02
   });
 });

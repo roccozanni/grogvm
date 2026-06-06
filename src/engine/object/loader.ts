@@ -85,14 +85,19 @@ export interface ObjectImage {
   /** `width × height` palette indices, decoded from the IMxx's SMAP. */
   readonly indexed: Uint8Array;
   /**
-   * The object's own z-plane (the OR of the IMxx's `ZP##` blocks), sized
-   * to the object's `imhd.width × imhd.height`, or `null` if the image
-   * has none. When the object is drawn, this mask makes the object a
-   * foreground that occludes z-clipped actors (e.g. the MI1 title logo
-   * occludes the drifting clouds). Positioned at the object's
-   * `imhd.x / imhd.y`. Width is always a multiple of 8.
+   * The object's own z-planes, one per `ZP##` block, indexed by plane
+   * ordinal: `zPlanes[0]` = `ZP01` (clip level 1), `zPlanes[1]` = `ZP02`
+   * (clip level 2), … — the SAME `ZP0k → plane k` mapping the room planes
+   * use. A slot is `null` when that plane is absent or is a solid-fill
+   * placeholder (see the drop in {@link decodeObjectZPlane}); the array is
+   * `[]` when the image has no z-plane at all. When the object is drawn,
+   * each `zPlanes[k-1]` makes the object a foreground that occludes actors
+   * at clip level `k` **alone** (so the title logo's `ZP01` occludes the
+   * clip-1 clouds, and the general-store sword's `ZP02` occludes only the
+   * clip-2 shopkeeper — not the clip-1 ego standing at the shelf).
+   * Positioned at the object's runtime position. Width is a multiple of 8.
    */
-  readonly zPlane: DecodedZPlane | null;
+  readonly zPlanes: ReadonlyArray<DecodedZPlane | null>;
 }
 
 /** A room-object — the OBIM image data paired with its OBCD metadata. */
@@ -263,8 +268,8 @@ function decodeImages(
     if (!smap) continue;
     try {
       const indexed = decodeSmap(payloadOf(file, smap), imhd.width, imhd.height);
-      const zPlane = decodeObjectZPlane(file, child, imhd);
-      images.set(state, { state, indexed, zPlane });
+      const zPlanes = decodeObjectZPlanes(file, child, imhd);
+      images.set(state, { state, indexed, zPlanes });
     } catch {
       // Skip unparsable image variants — keep the others.
     }
@@ -273,39 +278,45 @@ function decodeImages(
 }
 
 /**
- * Decode an IMxx's `ZP##` z-plane(s) into a single foreground mask (the
- * OR of all planes present), sized to the object's dimensions. Returns
- * `null` when the image has no z-plane or its width isn't a multiple of
- * 8 (the z-plane RLE is strip-based and requires it). A z-plane decode
- * failure is swallowed — the object still draws, just without occluding
- * actors.
+ * Decode an IMxx's `ZP##` z-planes into a per-plane array, sized to the
+ * object's dimensions. Each `ZP0k` lands at index `k-1` (so `ZP01`→`[0]`,
+ * `ZP02`→`[1]`) — the same `ZP0k → plane k` mapping the room planes use, so a
+ * drawn object occludes actors at clip level `k` via its `ZP0k` **alone**
+ * (matching the single-plane rule). Collapsing every chunk into one mask was
+ * the bug: MI1's general-store sword (#388) carries its mask only in `ZP02`,
+ * so merging it into plane 1 wrongly clipped the clip-1 ego standing at the
+ * shelf, while never occluding the clip-2 shopkeeper it should.
  *
- * A **fully-set** mask (every bit 1, covering the whole bounding box) is also
- * dropped: that's a solid-fill placeholder, not a foreground silhouette, so it
- * must not occlude actors. MI1's forest (room 58) "il sentiero" path trunks
- * carry such masks — ego walks *in front* of them — whereas genuine foreground
- * occluders (the forest foliage, the title logo) ship shaped, partial masks.
+ * Returns `[]` when the width isn't a multiple of 8 (the strip-based RLE
+ * requires it) or there are no `ZP##` blocks. A per-plane slot is `null` when
+ * that plane fails to decode (swallowed — the object still draws) or is a
+ * **fully-set** mask: every bit 1 over the whole box is a solid-fill
+ * placeholder, not a foreground silhouette, and must not occlude. MI1's forest
+ * "il sentiero" path trunks carry such all-1s `ZP01` masks — ego walks *in
+ * front* of them — whereas genuine occluders (forest foliage, the title logo)
+ * ship shaped, partial masks. The drop is per-plane and independent of the
+ * `ZP0k → plane k` targeting.
  */
-function decodeObjectZPlane(
+function decodeObjectZPlanes(
   file: ResourceFile,
   imBlock: Block,
   imhd: IMHD,
-): DecodedZPlane | null {
-  if (imhd.width % 8 !== 0) return null;
-  let merged: DecodedZPlane | null = null;
+): Array<DecodedZPlane | null> {
+  if (imhd.width % 8 !== 0) return [];
+  const planes: Array<DecodedZPlane | null> = [];
   for (const child of imBlock.children ?? []) {
-    if (!/^ZP[0-9A-F]{2}$/.test(child.tag)) continue;
+    const match = /^ZP([0-9A-F]{2})$/.exec(child.tag);
+    if (!match) continue;
+    const idx = parseInt(match[1]!, 16) - 1; // ZP01 → plane index 0
+    if (idx < 0) continue;
     try {
       const plane = decodeZPlane(payloadOf(file, child), imhd.width, imhd.height);
-      if (!merged) {
-        merged = { width: plane.width, height: plane.height, mask: plane.mask.slice() };
-      } else {
-        for (let i = 0; i < merged.mask.length; i++) merged.mask[i]! |= plane.mask[i]!;
-      }
+      // A fully-set plane is a solid-fill placeholder — drop it (it must not
+      // occlude). Other planes keep their authored silhouette.
+      planes[idx] = plane.mask.every((b) => b !== 0) ? null : plane;
     } catch {
-      // Skip an unparsable plane; keep any others.
+      planes[idx] = null; // unparsable plane — object still draws
     }
   }
-  if (merged && merged.mask.every((b) => b !== 0)) return null;
-  return merged;
+  return planes;
 }

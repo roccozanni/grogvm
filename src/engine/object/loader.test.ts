@@ -230,7 +230,7 @@ describe('parseRoomObjects', () => {
     const obcd = block('OBCD', block('CDHD', cdhdBody({ objId: 70 })));
     const file = makeFile(block('ROOM', concat(obim, obcd)));
     const obj = parseRoomObjects(file, file.tree[0]!).get(70)!;
-    const zp = obj.images.get(1)!.zPlane;
+    const zp = obj.images.get(1)!.zPlanes[0]; // ZP01 → plane index 0
     expect(zp).not.toBeNull();
     expect(zp!.mask[0]).toBe(1); // left columns set
     expect(zp!.mask[7]).toBe(0); // right columns clear
@@ -246,7 +246,29 @@ describe('parseRoomObjects', () => {
     const obcd = block('OBCD', block('CDHD', cdhdBody({ objId: 71 })));
     const file = makeFile(block('ROOM', concat(obim, obcd)));
     const obj = parseRoomObjects(file, file.tree[0]!).get(71)!;
-    expect(obj.images.get(1)!.zPlane).toBeNull();
+    expect(obj.images.get(1)!.zPlanes[0] ?? null).toBeNull();
+  });
+
+  it('targets each ZP## to its own plane (ZP01 empty + shaped ZP02 → plane 2 only)', () => {
+    // MI1's general-store sword (#388) carries its mask only in ZP02: faithfully
+    // it occludes a clip-2 actor but not the clip-1 ego at the shelf. The loader
+    // must keep ZP01 and ZP02 in distinct slots, not OR them into one plane.
+    const obim = block('OBIM', concat(
+      block('IMHD', imhdBody({ objId: 72, numImages: 1, x: 0, y: 0, width: 8, height: 4 })),
+      block('IM01', concat(
+        block('SMAP', smapBody(8, 4, 0x10)),
+        block('ZP01', zpBody(8, 4, 0x00)), // empty plane 1
+        block('ZP02', zpBody(8, 4, 0xf0)), // shaped plane 2
+      )),
+    ));
+    const obcd = block('OBCD', block('CDHD', cdhdBody({ objId: 72 })));
+    const file = makeFile(block('ROOM', concat(obim, obcd)));
+    const planes = parseRoomObjects(file, file.tree[0]!).get(72)!.images.get(1)!.zPlanes;
+    // ZP01 decodes to an all-zero plane (not the all-1s solid-fill case), so it
+    // is kept but masks nothing; ZP02 is the shaped occluder at index 1.
+    expect(planes[0]!.mask.every((b) => b === 0)).toBe(true);
+    expect(planes[1]!.mask[0]).toBe(1);
+    expect(planes[1]!.mask[7]).toBe(0);
   });
 
   it('skips orphan OBCD without a matching OBIM', () => {

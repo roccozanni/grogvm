@@ -325,6 +325,12 @@ In rough order of "what hits you first":
     object's z-plane is fully set (a solid-fill mask, not a silhouette)
     and wasn't dropped. The loader drops all-1s **object** z-planes; only
     shaped masks occlude. Room 58's path trunks are the case.
+11. **A drawn object hides a floor (clip-1) actor it shouldn't** → the
+    object's mask lives in `ZP02` (plane 2) but was OR'd into plane 1 (the
+    old single-plane collapse). An object `ZP0k` targets plane `k` alone, so
+    only a clip-`k` actor is masked by it. The general-store wall items
+    (room 30) are the case — `ZP01` empty, mask in `ZP02`. See "Each ZP##
+    targets its own plane".
 
 ---
 
@@ -463,18 +469,38 @@ object #109, a 224×120 image with an 8739-bit z-plane, ~33% set) sits in *front
 of the drifting cloud actors (room 10's costume-59 clouds at
 `forceClip = 1` → `actorZ = 0`, hidden where the logo's mask is set).
 
-- The object loader decodes the OR of an `IMxx`'s `ZP##` blocks into a
-  single object z-plane mask (sized to the object's `imhd.width × height`;
-  width must be a multiple of 8, else skipped).
-- The compositor ORs each **drawn** object's z-plane into the frontmost
-  plane (index 1), then composites actors against that merged set. A
-  z-clipped actor (`forceClip > 0` / box-mask ≥ 1, `actorZ = 0`) is hidden
-  behind it; an in-front actor (`neverZclip` class / `actorZ = effective
-  plane count`) is not.
+- The object loader decodes **each** `ZP0k` chunk of an `IMxx` into its own
+  plane, indexed by ordinal (`ZP01` → plane 1, `ZP02` → plane 2, …) — the
+  same `ZP0k → plane k` mapping the room planes use (sized to the object's
+  `imhd.width × height`; width must be a multiple of 8, else skipped). It
+  does **not** OR the chunks into one mask — see "Each ZP## targets its own
+  plane" below for why that was wrong.
+- The compositor ORs each **drawn** object's `ZP0k` into room plane `k` at
+  the object's runtime position, then applies the single-plane rule: a
+  clip-`k` actor is masked by plane `k` alone. So a `forceClip = 1` /
+  box-mask-1 actor is hidden behind an object's `ZP01` but **not** its
+  `ZP02`; an in-front actor (`neverZclip` class / `actorZ = effective plane
+  count`) by neither. If an object targets a plane the room itself lacks,
+  the merged stack is extended so a clip-`k` actor still has a plane `k` to
+  test.
 - The z-plane — not the object's image opacity — is the occlusion
   authority (faithful to SCUMM), so a few title *edge* pixels the
   authored mask doesn't cover can still show a cloud; that matches the
   original's masking.
+
+### Each ZP## targets its own plane — not a single merged foreground
+
+A multi-`ZP##` object is a depth ledger just like a multi-plane room: its
+`ZP0k` describes the foreground for actors at clip level `k` *alone*.
+**MI1's general store (room 30)** is the case that forces this. The wall
+items — the sword (#388), shovel (#396), safe (#389), handle (#390) — carry
+their occlusion mask **only in `ZP02`** (their `ZP01` is empty). The clip-2
+shopkeeper passes behind them; the clip-1 ego, who walks to the shelf to buy
+them, must pass *in front*. Merging every object chunk into plane 1 (the old
+behaviour) clipped 125 px of ego's upper body behind the sword and never
+occluded the clip-2 shopkeeper it should have. Targeting `ZP0k → plane k`
+fixes both directions. (Most MI1 objects carry a single `ZP01`, so this only
+changes the ~80 multi-`ZP##` objects in rooms 7, 8, 30, 59, 69, 70.)
 
 ### At the object's *current* position, not its design x/y
 

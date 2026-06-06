@@ -176,10 +176,11 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
 
   // Objects — drawn between bg and actors. SCUMM uses TRNS-indexed
   // transparency on object SMAPs (same convention as the room bg).
-  // A drawn object's own z-plane (if any) makes it a foreground that occludes
-  // actors behind it (the rock/trunks in room 58, the title logo) — collected
-  // here at the object's runtime position, merged into the room planes below.
-  const fgPlanes: Array<{ x: number; y: number; plane: DecodedZPlane }> = [];
+  // A drawn object's own z-planes (if any) make it a foreground that occludes
+  // actors behind it (the trunks/foliage in room 58, the title logo, the
+  // general-store wall items) — collected here at the object's runtime
+  // position with their plane ordinal, merged into the room planes below.
+  const fgPlanes: Array<{ x: number; y: number; planeIndex: number; plane: DecodedZPlane }> = [];
   if (objectDrawQueue) {
     for (const objId of objectDrawQueue) {
       const obj = room.objects.get(objId);
@@ -207,11 +208,14 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
       const left = pos?.x ?? obj.imhd.x;
       const top = pos?.y ?? obj.imhd.y;
       drawObjectImage(framebuffer, room.width, room.height, obj, image.indexed, room.transparentIndex, left, top);
-      // The object draws regardless; its z-plane (if any) makes it a foreground
-      // that occludes actors. A fully-set mask is a solid-fill placeholder, not
-      // a silhouette, and the loader drops it (image.zPlane === null) so the
-      // forest path trunks don't bury ego — see the object z-plane decoder.
-      if (image.zPlane) fgPlanes.push({ x: left, y: top, plane: image.zPlane });
+      // The object draws regardless; its z-planes (if any) make it a foreground
+      // that occludes actors. Each ZP0k targets plane k alone (the single-plane
+      // rule): the title logo's ZP01 hides the clip-1 clouds; the store sword's
+      // ZP02 hides only the clip-2 shopkeeper, not the clip-1 ego at the shelf.
+      // Solid-fill planes were dropped by the loader (forest path trunks).
+      image.zPlanes.forEach((plane, planeIndex) => {
+        if (plane) fgPlanes.push({ x: left, y: top, planeIndex, plane });
+      });
       objectsDrawn++;
     }
   }
@@ -318,15 +322,6 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
 }
 
 /**
- * Build the actor-occlusion z-plane set: a copy of the room's planes
- * with each drawn object's z-plane OR'd into the frontmost plane
- * (index 1, i.e. `planes[0]`) at the object's position. The frontmost
- * plane is where a room's static foreground lives, so merging there
- * lets a drawn foreground object occlude the same z-clipped actors the
- * room foreground does. Planes index 2+ are passed through untouched.
- * If the room has no planes, a fresh foreground plane is created.
- */
-/**
  * Resolve an actor's z-clip level — the 1-based z-plane (`ZP0k`) that
  * masks it, SCUMM's `_zbuf`. 0 = in front of every plane (no masking).
  * Mirrors SCUMM's `zbuf = _forceClip ? _forceClip : (neverClipClass ? 0
@@ -379,19 +374,27 @@ function resolveClipPlane(
 }
 
 /**
- * OR each drawn object's z-plane into the room's frontmost plane at the
- * object's (runtime) position, returning the effective plane stack for actor
- * occlusion. A box-mask / forceClip actor at clip level 1 is then masked by the
- * room foreground PLUS the drawn foreground (rock, trunks, logo).
+ * OR each drawn object's z-plane into the room plane it *targets* — `ZP0k`
+ * into plane `k` (`planeIndex` k-1) at the object's runtime position —
+ * returning the effective plane stack for actor occlusion. This mirrors the
+ * room planes' own `ZP0k → plane k` mapping, so the single-plane rule holds for
+ * drawn objects too: a clip-`k` actor is masked by the room foreground PLUS the
+ * drawn foreground *of plane k alone*. If an object targets a plane the room
+ * doesn't have, the stack is extended so a clip-`k` actor has a `planes[k-1]`
+ * to test (the general-store sword's `ZP02` occludes the clip-2 shopkeeper even
+ * where the room defines no plane 2).
  */
 function mergeForeground(
   room: LoadedRoom,
-  fgPlanes: ReadonlyArray<{ x: number; y: number; plane: DecodedZPlane }>,
+  fgPlanes: ReadonlyArray<{ x: number; y: number; planeIndex: number; plane: DecodedZPlane }>,
 ): readonly DecodedZPlane[] {
   const w = room.width, h = room.height;
-  const base = room.zPlanes[0];
-  const mask = base ? base.mask.slice() : new Uint8Array(w * h);
-  for (const { x, y, plane } of fgPlanes) {
+  const maxIdx = Math.max(room.zPlanes.length - 1, ...fgPlanes.map((p) => p.planeIndex));
+  // One mutable mask per plane index, seeded from the room's plane (or empty).
+  const masks: Uint8Array[] = [];
+  for (let i = 0; i <= maxIdx; i++) masks[i] = room.zPlanes[i] ? room.zPlanes[i]!.mask.slice() : new Uint8Array(w * h);
+  for (const { x, y, planeIndex, plane } of fgPlanes) {
+    const mask = masks[planeIndex]!;
     for (let py = 0; py < plane.height; py++) {
       const fy = y + py;
       if (fy < 0 || fy >= h) continue;
@@ -403,8 +406,7 @@ function mergeForeground(
       }
     }
   }
-  const merged: DecodedZPlane = { width: w, height: h, mask };
-  return [merged, ...room.zPlanes.slice(1)];
+  return masks.map((mask) => ({ width: w, height: h, mask }));
 }
 
 /**
