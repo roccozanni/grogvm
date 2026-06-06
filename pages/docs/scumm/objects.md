@@ -24,6 +24,8 @@ dropped — the compositor has nothing to draw for an orphan.
 - Cross-checked against MI1 room 10's six objects (the title-screen
   artwork at obj 109 + five 16×32 placeholder sprites at obj 110-114).
 
+---
+
 ## 1. Where they live
 
 ```

@@ -11,13 +11,6 @@ This document covers the cutscene bracket, the `freezeScripts`
 mechanism it leans on, and the *override* path that lets the player skip
 a cutscene.
 
-## Sources
-
-- ScummVM's `o5_cutscene` / `o5_endCutscene` / `beginCutscene` /
-  `endCutscene` / `abortCutscene` for the engine bracket and the
-  override semantics; MI1 bytecode (cutscene start/end scripts `#18` /
-  `#19`) for what the hook scripts actually do.
-
 ---
 
 ## 1. The bracket: `cutscene` / `endCutscene`

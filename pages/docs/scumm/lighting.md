@@ -6,12 +6,6 @@ variable, **`VAR_CURRENT_LIGHTS`** (g9). It is both a rendering hint
 a piece of game state scripts branch on (a dark room answers "Look at"
 with "it's too dark to see").
 
-## Sources
-
-- ScummVM's `resetScummVars` (the reset default) and `o5_lights` (the
-  opcode), plus MI1 bytecode for how the dark-room gate reads the
-  variable. The flag values are the documented SCUMM lightmode bits.
-
 ---
 
 ## 1. The light-mode flags

@@ -15,13 +15,6 @@ commit.** Everything below was derived by tracing MI1's scripts; the
 script numbers (`#4`, `#23`, `#2`, …) and global indices (`g107`,
 `g108`, …) are MI1-specific, but the *mechanism* is the v5 engine's.
 
-## Sources
-
-- ScummVM's `checkExecVerbs` / `runInputScript` (the engine side of the
-  click dispatch) for the contract; MI1 bytecode (`scripts #2`, `#4`,
-  `#9`, `#23`) for everything the game does with it. Variable indices
-  are the canonical v5 system-var table plus MI1's game globals.
-
 ---
 
 ## 1. Cursor and user-input state

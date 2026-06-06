@@ -19,6 +19,8 @@ in `cost.md`.
 Where the public specs disagree with what real MI1 data decodes to, the data is
 the source of truth and the correction is noted here.
 
+---
+
 ## The −6 offset base
 
 Every offset stored inside a `COST` block — `animOffsets[id]`, the anim-command

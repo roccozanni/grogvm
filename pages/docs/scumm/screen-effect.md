@@ -3,15 +3,6 @@
 How room-transition fades are requested, what MI1 actually uses, and why
 only the effect *state* — not the transition animation — is modelled.
 
-## Sources
-
-- The MI1 bytecode itself (disassembled).
-- The documented v5 opcode shape (`SO_ROOM_FADE`): a single var-or-word
-  operand, split into two effect numbers.
-- The exact effect-number → animation mapping is not documented in any
-  public prose source (wiki, blogs); it lives only in the original engine's
-  transition code, which project policy does not transcribe.
-
 ## 1. The opcode
 
 `roomOps` (0x33) sub-op **0x0A** is `SO_ROOM_FADE`. It reads **one**

@@ -22,6 +22,8 @@ and the per-byte field interpretation is consistent with the way
 the SCAL block and `actorOps SO_IGNORE_BOXES` opcode reference
 these fields.
 
+---
+
 ## 1. Where they live
 
 ```

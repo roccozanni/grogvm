@@ -7,10 +7,13 @@ infrastructure* — byte encoding, param-mode bits, var-ref scope, the
 expression mini-VM, branch semantics). When implementing or decoding an
 opcode, check the encoding here rather than guessing.
 
-**Source:** <https://wiki.scummvm.org/index.php?title=SCUMM/V5_opcodes>
-(the live wiki is behind anti-bot protection; this is a verbatim
-transcription). Cross-check decoded bytecode against real MI1 when a
+## Sources
+
+- ScummVM Technical Reference — OpCodes, at <https://wiki.scummvm.org/index.php?title=SCUMM/V5_opcodes>
+- Cross-check decoded bytecode against real MI1 when a
 layout is ambiguous.
+
+---
 
 ## Encoding notation
 

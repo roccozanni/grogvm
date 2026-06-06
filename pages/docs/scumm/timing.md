@@ -59,9 +59,7 @@ tick():                       // one jiffy (1/60 s)
 - The shell loop ticks at 60 Hz (jiffies); idle / all-dead detection only
   evaluates on **framed** jiffies, so a stable wait-loop isn't counted 6×
   per frame.
-- `delay N` decrements per jiffy, so it stays wall-accurate. (ScummVM
-  decrements by the elapsed-jiffy count once per frame; per-jiffy here is
-  finer-grained but the wall-time result is the same.)
+- `delay N` decrements per jiffy, so it stays wall-accurate.
 - Walk speed (`8 px` x / `2 px` y per **frame**) × ~10 fps ≈ 80 px/s —
   a 320-px room in ~4 s, the right feel. At 60 Hz it was ~480 px/s.
 

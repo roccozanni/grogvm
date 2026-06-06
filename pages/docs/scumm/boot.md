@@ -8,11 +8,6 @@ covers what the engine must seed before `#1` runs, and the one
 non-obvious mechanic by which MI1's intro flows from the credits into
 the first playable room.
 
-## Sources
-
-- ScummVM's `resetScummVars` for the engine-seeded variables; MI1 boot
-  bytecode (`#1`) for the start flow and the copy-protection check.
-
 ---
 
 ## 1. Engine-seeded variables
@@ -33,8 +28,7 @@ MI1's reset also writes one game-specific magic value: variable **74 =
 1225**. This is the size, in sectors, of audio track 2 on the original
 CD-ROM. The copy-protection script reads it and quits if it is outside
 the expected range (roughly 1200–1250). With no physical CD, an engine
-seeds the known-good `1225` so the check passes. (This is the same value
-ScummVM's reset writes for Monkey Island; `74` is `0x4A`.)
+seeds the known-good `1225` so the check passes.
 
 ## 2. The boot script
 
