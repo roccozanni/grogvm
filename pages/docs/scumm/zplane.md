@@ -513,18 +513,27 @@ composed by repositioning a shared set of tile objects, so an object's
 z-plane must occlude where the object actually draws, not at its design
 `imhd.x/y`.
 
-### A fully-set mask doesn't occlude — it's a solid fill, not a silhouette
+### A fully-set object mask is dropped (⚠️ tentative heuristic)
 
-A genuine foreground occluder is a *shaped* mask (the title logo is ~33%
-set; the forest's foreground foliage ~40–53%) — it has transparency
-around the silhouette. An object z-plane that is **fully set** (every bit
-1, the whole bounding box) is not a silhouette but a solid-fill
-placeholder, and the loader **drops it** (decodes to no z-plane) so it
-never occludes actors. Room 58's "il sentiero" path trunks (objs
-685/686/687) carry exactly such all-1s masks: ego walks *in front* of
-them, while the shaped foliage masks (671/673) still occlude it. Without
-the drop, every path trunk buried ego wherever it overlapped.
+Genuine foreground occluders are *shaped* masks (the title logo ~33% set;
+the forest foliage ~40–53%) — transparency around the silhouette. An object
+z-plane that is **fully set** (every bit 1 over the whole bounding box) is
+**dropped** by the loader (decodes to no plane) so it never occludes actors.
+Room 58's "il sentiero" path trunks (objs 685/686/687) carry such all-1s
+masks: ego walks *in front* of them, while the shaped foliage masks (671/673)
+still occlude. Without the drop, every path trunk buried ego wherever it
+overlapped.
 
-> This drop applies to **object** z-planes only. Room z-planes (`ZP01`…)
-> are the room's authored foreground and are never dropped — a room plane
-> can legitimately be dense.
+> ⚠️ **This drop is a heuristic, not a confirmed engine rule.** It keys on the
+> only signal that separates occluders from non-occluders in MI1 — object masks
+> are cleanly bimodal (shaped <95% vs solid 100%, nothing between; the 36 solid
+> ones are all non-occluders: the forest path, the store door, levers, the
+> vase). But *why* the original engine ignores a fully-solid object z-plane is
+> unknown — the answer is in its object-mask write path. Ruled out as the cause
+> (object class, the `ZP0k → plane k` index, image transparency — the trunks are
+> opaque color-0, not transparent — and the actor's walk-box clip plane), so a
+> future object-occlusion oddity should suspect *this drop* before those.
+
+> The drop applies to **object** z-planes only. Room z-planes (`ZP01`…) are the
+> room's authored foreground and are never dropped — a room plane can
+> legitimately be dense.
