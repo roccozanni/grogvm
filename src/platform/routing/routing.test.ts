@@ -19,9 +19,10 @@ describe('gameParam', () => {
 });
 
 describe('hrefs', () => {
-  it('build path-based hrefs with the game in the query', () => {
-    expect(playHref('MI1')).toBe('/play/?game=MI1');
-    expect(exploreHref('MI1')).toBe('/explore/?game=MI1');
+  it('build path-based hrefs with the install id in the query', () => {
+    const id = '3f9a1c2e-0000-4000-8000-000000000000';
+    expect(playHref(id)).toBe(`/play/?game=${id}`);
+    expect(exploreHref(id)).toBe(`/explore/?game=${id}`);
     expect(libraryHref).toBe('/library/');
   });
 

@@ -1,9 +1,20 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { addGame, listGames, removeGame, findInstalledGame } from './games';
+import { addGame, listGames, removeGame, findGameByHash, type StoredGame } from './games';
 
 function fakeHandle(name: string): FileSystemDirectoryHandle {
   return { kind: 'directory', name } as unknown as FileSystemDirectoryHandle;
+}
+
+function gameArg(over: Partial<Omit<StoredGame, 'id' | 'installedAt'>> = {}) {
+  return {
+    gameId: 'MI1' as const,
+    displayName: 'The Secret of Monkey Island',
+    contentHash: 'hash-en',
+    variant: 'English',
+    directoryHandle: fakeHandle('MI1'),
+    ...over,
+  };
 }
 
 async function resetDb(): Promise<void> {
@@ -23,11 +34,7 @@ describe('games storage', () => {
   });
 
   it('adds and lists a game', async () => {
-    const stored = await addGame({
-      gameId: 'MI1',
-      displayName: 'The Secret of Monkey Island',
-      directoryHandle: fakeHandle('MI1'),
-    });
+    const stored = await addGame(gameArg());
 
     expect(stored.id).toBeTruthy();
     expect(stored.installedAt).toBeGreaterThan(0);
@@ -35,48 +42,43 @@ describe('games storage', () => {
     const list = await listGames();
     expect(list).toHaveLength(1);
     expect(list[0]!.gameId).toBe('MI1');
-    expect(list[0]!.displayName).toBe('The Secret of Monkey Island');
+    expect(list[0]!.variant).toBe('English');
+    expect(list[0]!.contentHash).toBe('hash-en');
   });
 
   it('removes a game', async () => {
-    const stored = await addGame({
-      gameId: 'MI1',
-      displayName: 'X',
-      directoryHandle: fakeHandle('X'),
-    });
+    const stored = await addGame(gameArg());
     await removeGame(stored.id);
     expect(await listGames()).toEqual([]);
   });
 
-  it('stores multiple games independently', async () => {
-    await addGame({ gameId: 'MI1', displayName: 'MI1', directoryHandle: fakeHandle('a') });
-    await addGame({ gameId: 'MI2', displayName: 'MI2', directoryHandle: fakeHandle('b') });
+  it('stores two language variants of the same game independently', async () => {
+    await addGame(gameArg({ contentHash: 'hash-en', variant: 'English', directoryHandle: fakeHandle('en') }));
+    await addGame(gameArg({ contentHash: 'hash-it', variant: 'Italiano', directoryHandle: fakeHandle('it') }));
     const list = await listGames();
     expect(list).toHaveLength(2);
-    expect(list.map((g) => g.gameId).sort()).toEqual(['MI1', 'MI2']);
+    // Same gameId, distinct installs.
+    expect(list.map((g) => g.gameId)).toEqual(['MI1', 'MI1']);
+    expect(list.map((g) => g.variant).sort()).toEqual(['English', 'Italiano']);
   });
 });
 
-describe('findInstalledGame', () => {
+describe('findGameByHash', () => {
   beforeEach(resetDb);
 
-  it('returns undefined when no game with that id is installed', async () => {
-    expect(await findInstalledGame('MI1')).toBeUndefined();
+  it('returns undefined when no game with that hash is installed', async () => {
+    expect(await findGameByHash('hash-en')).toBeUndefined();
   });
 
-  it('returns the installed game when present', async () => {
-    const stored = await addGame({
-      gameId: 'MI1',
-      displayName: 'MI1',
-      directoryHandle: fakeHandle('a'),
-    });
-    const found = await findInstalledGame('MI1');
+  it('returns the installed game with the matching content hash', async () => {
+    const stored = await addGame(gameArg({ contentHash: 'hash-en' }));
+    const found = await findGameByHash('hash-en');
     expect(found?.id).toBe(stored.id);
   });
 
-  it('only matches the requested gameId', async () => {
-    await addGame({ gameId: 'MI2', displayName: 'MI2', directoryHandle: fakeHandle('b') });
-    expect(await findInstalledGame('MI1')).toBeUndefined();
-    expect((await findInstalledGame('MI2'))?.gameId).toBe('MI2');
+  it('does not match a different content hash (so EN and IT coexist)', async () => {
+    await addGame(gameArg({ contentHash: 'hash-en', variant: 'English' }));
+    expect(await findGameByHash('hash-it')).toBeUndefined();
+    expect((await findGameByHash('hash-en'))?.variant).toBe('English');
   });
 });

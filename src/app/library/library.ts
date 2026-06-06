@@ -77,9 +77,9 @@ function renderGameRow(app: App, game: StoredGame): HTMLElement {
     <button class="remove secondary">Remove</button>
   `;
   li.querySelector('.name')!.textContent = game.displayName;
-  li.querySelector('.game-id')!.textContent = game.gameId;
-  li.querySelector<HTMLAnchorElement>('.play')!.href = playHref(game.gameId);
-  li.querySelector<HTMLAnchorElement>('.explore')!.href = exploreHref(game.gameId);
+  li.querySelector('.game-id')!.textContent = game.variant;
+  li.querySelector<HTMLAnchorElement>('.play')!.href = playHref(game.id);
+  li.querySelector<HTMLAnchorElement>('.explore')!.href = exploreHref(game.id);
 
   li.querySelector('.remove')!.addEventListener('click', () => {
     void (async () => {

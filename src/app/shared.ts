@@ -19,10 +19,10 @@ export function mountPage(root: HTMLElement, render: (root: HTMLElement) => void
   render(root);
 }
 
-/** Resolve a `?game=` value (a GameId like "MI1") to its stored install. */
-export async function findInstalledByGameId(rawGameId: string): Promise<StoredGame | null> {
+/** Resolve a `?game=` value (the per-install UUID) to its stored install. */
+export async function findInstalledById(installId: string): Promise<StoredGame | null> {
   const games = await listGames();
-  return games.find((g) => g.gameId === rawGameId) ?? null;
+  return games.find((g) => g.id === installId) ?? null;
 }
 
 /** A "nothing to show here" message with a link back to the library. */

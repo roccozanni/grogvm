@@ -56,7 +56,7 @@ async function mountGame(game: StoredGame, main: HTMLElement, onBack: () => void
 
   // The Debug panel shares this session (live VM inspection below the game,
   // always visible — it's a learning tool).
-  const debug = mountDebugPanel(session, game.gameId);
+  const debug = mountDebugPanel(session, game.id, game.variant);
 
   // Overlays are re-mounted on a dimension change OR when the session swaps in
   // a new VM (quick-load / reboot adopt a fresh VM). The overlays + input
@@ -126,11 +126,11 @@ async function mountGame(game: StoredGame, main: HTMLElement, onBack: () => void
     onBack();
   };
   const save = (): void => {
-    writeSave(game.gameId, QUICK_SLOT, session.snapshot(QUICK_SLOT));
+    writeSave(game.id, QUICK_SLOT, session.snapshot(QUICK_SLOT));
     status.textContent = 'Quick-saved.';
   };
   const load = (): void => {
-    const snap = readSave(game.gameId, QUICK_SLOT);
+    const snap = readSave(game.id, QUICK_SLOT);
     if (!snap) {
       status.textContent = 'No quicksave yet.';
       return;

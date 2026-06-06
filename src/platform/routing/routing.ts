@@ -3,10 +3,12 @@
  *
  * Page identity is the PATH — `/library/`, `/explore/`, `/play/` are real
  * built HTML entries (see vite.config.ts), so refresh + deep-link work with
- * no server. The only per-client parameter, the installed-game id, rides in
- * the QUERY STRING (`?game=MI1`): the static host ignores it, the page reads
- * it here. Game deep-links resolve only on the browser profile that installed
- * that game — an accepted property of a local-files app.
+ * no server. The only per-client parameter, the install id, rides in the QUERY
+ * STRING (`?game=<install-uuid>`): the static host ignores it, the page reads
+ * it here. It's the per-install UUID, not the engine gameId, because two
+ * language variants share a gameId (`MI1`) but are distinct installs. Game
+ * deep-links resolve only on the browser profile that installed that game — an
+ * accepted property of a local-files app.
  *
  * Pure helpers (no DOM) so they're unit-testable in Node; `currentGameParam`
  * is the only one that touches `location`.
@@ -26,10 +28,10 @@ export function currentGameParam(): string | null {
 /** The library screen — where Explore/Play return to (you install/select there first). */
 export const libraryHref = '/library/';
 
-export function playHref(game: string): string {
-  return `/play/?game=${encodeURIComponent(game)}`;
+export function playHref(installId: string): string {
+  return `/play/?game=${encodeURIComponent(installId)}`;
 }
 
-export function exploreHref(game: string): string {
-  return `/explore/?game=${encodeURIComponent(game)}`;
+export function exploreHref(installId: string): string {
+  return `/explore/?game=${encodeURIComponent(installId)}`;
 }

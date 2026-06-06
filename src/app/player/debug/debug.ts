@@ -12,7 +12,6 @@
  */
 import { signal, bindText, el, createRoot, onCleanup } from '../../reactive';
 import type { EngineSession } from '../../../engine/session';
-import type { GameId } from '../../../platform/detect';
 import type { ClickEvent } from '../input';
 import {
   renderLive,
@@ -31,7 +30,14 @@ export interface DebugPanel {
   dispose(): void;
 }
 
-export function mountDebugPanel(session: EngineSession, gameId: GameId): DebugPanel {
+// saveKey namespaces this install's save slots (the per-install UUID, so two
+// language variants don't share slots); saveLabel is the human prefix for
+// exported-save filenames.
+export function mountDebugPanel(
+  session: EngineSession,
+  saveKey: string,
+  saveLabel: string,
+): DebugPanel {
   // InspectorState backing the reused panels. Loop-internal fields are stubbed
   // (the session owns the loop); the meaningful display fields are refreshed
   // from session state each frame.
@@ -77,7 +83,8 @@ export function mountDebugPanel(session: EngineSession, gameId: GameId): DebugPa
       saves.replaceChildren(
         renderSavesPanel(
           state,
-          gameId,
+          saveKey,
+          saveLabel,
           (label) => session.snapshot(label),
           (snap) => {
             session.restore(snap);

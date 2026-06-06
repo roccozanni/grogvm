@@ -7,7 +7,6 @@
  * loop / frame / lifecycle that the old god-object used to carry.
  */
 
-import type { GameId } from '../../../engine/vm/boot';
 import { type SaveState } from '../../../engine/vm/savestate';
 import type { ScriptSlot } from '../../../engine/vm/slot';
 import type { HaltInfo, TraceEntry, Vm } from '../../../engine/vm/vm';
@@ -146,7 +145,8 @@ function modString(m: ClickEvent['modifiers']): string {
  */
 export function renderSavesPanel(
   state: InspectorState,
-  gameId: GameId,
+  saveKey: string,
+  saveLabel: string,
   capture: (label: string) => SaveState | null,
   load: (snap: SaveState) => void,
   refresh: () => void,
@@ -186,7 +186,7 @@ export function renderSavesPanel(
       return;
     }
     try {
-      writeSave(gameId, name, snap);
+      writeSave(saveKey, name, snap);
       nameInput.value = '';
       refresh();
     } catch (err) {
@@ -221,7 +221,7 @@ export function renderSavesPanel(
   panel.append(row, status);
 
   // ── Slot list ──
-  const slots = listSaves(gameId);
+  const slots = listSaves(saveKey);
   if (slots.length === 0) {
     const empty = document.createElement('p');
     empty.className = 'vm-empty';
@@ -242,7 +242,7 @@ export function renderSavesPanel(
 
     const loadBtn = button('Load');
     loadBtn.addEventListener('click', () => {
-      const snap = readSave(gameId, meta.name);
+      const snap = readSave(saveKey, meta.name);
       if (snap) {
         load(snap);
       } else {
@@ -253,13 +253,13 @@ export function renderSavesPanel(
 
     const exportBtn = button('Export');
     exportBtn.addEventListener('click', () => {
-      const snap = readSave(gameId, meta.name);
-      if (snap) downloadJson(`${gameId}-${meta.name}.websave.json`, JSON.stringify(snap));
+      const snap = readSave(saveKey, meta.name);
+      if (snap) downloadJson(`${saveLabel}-${meta.name}.websave.json`, JSON.stringify(snap));
     });
 
     const delBtn = button('Delete');
     delBtn.addEventListener('click', () => {
-      deleteSave(gameId, meta.name);
+      deleteSave(saveKey, meta.name);
       refresh();
     });
 

@@ -8,6 +8,13 @@ export interface StoredGame {
   id: string;
   gameId: GameId;
   displayName: string;
+  // SHA-256 of the index file (MONKEY.000). Two language variants of the same
+  // game share a gameId but differ here, so this is the real install identity:
+  // the dedup key, and what tells EN from IT. See platform/detect.ts.
+  contentHash: string;
+  // Human label for the variant ("English", "Italiano", or "variant <hash7>"
+  // for a release not in the known-hash table).
+  variant: string;
   directoryHandle: FileSystemDirectoryHandle;
   installedAt: number;
 }
@@ -50,9 +57,9 @@ export async function listGames(): Promise<StoredGame[]> {
   return withDb('readonly', (store) => request(store.getAll() as IDBRequest<StoredGame[]>));
 }
 
-export async function findInstalledGame(gameId: GameId): Promise<StoredGame | undefined> {
+export async function findGameByHash(contentHash: string): Promise<StoredGame | undefined> {
   const games = await listGames();
-  return games.find((g) => g.gameId === gameId);
+  return games.find((g) => g.contentHash === contentHash);
 }
 
 export async function addGame(

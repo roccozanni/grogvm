@@ -1,6 +1,6 @@
 import type { App } from '../library/app';
-import { addGame, findInstalledGame } from '../../platform/storage/games';
-import { detectGame } from '../../platform/detect';
+import { addGame, findGameByHash } from '../../platform/storage/games';
+import { detectGame, identifyVariant, INDEX_FILENAME } from '../../platform/detect';
 
 export function renderInstall(app: App, error?: string): HTMLElement {
   const container = document.createElement('div');
@@ -65,13 +65,25 @@ async function pickDirectory(app: App): Promise<void> {
     return;
   }
 
-  const existing = await findInstalledGame(detected.gameId);
+  const indexBytes = await readIndexBytes(handle, INDEX_FILENAME[detected.gameId]);
+  if (!indexBytes) {
+    app.navigate({
+      kind: 'install',
+      error: `Could not read ${INDEX_FILENAME[detected.gameId]} in "${handle.name}".`,
+    });
+    return;
+  }
+  const { contentHash, variant } = await identifyVariant(indexBytes);
+
+  // Dedup on content, not gameId: EN and IT are both MI1 but hash differently,
+  // so they coexist; only the literal same copy is rejected.
+  const existing = await findGameByHash(contentHash);
   if (existing) {
     app.navigate({
       kind: 'install',
       error:
-        `${detected.displayName} is already installed (source: "${existing.directoryHandle.name}"). ` +
-        `Remove it from the library first if you want to install from a different directory.`,
+        `That exact copy is already installed as "${existing.variant}" ` +
+        `(source: "${existing.directoryHandle.name}"). Remove it first to re-install.`,
     });
     return;
   }
@@ -79,10 +91,25 @@ async function pickDirectory(app: App): Promise<void> {
   await addGame({
     gameId: detected.gameId,
     displayName: detected.displayName,
+    contentHash,
+    variant,
     directoryHandle: handle,
   });
 
   app.navigate({ kind: 'library' });
+}
+
+async function readIndexBytes(
+  handle: FileSystemDirectoryHandle,
+  indexName: string,
+): Promise<Uint8Array | null> {
+  const target = indexName.toUpperCase();
+  for await (const [name, entry] of handle.entries()) {
+    if (entry.kind === 'file' && name.toUpperCase() === target) {
+      return new Uint8Array(await (await entry.getFile()).arrayBuffer());
+    }
+  }
+  return null;
 }
 
 async function readFilenames(handle: FileSystemDirectoryHandle): Promise<string[]> {

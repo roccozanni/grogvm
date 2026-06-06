@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { detectGame } from './detect';
+import { detectGame, identifyVariant } from './detect';
 
 describe('detectGame', () => {
   it('detects MI1 from MONKEY.000 + MONKEY.001', () => {
@@ -42,5 +42,24 @@ describe('detectGame', () => {
 
   it('does not confuse MI1 with MI2 when both look-alike names appear', () => {
     expect(detectGame(['MONKEY2.000', 'MONKEY2.001'])?.gameId).toBe('MI2');
+  });
+});
+
+describe('identifyVariant', () => {
+  it('hashes the index bytes with SHA-256 (hex)', async () => {
+    // Known SHA-256 of the ASCII bytes "abc".
+    const { contentHash } = await identifyVariant(new TextEncoder().encode('abc'));
+    expect(contentHash).toBe('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+  });
+
+  it('labels an unknown release by hash prefix', async () => {
+    const { variant } = await identifyVariant(new TextEncoder().encode('abc'));
+    expect(variant).toBe('variant ba7816b');
+  });
+
+  it('gives different copies different hashes (so EN and IT stay distinct)', async () => {
+    const a = await identifyVariant(new TextEncoder().encode('english'));
+    const b = await identifyVariant(new TextEncoder().encode('italiano'));
+    expect(a.contentHash).not.toBe(b.contentHash);
   });
 });
