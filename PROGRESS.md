@@ -140,6 +140,15 @@ Priority H/M/L = likelihood of biting current/near play × severity.
   object/actor-name, `0x07` string-resource all expand now.
 - [ ] **L/M — `print` `clipped` line-wrap bound not modelled** (`vm.ts:~524`).
   Long lines may overflow / mis-wrap vs the original's clip-X wrapping.
+- [ ] **L — system `print` text clears on cutscene-end / room-change / overwrite,
+  not the talk timer** (`vm.ts advanceOrEndTalk` + `endCutscene`). Faithful for
+  the known cases (treasure-map close-up room 63 prints the dance steps then
+  waits for a *click* → text must persist; the cook's "Non puoi venire di qui!"
+  clears at its `endCutScene`). The talk timer still only governs actor speech +
+  `VAR_HAVE_MSG`. Regression surface: a non-keepText system `print` during *free
+  gameplay* (no following cutscene-end/room-change/print) would now linger; none
+  in the walkthrough net, but not exhaustively ruled out. SCUMM's real eraser is
+  `restoreCharsetBg` (screen redraw), which we approximate with those triggers.
 - [ ] **L — camera scroll "snap both for now"** (`opcodes/index.ts:~411`) +
   smooth `panCameraTo` (Open backlog). Gradual scroll over frames; no current
   scene validates it.
