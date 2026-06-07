@@ -1377,6 +1377,13 @@ export class Vm {
   endCutscene(): void {
     const frame = this.cutsceneStack.pop();
     this.vars.writeGlobal(Vm.VAR_OVERRIDE, 0);
+    // Ending a cutscene restores the screen (SCUMM's restoreCharsetBg), so a
+    // transient print left up during it is erased now — the cook's kitchen
+    // warning, the map close-up's dance steps. keepText (signs/credits/titles)
+    // survives; it clears only on overwrite or room change.
+    if (this.systemTexts.some((s) => !s.keepText)) {
+      this.systemTexts = this.systemTexts.filter((s) => s.keepText);
+    }
     const endScript = this.vars.readGlobal(Vm.VAR_CUTSCENE_END_SCRIPT);
     if (endScript > 0) {
       try {
@@ -1769,13 +1776,14 @@ export class Vm {
       if (d && d.actorId >= 1 && d.actorId <= this.actors.capacity && !d.keepText) {
         this.activeDialog = null;
       }
-      // Drop finished system text. Only keepText messages (signs, credits, the
-      // "Le tre prove!" title) persist past the timer — they clear on an
-      // explicit empty `print` or overwrite. Without this the cook's one-shot
-      // "Non puoi venire di qui!" stayed up forever.
-      if (this.systemTexts.some((s) => !s.keepText)) {
-        this.systemTexts = this.systemTexts.filter((s) => s.keepText);
-      }
+      // System text is NOT dropped here. The talk timer only governs actor
+      // speech and VAR_HAVE_MSG (so `wait forMessage` releases); a `print`'s
+      // on-screen text persists until it's overwritten by the next transient
+      // print, the room changes, or a cutscene ends ({@link endCutscene}) —
+      // SCUMM's restoreCharsetBg, not the talk timer. The treasure-map close-up
+      // (room 63) prints its dance steps then waits for a *click*, not a
+      // message, so timer-dropping it erased the map text after ~1s; the cook's
+      // "Non puoi venire di qui!" instead clears at its `endCutScene`.
     }
   }
 

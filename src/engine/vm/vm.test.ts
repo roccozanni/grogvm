@@ -191,12 +191,21 @@ describe('Vm — talk timer + dialog clearing', () => {
     expect(vm.systemText).not.toBeNull(); // keepText — never auto-cleared
   });
 
-  it('drops a non-keepText systemText when the talk timer drains (the cook shout)', () => {
+  it('keeps a non-keepText systemText past the talk timer; clears it on endCutscene (the cook shout)', () => {
     const vm = makeVm();
     vm.systemText = dialog(255, false); // one-shot system line, no keepText
     vm.beginTalk('hi');
     for (let i = 0; i < 200; i++) vm.beginTick();
-    expect(vm.systemText).toBeNull(); // cleared like actor speech
+    // The talk timer only governs VAR_HAVE_MSG (so `wait forMessage` releases);
+    // the printed text persists on screen — SCUMM's restoreCharsetBg, not the
+    // timer, removes it. The treasure-map close-up depends on this (it prints
+    // then waits for a click). VAR_HAVE_MSG has cleared so the cook's
+    // `wait forMessage` releases, but the line stays up...
+    expect(vm.vars.readGlobal(Vm.VAR_HAVE_MSG)).toBe(0);
+    expect(vm.systemText).not.toBeNull();
+    // ...until its `endCutScene` restores the screen.
+    vm.endCutscene();
+    expect(vm.systemText).toBeNull();
   });
 
   it('actor speech and a keepText sign coexist; draining speech leaves the sign', () => {
