@@ -1692,6 +1692,15 @@ function loadRoomWithEgoHandler(vm: Vm, slot: ScriptSlot, opcode: number): void 
     rescaleActorForPosition(vm, ego);
     // An explicit walk target (x != -1) overrides the ENCD's entry walk.
     if (x !== -1) startWalk(vm, ego, { x, y });
+    // SCUMM's o5_loadRoomWithEgo snaps the camera to the ego and re-engages
+    // camera-follow on it (setCameraAt + setCameraFollows) after the room loads.
+    // Without this, a wide room entered straight from a cutscene that detached
+    // the camera (a panCameraTo cleared cameraFollowActor) stays pinned at the
+    // old camera X and never tracks the ego — e.g. returning to the Mêlée
+    // lookout (1008px wide) after the first SCUMM-Bar exit / sheriff cutscene.
+    vm.cameraFollowActor = ego.id;
+    vm.cameraDest = null;
+    vm.moveCameraTo(vm.clampCameraX(ego.x));
   }
   vm.annotate(`loadRoomWithEgo obj=${objId} room=${room} (${x},${y})`);
 }
