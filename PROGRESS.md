@@ -102,7 +102,10 @@ Smirk → fight pirates for insults → the Sword Master node #918), thievery, t
 
 ### Open bug-report saves (reported, not yet fixed)
 
-- *(none open — the room-28 cook is fixed; see the finding below.)*
+- **Forest maze z-plane positioning** (`MI1-Italiano-forest-occlusion` 212,
+  `MI1-Italiano-flowers-occlusion` 215, `MI1-Italiano-wrong-strip` 202) — tiles
+  occlude ego where they shouldn't. See the **H** Tier-2 item below for the full
+  theory + findings.
 
 **Engine finding — `followBoxes`/`ignoreBoxes` reset `_forceClip` (fixes the
 room-28 cook behind the table; user-confirmed in-browser 2026-06-07).** The
@@ -148,24 +151,47 @@ to refresh). Tiering: **Tier 1** = loud (halts on unknown opcode — fine). **Ti
 
 Priority H/M/L = likelihood of biting current/near play × severity.
 
-- [ ] **M — all-1s object z-plane drop is a TENTATIVE HACK**
-  (`object/loader.ts decodeObjectZPlanes`): a fully-set object z-plane is
-  dropped so it never occludes. Keys on the only signal separating occluders
-  from non-occluders in MI1 (object masks are bimodal — shaped <95% vs solid
-  100%; the 36 solid ones — forest path trunks, store door, levers, vase — are
-  all non-occluders) but it is **not** a confirmed engine rule: we never found
-  *why* the original ignores a solid object mask. Ruled out (don't re-chase):
-  object class (incl. class-32 = clickability), `ZP0k → plane k` index,
-  name-vs-order indexing, stubbed/buggy room script, walk-box clip plane, image
-  transparency (trunks are opaque color-0). Answer lives in the original's
-  object-mask write path (not on this machine). **Suspect this FIRST for any
-  object-occlusion bug — don't run the circles again.** → [ZPLANE].
-  *Also ruled out (2026-06-07): the ZP **decoder** (a review's "data_size
-  prefix / +2 strip-offset shift" theory — false for V5; the offset table is at
-  payload[0], the trunk genuinely decodes all-1s). And dropping the hack does
-  NOT become safe once `_walkbox` is tracked: removed it as an experiment with
-  the walkbox change in — forest-path trunks then occlude ego (confirmed
-  in-browser), so the hack stays until a new theory for the write path.*
+- [ ] **H — forest maze object/z-plane positioning: tiles occlude ego when they
+  should be offscreen.** The forest (pseudo-rooms 201–220, all aliasing physical
+  room 58 — `loadedRoom.id` 58, `VAR_ROOM`/g4 = the pseudo) is built **entirely
+  from opaque drawn tile-objects**: room 58's SMAP is all-black, and the per-screen
+  ENCD re-dresses it. The ENCD parks every tile offscreen (`drawObject N at
+  x=100 y=0` = 800px, then `setState 0`), then a per-`g4` branch redraws that
+  screen's tile set on a 3×2 grid (`drawObject … at x,y`, **SO_AT operands are in
+  strips → ×8**). **Theory (where to resume): an object/z-plane positioning slip
+  leaves a tile on-screen — occluding ego — when it should be offscreen for this
+  pseudo-room.** Repro saves (gitignored): `MI1-Italiano-forest-occlusion` (212,
+  z-plane over the sky), `MI1-Italiano-flowers-occlusion` (215, trunk z-plane over
+  the flowers), `MI1-Italiano-wrong-strip` (202). The **`Z-planes` play-bar toggle**
+  (added this session) visualises the merged actor-occlusion stack — use it.
+
+  Findings (2026-06-07, paused for fresh eyes):
+  • **#673 is the one culprit found so far** — drawn on only 6 of 20 screens
+    (203/204/205/213/216/218, always bottom band `y=11`) and the **one object the
+    park-all loop omits** (it parks 656–688 *except* 673). On the 14 screens that
+    don't dress it, our room-init auto-draw (`vm.ts applyRoomResources` re-queues
+    every persistent `state>0` object) resurrects it at its IMHD default (0,0),
+    stamping its trunk z-plane over the wrong screen — the sky in 212, the flowers
+    (#678 "le piante") in 215.
+  • **Attempted fix — NOT committed, rolled back to restart clean:** gate the
+    auto-draw to skip a pseudo-room hop (resolved physical room unchanged) so the
+    per-screen ENCD is the sole authority on what's drawn. Fixed #673 on *fresh
+    navigation* (212 + 215 verified by render). Caveat: only fixes fresh nav —
+    a corrupt save bakes the bad draw-queue and `restoreVm` replays it verbatim
+    (it deliberately skips the ENCD re-dress, savestate.ts:424). Whether that
+    gating is the faithful model, or #673 should instead be *parked*, is the open
+    question — #673 is the only known orphan but the user expects more.
+  • **The all-1s heuristic was coincidental** — #673 is shaped (53%, decodes
+    correctly); its bug is positioning, not solidity. **The all-1s hack is now
+    REMOVED** (`decodeObjectZPlanes` keeps every plane). Removing it re-armed the
+    `il sentiero` path objects (#685/#687/#688, class 0x0, solid ZP01): they are
+    *correctly positioned* but occlude ego near the cave/edges — likely a separate
+    z-plane-rule question, not this positioning bug. (Prior "ruled out" list for
+    the all-1s rule, kept for reference: object class incl. class-32, `ZP0k→plane
+    k` index, name-vs-order indexing, walk-box clip plane, image transparency, the
+    ZP decoder.)
+  • **Background tile seams** (hard vertical cuts at tile boundaries x=104/208)
+    are **GENUINE** — present in the original game. Not a bug; ignore. → [ZPLANE].
 - [ ] **M — dialog/string escape codes still deferred**
   (`decodeScummString` / `expandSubstitution`, `opcodes/index.ts:~2155`):
   keep-text `0xFF02`, sound `0xFF09`, actor-name `0xFF0A`, mid-string colour

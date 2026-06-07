@@ -288,23 +288,8 @@ function decodeImages(
  * shelf, while never occluding the clip-2 shopkeeper it should.
  *
  * Returns `[]` when the width isn't a multiple of 8 (the strip-based RLE
- * requires it) or there are no `ZP##` blocks. A per-plane slot is `null` when
- * that plane fails to decode (swallowed — the object still draws) or is a
- * **fully-set** (all-1s) mask — see the drop below.
- *
- * ⚠️ TENTATIVE HACK — the all-1s drop. A fully-set plane (every bit 1 over the
- * whole box) is dropped so it never occludes. This is a HEURISTIC, not a
- * confirmed engine rule: it keys on the only signal that separates occluders
- * from non-occluders in MI1 (object masks are cleanly bimodal — shaped <95% vs
- * solid 100%, nothing between; the 36 solid ones are all non-occluders: the
- * forest path trunks, the store door, levers, the vase, …). We never found
- * *why* the original engine ignores a solid object z-plane. Ruled out with
- * data, do not re-chase: object class (incl. class 32 = clickability), the
- * `ZP0k → plane k` plane index, name-vs-order indexing, a stubbed/buggy room
- * script, the walk-box clip plane, and image transparency (the trunks are
- * opaque color-0, not transparent). The genuine answer is in the original's
- * object-mask write path, which we don't have. **If an object-occlusion bug
- * ever surfaces, suspect this drop FIRST.** See PROGRESS (Tier-2) / [ZPLANE].
+ * requires it) or there are no `ZP##` blocks. A per-plane slot is `null` only
+ * when that plane fails to decode (swallowed — the object still draws).
  */
 function decodeObjectZPlanes(
   file: ResourceFile,
@@ -319,11 +304,7 @@ function decodeObjectZPlanes(
     const idx = parseInt(match[1]!, 16) - 1; // ZP01 → plane index 0
     if (idx < 0) continue;
     try {
-      const plane = decodeZPlane(payloadOf(file, child), imhd.width, imhd.height);
-      // ⚠️ TENTATIVE HACK (see the function doc): drop a fully-set plane so it
-      // never occludes. Heuristic keyed on the all-1s signal, not a confirmed
-      // engine rule — suspect this first for any object-occlusion bug.
-      planes[idx] = plane.mask.every((b) => b !== 0) ? null : plane;
+      planes[idx] = decodeZPlane(payloadOf(file, child), imhd.width, imhd.height);
     } catch {
       planes[idx] = null; // unparsable plane — object still draws
     }

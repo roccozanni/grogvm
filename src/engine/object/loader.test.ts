@@ -236,17 +236,20 @@ describe('parseRoomObjects', () => {
     expect(zp!.mask[7]).toBe(0); // right columns clear
   });
 
-  it('drops a fully-set object z-plane (solid fill is not a silhouette)', () => {
-    // MI1's forest "il sentiero" path trunks ship an all-1s ZP## — ego walks in
-    // front of them, so the loader must not turn it into an actor occluder.
+  it('keeps a fully-set (all-1s) object z-plane verbatim', () => {
+    // A solid ZP## is decoded and kept like any other — the loader does not
+    // special-case it. (The forest "il sentiero" path trunks ship all-1s
+    // planes; whether they should occlude is governed by where they're drawn,
+    // not by dropping the mask here.)
     const obim = block('OBIM', concat(
       block('IMHD', imhdBody({ objId: 71, numImages: 1, x: 0, y: 0, width: 8, height: 4 })),
       block('IM01', concat(block('SMAP', smapBody(8, 4, 0x10)), block('ZP01', zpBody(8, 4, 0xff)))),
     ));
     const obcd = block('OBCD', block('CDHD', cdhdBody({ objId: 71 })));
     const file = makeFile(block('ROOM', concat(obim, obcd)));
-    const obj = parseRoomObjects(file, file.tree[0]!).get(71)!;
-    expect(obj.images.get(1)!.zPlanes[0] ?? null).toBeNull();
+    const zp = parseRoomObjects(file, file.tree[0]!).get(71)!.images.get(1)!.zPlanes[0];
+    expect(zp).not.toBeNull();
+    expect(zp!.mask.every((b) => b === 1)).toBe(true);
   });
 
   it('targets each ZP## to its own plane (ZP01 empty + shaped ZP02 → plane 2 only)', () => {
@@ -264,8 +267,8 @@ describe('parseRoomObjects', () => {
     const obcd = block('OBCD', block('CDHD', cdhdBody({ objId: 72 })));
     const file = makeFile(block('ROOM', concat(obim, obcd)));
     const planes = parseRoomObjects(file, file.tree[0]!).get(72)!.images.get(1)!.zPlanes;
-    // ZP01 decodes to an all-zero plane (not the all-1s solid-fill case), so it
-    // is kept but masks nothing; ZP02 is the shaped occluder at index 1.
+    // ZP01 decodes to an all-zero plane (kept but masks nothing); ZP02 is the
+    // shaped occluder at index 1.
     expect(planes[0]!.mask.every((b) => b === 0)).toBe(true);
     expect(planes[1]!.mask[0]).toBe(1);
     expect(planes[1]!.mask[7]).toBe(0);
