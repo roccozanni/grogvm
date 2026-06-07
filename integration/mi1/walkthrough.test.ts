@@ -483,11 +483,63 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     expect(vm.haltInfo).toBeNull();
   });
 
+  beat('I · Forest dig — back up the path to the map, into the maze at the crossroads (218)', () => {
+    // The dig clearing's only exit is "il sentiero nella foresta" (#750): a
+    // bare click runs its verb-11 → back to the Mêlée map, landing on the
+    // crossroads node. Re-enter the maze through that same node (#911, "il
+    // bivio") → the forest entry pseudo-room (218).
+    walkTo(vm, ROOMS.forestDig.pathToMap);
+    expect(driveToRoom(vm, ROOMS.meleeMap.id, { maxTicks: 8000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    walkTo(vm, ROOMS.meleeMap.crossroads);
+    expect(driveToRoom(vm, ROOMS.forest.id, { maxTicks: 8000 })).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat('I · Forest — thread the back-route out to the sword-master fork (209)', () => {
+    // A different thread of the maze than the treasure route: from the entry
+    // (218) the path back, back, right, right, left, back lands at the
+    // sword-master fork (pseudo-room 209). Same three direction objects as the
+    // treasure run (back #685 / left #688 / right #687); asserting the
+    // pseudo-room each step lands in proves we're walking this exact route. The
+    // second `back` (215→203) is the map-gated edge — we hold the map (#442),
+    // so it lets us through instead of bouncing us out.
+    const F = ROOMS.forest;
+    const route: ReadonlyArray<[number, number]> = [
+      [F.back, 215], [F.back, 203], [F.right, 202], [F.right, 205], [F.left, 217], [F.back, 209],
+    ];
+    for (const [path, next] of route) {
+      walkTo(vm, path);
+      expect(driveUntil(vm, (v) => v.currentRoom === next, { maxTicks: 12000 })).toBe(true);
+    }
+    expect(vm.currentRoom).toBe(209);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat('I · Forest — push the signpost (the trunk drops as a bridge), cross to the Sword Master (61)', () => {
+    // Push the signpost (#681): its local #203 drops the dead tree-trunk into a
+    // bridge — unblocking the box and playing the fall — and sets bit#546. Wait
+    // for that bit before crossing: only then is the right path (#687) walkable
+    // over to the Sword Master's clearing (61). Reaching room 61 is the
+    // discovery — the location is now known for the swordfighting trial later.
+    expect(vm.vars.readBit(ROOMS.forest.bridgeBit)).toBe(0);
+    use(vm, VERBS.push, ROOMS.forest.signpost);
+    expect(
+      driveUntil(vm, (v) => v.vars.readBit(ROOMS.forest.bridgeBit) === 1, { maxTicks: 12000 }),
+    ).toBe(true);
+
+    walkTo(vm, ROOMS.forest.right);
+    expect(driveToRoom(vm, ROOMS.swordMaster.id, { maxTicks: 12000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
   // ── FRONTIER ──────────────────────────────────────────────────────────
-  // Treasure trial done: in the dig clearing (room 64) holding the T-shirt
-  // (plus the map, chicken, sword, shovel; meat + fish still carried). Next:
-  // the other two trials — swordfighting (the house → Captain Smirk → fight
-  // pirates → the Sword Master) and thievery.
+  // At the Sword Master's clearing (room 61), its forest location now
+  // discovered, holding the T-shirt (plus the map, chicken, sword, shovel;
+  // meat + fish still carried). Next: the rest of the swordfighting trial
+  // (the house → Captain Smirk → fight pirates → the Sword Master) and
+  // thievery.
 
   // Snapshot the frontier to a save, so the NEXT beat can be developed by
   // fast-forwarding to here (restoreSave) instead of re-driving from boot —
@@ -498,6 +550,6 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       'saves/MI1-walkthrough-frontier.websave.json',
       JSON.stringify(snapshotVm(vm, { game: 'MI1', label: 'walkthrough-frontier' })),
     );
-    expect(vm.currentRoom).toBe(ROOMS.forestDig.id);
+    expect(vm.currentRoom).toBe(ROOMS.swordMaster.id);
   });
 });

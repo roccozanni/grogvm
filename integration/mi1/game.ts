@@ -422,14 +422,28 @@ export const ROOMS = {
    *   • right = #687
    * From the entry (218) the path `back, left, right, left, right, back, right,
    * left, back` threads out to the treasure-dig clearing ({@link forestDig},
-   * room 64); other turns loop or dump you back at the map. (The sequence and
-   * the pseudo-room it lands in at each step live with the navigation beat.)
+   * room 64); other turns loop or dump you back at the map. A different route
+   * (`back, back, right, right, left, back`) reaches the sword-master fork
+   * (pseudo-room 209), whose right path leads on to the Sword Master ({@link
+   * swordMaster}, room 61). (Each route and the pseudo-room it lands in at every
+   * step live with its navigation beat.)
    */
   forest: {
     id: 218,
     back: 685,
     left: 688,
     right: 687,
+    /**
+     * "l'insegna" (the signpost, #681) at the sword-master fork (209). Push
+     * (verb 5) runs its local #203: it drops the dead tree-trunk into a bridge
+     * (setBoxFlags unblocks the box, `startScript 205` plays the fall) and sets
+     * `bit#546`. Only then is the right path ({@link right}, #687) walkable
+     * across to the Sword Master. Pushing again toggles it back (local #204).
+     */
+    signpost: 681,
+    /** `bit#546` — set once the signpost's push has dropped the trunk-bridge;
+     *  the gate to wait on before crossing the right path to room 61. */
+    bridgeBit: 546,
   },
 
   /**
@@ -446,5 +460,24 @@ export const ROOMS = {
     /** "la T-shirt" (#752) — the treasure; the dig cutscene `pickupObject`s it
      *  into ego's inventory. */
     tshirt: 752,
+    /** "il sentiero nella foresta" (#750) — the path out. Its verb-11 is a
+     *  straight `loadRoomWithEgo obj=911 room=85`: back up to the Mêlée map,
+     *  landing on the crossroads node. */
+    pathToMap: 750,
+  },
+
+  /**
+   * The Sword Master's clearing (room 61), reached from the forest's
+   * sword-master fork ({@link forest}, pseudo-room 209): push the signpost to
+   * drop the trunk-bridge, then take the right path. Object #744 ("Il Maestro
+   * della Spada") is the Sword Master herself — present here, though hidden
+   * until later story (the entry hides her via class while `bit#89` is clear).
+   * Reaching this room is the discovery: the location is now known for the
+   * swordfighting trial later.
+   */
+  swordMaster: {
+    id: 61,
+    /** "Il Maestro della Spada" (#744) — the Sword Master. */
+    master: 744,
   },
 } as const;
