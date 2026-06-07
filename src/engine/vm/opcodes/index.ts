@@ -409,36 +409,31 @@ register(0x98, (vm, slot) => {
 // Camera position is the CENTRE of the viewport (SCUMM v5 convention)
 // — for a 320-wide screen the visible room slice is `[x-160, x+160)`.
 // `setCameraAt` snaps the camera to the target X; `panCameraTo` smooth-
-// scrolls there in the original engine. We snap both for now — the
-// boot uses these so dialog text can resolve its on-screen position
-// correctly even before a real pan animation lands.
-function setCameraTo(vm: Vm, x: number): void {
-  // Clamp to the loaded room's valid range (camera centre can't go
-  // past the room edges). If no room is loaded, store the raw value.
-  const room = vm.loadedRoom;
-  if (!room) {
-    vm.camera.x = x;
-    return;
-  }
-  const halfScreen = 160;
-  // A script-set roomScroll (roomOps 0x01) overrides the default
-  // full-width bounds.
-  const min = vm.roomScroll ? vm.roomScroll.min : Math.min(halfScreen, room.width);
-  const max = vm.roomScroll ? vm.roomScroll.max : Math.max(min, room.width - halfScreen);
-  vm.camera.x = Math.max(min, Math.min(max, x));
+// scrolls there over frames (vm.stepCameraPan) and detaches the actor
+// follow, so a `wait forCamera` after it actually waits for the pan and
+// the camera holds its scripted position instead of chasing the ego.
+function panCameraToHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
+  const v = readVarOrWord(opcode, 1, slot, vm.vars);
+  // panCameraTo STOPS the camera following the ego — otherwise
+  // moveCameraFollow re-snaps onto the actor every frame. Room 64's dig
+  // cutscene relies on this: it pans to x=160, moves ego offscreen to x=395
+  // for the "hours pass" text, then pans to x=336, and only re-engages
+  // tracking with an explicit actorFollowCamera at the end.
+  vm.cameraFollowActor = 0;
+  vm.cameraDest = vm.clampCameraX(v);
+  vm.annotate(`panCameraTo ${v} → dest=${vm.cameraDest}`);
 }
 
-function makeCameraOp(label: string): OpcodeHandler {
-  return (vm, slot, opcode) => {
-    const v = readVarOrWord(opcode, 1, slot, vm.vars);
-    setCameraTo(vm, v);
-    vm.annotate(`${label} ${v} → camera.x=${vm.camera.x}`);
-  };
+function setCameraAtHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
+  const v = readVarOrWord(opcode, 1, slot, vm.vars);
+  vm.cameraDest = null; // an explicit snap cancels any in-progress pan
+  vm.moveCameraTo(vm.clampCameraX(v));
+  vm.annotate(`setCameraAt ${v} → camera.x=${vm.camera.x}`);
 }
-register(0x12, makeCameraOp('panCameraTo'));
-register(0x92, makeCameraOp('panCameraTo'));
-register(0x32, makeCameraOp('setCameraAt'));
-register(0xb2, makeCameraOp('setCameraAt'));
+register(0x12, panCameraToHandler);
+register(0x92, panCameraToHandler);
+register(0x32, setCameraAtHandler);
+register(0xb2, setCameraAtHandler);
 
 // ─── 0x52 / 0xD2  actorFollowCamera ──────────────────────────────────
 // Lock the camera to track an actor. Per the SCUMM v5 engine, following
@@ -454,9 +449,11 @@ function actorFollowCameraHandler(vm: Vm, slot: ScriptSlot, opcode: number): voi
     if (actor.room > 0 && actor.room !== vm.currentRoom) {
       vm.enterRoom(actor.room);
     }
-    // Snap once now, then track per tick (vm.moveCameraFollow).
+    // Snap once now, then track per tick (vm.moveCameraFollow). Re-engaging
+    // the follow cancels any in-progress scripted pan.
     vm.cameraFollowActor = actor.id;
-    setCameraTo(vm, actor.x);
+    vm.cameraDest = null;
+    vm.moveCameraTo(vm.clampCameraX(actor.x));
   }
   vm.annotate(`actorFollowCamera ${id} → room=${vm.currentRoom} camera.x=${vm.camera.x}`);
 }
@@ -1834,9 +1831,12 @@ function actorOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
         break;
       }
       case 0x03: {
-        // setSound — Phase 9 audio. Consume args for now.
+        // setSound — Phase 9 audio. ONE var-or-byte arg, not two: room 64's
+        // dig script (local #200) encodes it as `03 3b ff` (sound=59 then the
+        // actorOps terminator). Reading a second arg here swallows the 0xFF,
+        // then decodes the rest of the script as bogus subops until a data
+        // byte trips the param decoder. Consume the single arg for now.
         readVarOrByte(sub, 1, slot, vm.vars);
-        readVarOrByte(sub, 2, slot, vm.vars);
         ops.push('setSound');
         break;
       }
@@ -2026,6 +2026,17 @@ function actorOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
       case 0x17: {
         readVarOrByte(sub, 1, slot, vm.vars); // shadow mode
         ops.push('setShadowMode');
+        break;
+      }
+      case 0x18: {
+        // SO_TEXT_OFFSET — talk-text anchor offset (_talkPosX/_talkPosY).
+        // Two WORD args, not bytes (getVarOrDirectWord) — reading them as
+        // bytes would desync the script stream. MI1 room 64 sets this for
+        // ego's treasure-dig line. No talk-offset consumer in the renderer
+        // (actor speech anchors above the actor), so consume and move on.
+        readVarOrWord(sub, 1, slot, vm.vars); // talk pos x
+        readVarOrWord(sub, 2, slot, vm.vars); // talk pos y
+        ops.push('setTalkPos');
         break;
       }
       default:
@@ -2709,9 +2720,9 @@ function waitHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
       detail = 'message';
       break;
     case SO_WAIT_FOR_CAMERA:
-      // Camera is snap-only (no smooth pan yet) — it has always
-      // "arrived", so this never blocks.
-      shouldWait = false;
+      // Block while a panCameraTo smooth scroll is still in flight (cameraDest
+      // set); a snapped/at-rest camera has arrived and falls straight through.
+      shouldWait = vm.cameraDest !== null;
       detail = 'camera';
       break;
     case SO_WAIT_FOR_SENTENCE:

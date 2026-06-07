@@ -175,18 +175,18 @@ Priority H/M/L = likelihood of biting current/near play × severity.
   object/actor-name, `0x07` string-resource all expand now.
 - [ ] **L/M — `print` `clipped` line-wrap bound not modelled** (`vm.ts:~524`).
   Long lines may overflow / mis-wrap vs the original's clip-X wrapping.
-- [ ] **L — system `print` text clears on cutscene-end / room-change / overwrite,
-  not the talk timer** (`vm.ts advanceOrEndTalk` + `endCutscene`). Faithful for
-  the known cases (treasure-map close-up room 63 prints the dance steps then
-  waits for a *click* → text must persist; the cook's "Non puoi venire di qui!"
-  clears at its `endCutScene`). The talk timer still only governs actor speech +
-  `VAR_HAVE_MSG`. Regression surface: a non-keepText system `print` during *free
-  gameplay* (no following cutscene-end/room-change/print) would now linger; none
-  in the walkthrough net, but not exhaustively ruled out. SCUMM's real eraser is
-  `restoreCharsetBg` (screen redraw), which we approximate with those triggers.
-- [ ] **L — camera scroll "snap both for now"** (`opcodes/index.ts:~411`) +
-  smooth `panCameraTo` (Open backlog). Gradual scroll over frames; no current
-  scene validates it.
+- [ ] **L — system `print` text clears on cutscene-end / room-change / overwrite /
+  camera scroll, not the talk timer** (`vm.ts advanceOrEndTalk` + `endCutscene` +
+  `moveCameraTo`). Faithful for the known cases (treasure-map close-up room 63
+  prints the dance steps then waits for a *click* → text must persist; the cook's
+  "Non puoi venire di qui!" clears at its `endCutScene`; room 64's "Passano ore"
+  clears when the dig cutscene pans the camera back to the ego). The talk timer
+  still only governs actor speech + `VAR_HAVE_MSG`. Regression surface: a
+  non-keepText system `print` during *free gameplay* with no following
+  cutscene-end / room-change / print / camera move would still linger; none in
+  the walkthrough net, but not exhaustively ruled out. SCUMM's real eraser is
+  `restoreCharsetBg` (screen redraw); we approximate it with those triggers, a
+  camera scroll being the literal redraw.
 - [ ] **L — flashlight gfx not modelled** (`opcodes/index.ts:~577`, dark-room
   strip extent). Cosmetic; only the flashlight rooms.
 - [ ] **? — `actorOps` subop `0x0f` treated as no-arg no-op "for now"**
@@ -245,8 +245,6 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
   catalogued but the engine doesn't cycle the palette ranges, so animated
   palette effects (water shimmer, etc.) are static. No intro-path room depends
   on it; wire it when a scene surfaces. [ROOM](pages/docs/scumm/room.md).
-- **Smooth `panCameraTo`** — snaps today; no intro-reachable scene uses it, so
-  the pan rate has no validation target. Wire it when a scene surfaces.
 - **Costume head-limb facing — remaining edges.** The head limb is re-pointed on
   the walk→stop transition (shipped 2026-05-31). Not yet handled: a *turn in
   place while idle* (a script changing `facing` with no walk) — the head keeps

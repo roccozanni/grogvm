@@ -50,6 +50,12 @@ import * as VARS from './vars';
  * MI1 runs the intro with `VAR_TIMER_NEXT = 6` (≈ 10 fps).
  */
 const DEFAULT_FRAME_INTERVAL = 6;
+/**
+ * Pixels the camera centre scrolls per game frame during a `panCameraTo`
+ * smooth pan. 8 keeps the centre strip-aligned (the v5 background is drawn in
+ * 8px strips). Tunable against the room-64 dig pan, the first scene to use it.
+ */
+const CAMERA_PAN_STEP = 8;
 
 /** What {@link Vm.tick} did this jiffy. */
 export interface TickResult {
@@ -624,6 +630,18 @@ export class Vm {
   clearSystemText(): void {
     this.systemTexts = [];
   }
+
+  /**
+   * SCUMM's `restoreCharsetBg` partial erase: a screen redraw (cutscene end,
+   * camera scroll) wipes *transient* blasted text but leaves keepText lines
+   * (signs, credits, the chapter titles), which clear only on overwrite, room
+   * change, or {@link clearSystemText}. No-op when nothing transient is up.
+   */
+  eraseTransientSystemText(): void {
+    if (this.systemTexts.some((s) => !s.keepText)) {
+      this.systemTexts = this.systemTexts.filter((s) => s.keepText);
+    }
+  }
   /**
    * Remaining sentence pages of the current message (the text after each
    * `\xff\x03` "wait" code), advanced by the talk timer in
@@ -719,6 +737,14 @@ export class Vm {
    * once and the actor walks off the edge.
    */
   cameraFollowActor = 0;
+  /**
+   * Target X of an in-progress `panCameraTo` smooth scroll, or null when the
+   * camera is at rest. {@link stepCameraPan} walks {@link camera}.x toward it
+   * by {@link CAMERA_PAN_STEP} each game frame and clears it on arrival;
+   * `wait forCamera` blocks while it's non-null. Transient (re-derived from
+   * camera.x on load), so not part of save state.
+   */
+  cameraDest: number | null = null;
   /**
    * Room-transition screen effect, set by `roomOps screenEffect`
    * (0x33 subop 0x0A — v5 `SO_ROOM_FADE`). v5 packs two effect numbers
@@ -949,6 +975,8 @@ export class Vm {
     // A new room starts with default scroll bounds; its ENCD may set
     // tighter ones via roomOps roomScroll.
     this.roomScroll = null;
+    // Any in-progress smooth pan belongs to the old room — cancel it.
+    this.cameraDest = null;
     const prev = this.loadedRoom;
     if (prev?.exitScript && prev.exitScript.length > 0) {
       try {
@@ -1381,9 +1409,7 @@ export class Vm {
     // transient print left up during it is erased now — the cook's kitchen
     // warning, the map close-up's dance steps. keepText (signs/credits/titles)
     // survives; it clears only on overwrite or room change.
-    if (this.systemTexts.some((s) => !s.keepText)) {
-      this.systemTexts = this.systemTexts.filter((s) => s.keepText);
-    }
+    this.eraseTransientSystemText();
     const endScript = this.vars.readGlobal(Vm.VAR_CUTSCENE_END_SCRIPT);
     if (endScript > 0) {
       try {
@@ -1868,6 +1894,9 @@ export class Vm {
     // jiffy while the actor sat still — the actor's screen position oscillated
     // (stutter / "two Guybrush"). Following after the walk keeps (actor, camera)
     // consistent within the single tick the session then presents.
+    // A scripted smooth pan (panCameraTo) advances first; it detaches the
+    // follow, so the two never fight over camera.x in one frame.
+    this.stepCameraPan();
     this.moveCameraFollow();
     this.wdFrameCheck();
     return { framed: true, resumed, ran, delaying };
@@ -1882,6 +1911,49 @@ export class Vm {
     const v = this.vars.readGlobal(VARS.VAR_TIMER_NEXT);
     if (!Number.isFinite(v) || v < 1) return DEFAULT_FRAME_INTERVAL;
     return Math.min(v, 60);
+  }
+
+  /**
+   * Clamp a camera-centre X to the loaded room's valid range. A script-set
+   * roomScroll (roomOps 0x01 → VAR_CAMERA_MIN/MAX) overrides the default
+   * full-width bounds. Raw value when no room is loaded.
+   */
+  clampCameraX(x: number): number {
+    const room = this.loadedRoom;
+    if (!room) return x;
+    const half = 160;
+    const min = this.roomScroll ? this.roomScroll.min : Math.min(half, room.width);
+    const max = this.roomScroll ? this.roomScroll.max : Math.max(min, room.width - half);
+    return Math.max(min, Math.min(max, x));
+  }
+
+  /**
+   * Move the camera centre to `x` (already clamped). A change scrolls the
+   * screen, which in the original redraws the background strips and so erases
+   * transient blasted system text (restoreCharsetBg) — see
+   * {@link eraseTransientSystemText}. No-op (and no erase) when unchanged.
+   */
+  moveCameraTo(x: number): void {
+    if (x === this.camera.x) return;
+    this.camera.x = x;
+    this.eraseTransientSystemText();
+  }
+
+  /**
+   * Advance an in-progress `panCameraTo` by one game frame: step the camera
+   * centre {@link CAMERA_PAN_STEP}px toward {@link cameraDest}, clearing the
+   * target on arrival. No-op when the camera is at rest.
+   */
+  stepCameraPan(): void {
+    if (this.cameraDest === null) return;
+    const dest = this.cameraDest;
+    const cur = this.camera.x;
+    const next =
+      cur < dest
+        ? Math.min(dest, cur + CAMERA_PAN_STEP)
+        : Math.max(dest, cur - CAMERA_PAN_STEP);
+    this.moveCameraTo(next);
+    if (next === dest) this.cameraDest = null;
   }
 
   /**
@@ -1903,10 +1975,7 @@ export class Vm {
     if (actor.x > x + DEAD) x = actor.x - DEAD;
     else if (actor.x < x - DEAD) x = actor.x + DEAD;
     else return;
-    const half = 160;
-    const min = Math.min(half, room.width);
-    const max = Math.max(min, room.width - half);
-    this.camera.x = Math.max(min, Math.min(max, x));
+    this.moveCameraTo(this.clampCameraX(x));
   }
 
   /**
@@ -2215,6 +2284,7 @@ export class Vm {
     this.camera.x = 0;
     this.roomScroll = null;
     this.cameraFollowActor = 0;
+    this.cameraDest = null;
     this.screen.top = 0;
     this.screen.bottom = 200;
     this.screenEffect.switchRoomEffect = 0;

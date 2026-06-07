@@ -430,6 +430,7 @@ class Decoder {
       case 0x15: return 'followBoxes';
       case 0x16: return `animSpeed=${this.p8(s, 1)}`;
       case 0x17: return `shadow=${this.p8(s, 1)}`;
+      case 0x18: return `talkPos ${this.p16(s, 1)},${this.p16(s, 2)}`;
       default: return `<<actorSub 0x${s.toString(16)}>>`;
     }
   }
