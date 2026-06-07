@@ -20,6 +20,7 @@ import type {
 } from '../../engine/room/extract';
 import type { LoadedObject } from '../../engine/object/loader';
 import type { WalkBox } from '../../engine/pathfinding/boxes';
+import type { DecodedZPlane } from '../../engine/graphics/zplane';
 
 const BG_SCALE = 2;
 
@@ -58,6 +59,7 @@ export function backgroundPanel(
   bg: Section<RoomBackground>,
   objects: readonly LoadedObject[],
   walkBoxes: readonly WalkBox[],
+  zPlanes: readonly DecodedZPlane[],
   selected: Signal<number | null>,
 ): HTMLElement {
   if (!bg.ok) return panel('Background', sectionError(bg.error));
@@ -82,10 +84,14 @@ export function backgroundPanel(
 
   const showObjects = signal(readFlag(OBJECT_BOXES_KEY, true));
   const showWalk = signal(readFlag(WALK_BOXES_KEY, false));
+  const showZplanes = signal(readFlag(ZPLANES_KEY, false));
   effect(() => {
     const ctx = overlay.getContext('2d');
     if (!ctx) return;
     ctx.clearRect(0, 0, width, height);
+    // Z-plane fills go down first via putImageData (which replaces, not blends),
+    // so the vector box overlays must be stroked after.
+    if (showZplanes()) drawZPlanes(ctx, zPlanes, width, height);
     if (showWalk()) for (const box of walkBoxes) drawWalkBox(ctx, box);
     if (showObjects()) {
       const sel = selected();
@@ -112,6 +118,7 @@ export function backgroundPanel(
   const toggles = el('div', { class: 'overlay-toggles' });
   if (objects.length > 0) append(toggles, overlayToggle(showObjects, OBJECT_BOXES_KEY, `Object boxes (${objects.length})`));
   if (walkBoxes.length > 0) append(toggles, overlayToggle(showWalk, WALK_BOXES_KEY, `Walk boxes (${walkBoxes.length})`));
+  if (zPlanes.length > 0) append(toggles, overlayToggle(showZplanes, ZPLANES_KEY, `Z-planes (${zPlanes.length})`));
   if (toggles.children.length > 0) append(body, toggles);
   const summary = `${width}×${height} · ${stripMethods.length} strips · transparent ${transparentIndex ?? 'none'}`;
   return panel('Background', body, { count: summary });
@@ -158,6 +165,36 @@ function drawWalkBox(ctx: CanvasRenderingContext2D, box: WalkBox): void {
   ctx.fillText(String(box.id), box.ulx + 1, box.uly + 7);
 }
 
+// Distinct per-plane tint (rgb); each masked pixel is filled semi-transparent so
+// the art shows through and overlapping planes read as a brighter max-blend.
+const ZPLANE_TINTS: readonly [number, number, number][] = [
+  [255, 80, 80],
+  [80, 255, 80],
+  [80, 160, 255],
+  [255, 220, 80],
+  [220, 80, 255],
+  [80, 255, 220],
+  [255, 160, 80],
+  [200, 200, 200],
+];
+
+function drawZPlanes(ctx: CanvasRenderingContext2D, planes: readonly DecodedZPlane[], width: number, height: number): void {
+  const img = ctx.createImageData(width, height);
+  for (let i = 0; i < planes.length; i++) {
+    const tint = ZPLANE_TINTS[i % ZPLANE_TINTS.length]!;
+    const mask = planes[i]!.mask;
+    for (let p = 0; p < mask.length; p++) {
+      if (!mask[p]) continue;
+      const o = p * 4;
+      img.data[o] = Math.max(img.data[o]!, tint[0]);
+      img.data[o + 1] = Math.max(img.data[o + 1]!, tint[1]);
+      img.data[o + 2] = Math.max(img.data[o + 2]!, tint[2]);
+      img.data[o + 3] = 150;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
 /** Smallest hit box containing (x,y) — the most specific object under the click. */
 function pickObjectAt(objects: readonly LoadedObject[], x: number, y: number): number | null {
   let best: number | null = null;
@@ -179,6 +216,7 @@ function pickObjectAt(objects: readonly LoadedObject[], x: number, y: number): n
 // player's debug toggles.
 const OBJECT_BOXES_KEY = 'grogvm:explorer:object-boxes';
 const WALK_BOXES_KEY = 'grogvm:explorer:walk-boxes';
+const ZPLANES_KEY = 'grogvm:explorer:zplanes';
 
 function readFlag(key: string, fallback: boolean): boolean {
   try {

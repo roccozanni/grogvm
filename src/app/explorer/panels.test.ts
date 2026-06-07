@@ -147,7 +147,7 @@ describe('costumesPanel', () => {
 
 describe('section errors', () => {
   it('renders a decode error instead of throwing', () => {
-    const panel = backgroundPanel({ ok: false, error: 'no CLUT' }, [], [], signal<number | null>(null));
+    const panel = backgroundPanel({ ok: false, error: 'no CLUT' }, [], [], [], signal<number | null>(null));
     expect(panel.querySelector('.dossier-error')!.textContent).toContain('no CLUT');
   });
 });

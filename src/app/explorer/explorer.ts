@@ -91,9 +91,10 @@ async function loadAndRender(game: StoredGame, target: HTMLElement): Promise<voi
         const selected = signal<number | null>(null);
         const objectList = d.objects.ok ? [...d.objects.value.values()] : [];
         const walkBoxes = d.walkBoxes.ok ? d.walkBoxes.value : [];
+        const zPlanes = d.zPlanes.ok ? d.zPlanes.value : [];
         // Panels that have nothing to show return null and are omitted entirely.
         const panels = [
-          backgroundPanel(d.background, objectList, walkBoxes, selected),
+          backgroundPanel(d.background, objectList, walkBoxes, zPlanes, selected),
           objectsPanel(d.objects, selected, roomPalette, transparentIndex),
           costumesPanel(costumesByLflf.get(ref.lflfIndex) ?? [], resourceBundle, roomPalette),
           charsetsPanel(charsetsByLflf.get(ref.lflfIndex) ?? [], resourceBundle, roomPalette),
