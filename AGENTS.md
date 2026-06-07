@@ -140,6 +140,8 @@ src/
                           boot, vars.ts (name→index map), lighting.ts;
                           opcodes/index.ts is the EXECUTING opcode table,
                           disasm.ts is the read-only DISASSEMBLER (below)
+    room/                 room loader + extract.ts: graceful
+                          listRooms/extractRoom static-inspection layer
   testkit/                dev/test harness — sibling of engine, NOT inside
                           it (see below). drive.ts = game-agnostic VM
                           drivers (pure, synthetic-testable); scummv5.ts =
@@ -258,8 +260,23 @@ bookkeeping) instead of re-deriving the boot boilerplate. Two layers:
     mechanics only. Save-based troubleshooting stays in `scratch/`.
 
 Scratch note: dead probes that predate the `games/MI1` → `games/MI1-IT-CD-DOS-VGA`
-rename were moved to `scratch/archive/`. New probes should use the harness
-(one import — `bootScummV5(dir)`) rather than copy-pasting the resource preamble.
+rename were moved to `scratch/archive/`. Before hand-rolling a one-off probe,
+reach for the committed building blocks instead of copy-pasting a resource
+preamble or a decoder chain:
+
+- **Drive / render real VM state** → the harness (one import: `bootScummV5(dir)`,
+  then `drive.ts`/`actions.ts`); for a PNG, `writeScreenshot(vm, path)` or the
+  `npm run mugshot` CLI.
+- **Inspect a room's contents statically (no boot)** → `listRooms(file, loff)` +
+  `extractRoom(file, ref)` (`src/engine/room/extract.ts`): a *graceful* dossier
+  (background / objects / scripts / walk boxes / box matrix / scale / z-planes,
+  each isolated so one bad section never sinks the rest), plus
+  `referencedGlobalScripts(...)`. These are the same primitives the resource
+  Explorer renders — don't re-call `loadRoom`/`parseRoomObjects`/`decodeZPlanes`
+  by hand for inspection.
+- **Read a script** → `disassemble(bytecode)` or the `npm run disgrogate` CLI.
+
+A probe that outgrows throwaway and proves reusable earns a move to `tools/`.
 
 ### Command-line tools (`tools/`)
 
