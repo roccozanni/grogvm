@@ -31,6 +31,7 @@ const QUICK_SLOT = 'quicksave';
 // Debug-overlay toggles persist across reloads and are NOT game-specific.
 const WALK_PATHS_KEY = 'grogvm:debug:walk-paths';
 const HIT_AREAS_KEY = 'grogvm:debug:hit-areas';
+const ZPLANES_KEY = 'grogvm:debug:zplanes';
 
 function readFlag(key: string): boolean {
   try {
@@ -115,6 +116,7 @@ async function mountGame(game: StoredGame, main: HTMLElement, onBack: () => void
   const overlayFlags = {
     walk: readFlag(WALK_PATHS_KEY),
     hit: readFlag(HIT_AREAS_KEY),
+    zplane: readFlag(ZPLANES_KEY),
   };
 
   // The Debug panel shares this session (live VM inspection below the game,
@@ -252,6 +254,7 @@ async function mountGame(game: StoredGame, main: HTMLElement, onBack: () => void
     { class: 'play-controls-group play-controls-debug' },
     toggle('Walk paths', WALK_PATHS_KEY, () => overlayFlags.walk, (v) => (overlayFlags.walk = v)),
     toggle('Hit areas', HIT_AREAS_KEY, () => overlayFlags.hit, (v) => (overlayFlags.hit = v)),
+    toggle('Z-planes', ZPLANES_KEY, () => overlayFlags.zplane, (v) => (overlayFlags.zplane = v)),
   );
   const controls = el('div', { class: 'play-controls' }, gameGroup, debugGroup);
 

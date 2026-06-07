@@ -35,6 +35,7 @@ import type { ResourceFile } from '../../engine/resources/tree';
 import type { Vm, VerbSlot } from '../../engine/vm/vm';
 import { VAR_EGO } from '../../engine/vm/vars';
 import { VIEWPORT_W, viewportLeft } from '../../engine/graphics/viewport';
+import { actorOcclusionPlanes } from '../../engine/render/compositor';
 import type { ScreenPoint } from './input';
 
 /**
@@ -120,6 +121,8 @@ export interface DebugOverlayFlags {
   readonly walk: boolean;
   /** Object CDHD hit-area rectangles + ids. */
   readonly hit: boolean;
+  /** Z-plane occlusion masks (room + drawn-object planes), tinted per plane. */
+  readonly zplane: boolean;
 }
 
 export interface PlayAreaArgs {
@@ -213,7 +216,7 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
   const { screenWidth, screenHeight } = args;
   const verbTop = roomHeight;
   const verbBarHeight = screenHeight - roomHeight;
-  let debugFlags: DebugOverlayFlags = args.debug ?? { walk: false, hit: false };
+  let debugFlags: DebugOverlayFlags = args.debug ?? { walk: false, hit: false, zplane: false };
 
   /** Last pointer position (unified screen coords); null until the first move. */
   let cursor: ScreenPoint | null = null;
@@ -502,6 +505,14 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
   // areas, and the warm pair the original used for actor paths / positions.
   const WALK_BOX_COLORS = ['#3ec1c1', '#c1973e', '#a13ec1', '#3e5dc1', '#c13e6a', '#7ec13e'];
   const HIT_AREA_COLOR = '#ff66cc';
+  // Per-plane z-plane fill: ZP01, ZP02, … each a distinct semi-transparent hue
+  // (rgba so the art shows through), so plane index reads at a glance.
+  const ZPLANE_COLORS = [
+    'rgba(255, 0, 220, 0.45)',
+    'rgba(0, 200, 255, 0.45)',
+    'rgba(255, 196, 0, 0.45)',
+    'rgba(80, 255, 120, 0.45)',
+  ];
 
   const labelAt = (ctx: CanvasRenderingContext2D, id: number, x: number, y: number, color: string): void => {
     const txt = String(id);
@@ -513,7 +524,7 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
 
   const drawDebugOverlay = (): void => {
     const room = vm.loadedRoom;
-    if (!room || (!debugFlags.walk && !debugFlags.hit)) return;
+    if (!room || (!debugFlags.walk && !debugFlags.hit && !debugFlags.zplane)) return;
 
     // Geometry below is in ROOM coords; inRoomSpace clips to the room region
     // and translates by the camera's left edge to map it onto the slice.
@@ -521,6 +532,35 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
       c.lineWidth = 1;
       c.font = '7px monospace';
       c.textBaseline = 'top';
+
+      if (debugFlags.zplane) {
+        // The SAME merged stack (room + drawn-object planes) the compositor
+        // masks actors with — so the overlay shows the true occluders, e.g.
+        // the forest-tile foliage objects, not just the room background ZP.
+        const planes = actorOcclusionPlanes(room, {
+          objectDrawQueue: vm.objectDrawQueue,
+          getObjectState: (id) => vm.objectStates.get(id) ?? 1,
+          getObjectPosition: (id) => vm.objectDrawPositions.get(id),
+        });
+        const W = room.width;
+        planes.forEach((plane, i) => {
+          c.fillStyle = ZPLANE_COLORS[i % ZPLANE_COLORS.length]!;
+          // Coalesce horizontal runs of set bits per row into one fillRect —
+          // a foliage mask is mostly contiguous, so this stays a handful of
+          // draws per row instead of one per pixel.
+          for (let y = 0; y < plane.height; y++) {
+            let runStart = -1;
+            for (let x = 0; x <= W; x++) {
+              const on = x < W && plane.mask[y * W + x] === 1;
+              if (on && runStart < 0) runStart = x;
+              else if (!on && runStart >= 0) {
+                c.fillRect(runStart, y, x - runStart, 1);
+                runStart = -1;
+              }
+            }
+          }
+        });
+      }
 
       if (debugFlags.hit) {
         for (const obj of room.objects.values()) {
