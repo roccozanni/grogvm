@@ -114,6 +114,21 @@ the new facing rather than switching chores. (For example, setting a direction o
 an actor whose init chore is a looping idle keeps that idle running, now facing
 the new way.)
 
+### `actorOps` init (SO_DEFAULT) preserves facing
+
+SCUMM's `o5_actorOps` SO_DEFAULT (subop `0x08`) calls `initActor(0)`, which
+clears the per-actor flags (costume, `forceClip`, `ignoreBoxes`, scale, walk box
+— see [ZPLANE §8](zplane.md)) but **does not touch `_facing`**. Only the full
+game-start `initActor(1)` (and mode 2) reset facing. This matters because a
+script can set a direction (`animateActor` set-dir) *before* re-initialising and
+re-costuming an actor and rely on that facing surviving the init. Room 60's
+teaching machine is the case: `animateActor 3 249` (set-dir → East) runs *before*
+`actorOps 3 [init; setCostume(107)]`, and setCostume's init chore then renders
+for the still-East facing. Resetting facing to South on init would drop it onto
+cost107's stub S-records (only the cart/wheel limb) — the contraption collapses
+to its wheel. The give-away that this is faithful: the pre-init set-direction is
+meaningless unless init preserves facing.
+
 ## Limb composition and facing at rest
 
 For a typical player/NPC costume the limbs divide labour like this:
@@ -130,18 +145,48 @@ re-applied to re-point the head, otherwise it keeps the head frame from whatever
 direction `init` last ran in (a West-facing character drawn with a front-facing
 "looking at the camera" head is the tell).
 
+### Limbs assemble via the running `_xmove` / `_ymove`
+
+Drawing a multi-limb sprite is not "place each limb at `actor + picture.x/y`
+independently." The engine keeps a running `_xmove`/`_ymove`, **reset to 0 at the
+start of each actor's per-tick draw**, and draws the limbs in **index order**;
+each drawn limb is placed at `actor + (_xmove + picture.x, _ymove + picture.y)`,
+then that limb's picture `xinc`/`yinc` are **folded into `_xmove`/`_ymove`** so
+they shift every *subsequent* limb (see [`cost.md §4.1`](cost.md), which also
+flags that only the `xinc` side is verified — every MI1 in-play costume is
+`yinc = 0`). Limbs that don't draw (unused / inactive / stopped) never read a
+picture, so they don't accumulate. This is what assembles a multi-limb
+costume — e.g. cost44's fencing torso (limb 2) rides the legs limb's (limb 1)
+`xinc`, and the cost107 machine stacks across its cart/spring/dummy limbs.
+Ignore it and the parts drift apart (the torso renders ~8–17px off the legs).
+Most MI1 costumes carry `xinc = 0`
+(including Guybrush, cost1, on every chore and direction — MI1 moves walkers by
+the actor's room x, *not* by costume xinc), so the accumulation is a no-op except
+for the few props that use it.
+
 ## Mirroring
 
-A costume stores art for only one horizontal side; the opposite side is drawn by
-reflecting it. West-facing and East-facing records play the **identical** picture
-sequence, and the engine flips one of them horizontally about the actor's anchor
-X. Whether West or East is the flipped one depends on the costume's native
-orientation, given by the **mirror flag** (format byte bit 7):
+Most costumes store side-view art for only one horizontal side and draw the
+opposite side by reflecting it. The art natively faces **East** (right): the
+West facing plays the identical picture sequence flipped horizontally about the
+actor's anchor X, and East draws native. East is **never** the flipped side.
 
 ```
-mirror = is-horizontal-facing  AND  (facing-is-West  XOR  mirrorFlag)
+mirror = (facing is West) AND NOT mirrorFlag
 ```
 
-A clear mirror flag — every MI1 costume — means the art natively faces right, so
-the **West** facing is the one flipped. Only the horizontal facings mirror; North
-and South are genuine front/back views with their own art.
+The **mirror flag** (format byte bit 7) means **"the West anims must NOT be
+mirrored"** — i.e. this costume ships *dedicated per-direction art* for both
+sides, so neither facing is reflected. It is **not** a "native orientation"
+selector and does not make East flip; setting it simply suppresses the West
+reflection. North and South are genuine front/back views with their own art and
+never mirror.
+
+**The flag is rare but real — it is NOT always clear in MI1.** Exactly two MI1
+costumes set it: **cost107** (Captain Smirk's swordfighting *teaching machine*,
+room 60) and **cost47**. cost107 carries distinct full art on both its West
+chores (init/stand records 4/12) and its East chores (5/13); the setup script
+faces it East — a side with full art — and it must render native (un-flipped) so
+it aims at the student, while its West *entry* pose (pushed in from offscreen)
+also stays native. Reflecting East here (the `facing-is-West XOR mirrorFlag`
+reading this doc carried before) mirrored the whole contraption.

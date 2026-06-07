@@ -140,17 +140,18 @@ COST block as it sits in the resource file).
 ### 3.1 The format byte
 
 ```
-┌─────┬─────────────────────────────┬─────┐
-│ bit │ meaning                     │ MI1 │
-├─────┼─────────────────────────────┼─────┤
-│  7  │ mirror flag                 │  0  │
-│ 6:1 │ unused / reserved           │  -  │
-│  0  │ palette size                │  0  │
-└─────┴─────────────────────────────┴─────┘
+┌─────┬─────────────────────────────┬──────┐
+│ bit │ meaning                     │ MI1  │
+├─────┼─────────────────────────────┼──────┤
+│  7  │ mirror flag                 │  0 * │
+│ 6:1 │ unused / reserved           │  -   │
+│  0  │ palette size                │  0   │
+└─────┴─────────────────────────────┴──────┘
+* clear on all but two costumes (47, 107) — see below.
 
 format & 0x7F == 0x58  →  16-color costume (palette has 16 entries)
 format & 0x7F == 0x59  →  32-color costume (palette has 32 entries)
-format & 0x80          →  "different alignment" (semantics TBD)
+format & 0x80          →  mirror flag (see below)
 ```
 
 Most MI1/MI2 costumes are `format == 0x58` (16-color), but **not all**:
@@ -159,12 +160,17 @@ MI1 costume 24 — the three important-looking pirates in the SCUMM Bar
 16-color RLE split renders vertical-streak garbage where the pirates
 should be (the run byte's colour/length boundary is off by one bit; see
 §5). A decoder must take the palette size (16 or 32) from the header so the
-run-byte split matches. The mirror flag's effect on rendering
-isn't yet pinned down empirically; long-circulating notes describe it
-as a "different alignment" rule, possibly affecting whether frames are
-auto-mirrored along the actor's facing axis. Implementations should
-read the bit but not yet act on it; first verify in a real costume
-that has it set.
+run-byte split matches.
+
+**The mirror flag (bit 7) means "the West anims must NOT be mirrored."**
+The default (clear) costume stores East-facing side art and draws West by
+reflecting it; a *set* flag says the costume ships dedicated per-direction art
+for both sides, so neither facing flips. Exactly two MI1 costumes set it
+(cost107 — Smirk's teaching machine — and cost47); everything else is clear. The
+flip rule and the worked example are in
+[`costume-anim.md` §Mirroring](costume-anim.md). (Earlier notes here hand-waved
+bit 7 as a TBD "different alignment" rule — that was never confirmed; the
+West-not-mirrored meaning is verified against cost107.)
 
 ### 3.2 The sub-palette
 
@@ -345,16 +351,37 @@ accident because the high byte is zero, but the right thing is to
 read them as u8 and ignore the trailing byte.
 
 `x` and `y` give the position of the image relative to the actor's
-current `relPos` (relative position register) at the moment the image
-is drawn. The engine *clears* `relPos` before starting to draw each
-animation tick, then accumulates `xinc, yinc` from each drawn image
-into it as a side effect. That's how a walk-cycle composes
-displacement — each image in the sequence carries the delta from the
-previous image's anchor, and the engine sums them.
+current `relPos` (the running `_xmove`/`_ymove` register) at the moment
+the image is drawn — the draw anchor is `(actorX + _xmove + x, actorY +
+_ymove + y)`. The engine **clears `relPos` to 0 at the start of each
+actor's per-tick draw**, then draws that actor's limbs **in limb-index
+order**, and after each *drawn* limb **folds that image's `xinc`/`yinc`
+into `relPos`** so they shift every *subsequent* limb in the same tick.
+Limbs that don't draw (unused / inactive / stopped) never read an image, so
+they don't accumulate.
+
+This is the **multi-limb assembly** mechanism: a sprite split across limbs
+stacks correctly because an earlier limb's increment offsets the later
+ones — e.g. MI1 cost44's fencing torso (limb 2) rides the legs limb's
+(limb 1) `xinc = 8`; ignore the accumulation and the torso renders ~8–17px
+off the legs. It is **not** how a *walk cycle* moves the actor across the
+room: in MI1 the walker's displacement is the actor's room-`x` movement,
+and the walk frames carry `xinc = 0` (Guybrush, cost1, is `xinc = 0` on
+every chore × direction). Most MI1 costumes are `xinc = 0` throughout; only
+a few animated props (cost44 fencing, cost107 machine) use it. See
+[`costume-anim.md`](costume-anim.md) for the playback side.
+
+> ⚠️ **`xinc` (the X increment) is the only side verified.** cost44's
+> `xinc = 8` is what we reproduced. Every limb of every MI1 in-play costume
+> carries **`yinc = 0`**, so the Y increment — and in particular its sign
+> (long-circulating notes write the field as `relPos.y -= yinc`, a
+> *decrement*; our renderer currently adds it, harmless while `yinc = 0`) —
+> is **unexercised**. A future costume with non-zero `yinc` is the watch
+> item; settle the sign against real pixels then.
 
 `xinc` and `yinc` are inert for a static single-image decode (nothing
-iterates); they matter only to the animation runtime, which sums them
-across a sequence.
+iterates); they matter only when the runtime composites a multi-limb
+actor (or, in principle, a multi-frame sequence).
 
 ### 4.2 The actor anchor convention
 
@@ -523,7 +550,10 @@ to actual RGBA pixels:
    triple.
 8. **Composite onto the room framebuffer** at `(actorX + x,
    actorY + y)`, skipping transparent pixels and respecting any
-   z-plane mask the room provides.
+   z-plane mask the room provides. For a lone image that's the anchor;
+   when drawing a full multi-limb actor, add the running `_xmove/_ymove`
+   too — `(actorX + _xmove + x, actorY + _ymove + y)` — and advance it by
+   each drawn limb's `xinc/yinc` (see §4.1).
 
 ---
 
@@ -580,3 +610,10 @@ from scratch:
     `0x78` and `0x7C` (animation counters). Mask `& 0x7F` before
     indexing into a limb's image table, but only after handling the
     magic values.
+11. **A multi-limb sprite renders with its parts horizontally (or
+    vertically) split** → the per-image `xinc/yinc` aren't being
+    accumulated into the running `_xmove/_ymove` across the limbs.
+    Reset `_xmove/_ymove` to 0 per actor per tick, draw limbs in index
+    order, place each at `actor + (_xmove + x, _ymove + y)`, and add the
+    drawn image's `xinc/yinc` afterward (§4.1). Only bites costumes with
+    non-zero `xinc/yinc` (rare in MI1 — cost44, cost107).
