@@ -276,7 +276,7 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
       room.walkBoxes,
       isNeverClip ? isNeverClip(actor.id) : false,
     );
-    for (const { limbIdx, frame } of prep.limbs) {
+    for (const { limbIdx, frame, accX, accY } of prep.limbs) {
       try {
         compositeActor({
           framebuffer,
@@ -291,6 +291,9 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
           zPlanes: actorZPlanes,
           // Actor scale (0..255, 255 = full); SCUMM scales actors by depth.
           scale: prep.scale,
+          // Running _xmove/_ymove for this limb (sum of earlier limbs' xinc).
+          accX,
+          accY,
         });
       } catch (err) {
         skippedLimbs.push({

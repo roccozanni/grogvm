@@ -185,6 +185,25 @@ flagged here so it's on the radar. → fold into [costume-anim] §Mirroring
 (correct the "every MI1 costume has a clear mirror flag" claim + record the bit-7
 meaning) at the doc pass.
 
+**Engine finding — costume picture xinc/yinc accumulate into a running
+`_xmove`/`_ymove` across a frame's limbs (fixes ego's torso/legs split; pending
+in-browser confirm).** The costume picture header's last two i16s (offsets 8/10,
+our frame.xinc/yinc) were parsed but unused. SCUMM draws an actor's limbs in
+index order and, after each *drawn* limb, adds that picture's xinc/yinc to a
+running `_xmove`/`_ymove` that offsets every subsequent limb; the draw position
+is `actor + (_xmove + picture.move)`, scaled. Without it, cost44's fencing torso
+(limb 2) sat ~8–17px off its legs (limb 1) — the torso rode the legs' `xinc=8`
+in the real engine. Landed in `prepareActorDraw`/`compositeActor`: accumulate
+across drawn limbs (skipped/inactive/stopped limbs never read a picture, so they
+don't accumulate, matching ScummVM's early-out), thread the per-limb (accX,accY)
+through `PreparedLimb` + `actorFramePlacement` so the blit and the hit-test
+bounds stay one source of truth. **Near-zero regression surface:** cost1
+(Guybrush) carries `xinc=0` on every init/walk/stand/talk record × all dirs, as
+do most MI1 costumes — MI1 moves walkers via actor x, not costume xinc — so the
+accumulation is a no-op except for the few props that use it (cost44 fencing,
+cost107 machine, both re-verified by render). → document in [costume-anim] / cost
+§4 header layout (the xinc/yinc semantics) at the doc pass.
+
 ### Tier-2 divergence checklist
 
 Silent, self-flagged approximations (run `git grep -nE "for now|doesn't yet|best-effort|we don't yet"`

@@ -65,6 +65,10 @@ export interface CompositeActorOptions {
    * the un-scaled blit.
    */
   readonly scale?: number;
+  /** Running `_xmove`/`_ymove` for this limb (from {@link PreparedLimb}),
+   *  added to the frame's own offset. Default 0. */
+  readonly accX?: number;
+  readonly accY?: number;
 }
 
 /** Where (and how big) a costume frame lands on screen for a given anchor,
@@ -83,12 +87,17 @@ export function actorFramePlacement(
   actorY: number,
   mirror: boolean,
   scale: number,
+  accX = 0,
+  accY = 0,
 ): ActorPlacement {
   const s = Math.max(0, Math.min(255, scale));
   const width = Math.max(1, Math.round((frame.width * s) / 255));
   const height = Math.max(1, Math.round((frame.height * s) / 255));
-  const redirX = Math.round((frame.redirX * s) / 255);
-  const redirY = Math.round((frame.redirY * s) / 255);
+  // Each limb's draw offset is the running `_xmove`/`_ymove` (the sum of the
+  // earlier-drawn limbs' xinc/yinc, see prepareActorDraw) plus this frame's own
+  // offset, scaled together.
+  const redirX = Math.round(((frame.redirX + accX) * s) / 255);
+  const redirY = Math.round(((frame.redirY + accY) * s) / 255);
   // Anchor (feet) stays at (actorX, actorY); the offset scales with the frame
   // so the sprite shrinks toward it. Mirror reflects the span about actorX.
   const left = mirror ? actorX - redirX - width : actorX + redirX;
@@ -100,6 +109,10 @@ export function actorFramePlacement(
 export interface PreparedLimb {
   readonly limbIdx: number;
   readonly frame: DecodedCostumeFrame;
+  /** Running `_xmove`/`_ymove` at this limb — the sum of earlier-drawn limbs'
+   *  xinc/yinc. Added to the frame's own offset at placement time. */
+  readonly accX: number;
+  readonly accY: number;
 }
 
 /**
@@ -163,6 +176,16 @@ export function prepareActorDraw(actor: Actor, costume: LoadedCostume): ActorDra
     bRight = -Infinity,
     bBottom = -Infinity;
 
+  // SCUMM's per-render `_xmove`/`_ymove`: drawing each limb in order adds that
+  // limb's frame xinc/yinc to a running offset that shifts every *subsequent*
+  // limb. This is what keeps a multi-limb sprite assembled — e.g. cost44's
+  // fencing torso rides on the legs limb's xinc, and cost107's contraption
+  // stacks across its cart/spring/dummy limbs. Limbs that don't draw (unused /
+  // inactive / stopped / sentinel) never read a picture, so they don't
+  // accumulate — exactly like ScummVM's early-out before the xmove add.
+  let accX = 0,
+    accY = 0;
+
   for (let limbIdx = 0; limbIdx < costume.header.limbOffsets.length; limbIdx++) {
     const tableOffset = costume.header.limbOffsets[limbIdx]!;
     if (tableOffset === 0) continue; // unused limb
@@ -193,12 +216,15 @@ export function prepareActorDraw(actor: Actor, costume: LoadedCostume): ActorDra
       const frame = decodeCostumeFrame(costume.payload, framePtr, {
         paletteSize: costume.header.paletteSize,
       });
-      limbs.push({ limbIdx, frame });
-      const place = actorFramePlacement(frame, actor.x, actor.y, mirror, actor.scale);
+      limbs.push({ limbIdx, frame, accX, accY });
+      const place = actorFramePlacement(frame, actor.x, actor.y, mirror, actor.scale, accX, accY);
       if (place.left < bLeft) bLeft = place.left;
       if (place.top < bTop) bTop = place.top;
       if (place.left + place.width > bRight) bRight = place.left + place.width;
       if (place.top + place.height > bBottom) bBottom = place.top + place.height;
+      // Advance the running offset by this drawn limb's post-draw increment.
+      accX += frame.xinc;
+      accY += frame.yinc;
     } catch (err) {
       if (limbActive) {
         skippedLimbs.push({ limbIdx, reason: err instanceof Error ? err.message : String(err) });
@@ -222,6 +248,8 @@ export function compositeActor(opts: CompositeActorOptions): void {
     clipPlane > 0 && clipPlane <= zPlanes.length ? zPlanes[clipPlane - 1]! : null;
   const mirror = opts.mirror ?? false;
   const scale = Math.max(0, Math.min(255, opts.scale ?? 255));
+  const accX = opts.accX ?? 0;
+  const accY = opts.accY ?? 0;
 
   if (framebuffer.length !== fbWidth * fbHeight) {
     throw new Error(
@@ -247,6 +275,8 @@ export function compositeActor(opts: CompositeActorOptions): void {
     actorY,
     mirror,
     scale,
+    accX,
+    accY,
   );
 
   // Clip the iteration range to the on-screen portion of the (scaled) frame so
