@@ -466,15 +466,28 @@ class Decoder {
       case 0x01: return `scroll ${this.p16(s, 1)},${this.p16(s, 2)}`;
       case 0x02: return 'colorScale';
       case 0x03: return `screen ${this.p16(s, 1)},${this.p16(s, 2)}`;
-      case 0x04: return `palette ${this.p16(s, 1)},${this.p16(s, 2)} sub=${this.u8()}`;
+      // setPalColor: r,g,b (3 words) then a SECOND subop byte carrying the
+      // index's param mode, then the index (var-ref when its bit 0x80 is set,
+      // else a byte). Reading only two operands here is what desynced room
+      // 63's blackout loop (`setPalColor (0,0,0) → var`).
+      case 0x04: {
+        const r = this.p16(s, 1), g = this.p16(s, 2), b = this.p16(s, 3);
+        const s2 = this.u8();
+        return `setPalColor (${r},${g},${b}) slot=${this.p8(s2, 1)}`;
+      }
       case 0x05: return 'shakeOn';
       case 0x06: return 'shakeOff';
-      case 0x08: return `setRoomScale ${this.p8(s, 1)},${this.p8(s, 2)},${this.p8(s, 3)}`;
+      case 0x08: return `roomIntensity ${this.p8(s, 1)},${this.p8(s, 2)},${this.p8(s, 3)}`;
+      case 0x09: return `saveLoad ${this.p8(s, 1)},${this.p8(s, 2)}`;
       case 0x0a: return `fade effect=${this.p16(s, 1)}`;
-      case 0x0b: return 'setRGBRoomIntensity';
+      case 0x0b: {
+        const r = this.p16(s, 1), g = this.p16(s, 2), b = this.p16(s, 3);
+        const s2 = this.u8();
+        return `setRGBRoomIntensity (${r},${g},${b}) ${this.p8(s2, 1)}..${this.p8(s2, 2)}`;
+      }
       case 0x0c: return 'shadowPalette';
-      case 0x0d: return 'saveString';
-      case 0x0e: return 'loadString';
+      case 0x0d: return `saveString ${this.p8(s, 1)} "${this.cstr(0)}"`;
+      case 0x0e: return `loadString ${this.p8(s, 1)} "${this.cstr(0)}"`;
       case 0x10: return `cycleSpeed ${this.u8()},${this.u8()}`;
       default: return `<<roomOps sub 0x${s.toString(16)}>>`;
     }

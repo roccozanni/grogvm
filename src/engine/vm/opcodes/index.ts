@@ -2445,11 +2445,27 @@ function roomOpsHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
       vm.annotate('roomOps shakeOff (stub)');
       return;
     case 0x08: {
-      // roomIntensity: a, b, c (all var-or-byte)
-      const a = readVarOrByte(subop, 1, slot, vm.vars);
-      const b = readVarOrByte(subop, 2, slot, vm.vars);
-      const c = readVarOrByte(subop, 3, slot, vm.vars);
-      vm.annotate(`roomOps roomIntensity ${a},${b},${c} (stub)`);
+      // roomIntensity (SO_ROOM_INTENSITY → darkenPalette): scale, start, end
+      // (all var-or-byte). Scales the live palette entries [start..end] to
+      // `scale`/255 of the room's base CLUT (vm.basePalette) — the same scale
+      // on all three channels. Room 63 (the treasure-map close-up) blacks the
+      // whole palette with setPalColor, prints the dance steps, then loops
+      // `roomIntensity 255,i,i` over every entry to fade the text back in;
+      // scaling from the base (not the now-black live palette) is what makes
+      // the restore actually restore.
+      const scale = readVarOrByte(subop, 1, slot, vm.vars);
+      const start = readVarOrByte(subop, 2, slot, vm.vars);
+      const end = readVarOrByte(subop, 3, slot, vm.vars);
+      const live = vm.loadedRoom?.palette;
+      const base = vm.basePalette;
+      if (live && base) {
+        for (let i = Math.max(0, start); i <= end && i < 256; i++) {
+          for (let k = 0; k < 3; k++) {
+            live[i * 3 + k] = Math.floor((base[i * 3 + k]! * scale) / 255);
+          }
+        }
+      }
+      vm.annotate(`roomOps roomIntensity scale=${scale} range=${start}..${end}`);
       return;
     }
     case 0x09: {

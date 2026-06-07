@@ -936,6 +936,36 @@ describe('room-entry opcodes', () => {
     expect(vm.haltInfo).toBeNull();
   });
 
+  it('roomOps roomIntensity scales the live palette from the base CLUT', () => {
+    const vm = makeVm();
+    const palette = new Uint8Array(768);
+    // Live palette starts blacked out (as setPalColor would leave it); the
+    // base CLUT holds the real colours roomIntensity restores from.
+    const base = new Uint8Array(768);
+    base[0] = 200; base[1] = 100; base[2] = 50; // entry 0
+    base[3] = 80; base[4] = 40; base[5] = 20; // entry 1
+    (vm as unknown as { loadedRoom: object }).loadedRoom = {
+      id: 63, width: 320, height: 200, numObjects: 0, palette,
+      transparentIndex: null, indexed: new Uint8Array(0), stripMethods: [],
+      zPlanes: [], entryScript: null, exitScript: null,
+      localScripts: new Map(), objects: new Map(), walkBoxes: [],
+      boxMatrix: [], scaleSlots: [],
+    };
+    vm.basePalette = base;
+    // roomOps roomIntensity scale=255 range=0..1 — restore to full. Two steps:
+    // the roomOps opcode, then the stopObjectCode that retires the slot.
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x33, 0x08, 255, 0, 1, 0xa0) });
+    vm.step();
+    vm.step();
+    expect([...palette.slice(0, 6)]).toEqual([200, 100, 50, 80, 40, 20]);
+    // scale=128 ≈ half intensity (floor(v*128/255)).
+    vm.startScript({ scriptId: 2, bytecode: bytes(0x33, 0x08, 128, 0, 0, 0xa0) });
+    vm.step();
+    vm.step();
+    expect([...palette.slice(0, 3)]).toEqual([100, 50, 25]);
+    expect(vm.haltInfo).toBeNull();
+  });
+
   it('isSoundRunning always returns 0 (audio stubbed)', () => {
     const vm = makeVm();
     vm.startScript({ scriptId: 1, bytecode: bytes(0x7c, 0x00, 0x00, 0x09) });

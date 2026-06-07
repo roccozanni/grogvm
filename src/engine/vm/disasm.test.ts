@@ -48,6 +48,25 @@ describe('disasm — single instructions', () => {
     expect(out[1]!.text).toBe('stopObjectCode');
   });
 
+  it('decodes roomOps setPalColor (r,g,b + var-ref slot) without desyncing', () => {
+    // Room 63's blackout loop: setPalColor (0,0,0) → L0, then increment L0.
+    // setPalColor reads 3 words + a second subop byte + the slot (var-ref
+    // here, 0x84). Reading fewer operands desynced the rest of the script.
+    const out = disassemble(bytes(
+      0x33, 0x04, 0, 0, 0, 0, 0, 0, 0x84, 0x00, 0x40, // setPalColor (0,0,0) slot=L0
+      0x46, 0x00, 0x40, // increment L0
+    ));
+    expect(out[0]!.text).toBe('roomOps setPalColor (0,0,0) slot=L0');
+    expect(out[1]!.text).toBe('increment L0');
+    expect(out[1]!.aligned).toBe(true);
+  });
+
+  it('decodes roomOps roomIntensity (not setRoomScale)', () => {
+    // 0x68: scale immediate (255), start/end var-ref (L0).
+    const out = disassemble(bytes(0x33, 0x68, 255, 0x00, 0x40, 0x00, 0x40));
+    expect(out[0]!.text).toBe('roomOps roomIntensity 255,L0,L0');
+  });
+
   it('decodes startScript with the recursive flag and a word arg list', () => {
     // startScript(recursive) 12 [256]
     const out = disassemble(bytes(0x4a, 12, 0x01, 0x00, 0x01, 0xff));

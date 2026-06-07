@@ -430,6 +430,16 @@ export class Vm {
    */
   loadedRoom: LoadedRoom | null = null;
   /**
+   * Snapshot of {@link loadedRoom}'s palette as decoded at room load (CLUT +
+   * UI overrides), taken before any script mutates it. `roomOps roomIntensity`
+   * (`darkenPalette`) scales the *live* palette from this base, not from itself
+   * — so a script that blacks the screen with `setPalColor (0,0,0)` and then
+   * fades back in with `roomIntensity 255,i,i` (room 63, the treasure-map
+   * close-up) restores the original colours instead of staying black. `null`
+   * when no room is loaded; re-captured every {@link applyRoomResources}.
+   */
+  basePalette: Uint8Array | null = null;
+  /**
    * Last room-load error message (if any). Surfaced by the inspector
    * when a `loadRoom` opcode fires for a room the loader can't decode
    * (room id 0, missing block, etc.) — we don't halt for these.
@@ -1046,6 +1056,10 @@ export class Vm {
         }
       }
     }
+    // Capture the loaded palette as the base for `roomOps roomIntensity`
+    // (darkenPalette), after UI overrides — the dance-step text in room 63
+    // is drawn in the UI ink colour, so the base must include it.
+    this.basePalette = this.loadedRoom ? this.loadedRoom.palette.slice() : null;
 
     // Draw every object already in a non-zero, image-backed state. SCUMM draws
     // room objects in their current state at room init, so a door left open
@@ -2156,6 +2170,7 @@ export class Vm {
     this.currentRoom = 0;
     this.frameAccumulator = 0;
     this.loadedRoom = null;
+    this.basePalette = null;
     this.lastRoomLoadError = null;
     this.uiPaletteOverrides.clear();
     this.charsetColorMap = [];
