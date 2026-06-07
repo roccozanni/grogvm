@@ -137,6 +137,13 @@ export const ROOMS = {
     lookout: 913,
     /** "il bivio" (the crossroads) — the town fork. */
     crossroads: 911,
+    /** "il ponte" (the bridge, #914) — the troll bridge ({@link trollBridge},
+     *  room 57). Its verb-11 branches on which side ego stands; fresh from
+     *  elsewhere it lands on the troll's side. */
+    bridge: 914,
+    /** "la casa" (the house, #916) — its verb-11 loads room 43
+     *  ({@link house}). */
+    house: 916,
     /**
      * "il villaggio" (the village). The node's verb-11 script branches on
      * story progress (g196 / a clutch of plot bits); early on — g196 still 0
@@ -479,5 +486,28 @@ export const ROOMS = {
     id: 61,
     /** "Il Maestro della Spada" (#744) — the Sword Master. */
     master: 744,
+    /** "il sentiero" (#743) — the path out. It has no walk verb, so a bare
+     *  click falls to its default (verb 255) → back to the Mêlée map. */
+    path: 743,
+  },
+
+  /**
+   * The troll bridge (room 57) — reached from the map's "il ponte" node
+   * ({@link meleeMap}'s `bridge`). A troll (actor 5, rendered as object #655)
+   * blocks the span; he wants "una cosa rossa" — the red herring (the kitchen
+   * fish, {@link ROOMS.kitchen}'s `fish` #568). Giving it (the two-object
+   * "Dai" sentence to the troll) runs local #204: "Un'aringa rossa! ... Passa!",
+   * unblocks the bridge boxes, and walks ego across — landing back on the map
+   * on the far side. The fish ends owned by the troll (owner 14).
+   */
+  trollBridge: {
+    id: 57,
+    /** The troll — an ACTOR (id 5). Give the red herring TO him. */
+    trollActor: 5,
+  },
+
+  /** "la casa" (room 43) — the house reached from the map's `house` node. */
+  house: {
+    id: 43,
   },
 } as const;

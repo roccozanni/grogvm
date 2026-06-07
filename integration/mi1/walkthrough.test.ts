@@ -61,6 +61,7 @@ import {
   waitIdle,
   waitPickedUp,
   waitPlayable,
+  waitReady,
   walkTo,
 } from '../../src/testkit/scummv5';
 import { VAR_CURRENT_LIGHTS, VAR_EGO } from '../../src/engine/vm/vars';
@@ -534,12 +535,51 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     expect(vm.haltInfo).toBeNull();
   });
 
+  beat('I · Sword Master — back to the map and on to the troll bridge (57)', () => {
+    // Out of the Sword Master's clearing: #743 has no walk verb, so a bare
+    // click runs its default (verb 255) → back to the Mêlée map. From there the
+    // "il ponte" node (#914) drops ego on the troll's side of the bridge (57).
+    walkTo(vm, ROOMS.swordMaster.path);
+    expect(driveToRoom(vm, ROOMS.meleeMap.id, { maxTicks: 8000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    walkTo(vm, ROOMS.meleeMap.bridge);
+    expect(driveToRoom(vm, ROOMS.trollBridge.id, { maxTicks: 10000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat('I · Troll bridge — give the troll the red herring; cross back to the map', () => {
+    const ego = vm.vars.readGlobal(VAR_EGO);
+    // The troll wants "una cosa rossa": give him the red herring (the kitchen
+    // fish, #568) — the two-object "Dai" sentence to the troll actor. Local
+    // #204 says "Un'aringa rossa! ... Passa!", unblocks the bridge, and walks
+    // ego across, landing back on the map. The fish ends owned by the troll.
+    expect(vm.getObjectOwner(ROOMS.kitchen.fish)).toBe(ego);
+    give(vm, VERBS.give, ROOMS.kitchen.fish, ROOMS.trollBridge.trollActor);
+    expect(driveToRoom(vm, ROOMS.meleeMap.id, { maxTicks: 12000 })).toBe(true);
+    expect(vm.getObjectOwner(ROOMS.kitchen.fish)).not.toBe(ego);
+    // Crossing leaves the map's verb bar empty (local #204 sets VAR_VERB_SCRIPT
+    // on the way over), so just settle — node travel runs the default-verb
+    // sentence and needs no armed verb. Don't waitPlayable here (no verb arms).
+    waitReady(vm);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat('I · Mêlée map — travel on to the house (la casa, 43)', () => {
+    // Bridge crossed, the far side of the map is reachable: the "la casa" node
+    // (#916) loads the house (room 43).
+    walkTo(vm, ROOMS.meleeMap.house);
+    expect(driveToRoom(vm, ROOMS.house.id, { maxTicks: 12000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
   // ── FRONTIER ──────────────────────────────────────────────────────────
-  // At the Sword Master's clearing (room 61), its forest location now
-  // discovered, holding the T-shirt (plus the map, chicken, sword, shovel;
-  // meat + fish still carried). Next: the rest of the swordfighting trial
-  // (the house → Captain Smirk → fight pirates → the Sword Master) and
-  // thievery.
+  // At the house (room 43), across the troll bridge (the red herring spent on
+  // the troll), the Sword Master's location discovered, holding the T-shirt
+  // (plus the map, chicken, sword, shovel; meat still carried). Next: the rest
+  // of the swordfighting trial (Captain Smirk → fight pirates → the Sword
+  // Master) and thievery.
 
   // Snapshot the frontier to a save, so the NEXT beat can be developed by
   // fast-forwarding to here (restoreSave) instead of re-driving from boot —
@@ -550,6 +590,6 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       'saves/MI1-walkthrough-frontier.websave.json',
       JSON.stringify(snapshotVm(vm, { game: 'MI1', label: 'walkthrough-frontier' })),
     );
-    expect(vm.currentRoom).toBe(ROOMS.swordMaster.id);
+    expect(vm.currentRoom).toBe(ROOMS.house.id);
   });
 });
