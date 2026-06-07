@@ -306,8 +306,9 @@ Concretely, a "restore pending" flag is armed at the top of each game
 frame and consumed by that frame's first transient print, which drops the
 prior frame's transient lines (keepText lines survive). The flag is
 transient — not part of save state; it re-arms every frame. System text is
-also **not** auto-cleared by the talk timer beyond the keepText rule below,
-and is fully erased on a **room change** / empty print / reset.
+**not** auto-cleared by the talk timer at all (only actor speech is); it is
+erased by the next transient print's restore, a **room change**, a
+**cutscene end**, an empty print, or reset (see the timer section below).
 
 ### What's not in the renderer (deliberately)
 
@@ -332,19 +333,35 @@ skip code 0x40 unconditionally rather than leaning on a font that happens to
 lack the glyph — otherwise the padding leaks through, e.g. "il pezzo di
 carne@@@@…" in the sentence line.
 
-### keepText (`\xff\x02`) vs. the talk timer
+### The talk timer vs. on-screen lifetime
 
 When the talk timer (`VAR_HAVE_MSG`/`talkDelay`, paced by `VAR_CHARINC` ×
-length) drains, a message clears — **for system text too**, not just actor
-speech. The exception is a message flagged **keepText** (`\xff\x02`), which
-persists until an explicit clear (an empty/space `print` at the same anchor)
-or overwrite. Signs, credits, and the layered "Le tre prove!" title use it:
-the credit script (`#152`) prints a credit with `\xff\x02`, holds it with its
-own `delay`, then clears it with `print " "`. Modelling *all* system text as
-permanent leaves one-shot lines stuck on screen — e.g. the room-28 cook's
-`print a=255 "Non puoi venire di qui!"` (no keepText). The string decoder must
-surface the keepText flag, and the talk-advance step must drop finished
-non-keepText system text.
+length) drains, **only actor speech** is removed; `VAR_HAVE_MSG` clears so a
+`wait forMessage` releases. **System text is not removed by the timer** — its
+on-screen lifetime is SCUMM's `restoreCharsetBg` (a screen redraw), which we
+approximate with three triggers: the next transient print's per-cycle restore,
+a **room change** (`enterRoom`), and a **cutscene end** (`endCutscene`). An
+explicit empty/space `print` and reset also clear it.
+
+Two scenes pin this down — both are `print a=25x` system lines with no keepText,
+yet they want opposite lifetimes, and the timer can't tell them apart:
+
+- The room-28 **cook's** `print a=255 "Non puoi venire di qui!"` runs
+  `print → wait forMessage → endCutScene`. The timer drains, `wait forMessage`
+  releases, the script ends the cutscene — and `endCutscene` is what erases the
+  line. (Dropping it on the timer instead was wrong but happened to look right
+  here, because the `endCutScene` follows immediately.)
+- The **treasure-map close-up** (`global #123` → room 63) prints its dance-step
+  lines, then sits in a wait-for-**click** loop (no `wait forMessage`). Clearing
+  on the timer erased the map after ~1.15s; it must persist until the click ends
+  the cutscene. This is the case that fixed the rule.
+
+**keepText** (`\xff\x02`) is a stronger persistence: it survives even the
+per-cycle restore, clearing only on an explicit empty/space `print` at the same
+anchor, an overwrite, or a room change. Signs, credits, and the layered
+"Le tre prove!" title use it: the credit script (`#152`) prints a credit with
+`\xff\x02`, holds it with its own `delay`, then clears it with `print " "`. The
+string decoder must surface the keepText flag.
 
 ---
 
