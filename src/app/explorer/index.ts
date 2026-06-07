@@ -1,7 +1,7 @@
 // Explorer island — `/explore?game=<id>`, the session-free resource browser.
 import '../../styles/explorer.css';
 import { renderExplorer } from './explorer';
-import { currentGameParam, libraryHref } from '../../platform/routing/routing';
+import { currentGameParam } from '../../platform/routing/routing';
 import { mountPage, findInstalledById, renderMissingGame, withReadPermission } from '../shared';
 
 export function mount(root: HTMLElement): void {
@@ -18,7 +18,7 @@ export function mount(root: HTMLElement): void {
         return;
       }
       withReadPermission(root, game, () => {
-        root.replaceChildren(renderExplorer(game, () => location.assign(libraryHref)));
+        root.replaceChildren(renderExplorer(game));
       });
     })();
   });

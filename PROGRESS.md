@@ -272,8 +272,23 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
 
 **Tooling**
 
-- `disasm.ts` drifts past a non-print opcode mis-size on some scripts (e.g.
-  global #178 tail) — chase only if a task needs that script.
+- **Disassembler misaligns on ~13% of MI1 scripts (want to address).** The
+  linear sweep in `disasm.ts` hits a byte it can't size (a rare opcode whose
+  operand layout we don't mirror, or embedded non-code data), then every
+  instruction after it is garbage until — if ever — it re-syncs; a run ending
+  `aligned: false` flags it. Concrete fallout:
+  • `disgrogate SCAN` hits inside a misaligned script are *leads, not proof*.
+  • the Explorer's **referenced global scripts** scan (`referencedGlobalScripts`
+    in `room/extract.ts` — regexes `startScript`/`chainScript` lines for literal
+    ids) silently misses any reference that lands in a misaligned tail, so a
+    room's global list can be incomplete.
+  • `global #178 tail` is one reproducible instance of the mis-size.
+  Fixes to weigh: (a) close the remaining operand-size gaps so the linear decode
+  aligns — `opcodes/index.ts` (the executing table) decodes the same stream
+  correctly, so the disassembler is missing/mismatching some operand lengths;
+  diffing the two would surface which. (b) decode from real entry points and
+  follow jumps instead of a blind linear pass, so embedded data is never decoded
+  as code. (a) is the smaller, higher-leverage fix.
 
 ### Out of scope (their own phases)
 

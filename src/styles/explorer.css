@@ -45,11 +45,6 @@
   background-position: 0 0, 0 8px, 8px -8px, -8px 0;
 }
 
-.room-info {
-  color: var(--muted);
-  font-size: 0.85em;
-  margin: 0;
-}
 
 .room-canvas-stack {
   position: relative;
@@ -128,21 +123,6 @@
   border-right: none;
 }
 
-.strip-method-histogram {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  margin-top: 0.25rem;
-}
-
-.histogram-entry {
-  font-size: 0.8em;
-  padding: 0.15rem 0.4rem;
-  background: #1a1d28;
-  border-left: 3px solid var(--muted);
-  border-radius: 2px;
-  color: var(--fg);
-}
 
 .costume-viewer {
   margin-bottom: 2rem;
@@ -169,37 +149,6 @@
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-}
-
-.costume-summary {
-  margin: 0;
-  font-size: 0.85em;
-  color: var(--fg);
-}
-
-.costume-section-label {
-  font-size: 0.8em;
-  color: var(--muted);
-  margin-right: 0.4rem;
-}
-
-.costume-palette {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  align-items: center;
-  font-size: 0.75em;
-}
-
-.costume-palette-cell {
-  display: inline-block;
-  min-width: 1.8em;
-  padding: 0.1rem 0.25rem;
-  text-align: center;
-  background: #1a1d28;
-  border: 1px solid var(--border);
-  border-radius: 2px;
-  color: var(--fg);
 }
 
 .costume-offsets {
@@ -642,5 +591,448 @@
 
 code {
   color: var(--accent);
+}
+
+
+/* ─── Room-first dossier Explorer ───────────────────────────────────────── */
+
+.explorer-shell {
+  display: grid;
+  grid-template-columns: 7rem 1fr;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.room-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.room-rail-title {
+  margin: 0;
+  font-size: 0.8em;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.room-rail-nav {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.room-rail-nav button {
+  flex: 1;
+  font-size: 0.75em;
+  padding: 0.2rem 0.3rem;
+}
+
+.room-rail-list {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.3rem;
+}
+
+.room-rail-item {
+  font-family: inherit;
+  font-size: 0.85em;
+  padding: 0.25rem 0;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.room-rail-item:hover {
+  border-color: var(--muted);
+}
+
+.room-rail-item.selected {
+  background: var(--border);
+  border-color: var(--muted);
+  font-weight: 700;
+}
+
+.dossier {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.dossier-head {
+  font-weight: 700;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.dossier-panel {
+  border: 1px solid var(--border);
+}
+
+.dossier-panel-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  font-family: inherit;
+  font-size: 0.95em;
+  text-align: left;
+  background: var(--border);
+  color: inherit;
+  border: 0;
+  cursor: pointer;
+}
+
+.dossier-panel-head::before {
+  content: '▾';
+  color: var(--muted);
+}
+
+.dossier-panel-head.collapsed::before {
+  content: '▸';
+}
+
+.dossier-panel-title {
+  font-weight: 700;
+}
+
+.dossier-panel-count {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+.dossier-panel-body {
+  padding: 0.6rem;
+}
+
+.dossier-error {
+  color: #e07a7a;
+  margin: 0;
+  font-size: 0.9em;
+}
+
+.dossier-empty {
+  color: var(--muted);
+  font-style: italic;
+  margin: 0;
+}
+
+.background-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* Wide rooms scroll horizontally here rather than overflowing the page. */
+.room-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* Objects */
+.object-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.object-title {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+}
+
+.object-id {
+  color: var(--muted);
+}
+
+.object-name {
+  font-weight: 700;
+}
+
+.object-meta {
+  color: var(--muted);
+  font-size: 0.82em;
+}
+
+/* Disassembly view (shared by room scripts + object verbs) */
+.disasm {
+  margin: 0;
+  padding: 0.5rem;
+  background: #14141a;
+  border: 1px solid var(--border);
+  overflow-x: auto;
+  font-size: 0.82em;
+  line-height: 1.4;
+}
+
+.disasm-off {
+  color: var(--muted);
+}
+
+.disasm-text.misaligned {
+  color: #e0b04a;
+}
+
+.disasm-note {
+  color: #e0b04a;
+  font-style: italic;
+}
+
+/* Costumes panel (room-first dossier) */
+.costume-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.costume-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.costume-nav button {
+  font-size: 0.8em;
+}
+
+.costume-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+
+.costume-frames {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.costume-limb {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.costume-limb-label {
+  color: var(--muted);
+  font-size: 0.78em;
+}
+
+.costume-limb-frames {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: flex-end;
+}
+
+.costume-frame-cell {
+  border: 1px solid var(--border);
+  /* Checkerboard shows through transparent costume pixels. */
+  background-color: #1a1a22;
+  background-image:
+    linear-gradient(45deg, #2a2a34 25%, transparent 25%),
+    linear-gradient(-45deg, #2a2a34 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #2a2a34 75%),
+    linear-gradient(-45deg, transparent 75%, #2a2a34 75%);
+  background-size: 12px 12px;
+  background-position: 0 0, 0 6px, 6px -6px, -6px 0;
+}
+
+/* Charsets panel (room-first dossier) */
+.charset-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.charset-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.charset-card-label {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+.charset-ink-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+.charset-ink-input {
+  width: 4em;
+  font: inherit;
+  background: #1a1d28;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 0.1rem 0.3rem;
+}
+
+/* Object overlay on the room canvas (hit boxes + walk-to points) */
+.object-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.room-canvas-stack .room-canvas {
+  cursor: pointer;
+}
+
+.overlay-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+/* Object-overlay toggle — same look as the player's debug toggle buttons:
+   a secondary button with an inline icon that turns accent-yellow when on. */
+.overlay-toggle-btn {
+  align-self: flex-start;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.overlay-toggle-btn svg {
+  display: block;
+}
+
+.overlay-toggle-btn.is-on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #000;
+}
+
+.overlay-toggle-btn.is-on:hover {
+  background: var(--accent);
+}
+
+/* Objects panel (prev/next picker) */
+.object-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.object-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.object-nav button {
+  font-size: 0.8em;
+}
+
+.object-nav-label {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+/* Object detail stacked: name/image/meta on top, verb tabs full-width below. */
+.object-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.object-detail-left {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.object-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: flex-end;
+  overflow-x: auto;
+}
+
+/* Tabbed disassembly — one tab per script/verb; the active one shows fully
+   disassembled below (shared by the Scripts panel and object verbs). */
+.tabbed-disasm {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.disasm-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.disasm-tab {
+  font-family: inherit;
+  font-size: 0.8em;
+  padding: 0.15rem 0.5rem;
+  background: transparent;
+  color: inherit;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  cursor: pointer;
+  margin: 0;
+}
+
+.disasm-tab:hover {
+  border-color: var(--muted);
+}
+
+.disasm-tab.active {
+  border-bottom-color: var(--accent);
+  background: var(--border);
+  font-weight: 700;
+}
+
+.disasm-pane {
+  margin: 0;
+  max-height: 22rem;
+  overflow: auto;
+}
+
+.object-image-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  align-items: center;
+  border: 1px solid var(--border);
+  padding: 0.3rem;
+  /* Checkerboard shows through transparent object pixels. */
+  background-color: #1a1a22;
+  background-image:
+    linear-gradient(45deg, #2a2a34 25%, transparent 25%),
+    linear-gradient(-45deg, #2a2a34 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #2a2a34 75%),
+    linear-gradient(-45deg, transparent 75%, #2a2a34 75%);
+  background-size: 12px 12px;
+  background-position: 0 0, 0 6px, 6px -6px, -6px 0;
+}
+
+.object-image-label {
+  color: var(--muted);
+  font-size: 0.75em;
 }
 

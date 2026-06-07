@@ -25,6 +25,26 @@ export function currentGameParam(): string | null {
   return gameParam(typeof location === 'undefined' ? '' : location.search);
 }
 
+/** Read the `?room=` parameter (a room id) from a query string. Null when absent/non-numeric. */
+export function roomParam(search: string): number | null {
+  const value = new URLSearchParams(search).get('room');
+  if (!value) return null;
+  const id = Number.parseInt(value, 10);
+  return Number.isInteger(id) ? id : null;
+}
+
+/** The current page's `?room=` (reads `location.search`). */
+export function currentRoomParam(): number | null {
+  return roomParam(typeof location === 'undefined' ? '' : location.search);
+}
+
+/** A query string with `room` set, preserving the other params (e.g. `game`). */
+export function searchWithRoom(search: string, roomId: number): string {
+  const params = new URLSearchParams(search);
+  params.set('room', String(roomId));
+  return `?${params.toString()}`;
+}
+
 /** The library screen — where Explore/Play return to (you install/select there first). */
 export const libraryHref = '/library/';
 
