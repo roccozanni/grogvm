@@ -56,6 +56,7 @@ import {
   pickAnswer,
   pickDialogAnswer,
   use,
+  useWith,
   waitGlobal,
   waitIdle,
   waitPickedUp,
@@ -427,11 +428,66 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     expect(vm.haltInfo).toBeNull();
   });
 
+  beat('I · General store — back across the island to the forest fork (218)', () => {
+    // The whole trip out, reversed, in one go: the store street's far-east arch
+    // → the town street, its west arch → the lookout, off the cliff, up the
+    // path to the map, then the map's crossroads node (#911, "il bivio") — the
+    // one node we've not taken before — loads room 218, the forest-maze entry
+    // (a pseudo-room backed by room 58). Each hop is a bare click whose default
+    // verb-11 runs the transition.
+    walkTo(vm, ROOMS.storeStreet.townArch);
+    expect(driveToRoom(vm, ROOMS.meleeStreet.id, { maxTicks: 12000 })).toBe(true);
+    walkTo(vm, ROOMS.meleeStreet.lookoutArch);
+    expect(driveToRoom(vm, ROOMS.meleeLookout.id, { maxTicks: 12000 })).toBe(true);
+    walkTo(vm, ROOMS.meleeLookout.cliff);
+    expect(driveToRoom(vm, ROOMS.cliffPath.id, { maxTicks: 6000 })).toBe(true);
+    walkTo(vm, ROOMS.cliffPath.path);
+    expect(driveToRoom(vm, ROOMS.meleeMap.id, { maxTicks: 6000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    walkTo(vm, ROOMS.meleeMap.crossroads);
+    expect(driveToRoom(vm, ROOMS.forest.id, { maxTicks: 8000 })).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat('I · Forest — thread the maze (back/left/right…) out to the dig clearing (64)', () => {
+    // From the entry (218) the path back, left, right, left, right, back,
+    // right, left, back walks out to the treasure clearing. Each turn is a
+    // click on a direction's "il sentiero" tile; its verb-11 switches on the
+    // current pseudo-room (`g4`) and loads the next. Asserting the pseudo-room
+    // each step lands in proves we're threading the exact route (a re-wired
+    // maze edge fails on the step that broke), and the last `back` exits to 64.
+    const F = ROOMS.forest;
+    const route: ReadonlyArray<[number, number]> = [
+      [F.back, 215], [F.left, 220], [F.right, 213], [F.left, 212], [F.right, 204],
+      [F.back, 211], [F.right, 216], [F.left, 201], [F.back, ROOMS.forestDig.id],
+    ];
+    for (const [path, next] of route) {
+      walkTo(vm, path);
+      expect(driveUntil(vm, (v) => v.currentRoom === next, { maxTicks: 12000 })).toBe(true);
+    }
+    expect(vm.currentRoom).toBe(ROOMS.forestDig.id);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat('I · Forest dig — Use the shovel on the X; the cutscene unearths the T-shirt', () => {
+    const ego = vm.vars.readGlobal(VAR_EGO);
+    expect(vm.getObjectOwner(ROOMS.forestDig.tshirt)).not.toBe(ego);
+
+    // "Usa pala con X": the dig cutscene (local #200) plays "Passano ore",
+    // ego digs, and `pickupObject`s the treasure T-shirt into the inventory.
+    // It's a long cutscene (two camera pans + the dig-and-refill), hence the
+    // wide budget.
+    useWith(vm, VERBS.use, ROOMS.store.shovel, ROOMS.forestDig.x);
+    expect(waitPickedUp(vm, ROOMS.forestDig.tshirt, 60000)).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
   // ── FRONTIER ──────────────────────────────────────────────────────────
-  // In the store street (34) with the treasure map, the rubber chicken, a
-  // sword and a shovel bought (203 pieces of eight left; meat + fish still
-  // carried). Next: the three trials proper — swordfighting (the house →
-  // Captain Smirk → fight pirates → the Sword Master), thievery, treasure.
+  // Treasure trial done: in the dig clearing (room 64) holding the T-shirt
+  // (plus the map, chicken, sword, shovel; meat + fish still carried). Next:
+  // the other two trials — swordfighting (the house → Captain Smirk → fight
+  // pirates → the Sword Master) and thievery.
 
   // Snapshot the frontier to a save, so the NEXT beat can be developed by
   // fast-forwarding to here (restoreSave) instead of re-driving from boot —
@@ -442,6 +498,6 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       'saves/MI1-walkthrough-frontier.websave.json',
       JSON.stringify(snapshotVm(vm, { game: 'MI1', label: 'walkthrough-frontier' })),
     );
-    expect(vm.currentRoom).toBe(ROOMS.storeStreet.id);
+    expect(vm.currentRoom).toBe(ROOMS.forestDig.id);
   });
 });

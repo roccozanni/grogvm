@@ -30,6 +30,7 @@
  * tested here.
  */
 import { driveTicks, driveUntil, hover } from './drive';
+import { objectHitBox } from '../engine/object/hittest';
 import { VAR_EGO } from '../engine/vm/vars';
 import type { Vm } from '../engine/vm/vm';
 
@@ -40,20 +41,22 @@ export type Target = number | { x: number; y: number };
 const VERB_ARM_TICKS = 24;
 
 /**
- * Center of object `objId`'s CDHD hit-box, in room pixels — the point the
- * hover poller must see for `findObject` to load it into the active-object
- * global (hit-test is against the CDHD box, in 8-pixel units; see
- * `object/hittest.ts`). Throws if the object isn't in the currently loaded
- * room, so a mistargeted action fails loudly rather than silently hovering
- * empty floor.
+ * Center of object `objId`'s hit-box, in room pixels — the point the hover
+ * poller must see for `findObject` to load it into the active-object global.
+ * Computed via {@link objectHitBox}, so it tracks a runtime SO_AT reposition
+ * (`drawObject … at`): the forest-maze path tiles share a design origin but
+ * are repositioned per screen, so the static CDHD box would point at the wrong
+ * spot — the hit-test moves with the draw position and so must this. Throws if
+ * the object isn't in the currently loaded room, so a mistargeted action fails
+ * loudly rather than silently hovering empty floor.
  */
 export function objectPoint(vm: Vm, objId: number): { x: number; y: number } {
   const o = vm.loadedRoom?.objects.get(objId);
   if (!o) {
     throw new Error(`objectPoint: object ${objId} is not in loaded room ${vm.currentRoom}`);
   }
-  const { x, y, width, height } = o.cdhd;
-  return { x: x * 8 + (width * 8) / 2, y: y * 8 + (height * 8) / 2 };
+  const { left, top, right, bottom } = objectHitBox(o, vm.objectDrawPositions.get(objId));
+  return { x: (left + right) / 2, y: (top + bottom) / 2 };
 }
 
 /**
@@ -197,12 +200,24 @@ export function use(vm: Vm, verb: number, target: Target): void {
 }
 
 /**
+ * Resolve a carried item's inventory verb-slot. Carried items render as verb
+ * slots `invBase`+ in owning order (200 is the SCUMM v5 inventory verb-slot
+ * base), so a two-object sentence selects object A by clicking that slot. The
+ * caller passes the item's *object id*; we map it to its live panel slot,
+ * throwing if it isn't carried so a mistargeted give/use fails loudly.
+ */
+function inventorySlot(vm: Vm, item: number, invBase: number): number {
+  const ego = vm.vars.readGlobal(VAR_EGO);
+  for (let i = 1, n = vm.inventoryCount(ego); i <= n; i++) {
+    if (vm.findInventory(ego, i) === item) return invBase + (i - 1);
+  }
+  throw new Error(`inventorySlot: item ${item} is not in ego's inventory`);
+}
+
+/**
  * Give a carried item to an actor — the two-object "Dai X a ⟨actor⟩" sentence.
- * Faithful flow: arm the Give verb, click the item in the inventory panel, then
- * click the actor. Carried items render as verb slots `invBase`+ in owning
- * order (200 is the SCUMM v5 inventory verb-slot base), so the caller passes
- * the item's *object id* and we resolve its panel slot from ego's live
- * inventory — throwing if it isn't carried, so a mistargeted give fails loudly.
+ * Faithful flow: arm the Give verb, click the item in the inventory panel
+ * (object A), then click the actor (object B).
  */
 export function give(
   vm: Vm,
@@ -212,20 +227,38 @@ export function give(
   invBase = 200,
 ): void {
   waitReady(vm);
-  const ego = vm.vars.readGlobal(VAR_EGO);
-  let slot = -1;
-  for (let i = 1, n = vm.inventoryCount(ego); i <= n; i++) {
-    if (vm.findInventory(ego, i) === item) {
-      slot = invBase + (i - 1);
-      break;
-    }
-  }
-  if (slot < 0) throw new Error(`give: item ${item} is not in ego's inventory`);
+  const slot = inventorySlot(vm, item, invBase);
   vm.handleVerbClick(giveVerb, 1);
   driveTicks(vm, VERB_ARM_TICKS);
   vm.handleVerbClick(slot, 1); // select the item (object A) from the inventory panel
   driveTicks(vm, VERB_ARM_TICKS);
   const { x, y } = actorPoint(vm, actorId); // hover the actor (object B)
+  hover(vm, x, y);
+  vm.handleSceneClick(1);
+}
+
+/**
+ * Use a carried item on a scene object — the two-object "Usa X con Y" sentence
+ * where Y is an object (the {@link give} sibling, whose second object is an
+ * actor). Faithful flow: arm the Use verb, click the item in the inventory
+ * panel (object A), then click the target object (object B), committing
+ * doSentence(use, item, target). The item's slot is resolved from ego's live
+ * inventory; the target is hovered at its {@link objectPoint}.
+ */
+export function useWith(
+  vm: Vm,
+  useVerb: number,
+  item: number,
+  target: number,
+  invBase = 200,
+): void {
+  waitReady(vm);
+  const slot = inventorySlot(vm, item, invBase);
+  vm.handleVerbClick(useVerb, 1);
+  driveTicks(vm, VERB_ARM_TICKS);
+  vm.handleVerbClick(slot, 1); // select the item (object A) from the inventory panel
+  driveTicks(vm, VERB_ARM_TICKS);
+  const { x, y } = objectPoint(vm, target); // hover the target object (object B)
   hover(vm, x, y);
   vm.handleSceneClick(1);
 }

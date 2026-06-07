@@ -79,6 +79,8 @@ export const VERBS = {
   give: 4,
   /** "Premi" / Push — e.g. ring the general-store bell. */
   push: 5,
+  /** "Usa" / Use — two-object (Use X with Y), e.g. the shovel on the dig X. */
+  use: 7,
 } as const;
 
 /** Per-room ids: each room's number + the objects/scripts that live there. */
@@ -326,6 +328,14 @@ export const ROOMS = {
     /** "l'arco" (#451) → the general-store street ({@link ROOMS.storeStreet},
      *  room 34); click to walk through. */
     storeArch: 451,
+    /**
+     * "l'arco" (#450) — the west arch back to the lookout/town room
+     * ({@link ROOMS.meleeLookout}, room 33). Its verb-11 branches on plot bits
+     * (later it reroutes to the docks, room 83); early on — those bits clear —
+     * it lands ego at room 33's east arch (#427). The return leg of the trip
+     * out to the shops.
+     */
+    lookoutArch: 450,
   },
 
   /** The Voodoo Lady's shop (room 29), entered through the street's
@@ -351,6 +361,12 @@ export const ROOMS = {
      * door), then click it to walk through.
      */
     storeDoor: 437,
+    /**
+     * "l'arco" (#433) — the far-east arch back to the Mêlée town street
+     * ({@link ROOMS.meleeStreet}, room 35); click to walk through. (Early on
+     * bit#453, the church-detour gate, is clear, so it just loads room 35.)
+     */
+    townArch: 433,
   },
 
   /**
@@ -388,5 +404,47 @@ export const ROOMS = {
     /** "la porta" (#387) → back out to the street (room 34); Open (verb 2)
      *  then click to walk through. */
     door: 387,
+  },
+
+  /**
+   * The forest maze (room 218 — the entry, reached from the map's crossroads
+   * node #911). It's a single screen of graphics (backed by room 58) re-dressed
+   * as twenty pseudo-rooms 201–220: the engine's pseudo-room alias table maps
+   * them all to room 58, and `g4` (VAR_ROOM) holds which one you're standing in.
+   *
+   * Each visible path is one "il sentiero" object whose verb-11 is a giant
+   * switch on `g4` → `loadRoomWithEgo` the next pseudo-room. The SAME object id
+   * is the SAME conceptual direction on every screen (re-positioned per screen
+   * via SO_AT, so {@link objectPoint} tracks where it actually draws). Three
+   * directions, fixed by object id:
+   *   • back  = #685 (also #686, a duplicate hot-region that defers to #685)
+   *   • left  = #688
+   *   • right = #687
+   * From the entry (218) the path `back, left, right, left, right, back, right,
+   * left, back` threads out to the treasure-dig clearing ({@link forestDig},
+   * room 64); other turns loop or dump you back at the map. (The sequence and
+   * the pseudo-room it lands in at each step live with the navigation beat.)
+   */
+  forest: {
+    id: 218,
+    back: 685,
+    left: 688,
+    right: 687,
+  },
+
+  /**
+   * The treasure-dig clearing (room 64), at the end of the {@link forest} maze.
+   * Use (verb 7) the shovel ({@link ROOMS.store}'s `shovel`, #396) on the X
+   * (#749) → the dig cutscene (local #200) plays out "Passano ore" and hands
+   * ego the buried treasure: object #752, the joke T-shirt.
+   */
+  forestDig: {
+    id: 64,
+    /** "X" (#749) — the dig spot. Use the shovel on it (its verb-7 checks the
+     *  partner is the shovel #396, then runs the dig script #200). */
+    x: 749,
+    /** "la T-shirt" (#752) — the treasure; the dig cutscene `pickupObject`s it
+     *  into ego's inventory. */
+    tshirt: 752,
   },
 } as const;
