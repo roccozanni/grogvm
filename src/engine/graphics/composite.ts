@@ -135,11 +135,16 @@ export interface ActorDrawPrep {
  * table for unused limbs); a decode failure on an *active* limb is recorded.
  */
 export function prepareActorDraw(actor: Actor, costume: LoadedCostume): ActorDrawPrep {
-  // West and East share side-view art; the engine flips one horizontally.
-  // mirror = horizontal AND (facing-West XOR the costume's native orientation).
+  // East-facing side art is always drawn native; the engine mirrors it for the
+  // WEST facing — UNLESS the costume's format bit-7 "mirror flag" is set, which
+  // means "this costume has dedicated per-direction art, do NOT mirror West."
+  // Cost107 (room 60's teaching machine) is one of only two MI1 costumes with
+  // the flag set: it carries distinct full art on BOTH its W (records 4/12) and
+  // E (records 5/13) chores, so neither facing flips — its East-authored setup
+  // pose aims at the student, and its West entry pose (pushed in) stays native
+  // too. Only West is ever a mirror candidate, so East is never flipped.
   const facing = actor.facing;
-  const horizontal = facing === 'W' || facing === 'E';
-  const mirror = horizontal && (facing === 'W') !== costume.header.mirrorFlag;
+  const mirror = facing === 'W' && !costume.header.mirrorFlag;
 
   // When an anim has activated any limb, only the active limbs draw; with no
   // anim yet we fall back to frame 0 of every limb (the base sprite).

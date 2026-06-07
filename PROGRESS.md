@@ -142,6 +142,49 @@ Fettucini cannon gag OK. Kept for faithfulness, not a visible fix. Does NOT
 include the *line-following walker* (`stepWalk` still steps X/Y independently);
 that half of the old backlog item stays open.
 
+**Engine finding — `actorOps` SO_DEFAULT (initActor) must NOT reset facing
+(fixes Smirk's teaching machine collapsing to its wheel + the same latent risk
+for ego's fencing costume; pending in-browser confirm).** Repro save
+`MI1-Italiano-quicksave` (room 60, mid swordfighting-lesson cutscene): the
+teaching machine (actor 3, cost107) rendered as just its cart/wheel limb; ego's
+fencing pose (cost44) had the same exposure. Both costumes are **side-view-only
+props** — they carry full per-limb art for the W/E records but the S/N records
+are stubs (cost107 init-S/N name only the wheel limb, stand-S/N undefined;
+cost44 identical). *(Found via this same save: the format-byte **mirror flag**
+is NOT the flip selector — see the mirror finding below.)* Room 60's machine setup runs `animateActor 3 249` (set-dir →
+**East**, a full-art side) *before* `actorOps 3 [init; setCostume(107)]`, then a
+stand chore. Our SO_DEFAULT handler (opcodes/index.ts subop 0x08) was clobbering
+`actor.facing = 'S'`, so the just-set East facing was lost; setCostume's
+auto-init then ran init-S (only the wheel) and stand-S was undefined → the rest
+of the contraption never drew. SCUMM's `o5_actorOps` SO_DEFAULT calls
+`initActor(0)`, and only the full game-start `initActor(1)` (and mode 2) touch
+`_facing`; mode 0 leaves it alone — the bytecode confirms it (the pre-init
+set-dir is only meaningful if init preserves facing). Fix: drop the
+`facing = 'S'` line from subop 0x08. Verified headless by rendering room-60 real
+pixels across the cutscene (machine full at the frame that previously showed
+only the wheel); unit 868 + integration 31 green. → document in [costume-anim]
+(pages/docs/scumm/costume-anim.md) §init / [opcodes] at the next doc pass.
+
+**Engine finding — costume format-byte bit 7 = "West anims must NOT be
+mirrored" (same save, pending in-browser confirm).** With the facing fix above
+the machine drew in full but *horizontally mirrored*. The faithful flip rule is
+`mirror = facing==='W' && !mirrorFlag`: East side art is always native, West
+mirrors it — *unless* bit 7 is set, meaning the costume ships **dedicated
+per-direction art** and must not be mirrored. Cost107 is one of only **two** MI1
+costumes with the flag set (the other is cost47); it carries distinct full art
+on both its W chores (records 4/12) and E chores (records 5/13), so neither
+facing flips — the East-authored setup pose aims at the student, and the West
+entry pose (machine pushed in) stays native too. The prior
+`(facing==='W') XOR mirrorFlag` rule was wrong in one spot — it flipped *East*
+for flag-set costumes — which mirrored the running machine; a stopgap
+`facing==='W'` (ignore flag) then wrongly flipped the *West* entry. The
+`&& !mirrorFlag` form is correct on both phases (verified by rendering room-60
+pixels at the W-entry and E-setup frames) and is behaviour-identical to the old
+rule for every flag-clear costume. cost47 isn't exercised by current play;
+flagged here so it's on the radar. → fold into [costume-anim] §Mirroring
+(correct the "every MI1 costume has a clear mirror flag" claim + record the bit-7
+meaning) at the doc pass.
+
 ### Tier-2 divergence checklist
 
 Silent, self-flagged approximations (run `git grep -nE "for now|doesn't yet|best-effort|we don't yet"`

@@ -1880,11 +1880,20 @@ function actorOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
       }
       case 0x08:
         // SO_DEFAULT — initActor: clear state but keep id. We zero
-        // costume, anim, facing, position; the script will set what
-        // it cares about in subsequent subops.
+        // costume, anim, position; the script will set what it cares
+        // about in subsequent subops.
+        //
+        // Facing is deliberately NOT reset: SCUMM's `o5_actorOps` SO_DEFAULT
+        // calls `initActor(0)`, and only the full game-start `initActor(1)`
+        // (and mode 2) touch `_facing` — mode 0 leaves it alone. Room 60's
+        // teaching-machine setup relies on this: it sets the machine facing
+        // East (`animateActor 249`) *before* the init, then `setCostume(107)`
+        // + stand chore. Cost107 only carries full art for the side views
+        // (W/E); its S/N records are stubs (init-S names just the cart/wheel
+        // limb, stand-S is undefined). Clobbering facing to S here collapsed
+        // the whole contraption down to the wheel.
         if (actor) {
           actor.costume = 0;
-          actor.facing = 'S';
           actor.elevation = 0;
           actor.visible = true;
           actor.walkTarget = null;
