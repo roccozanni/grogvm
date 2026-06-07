@@ -1979,11 +1979,29 @@ function actorOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
         break;
       }
       case 0x14:
-        if (actor) actor.ignoreBoxes = true;
+        // ignoreBoxes — like followBoxes, SCUMM resets _forceClip to the
+        // "not forced" sentinel here (the depth then follows the NeverClip
+        // class / compositor's ignoreBoxes→front rule). In MI1 every use pairs
+        // this with an explicit neverZclip/alwaysZclip in the same actorOps
+        // call (which then wins), so this only matters for a bare {ignoreBoxes}
+        // that would otherwise inherit a stale alwaysZclip.
+        if (actor) {
+          actor.ignoreBoxes = true;
+          actor.forceClip = 0;
+        }
         ops.push('setIgnoreBoxes');
         break;
       case 0x15:
-        if (actor) actor.ignoreBoxes = false;
+        // followBoxes — return to box-driven walking AND box-driven depth:
+        // SCUMM resets _forceClip to the "not forced" sentinel here, so an
+        // earlier alwaysZclip no longer pins the actor's z-plane. MI1's cook
+        // patrol (room 28 local #216) relies on this — it restores the cook
+        // with followBoxes and never issues neverZclip, so without the reset
+        // the cook keeps the ENCD's alwaysZclip=1 and renders behind the table.
+        if (actor) {
+          actor.ignoreBoxes = false;
+          actor.forceClip = 0;
+        }
         ops.push('setFollowBoxes');
         break;
       case 0x16: {

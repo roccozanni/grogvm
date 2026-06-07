@@ -102,13 +102,29 @@ Smirk → fight pirates for insults → the Sword Master node #918), thievery, t
 
 ### Open bug-report saves (reported, not yet fixed)
 
-- **Room 28 cook drawn behind the table (compositor, not pathfinding).**
-  With box-graph routing the cook (actor 6, `alwaysZclip=1`) now walks a
-  natural path (no longer the y=140 line) — user-confirmed 2026-06-05 — but
-  the compositor still draws it behind the foreground table z-plane. So the
-  remaining slice is a z-clip/compositor bug, *not* a routing one. Chase the
-  cook's resolved clip plane vs. the table band (y≈102–122); see
-  [ZPLANE](pages/docs/scumm/zplane.md).
+- *(none open — the room-28 cook is fixed; see the finding below.)*
+
+**Engine finding — `followBoxes`/`ignoreBoxes` reset `_forceClip` (fixes the
+room-28 cook behind the table; user-confirmed in-browser 2026-06-07).** The
+cook (actor 6) wasn't a routing or compositor-occlusion bug at all. Its patrol
+(room 28 local #216) restores box-driven depth with `{followBoxes}` and *never*
+issues `neverZclip`, but ENCD had left it at `alwaysZclip=1`. Our `followBoxes`
+(opcodes/index.ts subop 0x15) only cleared `ignoreBoxes`, so `forceClip` stayed
+pinned at 1 and `resolveClipPlane` short-circuited (`forceClip > 0` wins before
+any box lookup) → the cook was masked by ZP01 (the table) for its whole sweep.
+Fix: `followBoxes` now also sets `forceClip = 0` (the "not forced" sentinel);
+live state confirms the cook runs `forceClip=0` (box-driven) across the wander,
+snapping back to 1 only at the x≈600–660 entry/exit where the script explicitly
+sets `{ignoreBoxes; alwaysZclip=1}`. `ignoreBoxes` (subop 0x14) was made
+symmetric (SCUMM resets `_forceClip` there too); provably a no-op for all
+current MI1 play since every on-path `ignoreBoxes` pairs with a trailing
+explicit clip op that wins — it only gives a bare `{ignoreBoxes}` a defined
+state instead of a stale `alwaysZclip`. NB this killed the **walkbox spike**
+(a review flag that `resolveClipPlane` uses `findBoxAtOrNearest(x,y)` instead of
+the stored `_walkbox`): proven moot for the cook because `forceClip > 0`
+short-circuits before the box is ever resolved. The stored-`_walkbox` gap is
+still real and stays deferred (Pathfinding backlog). → document in [ZPLANE]
+(pages/docs/scumm/zplane.md) at the next doc pass.
 
 ### Tier-2 divergence checklist
 
