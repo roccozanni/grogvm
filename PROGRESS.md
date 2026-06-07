@@ -155,6 +155,14 @@ Priority H/M/L = likelihood of biting current/near play × severity.
     the all-1s rule, kept for reference: object class incl. class-32, `ZP0k→plane
     k` index, name-vs-order indexing, walk-box clip plane, image transparency, the
     ZP decoder.)
+  • **RULED OUT — "object z-planes shouldn't occlude actors" (room ZP01 only).**
+    Theory: drop object planes from `actorOcclusionPlanes`, leaving only room
+    background planes (objects composite in draw-queue order, no z-plane
+    object↔object layering, so the object plane would have no other consumer).
+    Tried it (return `room.zPlanes`); **refuted in-browser** — the title-screen
+    cloud and a forest rock both stopped occluding ego when they must. Object
+    z-planes genuinely occlude actors (single-plane `ZP0k→k`, per `bde2e96`).
+    The forest bug is positioning, not the occlusion model.
   • **Background tile seams** (hard vertical cuts at tile boundaries x=104/208)
     are **GENUINE** — present in the original game. Not a bug; ignore. → [ZPLANE].
 - [ ] **M — dialog/string escape codes still deferred**
