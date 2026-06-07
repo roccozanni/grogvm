@@ -170,7 +170,9 @@ grid keeps the scale a script set — the rescale early-returns for an
 costume 40) is set `ignoreBoxes; scale 255,255` and arcs up to y≈36, where the
 box's `SCAL` slot interpolates to ~1; without the exemption the placement
 rescale shrank it to a **single dot** mid-flight. (Same off-grid principle as
-the `ignoreBoxes` z-clip rule — see [ZPLANE](zplane.md).)
+z-clip: an `ignoreBoxes` actor keeps its last-assigned `_walkbox` rather than
+being re-snapped to a box — see [ZPLANE](zplane.md). The rescale and z-clip read
+the *same* assigned box, so they stay consistent.)
 
 **`initActor` (`actorOps SO_DEFAULT`, 0x08) must clear `ignoreBoxes` + reset
 scale.** Because the exemption above freezes scaling, a *stuck* `ignoreBoxes`

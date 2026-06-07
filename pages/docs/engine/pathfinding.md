@@ -168,11 +168,15 @@ moves the actor *along the line* toward the waypoint (`calcMovementFactor`:
 dominant axis at full speed, the other proportional). On a near-horizontal
 diagonal connector box, independent stepping exhausts the small Y delta in
 one tick and then drifts straight along the wrong Y, leaving the thin box;
-re-deriving the actor's box from its position then reports the wrong box.
+the box **assigned** from that off-line position (each movement step) is then
+wrong.
 
 This is why a *single* click can't cross room 52's bridge (§7) and why thin
-diagonal connectors are fragile in general. The faithful fix is two-part:
-(a) a line-following walker (`calcMovementFactor`-style stepping with
-sub-pixel accumulation), and (b) tracking the actor's walk-box as state
-updated at gate crossings (SCUMM's `_walkbox`) rather than re-deriving it
-from pixel position.
+diagonal connectors are fragile in general. The walk-box-as-state half of the
+fix is **done**: the actor stores its assigned box (`actor.walkBox`, SCUMM's
+`_walkbox`) and the compositor / `getActorWalkBox` read it rather than
+re-deriving the box at draw time (see [ZPLANE §8](../scumm/zplane.md)). What
+remains is the **line-following walker** (`calcMovementFactor`-style stepping
+with sub-pixel accumulation): it keeps the actor *on* the box line, so the
+per-step box assignment is correct — and, ideally, maintaining `_walkbox` at
+gate crossings instead of re-assigning it from pixel position each step.

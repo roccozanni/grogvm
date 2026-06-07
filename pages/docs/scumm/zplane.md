@@ -253,9 +253,10 @@ Guybrush behind the staircase banister.
 
 `clipLevel = forceClip > 0 ? forceClip : (NeverClip class ? 0 :
 walkBoxMask)`. `alwaysZclip k` sets `forceClip = k`; `neverZclip`
-clears it to 0 (an *unset* sentinel, **not** "in front" — it falls
-through to the box mask); the walk box the actor's feet stand in
-supplies the default (`mask 0` = in front, `mask k` = `ZP0k`).
+(and `followBoxes` / `ignoreBoxes`) clear it to 0 (an *unset* sentinel,
+**not** "in front" — it falls through to the box mask); the actor's
+assigned walk box (`_walkbox`) supplies the default (`mask 0` = in front,
+`mask k` = `ZP0k`).
 
 ### Why some pixels are marked in multiple planes
 
@@ -371,9 +372,26 @@ zbuf = _forceClip != 0 ? _forceClip
 > the left brother drew **behind the haystack crate** in ZP01. We set
 > `forceClip = 0` on init (the not-forced sentinel, ≡ the `-1` default for
 > depth). Verified by rendering room 51. (`initActor` likewise resets
-> `ignoreBoxes = false` and scale to `0xFF` — the same "clear stale per-actor
-> flags" rule; a stuck `ignoreBoxes` otherwise froze perspective scaling across
-> rooms, see [WALK-BOXES](walk-boxes.md).)
+> `ignoreBoxes = false`, scale to `0xFF`, and the actor's `_walkbox` to the
+> unassigned `-1` — the same "clear stale per-actor flags" rule; a stuck
+> `ignoreBoxes` otherwise froze perspective scaling across rooms, see
+> [WALK-BOXES](walk-boxes.md). The `_walkbox` reset matters for the room-51
+> cannon actor — init'd then immediately `ignoreBoxes`, it must not fly with a
+> prior scene's box; see "Box-mask" below.)
+
+> ⚠️ **`followBoxes` / `ignoreBoxes` (actorOps 0x15 / 0x14) also reset
+> `forceClip = 0`.** Both opcodes return the actor to box-driven *everything*,
+> depth included — not just box-following. The **room-28 cook** (actor 6) is the
+> case: its patrol (local #216) restores it with `{followBoxes}` and *never*
+> issues `neverZclip`, but ENCD had left it at `alwaysZclip = 1`. Without the
+> reset, `forceClip` stayed pinned at 1 and the cook was masked by ZP01 (the
+> bar table) for its whole wander — drawn *behind* the table. With the reset it
+> runs `forceClip = 0` (box-driven) across the wander, snapping back to 1 only
+> at the kitchen-doorway entry/exit where the script explicitly sets
+> `{ignoreBoxes; alwaysZclip = 1}`. Every MI1 `ignoreBoxes` pairs with a
+> trailing explicit clip op in the same call (which wins), so the reset is
+> observable only on a bare `{ignoreBoxes}` / `{followBoxes}`. User-confirmed
+> in-browser.
 
 `alwaysZclip k` → `actorZ = k − 1` so that "plane index > actorZ" makes
 plane `k` (and higher) occlude the actor while planes below `k` don't.
@@ -388,8 +406,8 @@ parked over the mountain peak draws 0 pixels where ZP01's mask is set.
 
 An actor that is **not forced** (`forceClip ≤ 0`: the never-set `-1`
 default *or* `forceClip == 0` from `neverZclip`) and is **not in the
-NeverClip class** derives its clip band from the **`mask` byte of the
-walk box its feet stand in**:
+NeverClip class** derives its clip band from the **`mask` byte of its
+assigned walk box** (`_walkbox`, see below):
 
 | box `mask` | `actorZ`         | effect                              |
 |------------|------------------|-------------------------------------|
@@ -406,31 +424,35 @@ mask-1 dock boxes in **room 33** put it behind the houses, while its
 mask-0 box in **room 38** keeps it in front of the wall. Box masks seen
 in MI1: `0`/`1`/`2` (rooms 10/38/33).
 
-The box is resolved with a **nearest-box** lookup, not a strict
+**`_walkbox` is walk state, not a draw-time lookup.** Like SCUMM, the
+actor stores the box it is *assigned to* (`actor.walkBox`) and maintains
+it as it moves; the compositor reads that stored box and maps its `mask`
+→ `actorZ`. The box is **assigned** (not at draw time) in the one place
+that resolves a box from position — the movement/placement seam
+(`rescaleActorForPosition`, shared with the scale system, so scale and
+z-clip always agree) — using a **nearest-box** lookup, not a strict
 point-in-box test: MI1's room-33 dock is built from thin *diagonal line*
 boxes (e.g. box 4, UL==UR and LR==LL) that strictly contain no interior
-point, so a strict lookup returned `null` → front (the old occlusion
-gap). The nearest-box fallback yields the box the actor walks on — the
-same per-frame box the actor-scale system already uses, so scale and
-z-clip stay consistent. (Faithfulness caveat: SCUMM tracks the actor's
-assigned `_walkbox`; geometric-nearest can differ from it for an actor
-standing off all boxes — e.g. a sky-placed `forceClip == 0` actor would
-resolve to the nearest *floor* box rather than "none → front".) **Room 51's
-cannon launch is exactly that case:** the airborne actor (actor 11, costume
-40) is set `ignoreBoxes; neverZclip` and flies/falls over the tent pole at
-y≈48; geometric-nearest snapped it to box 7 (mask 1) and ZP01 (the pole)
-masked it, so Guybrush *vanished* instead of arcing in front. Fix: the
-clip resolver short-circuits an **`ignoreBoxes`** actor to the front
-(clipPlane 0) — an actor off the box grid isn't assigned a walk box as it
-moves, so it keeps its retained init box (mask 0). An explicit `alwaysZclip`
-still wins above. (A non-`ignoreBoxes` actor standing off all boxes would
-still mis-resolve; track `_walkbox` if a scene shows it.)
+point, so a strict lookup returned `null` → front (the old occlusion gap).
+The nearest-box fallback yields the box the actor walks on.
 
-The compositor resolves the actor's box from its position and maps the
-box `mask` → `actorZ`. Validated headlessly: a `forceClip`-cleared actor
-parked in any mask-1 box of room 38 draws **0 pixels over the wall mask
-(ZP01)** — occluded behind the wall — while a mask-0 box leaves it in
-front.
+An `ignoreBoxes` actor is **not** re-assigned as it moves, so it keeps its
+last box — and `initActor` clears `_walkbox` to `-1` (unassigned → front).
+**Room 51's cannon launch** is the case that pins this down: the airborne
+actor (actor 11, costume 40) is init'd then set `ignoreBoxes; neverZclip`
+*before* any placement, and flies/falls over the tent pole at y≈48. Because
+init left its `_walkbox` at `-1` and `ignoreBoxes` freezes it there, it
+resolves to front and arcs over the pole correctly — without the
+draw-time box lookup that used to snap it to box 7 (mask 1) and let ZP01
+(the pole) mask it, making Guybrush *vanish*. An explicit `alwaysZclip`
+still wins above. (This replaced an `if (ignoreBoxes) return front` escape
+hatch in the clip resolver: the `-1`-on-init sentinel makes it unnecessary,
+and a non-`ignoreBoxes` actor standing off all boxes no longer mis-resolves
+either — it keeps whatever box it was last assigned.)
+
+Validated headlessly: a `forceClip`-cleared actor parked in any mask-1 box
+of room 38 draws **0 pixels over the wall mask (ZP01)** — occluded behind
+the wall — while a mask-0 box leaves it in front.
 
 **Point-in-box and the two degenerate-box traps.** Walk boxes are
 convex quads (corners UL→UR→LR→LL), so a point is inside when every
@@ -447,17 +469,17 @@ edge cross-product shares a sign. Two MI1 realities break a naive test:
   lines. The same bounding-box fallback keeps on-segment points inside
   while rejecting off-line points (mixed cross-product signs).
 
-**Known limitation — thin boxes + per-frame box lookup.** SCUMM assigns
-an actor a specific `_walkbox` while walking and reuses it; we instead
-re-derive the box from the actor's pixel position every frame
-(`findBoxAtOrNearest` — a nearest-box fallback that mirrors SCUMM's
-`adjustXYToBeInBox`, so a point off every box still resolves to one).
-This holds up for z-clip in rooms with area-quad boxes, but on thin
-diagonal *connector* boxes the actor can sit a pixel or two off the box
-line and get classified into the wrong box — the same gap that makes the
-room-52 bridge crossing fragile (see [PATHFINDING §9](../engine/pathfinding.md)).
-The faithful fix is tracking the assigned `_walkbox` as walk state rather
-than re-deriving it; deferred with the line-following walker.
+**Known limitation — thin connector boxes + the line-following walker.**
+Tracking `_walkbox` as walk state (above) removed the *draw-time* re-derivation,
+but the box is still **assigned** from pixel position at each movement step
+(`findBoxAtOrNearest`, a nearest-box fallback mirroring SCUMM's
+`adjustXYToBeInBox`). On thin diagonal *connector* boxes the actor can step a
+pixel or two off the box line and be assigned the wrong box — the same gap that
+makes the room-52 bridge crossing fragile (see
+[PATHFINDING §9](../engine/pathfinding.md)). The remaining faithful fix is the
+**line-following walker** (`stepWalk` steps X/Y independently; SCUMM moves along
+the line), which keeps the actor on the box line so the assignment is right;
+deferred.
 
 ## Per-object z-planes — drawn objects occlude actors
 
