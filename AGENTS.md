@@ -148,6 +148,9 @@ integration/              root-level playthroughs — drive the REAL game files
   mi1/                    & saves, run via `npm run test:integration` (NOT
                           default `npm test`). game.ts = data dir + ids;
                           walkthrough.test.ts = the continuous regression net
+tools/                    committed first-class CLIs — thin arg-parsing +
+                          file-loading front-ends over tested src/ modules,
+                          run via npm (see `## Command-line tools`)
 ```
 
 ### The disassembler (`src/engine/vm/disasm.ts`)
@@ -163,10 +166,10 @@ var).
   reentrant (safe to call on arbitrary/garbage bytes — loops are
   bounded). A run that ends with `aligned: false` means it hit a byte
   it couldn't decode and stopped; treat everything after as unknown.
-- CLI front-end: `npx tsx scratch/dis.ts <id>` (`L<id> <room>`,
-  `ENCD/EXCD <room>`, or `SCAN grep=<term>` to sweep every script).
-  The CLI is just file-loading; the decode logic + tests live in the
-  module.
+- CLI front-end: `npm run disgrogate -- <id>` (`L<id> <room>`,
+  `ENCD/EXCD <room>`, or `SCAN grep=<term>` to sweep every script) —
+  lives in `tools/disgrogate.ts` (see `## Command-line tools`). The CLI
+  is just file-loading; the decode logic + tests live in the module.
 - **Keep it in sync with `opcodes/index.ts`.** The two decode the same
   byte stream and MUST agree on operand lengths / param-mode bits — a
   divergence makes the disassembler silently misalign. When you add or
@@ -210,8 +213,16 @@ bookkeeping) instead of re-deriving the boot boilerplate. Two layers:
   - `scummv5.ts` — load/boot/save **by game directory**: `hasData(dir)`,
     `bootScummV5(dir[, gameId, random])` → `Vm`, `loadScummV5(dir)`,
     `restoreSave(vm, name)` (bare slot → `saves/<name>.websave.json`).
-    Re-exports `drive.ts`/`actions.ts`/`random.ts` so a caller gets the whole
-    harness from one import.
+    Re-exports `drive.ts`/`actions.ts`/`random.ts`/`png.ts`/`screenshot.ts` so
+    a caller gets the whole harness from one import.
+  - `screenshot.ts` + `png.ts` — **render the VM to a PNG.** `screenshot(vm)`
+    wires the canonical seven `composeFrame` closures off a live `Vm` and
+    returns `{width, height, pixels (indexed), palette}`; `writeScreenshot(vm,
+    path, {scale=3})` pairs it with `writeIndexedPng`. `png.ts` is the pure,
+    Node-only indexed-framebuffer→PNG encoder (`encodeIndexedPng`/
+    `writeIndexedPng`, 8-bit RGB, nearest-neighbour integer upscale). Reach for
+    these instead of re-pasting a crc32/IHDR/IDAT block + `composeFrame` wiring
+    in a scratch render script.
   - Lives in `src/testkit/`, a **sibling of `engine`/`shell`, not inside
     `engine/`** — it's the only `node:fs` consumer and the engine stays a
     portable browser-bundled core. Its own tests are synthetic
@@ -249,6 +260,24 @@ bookkeeping) instead of re-deriving the boot boilerplate. Two layers:
 Scratch note: dead probes that predate the `games/MI1` → `games/MI1-IT-CD-DOS-VGA`
 rename were moved to `scratch/archive/`. New probes should use the harness
 (one import — `bootScummV5(dir)`) rather than copy-pasting the resource preamble.
+
+### Command-line tools (`tools/`)
+
+Committed CLIs — the home for an *established* front-end, as opposed to the
+throwaway probes in gitignored `scratch/`. Each is a thin arg-parser +
+file-loader over a tested `src/` module (the logic + tests live there; the CLI
+never owns behaviour), runs via an npm script, and writes throwaway output to
+`scratch/` (gitignored). A probe earns a move here once it's reusable and
+worth keeping.
+
+- **`npm run disgrogate -- <args>`** (`tools/disgrogate.ts`) — the
+  disassembler CLI over `src/engine/vm/disasm.ts`. See the disassembler
+  section above for the arg forms.
+- **`npm run mugshot -- <save> [ticks]`** (`tools/mugshot.ts`) — render a
+  frame to PNG over `src/testkit/screenshot.ts`. Boots the game, optionally
+  restores a save (`fresh` to skip), drives `[ticks]` jiffies, writes the PNG.
+  Flags: `--out=` (default `scratch/mugshot.png`), `--scale=` (default 3),
+  `--game=`, `--seed=`.
 
 ### The hang watchdog (`Vm.enableHangWatchdog`)
 

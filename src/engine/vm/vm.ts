@@ -1255,7 +1255,7 @@ export class Vm {
       : this.resolveObjectRoom?.(objId) ?? this.loadedRoom?.id;
     // The startObject opcode's arg list maps DIRECTLY onto L0, L1, … — there
     // is NO implicit verb/object prepend. Evidence is in the game's own
-    // bytecode (disassemble with scratch/dis.ts): sentence script #2 runs a
+    // bytecode (disassemble with `npm run disgrogate`): sentence script #2 runs a
     // verb as `startObject obj=L1 script=4 [L2]` (give) and the general
     // `startObject obj=L1 script=L0 [L2,L0]`, and the verb bodies read those
     // positions — object 566 verb-7 tests `L0 == 574` (the second object in
@@ -1295,7 +1295,7 @@ export class Vm {
     // over an actor, runs a per-actor handler via the indexed table
     // `g396[actorId]` (= VAR(396 + actorId)) — 0 for an actor with no such
     // handler, so #23 does `startScript 0` (seen in the #23 disassembly,
-    // scratch/dis.ts). Index slot 0 is an unused DSCR entry (owning room 0),
+    // `npm run disgrogate`). Index slot 0 is an unused DSCR entry (owning room 0),
     // so resolving id 0 as a global would halt — yet the game hits this on a
     // normal hover, so it must be a no-op. (Repro: give the pot to a pirate in
     // room 51 — see scratch/repro-give-pot.ts.)

@@ -33,6 +33,8 @@ import type { Vm } from '../engine/vm/vm';
 export * from './drive';
 export * from './random';
 export * from './actions';
+export * from './png';
+export * from './screenshot';
 
 /** The two resource files every v5 game ships (index + data). */
 const INDEX_FILE = 'MONKEY.000';

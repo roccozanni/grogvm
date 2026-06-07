@@ -197,8 +197,9 @@ Priority H/M/L = likelihood of biting current/near play × severity.
   per-verb `saveid` model); revisit if a scene re-creates a saved verb id.
   See [INPUT §6](pages/docs/scumm/input.md).
 
-**Tooling:** `scratch/dis.ts` (+ `SCAN grep=`) is the disassembler CLI — keep it
-in sync with the executing opcode table (AGENTS.md).
+**Tooling:** `npm run disgrogate` (+ `SCAN grep=`) is the disassembler CLI
+(`tools/disgrogate.ts`) — keep it in sync with the executing opcode table
+(AGENTS.md).
 
 ### Open backlog
 

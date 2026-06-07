@@ -116,7 +116,7 @@ describe('Vm — startVerbScript', () => {
 
   it('seeds locals directly from the args list (no verb/obj prepend)', () => {
     // The startObject opcode's args map straight onto L0, L1, …. Per the game
-    // bytecode (scratch/dis.ts), sentence #2 runs verbs as `startObject obj
+    // bytecode (`npm run disgrogate`), sentence #2 runs verbs as `startObject obj
     // verb [secondObj, verb]`, so the verb body reads the second object at L0.
     const vm = makeVm();
     vm.loadedRoom = roomWithObjects(1, [

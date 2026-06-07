@@ -11,7 +11,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "test:run": "vitest run",
-    "test:integration": "vitest run --config vitest.integration.config.ts"
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "disgrogate": "npx tsx tools/disgrogate.ts",
+    "mugshot": "npx tsx tools/mugshot.ts"
   },
   "devDependencies": {
     "@types/markdown-it": "^14.1.2",
