@@ -48,7 +48,7 @@ import type { LoadedCostume } from '../graphics/costume-loader';
 import type { LoadedObject } from '../object/loader';
 import type { LoadedRoom } from '../room/loader';
 import type { DecodedZPlane } from '../graphics/zplane';
-import { findBoxAtOrNearest, type WalkBox } from '../pathfinding/boxes';
+import { type WalkBox } from '../pathfinding/boxes';
 
 export class ComposeError extends Error {
   constructor(detail: string) {
@@ -332,20 +332,21 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
  *   - **not forced** — `neverZclip` (forceClip == 0, the opcode that
  *     *clears* the forced clip) or unset (forceClip < 0):
  *       · NeverClip class → 0 (in front of every plane).
- *       · otherwise → the `mask` of the walk box the actor's feet stand
- *         in: mask 0 = in front, mask N (>0) = masked by ZP0N. An actor
- *         not standing in/near any box (or a room with no boxes)
- *         defaults to in front.
+ *       · otherwise → the `mask` of the actor's stored `_walkbox`
+ *         (`actor.walkBox`): mask 0 = in front, mask N (>0) = masked by
+ *         ZP0N. An actor with no assigned box (`walkBox < 0` — never placed,
+ *         or just init'd) defaults to in front.
  *
  * NB: `forceClip == 0` is NOT "always in front" — it's SCUMM's *unset*
  * sentinel, so neverZclip and the never-set default behave identically
  * (front-via-class or via box mask). What keeps the Mêlée sparkles in
  * front is the NeverClip *class*, not forceClip; the clouds use an
- * explicit `alwaysZclip 1` (forceClip > 0). The box is resolved with the
- * nearest-box fallback (`findBoxAtOrNearest`) so MI1's thin dock/cliff
- * line boxes — which strictly contain no interior point — still yield the
- * mask the actor walks on (the room-33 ego stands on box 4, a diagonal
- * line). This matches the per-frame box the scale system already uses.
+ * explicit `alwaysZclip 1` (forceClip > 0). The box is the one maintained
+ * as walk state (see `rescaleActorForPosition`), resolved from position with
+ * the nearest-box fallback as the actor moves — so MI1's thin dock/cliff line
+ * boxes (which strictly contain no interior point) still yield the mask the
+ * actor walks on (room-33 ego on box 4, a diagonal line) — never re-derived
+ * here at draw time. An `ignoreBoxes` actor keeps its last box.
  *
  * Single-plane (not cumulative) masking is what lets MI1 room 30 render:
  * its `ZP02 ⊇ ZP01` (ZP01 = the foreground barrels, ZP02 also covers the
@@ -359,17 +360,14 @@ function resolveClipPlane(
 ): number {
   if (actor.forceClip > 0) return actor.forceClip;
   if (neverClipClass) return 0;
-  // An actor that ignores boxes is off the walk-box grid: it isn't assigned a
-  // walk box as it moves, so its z-clip stays at the retained init box
-  // (mask 0 → in front). We don't track a per-actor walk box, so model it
-  // directly here — without this, findBoxAtOrNearest snaps an off-grid actor to
-  // the nearest box and applies that box's mask. That is what made the
-  // cannon-launch actor (room 51 actor 11, costume 40, set `ignoreBoxes;
-  // neverZclip`) vanish: airborne at y≈48 it snapped to box 7 (mask 1) and the
-  // tent pole (ZP01) masked it, instead of flying/falling in front. An explicit
-  // `alwaysZclip k` (forceClip > 0) still wins above.
-  if (actor.ignoreBoxes) return 0;
-  const box = findBoxAtOrNearest(walkBoxes, actor.x, actor.y);
+  // Use the actor's stored _walkbox (maintained during movement/placement,
+  // retained while ignoreBoxes) rather than re-deriving the box from pixel
+  // position here — SCUMM tracks the box as walk state and never recomputes it
+  // at draw time. An airborne/off-grid ignoreBoxes actor keeps the mask of the
+  // box it last stood in (init clears it to -1 → front), instead of being
+  // snapped to the nearest box every frame; that's why there's no longer an
+  // `if (actor.ignoreBoxes) return 0` escape hatch here.
+  const box = actor.walkBox >= 0 ? walkBoxes.find((b) => b.id === actor.walkBox) : undefined;
   return box ? box.mask : 0;
 }
 

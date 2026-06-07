@@ -604,6 +604,7 @@ describe('composeFrame — actor z-clip (forceClip)', () => {
     const a = makeActorAt(1, 1, 1, 1);
     a.anim = activeLimb0Anim();
     a.forceClip = 0; // mask-1 box → actorZ 0 → plane 1 hides every pixel
+    a.walkBox = 0; // assigned to the mask-1 box (walk state, not derived at draw)
     composeFrame({ room, framebuffer: fb, actors: [a], getCostume: cost });
     for (let i = 0; i < fb.length; i++) expect(fb[i]).toBe(0x10);
   });

@@ -73,6 +73,7 @@ interface ActorSnapshot {
   readonly name: string;
   readonly scale: number;
   readonly ignoreBoxes: boolean;
+  readonly walkBox: number;
   readonly forceClip: number;
   readonly walkSpeedX: number;
   readonly walkSpeedY: number;
@@ -244,6 +245,7 @@ export function snapshotVm(vm: Vm, meta?: { game?: string; label?: string; saved
       name: a.name,
       scale: a.scale,
       ignoreBoxes: a.ignoreBoxes,
+      walkBox: a.walkBox,
       forceClip: a.forceClip,
       walkSpeedX: a.walkSpeedX,
       walkSpeedY: a.walkSpeedY,
@@ -434,6 +436,7 @@ function applyActorSnapshot(a: Actor, snap: ActorSnapshot): void {
   a.name = snap.name;
   a.scale = snap.scale;
   a.ignoreBoxes = snap.ignoreBoxes;
+  a.walkBox = snap.walkBox;
   a.forceClip = snap.forceClip;
   a.walkSpeedX = snap.walkSpeedX;
   a.walkSpeedY = snap.walkSpeedY;

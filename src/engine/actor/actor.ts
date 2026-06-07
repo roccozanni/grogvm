@@ -63,6 +63,14 @@ export interface Actor {
   /** When true, the actor walks in straight lines ignoring walk boxes. */
   ignoreBoxes: boolean;
   /**
+   * SCUMM's `_walkbox`: the id of the walk box the actor is *assigned to* —
+   * maintained as walk state during movement/placement, NOT re-derived from
+   * pixel position at draw time. `-1` = unassigned (no box / off-grid).
+   * Retained as-is while `ignoreBoxes` is set (SCUMM keeps the last box). The
+   * compositor's z-clip and `getActorWalkBox` read this.
+   */
+  walkBox: number;
+  /**
    * Z-plane clip control, from `actorOps` `neverZclip` (0x12) /
    * `alwaysZclip` (0x13). Mirrors SCUMM's `_forceClip`:
    *   - `k>0` = `alwaysZclip k` — clipped behind z-plane `k` (and above).
@@ -147,6 +155,7 @@ export function createActor(id: number): Actor {
     name: '',
     scale: DEFAULT_SCALE,
     ignoreBoxes: false,
+    walkBox: -1,
     forceClip: -1,
     walkSpeedX: DEFAULT_WALK_SPEED_X,
     walkSpeedY: DEFAULT_WALK_SPEED_Y,

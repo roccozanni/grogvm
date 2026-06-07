@@ -119,12 +119,25 @@ sets `{ignoreBoxes; alwaysZclip=1}`. `ignoreBoxes` (subop 0x14) was made
 symmetric (SCUMM resets `_forceClip` there too); provably a no-op for all
 current MI1 play since every on-path `ignoreBoxes` pairs with a trailing
 explicit clip op that wins — it only gives a bare `{ignoreBoxes}` a defined
-state instead of a stale `alwaysZclip`. NB this killed the **walkbox spike**
-(a review flag that `resolveClipPlane` uses `findBoxAtOrNearest(x,y)` instead of
-the stored `_walkbox`): proven moot for the cook because `forceClip > 0`
-short-circuits before the box is ever resolved. The stored-`_walkbox` gap is
-still real and stays deferred (Pathfinding backlog). → document in [ZPLANE]
+state instead of a stale `alwaysZclip`. → document in [ZPLANE]
 (pages/docs/scumm/zplane.md) at the next doc pass.
+
+**Engine finding — actor `_walkbox` is now tracked walk-state, not a draw-time
+lookup (user-confirmed in-browser 2026-06-07).** A review flagged that
+`resolveClipPlane` (and the scale system, and `getActorWalkBox`) re-derived the
+actor's box from pixel position every frame via `findBoxAtOrNearest(x,y)`,
+where SCUMM stores `_walkbox` and maintains it as the actor moves. Landed the
+faithful model: `actor.walkBox` is set in `rescaleActorForPosition` (the single
+movement/placement seam), reset to `-1` by `initActor`, retained while
+`ignoreBoxes` (so an airborne actor keeps its last box, `-1` → front), read by
+the compositor and `getActorWalkBox`. The old `if (actor.ignoreBoxes) return 0`
+escape hatch in `resolveClipPlane` is gone (the `-1`-on-init sentinel covers the
+room-51 cannon-launch case it existed for). It was **behaviour-neutral for
+current MI1 play** (a normal walker's `walkBox` tracks position each tick, so it
+matches the old lookup) — confirmed in-browser: cook crossing the bar OK,
+Fettucini cannon gag OK. Kept for faithfulness, not a visible fix. Does NOT
+include the *line-following walker* (`stepWalk` still steps X/Y independently);
+that half of the old backlog item stays open.
 
 ### Tier-2 divergence checklist
 
@@ -147,6 +160,12 @@ Priority H/M/L = likelihood of biting current/near play × severity.
   transparency (trunks are opaque color-0). Answer lives in the original's
   object-mask write path (not on this machine). **Suspect this FIRST for any
   object-occlusion bug — don't run the circles again.** → [ZPLANE].
+  *Also ruled out (2026-06-07): the ZP **decoder** (a review's "data_size
+  prefix / +2 strip-offset shift" theory — false for V5; the offset table is at
+  payload[0], the trunk genuinely decodes all-1s). And dropping the hack does
+  NOT become safe once `_walkbox` is tracked: removed it as an experiment with
+  the walkbox change in — forest-path trunks then occlude ego (confirmed
+  in-browser), so the hack stays until a new theory for the write path.*
 - [ ] **M — dialog/string escape codes still deferred**
   (`decodeScummString` / `expandSubstitution`, `opcodes/index.ts:~2155`):
   keep-text `0xFF02`, sound `0xFF09`, actor-name `0xFF0A`, mid-string colour
@@ -239,15 +258,15 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
 
 **Pathfinding**
 
-- **Line-following walker (`calcMovementFactor`) + walk-box-as-state — the
-  faithful follow-up, deferred.** `stepWalk` steps X/Y independently; SCUMM
-  moves along the line, and tracks the actor's box as walk state (`_walkbox`)
-  rather than re-deriving it from pixel position. Without this, thin diagonal
-  connector boxes are fragile (actor drifts off; `getActorWalkBox` mis-reports)
-  — the room-52 single-click bridge crossing is the live symptom (staged in the
+- **Line-following walker (`calcMovementFactor`) — the faithful follow-up,
+  deferred.** `stepWalk` steps X/Y independently; SCUMM moves along the line.
+  Without this, thin diagonal connector boxes are fragile (actor drifts off) —
+  the room-52 single-click bridge crossing is the live symptom (staged in the
   walkthrough). Touches every walk + the stepWalk unit tests (which encode the
   current independent-step behaviour) → re-verify intro/bar/kitchen + render.
-  [PATHFINDING §9](pages/docs/engine/pathfinding.md).
+  [PATHFINDING §9](pages/docs/engine/pathfinding.md). *(The walk-box-as-state
+  half — tracking `_walkbox` instead of re-deriving it at draw time — is DONE;
+  see the finding above.)*
 
 **Stubbed opcodes (cosmetic / peripheral)**
 

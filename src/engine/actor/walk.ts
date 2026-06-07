@@ -300,6 +300,11 @@ export function rescaleActorForPosition(vm: Vm, actor: Actor): void {
   // resolveClipPlane in render/compositor.ts.)
   if (actor.ignoreBoxes) return;
   const box = findBoxAtOrNearest(room.walkBoxes, actor.x, actor.y);
+  // Maintain _walkbox as walk state here — the one place we resolve the actor's
+  // box from position, during movement/placement. The compositor then reads the
+  // stored box rather than re-deriving it at draw time. Left untouched while
+  // ignoreBoxes (early return above) → retains the last box.
+  actor.walkBox = box ? box.id : -1;
   const s = box ? resolveScale(box.scale, room.scaleSlots, actor.y) : null;
   actor.scale = s ?? DEFAULT_SCALE;
 }

@@ -1436,7 +1436,15 @@ function getActorWalkBoxHandler(vm: Vm, slot: ScriptSlot, opcode: number): void 
   const id = readVarOrByte(opcode, 1, slot, vm.vars);
   const actor = actorOrNull(vm, id);
   const boxes = vm.loadedRoom?.walkBoxes ?? [];
-  const box = actor ? findBoxAtOrNearest(boxes, actor.x, actor.y) : null;
+  // SCUMM's getActorWalkbox returns the stored _walkbox. Prefer it; fall back
+  // to a position lookup only when unassigned (-1) so a never-placed actor
+  // still yields a real box id (the bell-cover script loops on 0).
+  const box =
+    actor && actor.walkBox >= 0
+      ? (boxes.find((b) => b.id === actor.walkBox) ?? null)
+      : actor
+        ? findBoxAtOrNearest(boxes, actor.x, actor.y)
+        : null;
   const value = box ? box.id : 0;
   writeRef(dest, value, slot, vm.vars);
   vm.annotate(`getActorWalkBox actor=${id} → ${value}`);
@@ -1884,6 +1892,12 @@ function actorOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
           // ignoreBoxes). A later `ignoreBoxes`/`scale` subop in the same
           // actorOps still wins (e.g. the room-51 cannon flight actor).
           actor.ignoreBoxes = false;
+          // initActor clears _walkbox to the unassigned sentinel, so a reused
+          // slot doesn't carry a stale box into the next scene. Matters for an
+          // actor init'd then immediately set `ignoreBoxes` before any placement
+          // (room-51 cannon actor 11): walkBox stays -1 through the flight →
+          // drawn in front, instead of inheriting a prior room's box.
+          actor.walkBox = -1;
           actor.scale = DEFAULT_SCALE;
           // initActor clears the forced z-clip (forceClip 0 = "not forced",
           // depth then comes from the NeverClip class or the walk-box mask).
