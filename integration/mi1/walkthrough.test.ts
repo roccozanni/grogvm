@@ -574,12 +574,42 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     expect(vm.haltInfo).toBeNull();
   });
 
+  beat("I · House — knock and take Captain Smirk's basic swordfighting lesson (60 → 43)", () => {
+    const startMoney = vm.vars.readGlobal(VARS.money);
+    expect(vm.vars.readBit(ROOMS.house.lessonTakenBit)).toBe(0);
+
+    // Knock (Open the door, #591) → Smirk's doorway conversation (global #57).
+    // The whole exchange is cutscene-driven and each menu's intended line is
+    // the first slot (verb 120), so pick 120 down the negotiation: (1) ask to
+    // be trained, (2) "Sì che lo sono!" — yes I'm a pirate, (3,4) "Lo sono!"
+    // insist twice more, (5) "Ho 30 pezzi da otto" (we hold ≥30), (6) hand over
+    // the sword ("Va bene, ecco."). That sends ego into Smirk's gym (60).
+    use(vm, VERBS.open, ROOMS.house.door);
+    for (let menu = 0; menu < 6; menu++) {
+      expect(pickDialogAnswer(vm, 120, { armTicks: 20000 }).length).toBeGreaterThan(0);
+    }
+    expect(driveToRoom(vm, ROOMS.smirkGym.id, { maxTicks: 30000 })).toBe(true);
+
+    // The teaching cutscene runs long, then the insult lesson begins. With no
+    // real comebacks yet, answer "whatever" (verb 120) to both insults — that
+    // ends the lesson and boots Guybrush back outside the house (43).
+    pickDialogAnswer(vm, 120, { armTicks: 60000 });
+    pickDialogAnswer(vm, 120, { armTicks: 60000 });
+    expect(driveToRoom(vm, ROOMS.house.id, { maxTicks: 60000 })).toBe(true);
+
+    // Paid 30 for the lesson; the lesson-taken flag is now set.
+    expect(vm.vars.readGlobal(VARS.money)).toBe(startMoney - 30);
+    expect(vm.vars.readBit(ROOMS.house.lessonTakenBit)).toBe(1);
+    expect(waitPlayable(vm)).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
   // ── FRONTIER ──────────────────────────────────────────────────────────
-  // At the house (room 43), across the troll bridge (the red herring spent on
-  // the troll), the Sword Master's location discovered, holding the T-shirt
-  // (plus the map, chicken, sword, shovel; meat still carried). Next: the rest
-  // of the swordfighting trial (Captain Smirk → fight pirates → the Sword
-  // Master) and thievery.
+  // Back outside the house (room 43), basic swordfighting lesson taken (30
+  // spent, the sword now Smirk-blessed), the Sword Master's location
+  // discovered, holding the T-shirt (plus the map, chicken, sword, shovel;
+  // meat still carried). Next: fight pirates on the paths to earn insults,
+  // then beat the Sword Master — and the thievery trial.
 
   // Snapshot the frontier to a save, so the NEXT beat can be developed by
   // fast-forwarding to here (restoreSave) instead of re-driving from boot —
@@ -591,5 +621,6 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       JSON.stringify(snapshotVm(vm, { game: 'MI1', label: 'walkthrough-frontier' })),
     );
     expect(vm.currentRoom).toBe(ROOMS.house.id);
+    expect(vm.vars.readBit(ROOMS.house.lessonTakenBit)).toBe(1);
   });
 });

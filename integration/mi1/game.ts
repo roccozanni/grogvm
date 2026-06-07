@@ -506,8 +506,28 @@ export const ROOMS = {
     trollActor: 5,
   },
 
-  /** "la casa" (room 43) — the house reached from the map's `house` node. */
+  /**
+   * "la casa" (room 43) — Captain Smirk's place, reached from the map's `house`
+   * node. Knocking (Open the door) starts Smirk's doorway conversation (global
+   * #57): negotiate the swordfighting lesson, pay 30, and ego is sent into the
+   * gym ({@link smirkGym}, room 60) for the lesson.
+   */
   house: {
     id: 43,
+    /** "la porta" (#591) — knock by Opening it (verb 2); starts global #57. */
+    door: 591,
+    /** bit#483 — the swordfighting-lesson flag, set once the lesson is taken;
+     *  it gates Smirk's post-lesson dialog branch. */
+    lessonTakenBit: 483,
+  },
+
+  /**
+   * Captain Smirk's training gym (room 60) — entered mid-cutscene after the
+   * doorway negotiation. The insult-swordfighting lesson plays here; with no
+   * real comebacks learned yet, two insults end the lesson and boot Guybrush
+   * back outside the house (room 43).
+   */
+  smirkGym: {
+    id: 60,
   },
 } as const;
