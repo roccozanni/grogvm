@@ -14,11 +14,12 @@ Lean tracker. Two buckets:
 
 ## Current — natural play through MI1
 
-Playing MI1 from the start and fixing each blocker as it's hit (engine-faithful,
-committed on `main`). **Unit suite green + tsc clean**, plus a data-gated
-integration playthrough (`npm run test:integration`). The intro → room 33 →
-SCUMM Bar (room 28) → pirate-conversation close-up is playable end-to-end, with
-verbs, inventory, and two-object "Usa X con Y" / "Dai X a Y" working.
+Playing MI1 from boot and fixing each blocker engine-faithfully (committed on
+`main`). **Unit suite green + tsc clean**, plus a data-gated, from-boot
+integration playthrough (`npm run test:integration`). The whole of **Part I is
+playable end-to-end** — intro, the three-trials setup, the kitchen/circus/shops
+loop, the forest maze, and the insult-swordfighting grind up to the Sword Master
+gate (see Frontier below).
 
 **Working principle (agreed 2026-06-02):** no hacks/shortcuts — every change is
 the final, SCUMM-faithful solution. Confirm the real mechanism first (disassemble
@@ -29,76 +30,68 @@ bookkeeping. Surface any deferral/approximation explicitly and track it here;
 never bury a shortcut. If "faithful" needs a bigger refactor, raise the tradeoff
 rather than silently taking either the heavy path or the shortcut.
 
-**In flight — MI1 full walkthrough (the regression net), started 2026-06-04.**
-`integration/mi1/walkthrough.test.ts`: ONE seeded VM driven through the game's
-own solution start→onward, grown beat by beat (last green beat = the frontier);
-run end-of-session / after a refactor. Design + the testkit pieces it added
-(`actions.ts` faithful action vocabulary, `random.ts` seeded-RNG seam,
-`beat()` guard, headless/from-boot/deterministic rationale) →
-[AGENTS "The harness"](AGENTS.md). Engine finding — *a printing sentence blocks
-the next one* (command mid-speech no-ops; wait for the line to clear) →
-[INPUT §5](pages/docs/scumm/input.md). The beats carry **zero `driveTicks`**:
-each `use`/`walkTo`/`give` first waits on `waitReady` (control back + ego
-stopped + no line/cutscene — the one condition all the old magic-number
-"settles" were approximating), and outcomes are asserted with named
-condition-waiters beside `driveToRoom` — `waitPickedUp` (ego owns an object),
-`waitGlobal` (a story flag/counter hits a value), `waitPlayable` (control +
-verb bar back) — falling back to a raw `driveUntil` only for bespoke predicates
-(cook sweep, gull bolt, staged crossings) and to the real signal for genuine
-event-waits (e.g. the dock door's state flipping to open, `vm.objectStates`).
-So beats read as a plain action sequence, and comments are pruned to only what
-explains a game mechanic / puzzle (the cook window, the room-52 high/low guard,
-the cannon-gag auto-return, the store-door open-handler quirk, …) — the helper
-calls speak for themselves. Old `playthrough.test.ts` deleted (its
-mechanics are now the first five beats). The final beat snapshots the end state
-to `saves/MI1-walkthrough-frontier.websave.json` (gitignored, regenerated every
-green run so it can't drift): the net itself always runs from boot, but the *next*
-beat can be developed by `restoreSave`-ing the frontier instead of re-driving the
-whole game — the buggy `Italiano-2-post-fettuccini` save is **not** trustworthy
-(broken actor scale from the `ignoreBoxes` bug), so generate from the run.
+**The regression net — MI1 full walkthrough** (`integration/mi1/walkthrough.test.ts`,
+started 2026-06-04). ONE seeded VM driven through the game's own solution from boot,
+grown beat by beat; the **last green beat = the frontier**. From-boot + deterministic
+(seeded RNG) so early regressions can't hide. Beats carry **zero `driveTicks`** — each
+action waits on `waitReady`, then asserts via named condition-waiters (`waitPickedUp` /
+`waitGlobal` / `waitPlayable`; a raw `driveUntil` only for bespoke predicates). Named
+`<Part> · <Room> — <what it proves>`, file order = run order; per-game ids/vars in
+`game.ts` (`ROOMS`/`VERBS`/`VARS`). Design + testkit pieces → [AGENTS "The harness"](AGENTS.md);
+the *printing-sentence-blocks-the-next* finding → [INPUT §5](pages/docs/scumm/input.md).
+A clean fast-forward save (`saves/MI1-walkthrough-frontier.websave.json`, gitignored,
+regenerated each green run) sits at Captain Smirk's house (room 43), pre-grind.
 
-Beats are named `<Part> · <Room> — <what it proves>` (Part = the game's own
-part; I = "The Three Trials"), **no ordinal** — file order *is* run order.
-Per-game ids/vars live in `game.ts`: `ROOMS` (room-grouped objects/scripts),
-`VERBS`, and `VARS` (story/puzzle globals — assert these over localized text).
+**Frontier: Part I's swordfighting trial (pirate grind) complete — 42/42 green.** From
+boot through all of Part I to the Sword Master gate: Mêlée intro → SCUMM Bar (trials
+learned, g197) → kitchen (meat/pot, fish via the gull bolt) → circus cannonball (478
+pieces of eight) → town shops (treasure map, chicken, sword, shovel) → forest maze
+(treasure dig + sword-master fork) → troll bridge (red herring) → Smirk's basic lesson →
+**insult-swordfighting grind**: wander the west of the map (room 85) until a wandering
+pirate (local #202) closes on ego and fires a duel (global #114 → room 49), play it
+(`provokeDuel` → `openDuel` "Preparati a morire!" → `tradeInsults`), win four to clear
+`g282 > 3`. Capped per-duel beats skip once ready (`beatUntil` + `ctx.skip`); a red beat
+names the exact duel. (The step-by-step route with object ids lives in the beat comments.)
 
-Frontier (all Part I): **Mêlée Lookout** boot→33, floor-walk, look-at poster,
-open+walk the bar door→28 → **SCUMM Bar** LOOM-ad pirate close-up (talk #333 →
-room 82, answer #121/goodbye #124); three important-looking pirates (#322, inline
-conv #220, answer #122/goodbye #127) → trials learned (`VARS.trialsLearned`/g197
-0→1); wait out the cook (actor #6, ~2000t hidden / ~800t out wandering) and walk
-the open kitchen door (#316→41 — a *verb-11 sentence* on the door, since a bare
-floor click won't run its walk-through script) → **Kitchen** take meat #566 + pot
-#567; stomp the loose board #575 3× to scare the seagull (actor #7) — fish #568 is
-grabbable only DURING the fly-away (its class-6 "the bird will peck" guard lifts
-only mid-flight), keyed off `VARS.gullScare`/g272 → retrace out (kitchen door
-#570→bar, exit door #315→lookout, one-time Sheriff cutscene 70→72) → **Mêlée
-Lookout** walk west off the cliff (#426→38) → **cliff path** take the path
-(#487, verbs [90,255] → walk-11 falls back to the 0xFF/255 default) → **Mêlée
-map** (85, verb-11 location nodes) click the clearing (#912→52) → **clearing**
-walk to the circus tent (#621→51) → **Fettucini circus** break into the
-brothers' auto-argument (local #207) with "ahem", negotiate the cannonball job
-(answer ids are `120 + optionIndex-1`, so 120 recurs per menu — sequence by
-speech), **give the pot as the helmet** (Give/verb-4 *to actor 3* — the first
-give-to-actor; sets `bit#103` → cannon launch → amnesia gag → payout) and get
-paid **478 pieces of eight** (`VARS.money`/g195 0→478, object #488 verb-250).
-The room-52 clearing crossing is staged (descend to the low zone first — local
-script 202's high/low guard, not a routing workaround; see Pathfinding) →
-**back to the Mêlée town** (one grouped travel beat): circus exit #617→52, climb
-back to the high zone, path #622→map, the map's *village* node #917 (its verb-11
-branches on g196 — still 0 this early, so it lands in the wide lookout/town room
-33, not the docks 83), then room-33 east arch #427→**Mêlée town street 35** →
-**buy the treasure map** off citizen #441 (an *object*, talk #218; the cousin-
-Dominique opener #123 then "take it" #121 → map #442 to ego, g195 478→378) →
-**Voodoo Lady 29** (open+walk door #444, pocket the rubber chicken #377, back out
-#367) → **general store** (arch #451→street 34, then the store door #437 — its
-open handler only takes with ego *standing at it*, so approach→open→enter, unlike
-the bar/voodoo doors) → **buy the sword #388 + shovel #396** (grab both off the
-shelf first, then ring the bell — Push/verb-5 #399 — and settle up with shopkeeper
-#394: buy menu reuses ids, sequence `aboutSword 120 → wantIt 120 → aboutShovel
-121 → wantIt 120 → lookAround 125`; g195 378→203) → exit #387 back to street 34.
-Next: the three trials proper — swordfighting (the *house* map node → Captain
-Smirk → fight pirates for insults → the Sword Master node #918), thievery, treasure.
+*Insult mechanic (extracted ground-truth, `scratch/insult-map.ts` via the duel-loop #90
+table-build → string #37):* pirate insults 1–15 are beaten by the **same-numbered**
+comeback; the Sword Master's 16–33 reuse pirate comebacks (16+k→k). Two PERSISTENT bit
+arrays hold learned state — `bit#140` insults you can throw (set in #83), `bit#222`
+comebacks (set in #82); menus rebuilt each turn (#160/#161 → g308/g309). Per-duel tally
+g262 losses / g263 wins vs threshold g351; a won duel bumps **g282** (cross-fight), and
+the Sword Master fights once `g282 > 3` (room 61 #58). Data + duel-driving helpers in
+`game.ts` (`INSULT_COMEBACK`, `INSULTS_LEARNED_BIT`, `COMEBACKS_LEARNED_BIT`,
+`VARS.fightsWon`/`currentInsult`, `ROOMS.pirateDuel`; `provokeDuel`/`openDuel`/`tradeInsults`/`duelProgress`).
+
+**Engine fixes this session (all confirmed in-browser; full rationale in the code comments + commits):**
+- **Signed v5 direct-word immediates** (`vm/params.ts`: `readVarOrWord` + `readValue` →
+  `readI16`). v5 direct words are signed int16 (like jump offsets): `0xFFFE`=`-2`,
+  `0xFFFF`=`-1`. Reading them unsigned broke every signed compare/arithmetic — the duel's
+  loss sentinel `74 [65534]` made `isGreater L0 val=0` always "won" (you could never lose a
+  swordfight), negative immediates like `move g181 = -1` (20× in MI1) compared as 65535, and
+  it flung an actor off-screen on a lost exchange (a *logic* bug surfacing as a *render*
+  symptom — the kind only real play catches). **Deferred gap:** globals are `Int32Array`
+  (`value|0`), not int16 — arithmetic overflow past ±32767 won't wrap like SCUMM; rare in MI1,
+  and int16-clamping risks engine counters/timers, so audit before touching.
+- **`verbOps` setVerbNameStr (subop 0x14)** was a no-op → now copies the string buffer into
+  the verb name (duel menus name options via `startScript 85/86 [id]` → buffer 32/33 then
+  `verbOps … nameStr=`; nested `startScript` means the buffer is ready). Was showing stale lines.
+- **`decodeScummString`: `FE 01` = newline** (0xFE is a 2nd escape introducer; a bare `0x01`
+  stays a glyph). The verb-panel scroll arrows (verb 109/110) stack their 8×8 glyph tiles via
+  `FE 01` row separators.
+- **`print` to actor 253 = debug channel, suppressed** — every `a=253` is an English dev string
+  (in this IT build), mostly gated by `bit#482`; real system/narrator text uses `a=255`.
+- **Verb hit-test in the verb's own charset** (`play-area.ts verbAt`) — was the dialogue
+  charset, so the arrow glyphs measured zero-width and clicks missed; now matches the render.
+
+*These SCUMM-semantic findings (signed direct words, the `FE 01`/`0xFE` introducer, the
+`a=253` debug channel, `verbOps` 0x14) are still candidates to fold into `pages/docs/scumm/`.*
+
+**Next frontier — the Sword Master duel.** With `g282 > 3` she'll fight (room 61 #58), but
+that duel plays in her clearing via its own script, NOT the map-pirate room-49 path
+`tradeInsults` drives — needs its own handling (entry via the map's "dal Maestro della
+Spada" node #918, her insults 16–33 → comebacks, the trial-complete flag on win). **Probe
+her duel before wiring the beat.** Then the thievery + treasure trials.
 
 ### Open bug-report saves (reported, not yet fixed)
 
