@@ -2902,10 +2902,16 @@ register(0x27, (vm, slot) => {
       return;
     }
     case 0x04: {
-      // getStringChar: dest var = string[id][index]
+      // getStringChar: dest var = string[id][index]. The result-pos consumes no
+      // var/direct mask, so the two operands take the FIRST two mask bits
+      // (0x80=id, 0x40=index) — paramIndex 1 and 2, not 2 and 3. (MI1's insult
+      // matcher #87 reads `string[37][insult*3+slot]`: id is a direct byte 37,
+      // index is the var L2. Reading them off-by-one made it read string[g549=
+      // 0][64] — an absent table — so no comeback ever matched and the Sword
+      // Master's duel was unwinnable. See scratch/dump87.ts.)
       const destRef = readDestRef(slot, vm.vars);
-      const id = readVarOrByte(subop, 2, slot, vm.vars);
-      const idx = readVarOrByte(subop, 3, slot, vm.vars);
+      const id = readVarOrByte(subop, 1, slot, vm.vars);
+      const idx = readVarOrByte(subop, 2, slot, vm.vars);
       const buf = vm.strings.get(id);
       const ch = buf && idx >= 0 && idx < buf.length ? buf[idx]! : 0;
       writeRef(destRef, ch, slot, vm.vars);
