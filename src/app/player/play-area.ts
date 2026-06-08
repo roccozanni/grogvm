@@ -669,9 +669,14 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
           localY < y + obj.imhd.height;
       } else {
         // Text verbs: bbox is the measured name width × fontHeight.
-        // centred verbs shift left by half the measured width.
-        if (!charset || !v.name) continue;
-        const measured = measureName(charset, v.name);
+        // centred verbs shift left by half the measured width. Measure in the
+        // verb's OWN charset (as it's rendered above), not the active/dialogue
+        // charset — the scroll arrows (109/110) draw special glyphs (0x02,
+        // 0x05…) that exist only in the verb-panel charset; measuring them in
+        // the dialogue charset yields a zero-width box, so the click misses.
+        const vCharset = charsetById(v.charset) ?? charset;
+        if (!vCharset || !v.name) continue;
+        const measured = measureName(vCharset, v.name);
         const x = v.centered ? v.x - Math.floor(measured.width / 2) : v.x;
         hit =
           sx >= x &&
