@@ -32,7 +32,7 @@ import {
   DEFAULT_TALK_STOP_FRAME,
   type Actor,
 } from '../../actor/actor';
-import { startWalk, startActorChore, applyStandPose, reapplyChoreForFacing, FACING_FROM_OLD, rescaleActorForPosition } from '../../actor/walk';
+import { startWalk, startActorChore, applyStandPose, reapplyChoreForFacing, FACING_FROM_OLD, rescaleActorForPosition, effectiveBoxes } from '../../actor/walk';
 import { clampPointToBoxes, findBoxAtOrNearest } from '../../pathfinding/boxes';
 import { pickObject } from '../../object/hittest';
 import { evalExpression } from '../expression';
@@ -1320,8 +1320,25 @@ function getDistHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const dest = readDestRef(slot, vm.vars);
   const a = readVarOrWord(opcode, 1, slot, vm.vars);
   const b = readVarOrWord(opcode, 2, slot, vm.vars);
-  const pa = objActPos(vm, a);
-  const pb = objActPos(vm, b);
+  let pa = objActPos(vm, a);
+  let pb = objActPos(vm, b);
+  // SCUMM's getObjActToObjActDist clamps the OBJECT's point into the box the
+  // ACTOR can actually stand in (adjustXYToBeInBox) before measuring. So a
+  // proximity gate to an object parked in a locked/invisible box passes once
+  // the ego has walked as close as the open boxes allow, instead of reading
+  // "too far" forever. MI1 room 36: the guard dogs' walk-to (140,132) sits in
+  // the sleep-gate boxes the ENCD locks; the ego can only reach box 8's edge
+  // (x=191), but the clamp maps the dogs' point there too → dist 0, so "use
+  // meat with dogs" runs instead of aborting "Non riesco ad arrivarci". A
+  // no-op for objects whose walk-to already lies in a visible box.
+  const room = vm.loadedRoom;
+  if (room && pa && pb) {
+    const eff = effectiveBoxes(vm, room.walkBoxes);
+    const aIsActor = a > 0 && a <= vm.actors.capacity;
+    const bIsActor = b > 0 && b <= vm.actors.capacity;
+    if (aIsActor && !bIsActor) pb = clampPointToBoxes(eff, pb.x, pb.y);
+    else if (bIsActor && !aIsActor) pa = clampPointToBoxes(eff, pa.x, pa.y);
+  }
   const dist =
     pa && pb ? Math.max(Math.abs(pa.x - pb.x), Math.abs(pa.y - pb.y)) : 0xff;
   writeRef(dest, dist, slot, vm.vars);

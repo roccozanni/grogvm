@@ -148,7 +148,7 @@ export function startWalk(
  * so the router treats it as invisible. Returns the original array unchanged
  * when there are no overrides (the common case).
  */
-function effectiveBoxes(vm: Vm, walkBoxes: ReadonlyArray<WalkBox>): ReadonlyArray<WalkBox> {
+export function effectiveBoxes(vm: Vm, walkBoxes: ReadonlyArray<WalkBox>): ReadonlyArray<WalkBox> {
   if (vm.boxFlagOverrides.size === 0) return walkBoxes;
   return walkBoxes.map((b) =>
     vm.boxFlagOverrides.has(b.id) ? { ...b, flags: vm.boxFlagOverrides.get(b.id)! } : b,
