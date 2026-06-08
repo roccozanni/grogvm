@@ -261,6 +261,17 @@ total, 0x01–0x03 are 2):
 | `0x06` | **object/actor name** | var ref → object id |
 | `0x07` | **string resource** | **direct** id (`addStringToStack(num)`, *not* a var) |
 
+**A verb can be named from the string buffer, not just an inline name.**
+`verbOps setName` (`0x7A` subop `0x02`) takes the name *inline* in the
+bytecode, but a separate sub-op (`0x14`) sets the verb name from the
+current **string buffer** instead — it copies whatever a prior script
+loaded there. MI1's duel menus use this: each option is named by
+`startScript 85/86 [id]` (which fills string buffer 32/33 for that
+insult/comeback) followed by the buffer-naming `verbOps`. Because
+`startScript` runs **nested** (OPCODES §6), the buffer is already
+populated when the name op reads it. A no-op implementation of the
+buffer-naming sub-op leaves each option showing its stale previous name.
+
 The 0x05/0x06/0x07 distinction is easy to get wrong: int/verb/name read
 their id *through* a variable, but string takes the id **directly**. MI1's
 `#100` is `verb[g107] str[g49] name[g108] " " verb[g110] " " name[g109]`,

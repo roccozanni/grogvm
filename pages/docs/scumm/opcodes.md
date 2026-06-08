@@ -84,6 +84,24 @@ reference and real bytecode. A blanket registration that swallows a
 selector bit is a classic source of "the boot script runs fine until it
 suddenly halts on a stray byte."
 
+### Direct-word immediates are signed int16
+
+When a parameter is an immediate (direct) word rather than a var-ref,
+its two bytes are a **signed** little-endian int16 — the same encoding
+as a branch delta (§3), not an unsigned u16. `0xFFFF` is `−1`,
+`0xFFFE` is `−2`. Reading direct words unsigned silently breaks every
+signed comparison and arithmetic op that takes a negative literal:
+
+- MI1's duel loop carries a loss sentinel `isGreater L0 [65534]` — that
+  immediate is `−2`; read as `65534` the compare is always "won", so a
+  swordfight could never be lost.
+- `move g181 = −1` appears ~20× in MI1; read unsigned the slot holds
+  `65535` and every later compare against it diverges.
+
+A wrong unsigned read is the kind of *logic* bug that surfaces as a
+*render* symptom — a lost duel exchange flung an actor off-screen
+before the cause (the signed sentinel) was found.
+
 ## 2. Variable-reference word
 
 When a parameter is a var-ref (rather than an immediate), the next
@@ -218,6 +236,19 @@ So `cursorCommand initCharset` with an immediate charset id is
 `0x2C 0x0D 0x03` (subop low 5 = 0x0D = initCharset, byte param =
 0x03), and with a var-ref charset id it's `0x2C 0x8D 0xref_lo
 0xref_hi`. Same convention as the parent opcode.
+
+**A subop's leading result operand consumes no mask bit either** — the
+§1 rule applies inside multi-subop opcodes. `stringOps getStringChar`
+(`0x27` subop `0x04`) is shaped `result = string[id][idx]`: the result
+is a raw destination word, so `id` takes mask `0x80` (param-index 1)
+and `idx` takes `0x40` (param-index 2). Counting the result as the
+first masked param shifts both operands one bit-position off and reads
+the wrong string/index. MI1's insult-defense matcher is
+`getStringChar res, id=37 (direct byte), idx (var)` — the off-by-one
+read an absent string instead of the comeback table, so no defense ever
+matched. Player-attack duels hid it (their wins come from a skill roll,
+not this lookup); only the Sword Master's defend-only duel — unwinnable
+even fully armed — exposed it.
 
 `actorOps` is the heaviest of these — 24 sub-actions covering
 setCostume, setWalkSpeed, talk frames, init, elevation, palette

@@ -275,7 +275,11 @@ coexist on screen:
   speaker, auto-cleared when the talk timer drains.
 - **System text** (reserved ids 252–255: signs, narrator, credits,
   part-titles) — SCUMM *blasts* it onto a single
-  charset region. Its lifetime is SCUMM's **`restoreCharsetBg`**: a
+  charset region. The narrator proper is **id 255**; **id 253 is a
+  developer/debug channel** — in MI1's Italian build every `print a=253`
+  is a leftover English dev string (mostly gated behind `bit#482`), so
+  it is suppressed rather than drawn. Routing 253 to the screen leaks
+  untranslated debug lines over real text. Its lifetime is SCUMM's **`restoreCharsetBg`**: a
   *transient* (non-keepText) print draws over a region that is restored
   (erased) exactly **once per display cycle**, lazily, just before the
   first transient draw of that cycle. So transient prints **within one
@@ -320,6 +324,14 @@ the text renderer; the renderer itself just sees an already-resolved
 string. A renderer that receives an unresolved string containing `0xFF`
 bytes will attempt to look up character `0xFF` in the glyph table and
 render or skip per the result — these codes must be handled upstream.
+
+**`0xFE` is a second escape introducer**, distinct from `0xFF`: in the
+string decoder `FE 01` is a **newline**, while a bare `0x01` (not
+preceded by `0xFE`) stays an ordinary glyph. The decoder must look at
+the introducer before the sub-code byte — treating every `0x01` as a
+line break, or ignoring `0xFE`, both mangle layout. MI1's verb-panel
+scroll arrows (verbs 109/110) stack their 8×8 glyph tiles into a taller
+arrow using `FE 01` as the row separator.
 
 ### `@` (0x40) is name padding, not a glyph
 
