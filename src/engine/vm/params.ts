@@ -83,8 +83,15 @@ export function readI16(slot: ScriptSlot): number {
 }
 
 /**
- * Read a value parameter: either a u16 immediate or a dereferenced
- * variable, depending on the opcode's param-mode bit.
+ * Read a value parameter: either a SIGNED i16 immediate or a dereferenced
+ * variable, depending on the opcode's param-mode bit. v5 direct words are
+ * signed (see {@link readVarOrWord}); this reader feeds setVar / add / sub and
+ * every comparison, so reading it unsigned silently corrupts negative
+ * immediates — `move v = -1` would store 65535, `add v, -1` would add 65534,
+ * `isEqual v, -1` would compare against 65535. Self-consistent until a var holds
+ * a *true* negative (e.g. a `sub` underflow) or crosses the signed `readVarOrWord`
+ * path, at which point comparisons mismatch. Kept in lock-step with
+ * `readVarOrWord` so both immediate readers agree.
  */
 export function readValue(
   slot: ScriptSlot,
@@ -92,7 +99,7 @@ export function readValue(
   asVar: boolean,
 ): number {
   if (asVar) return readVarRef(slot, vars);
-  return readU16(slot);
+  return readI16(slot);
 }
 
 /**
@@ -240,8 +247,12 @@ export function readVarOrByte(
 
 /**
  * Read a SCUMM "var-or-direct word" parameter. Variable form reads a
- * dereffed var-ref word (2 bytes); direct form reads a u16 LE
- * immediate.
+ * dereffed var-ref word (2 bytes); direct form reads a SIGNED i16 LE
+ * immediate — v5 direct words are signed (like jump offsets), so e.g.
+ * `0xFFFE` is the sentinel `-2`, not 65534. Reading it unsigned silently
+ * broke signed comparisons: the insult-duel loss signal `startScript 74
+ * [65534]` (= -2) was stored as 65534, so `#74`'s `isGreater L0 val=0`
+ * scored every lost exchange as a WIN (you could never lose a swordfight).
  */
 export function readVarOrWord(
   modeByte: number,
@@ -252,7 +263,7 @@ export function readVarOrWord(
   if (isVarParam(modeByte, paramIndex)) {
     return readVarRef(slot, vars);
   }
-  return readU16(slot);
+  return readI16(slot);
 }
 
 /**
