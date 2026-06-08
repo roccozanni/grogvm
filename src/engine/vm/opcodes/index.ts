@@ -628,6 +628,10 @@ function readScummString(slot: ScriptSlot): Uint8Array {
   throw new Error('SCUMM string: missing 0x00 terminator');
 }
 
+/** SCUMM print target for developer debug strings — suppressed on screen
+ *  (real system/narrator text uses actor 255). */
+const DEBUG_PRINT_ACTOR = 253;
+
 function printHandler(actor: number, vm: Vm, slot: ScriptSlot): void {
   const ops: string[] = [];
   // The speaking actor (printEgo / print actor=0 → ego). When this is a
@@ -637,6 +641,14 @@ function printHandler(actor: number, vm: Vm, slot: ScriptSlot): void {
   // bottom-centre fallback.
   const speaker = actorOrNull(vm, actor);
   const speakerId = actor === 0 ? vm.vars.readGlobal(VAR_EGO) : actor;
+  // Actor 253 is the developers' DEBUG-text channel: every `print a=253` is an
+  // English debug string (in this IT build) — "Player won", "Checking reply for
+  // pirate skill", "in set-replies", etc. Most are gated by bit#482 (debug off
+  // in shipped play); a few (e.g. #89's "in set-replies") are ungated oversights.
+  // Real on-screen system/narrator text uses actor 255. So debug prints must not
+  // render; we still parse the opcode's subops/text to advance the PC, then drop
+  // the commit (see SO_TEXTSTRING below).
+  const isDebug = actor === DEBUG_PRINT_ACTOR;
   // System prints (no speaker — actor 255, credits/narrator) inherit the
   // sticky `_string[0]` state so a bare `print` reuses the last set
   // position/colour/centre (the MI1 credits depend on this). Actor talk
@@ -702,6 +714,9 @@ function printHandler(actor: number, vm: Vm, slot: ScriptSlot): void {
       case 0x0f: {
         // SO_TEXTSTRING — read NUL-terminated text and exit the opcode.
         const buf = readScummString(slot);
+        // Debug channel (actor 253): consume the text to keep the PC aligned,
+        // but never render it or touch the system-print state.
+        if (isDebug) return;
         // Split into sentence pages at \xff\x03; the first shows now, the
         // rest are queued and advanced by the talk timer (see queueTalkPages).
         // keepText (\xff\x02) flags a sign/credit that must persist past the
@@ -2207,10 +2222,23 @@ function verbOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
         subops.push('setCenter');
         break;
       case 0x14: {
-        // String-resource-driven name. We don't have string resources
-        // wired through yet; leave the slot's name untouched.
+        // setVerbNameStr: name comes from string buffer `s` (a stringOps
+        // buffer), not an inline literal. The insult-swordfight menus build
+        // their options this way — #75 (insults) / #89 (comebacks) do
+        // `startScript 85/86 [id]` (which loadStrings the line into buffer
+        // 32/33) then `verbOps … nameStr=32/33`. Because startScript runs
+        // NESTED here (see startScriptHandler), that buffer already holds the
+        // line by the time we read it, so copy it into the verb name now —
+        // same as the inline-name path (0x02), just sourced from the buffer.
+        // (Previously a no-op: the menus showed whatever stale name the slot
+        // last had, so the duel listed the wrong/leftover lines.)
         const s = readVarOrWord(sub, 1, slot, vm.vars);
-        getOrCreateVerb(vm, verbId);
+        const v = getOrCreateVerb(vm, verbId);
+        const buf = vm.strings.get(s);
+        if (buf) {
+          v.name = decodeScummString(buf, vm, slot);
+          v.image = null; // text verb — drop any prior image binding
+        }
         subops.push(`setNameStr(${s})`);
         break;
       }
@@ -2298,6 +2326,18 @@ function decodeScummString(payload: Uint8Array, vm?: Vm, slot?: ScriptSlot): str
       else if (code >= 0x04) expandSubstitution(code, payload, i, vm, slot, out);
       // 0x01–0x03 are 2-byte sequences (FF + code); the rest are 4-byte.
       i += code >= 0x04 ? 4 : 2;
+      continue;
+    }
+    // `FE 01` is a newline too — 0xFE is a second escape introducer (like 0xFF).
+    // The verb-panel scroll arrows (verb 109/110) stack their 8x8 glyph tiles
+    // into rows with `FE 01` separators, e.g. up-arrow #109 `01 02 FE 01 05 06
+    // FE 01 07 08` → rows [01 02][05 06][07 08]. A BARE 0x01 is a literal glyph
+    // (the arrow head is glyphs 01+02 side by side = "^"), so it must NOT be
+    // treated as a newline — doing so ate the head's left half and the arrow
+    // head rendered shifted left.
+    if (b === 0xfe && (payload[i + 1] ?? 0) === 0x01) {
+      out.push(0x0a);
+      i += 2;
       continue;
     }
     out.push(b);
