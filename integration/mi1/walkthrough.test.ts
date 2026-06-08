@@ -675,6 +675,111 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     expect(vm.haltInfo).toBeNull();
   });
 
+  beat('I · Sword Master — back to the map and into the forest at the crossroads (218)', () => {
+    // The thievery trial opens with a forest detour for the guard-dogs' sedative.
+    // Out of the Sword Master's clearing via her path (#743, a bare-click default)
+    // → the Mêlée map, then the crossroads node (#911, "il bivio") → the forest
+    // entry pseudo-room (218), exactly as the treasure/sword-master runs began.
+    walkTo(vm, ROOMS.swordMaster.path);
+    expect(driveToRoom(vm, ROOMS.meleeMap.id, { maxTicks: 8000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    walkTo(vm, ROOMS.meleeMap.crossroads);
+    expect(driveToRoom(vm, ROOMS.forest.id, { maxTicks: 8000 })).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat('I · Forest — one back step to the yellow-flower screen (215), pick the petal', () => {
+    const ego = vm.vars.readGlobal(VAR_EGO);
+    expect(vm.getObjectOwner(ROOMS.forest.yellowPetal)).not.toBe(ego);
+
+    // From the entry (218) a single `back` (#685) lands on the one screen whose
+    // flowers are yellow (pseudo-room 215). Pick up the plant (#678): in g4==215
+    // its verb-9 `pickupObject`s the yellow petal (#689) into inventory — the
+    // sedative for the mansion's guard dogs. (Pseudo-rooms all alias room 58, so
+    // gate on `currentRoom`/g4, not `loadedRoom`.)
+    walkTo(vm, ROOMS.forest.back);
+    expect(
+      driveUntil(vm, (v) => v.currentRoom === ROOMS.forest.flowerScreen, { maxTicks: 12000 }),
+    ).toBe(true);
+    use(vm, VERBS.pickUp, ROOMS.forest.flowerPlant);
+    expect(waitPickedUp(vm, ROOMS.forest.yellowPetal)).toBe(true);
+    expect(vm.getObjectOwner(ROOMS.forest.yellowPetal)).toBe(ego);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat("I · Forest — out of the maze and across the island to the Governor's mansion (36)", () => {
+    // Petal in hand, leave the forest and cross to the mansion through the
+    // lookout/town/shops. Out of the flower screen (215): right (#687) back to
+    // the entry (218), then right again dumps to the Mêlée map (a wrong turn at
+    // the entry exits the maze). From the map the village node (#917) still
+    // lands at the lookout (33) — g196 has climbed to 2, but that node routes
+    // there regardless — then east through its arch (#427) to the town street
+    // (35), the store arch (#451) to the store street (34), and finally
+    // "il palazzo del Governatore" (#431, a verb-11 `loadRoomWithEgo room=36`)
+    // walks ego up to the mansion gate, where the piranha poodles guard the door.
+    walkTo(vm, ROOMS.forest.right);
+    expect(driveUntil(vm, (v) => v.currentRoom === ROOMS.forest.id, { maxTicks: 12000 })).toBe(true);
+    walkTo(vm, ROOMS.forest.right);
+    expect(driveToRoom(vm, ROOMS.meleeMap.id, { maxTicks: 12000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+
+    walkTo(vm, ROOMS.meleeMap.village);
+    expect(driveToRoom(vm, ROOMS.meleeLookout.id, { maxTicks: 12000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+
+    walkTo(vm, ROOMS.meleeLookout.townArch);
+    expect(driveToRoom(vm, ROOMS.meleeStreet.id, { maxTicks: 14000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+
+    walkTo(vm, ROOMS.meleeStreet.storeArch);
+    expect(driveToRoom(vm, ROOMS.storeStreet.id, { maxTicks: 14000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+
+    walkTo(vm, ROOMS.storeStreet.mansion);
+    expect(driveToRoom(vm, ROOMS.governorMansion.id, { maxTicks: 14000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat("I · Governor's mansion — drug the meat with the petal, give it to the dogs (they sleep)", () => {
+    const ego = vm.vars.readGlobal(VAR_EGO);
+    const petal = ROOMS.forest.yellowPetal; // #689
+    const meat = ROOMS.kitchen.meat; // #566
+    const dogs = ROOMS.governorMansion.dogs; // #467
+    expect(vm.getObjectOwner(petal)).toBe(ego);
+    expect(vm.vars.readBit(ROOMS.governorMansion.dogsAsleepBit)).toBe(0);
+
+    // DEBT — both steps commit the sentence directly (`pushSentence`) rather than
+    // through the faithful click flow, because the headless testkit can't reach
+    // either UI gesture: the drug is a TWO-INVENTORY combine (the second item is
+    // picked from the inventory panel, which needs a real cursor hover the
+    // headless harness doesn't model), and the dogs (#467) aren't hit-testable
+    // headlessly for the give-target hover. The committed triples are the exact
+    // `doSentence` the verb-input script would build, so the engine path under
+    // test is identical — only the click-gathering is bypassed. Wire real
+    // gestures here once the testkit models inventory-slot / object hover.
+
+    // Drug the meat: "Use the yellow petal with the meat". The meat's verb-7
+    // (partner #689) sets the drugged class on #566 and runs global #182, which
+    // renames it "la carne condita" and consumes the petal (#689 → owner 0).
+    vm.pushSentence({ verb: VERBS.use, objectA: petal, objectB: meat });
+    expect(driveUntil(vm, (v) => v.getObjectOwner(petal) === 0, { maxTicks: 12000 })).toBe(true);
+
+    // Give the drugged meat to the dogs (#467): runs their verb-80 → room-local
+    // #201, which feeds them, checks the drugged class, and sets bit#15 (asleep),
+    // renaming them "i cani piranha che dormono". "Give" (not "Use") is the verb
+    // that reaches the feed branch — its proximity gate is the one the getDist
+    // box-clamp fix unblocked, so the ego can reach the dogs across the locked
+    // sleep-gate boxes. The meat ends consumed (owner → the room, 15).
+    vm.pushSentence({ verb: VERBS.give, objectA: meat, objectB: dogs });
+    expect(
+      driveUntil(vm, (v) => v.vars.readBit(ROOMS.governorMansion.dogsAsleepBit) === 1, { maxTicks: 40000 }),
+    ).toBe(true);
+    expect(vm.getObjectOwner(meat)).not.toBe(ego);
+    expect(waitPlayable(vm)).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
   // ALWAYS THE LAST BEAT: snapshot the furthest clean playable state to a save so
   // the NEXT frontier's beats can be developed by fast-forwarding here
   // (restoreSave) instead of re-driving from boot — the regression net itself
@@ -686,9 +791,11 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       'saves/MI1-walkthrough-frontier.websave.json',
       JSON.stringify(snapshotVm(vm, { game: 'MI1', label: 'walkthrough-frontier' })),
     );
-    // Furthest clean point so far: the Sword Master's clearing (61), her trial
-    // passed (bit#20).
-    expect(vm.currentRoom).toBe(ROOMS.swordMaster.id);
-    expect(vm.vars.readBit(ROOMS.swordMaster.foughtBit)).toBe(1);
+    // Furthest clean point so far: the Governor's mansion gate (36) with the
+    // guard dogs drugged asleep (bit#15) — swordfighting + treasure trials
+    // passed, thievery trial under way and the dogs are down, ready to slip
+    // into the mansion.
+    expect(vm.currentRoom).toBe(ROOMS.governorMansion.id);
+    expect(vm.vars.readBit(ROOMS.governorMansion.dogsAsleepBit)).toBe(1);
   });
 });

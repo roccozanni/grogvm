@@ -430,6 +430,14 @@ export const ROOMS = {
   storeStreet: {
     id: 34,
     /**
+     * "il palazzo del Governatore" (#431) — the mansion in the street's far
+     * background. Walk-to (verb 11) is a straight `loadRoomWithEgo room=36`,
+     * carrying ego up to the mansion gate ({@link governorMansion}, room 36),
+     * where the piranha poodles guard the door. (Clicking the dogs themselves,
+     * #439, just chains to this same script.)
+     */
+    mansion: 431,
+    /**
      * "la porta" (#437) → the general store ({@link ROOMS.store}, room 30).
      * Approach it, Open it (verb 2 — its handler only fires with ego at the
      * door), then click it to walk through.
@@ -481,6 +489,28 @@ export const ROOMS = {
   },
 
   /**
+   * The Governor's mansion gate (room 36), reached from the store street's
+   * "il palazzo del Governatore" ({@link storeStreet}'s `mansion`, #431). Three
+   * piranha poodles guard the door; the thievery trial is to get past them
+   * (the yellow petal {@link ROOMS.forest}'s `yellowPetal` is their sedative)
+   * and into the mansion to steal the idol.
+   */
+  governorMansion: {
+    id: 36,
+    /**
+     * "i cani piranha letali" (#467) — the three guard dogs. Giving them the
+     * drugged meat ({@link ROOMS.kitchen}'s `meat` once dressed with the petal)
+     * runs the dogs' verb-80 → room-local #201, which checks the drugged class
+     * and sets {@link dogsAsleepBit}; the dogs are renamed "i cani piranha che
+     * dormono" and the door is passable.
+     */
+    dogs: 467,
+    /** `bit#15` — the dogs-asleep flag (#201 sets it once they eat the drugged
+     *  meat). The gate for getting past them into the mansion. */
+    dogsAsleepBit: 15,
+  },
+
+  /**
    * The forest maze (room 218 — the entry, reached from the map's crossroads
    * node #911). It's a single screen of graphics (backed by room 58) re-dressed
    * as twenty pseudo-rooms 201–220: the engine's pseudo-room alias table maps
@@ -518,6 +548,26 @@ export const ROOMS = {
     /** `bit#546` — set once the signpost's push has dropped the trunk-bridge;
      *  the gate to wait on before crossing the right path to room 61. */
     bridgeBit: 546,
+    /**
+     * The yellow-flower screen — pseudo-room 215, one `back` step in from the
+     * entry (218). It's the ONE forest screen whose flowers are yellow (every
+     * other screen has "gli stessi vecchi fiori rossi" — the same old red
+     * flowers); the per-screen distinction is `g4==215`, which the plant's
+     * scripts gate on.
+     */
+    flowerScreen: 215,
+    /**
+     * "le piante" (the plants, #678). In the flower screen (`g4==215`) Pick up
+     * (verb 9) runs `pickupObject 689` — the yellow petal into inventory; on
+     * any other forest screen it refuses ("...non è degno di un pirata"). Also
+     * gated on not already holding the petal ("Ne ho già uno."). The petal
+     * itself (#689) carries no Pick up verb — the plant is how you get it.
+     */
+    flowerPlant: 678,
+    /** "il petalo giallo" (the yellow petal, #689) — what picking {@link
+     *  flowerPlant} hands ego; the sedative for the mansion's guard dogs in the
+     *  thievery trial. */
+    yellowPetal: 689,
   },
 
   /**
