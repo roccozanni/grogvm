@@ -67,12 +67,11 @@ import {
 import { VAR_CURRENT_LIGHTS, VAR_EGO } from '../../src/engine/vm/vars';
 import {
   boot,
-  duelProgress,
+  enoughForSwordMaster,
+  fightSwordMaster,
+  grindOneDuel,
   hasGame,
-  openDuel,
-  provokeDuel,
   ROOMS,
-  tradeInsults,
   VARS,
   VERBS,
 } from './game';
@@ -84,31 +83,9 @@ const vm = boot();
 // every later beat is skipped, not cascaded into noise or — worse — falsely
 // passed. So a red+skipped tail localizes exactly where the game broke.
 let broken = false;
-const beat = (name: string, fn: () => void): void =>
-  it(name, (ctx) => {
-    if (broken) return ctx.skip();
-    try {
-      fn();
-    } catch (e) {
-      broken = true;
-      throw e;
-    }
-  });
-
-// A beat for a CAPPED loop whose real work finishes before the cap: once
-// `done()` holds, the remaining iterations report as *skipped* (with `skipNote`
-// as the reason) rather than silently passing. The skip stays OUTSIDE the
-// try/catch on purpose — `ctx.skip` throws, and the `broken` catch would
-// otherwise treat it as a break and skip the rest of the run too.
-const beatUntil = (
-  name: string,
-  done: () => boolean,
-  skipNote: string,
-  fn: (ctx: TestContext) => void | Promise<void>,
-): void =>
+const beat = (name: string, fn: (ctx: TestContext) => void | Promise<void>): void =>
   it(name, async (ctx) => {
     if (broken) return ctx.skip();
-    ctx.skip(done(), skipNote);
     try {
       await fn(ctx);
     } catch (e) {
@@ -636,21 +613,6 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     expect(vm.haltInfo).toBeNull();
   });
 
-  // Snapshot the last CLEAN playable state (outside the house, room 43, basic
-  // lesson taken) to a save, so the swordfighting-grind beats below can be
-  // developed by fast-forwarding here (restoreSave) instead of re-driving from
-  // boot — the regression net itself always runs from boot. The grind that
-  // follows is the unverified frontier, so the snapshot stays at this clean
-  // point (not mid-duel). Regenerated every green run, so it can't drift stale.
-  beat('frontier — snapshot the clean pre-grind state to saves/MI1-walkthrough-frontier', () => {
-    writeFileSync(
-      'saves/MI1-walkthrough-frontier.websave.json',
-      JSON.stringify(snapshotVm(vm, { game: 'MI1', label: 'walkthrough-frontier' })),
-    );
-    expect(vm.currentRoom).toBe(ROOMS.house.id);
-    expect(vm.vars.readBit(ROOMS.house.lessonTakenBit)).toBe(1);
-  });
-
   beat('I · House — back out the lower path to the Mêlée map (85)', () => {
     // The house's lower path (#592) is a bare-click exit back to the map.
     walkTo(vm, ROOMS.house.pathToMap);
@@ -663,48 +625,70 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     // Pirates spawn at random map spots and walk toward random nodes; a duel
     // fires when one closes on ego. The east/house edge stays cold for tens of
     // thousands of ticks, but the west-of-fork side has the traffic (confirmed
-    // in scratch/stumble.ts). Park here; the per-duel beats below do the actual
-    // wandering that bumps a pirate.
+    // in scratch/stumble.ts). Park here; the grind beat below does the wandering.
     walkTo(vm, ROOMS.pirateDuel.westSpots[0]!);
     expect(vm.currentRoom).toBe(ROOMS.meleeMap.id);
     expect(vm.haltInfo).toBeNull();
   });
 
-  // The swordfighting trial: win four pirate duels to clear the readiness gate
-  // (g282 > 3), after which the Sword Master will fight. Beats are REGISTERED at
-  // collection time, so we can't break the loop on a runtime var — instead emit
-  // a capped run of duel beats; once we're ready the rest SKIP (beatUntil). Each
-  // beat is ONE encounter: provoke a pirate → "Preparati a morire!" → trade
-  // insults → back to the map. A red one names exactly which duel broke; the
-  // skipped tail is the "early break". Four wins clear the gate today (the picker
-  // wins every duel); the spare beats absorb RNG drift if an upstream change
-  // shifts the run and a duel is lost.
-  const MAX_DUELS = 8;
-  const readyForSwordMaster = (): boolean => vm.vars.readGlobal(VARS.fightsWon) > 3;
-  for (let n = 1; n <= MAX_DUELS; n++) {
-    beatUntil(
-      `I · Pirate duel ${n}/${MAX_DUELS} — provoke, trade insults`,
-      readyForSwordMaster,
-      'Skipped - Ready for the Sword Master',
-      async (ctx) => {
-        expect(provokeDuel(vm)).toBe(true);
-        openDuel(vm);
-        tradeInsults(vm);
-        // The duel returns ego to the map (global #114); settle before the next.
-        expect(driveToRoom(vm, ROOMS.meleeMap.id, { maxTicks: 8000 })).toBe(true);
-        expect(waitPlayable(vm)).toBe(true);
-        expect(vm.haltInfo).toBeNull();
-        // Track the grind's progress in the reporter.
-        const p = duelProgress(vm);
-        await ctx.annotate(
-          `insults learned ${p.insults} · comebacks learned ${p.comebacks} · duels won ${p.won}`,
-        );
-      },
-    );
-  }
-
-  beat('I · Pirate duels — enough won, ready to face the Sword Master (g282>3)', () => {
+  beat('I · Mêlée map — grind pirate duels lose-to-learn until ready for the Sword Master', () => {
+    // ONE beat for the whole grind (per-duel beats were too noisy). Each
+    // `grindOneDuel` plays one provoked duel to completion lose-to-learn: a duel
+    // is full-mode (g285=3) and the turn flips on who won the last exchange, so
+    // throwing a known insult and letting the pirate counter it both teaches that
+    // comeback (#82) AND flips us to defense, where the pirate insults us and we
+    // learn a new insult (#83). (Winning every exchange — the old picker — stays
+    // on attack and learns almost nothing.) We loop until `enoughForSwordMaster`:
+    // the comebacks Carla's seeded duel needs PLUS the gate g282>3. The seed is
+    // fixed so this is deterministic — exactly 30 duels every run. CAP is only a
+    // runaway-loop backstop (a broken gate fails the assertion below instead of
+    // hanging), set a little above 30 — not the exact count — so a benign upstream
+    // RNG nudge that shifts it slightly still passes.
+    const CAP = 36;
+    let fought = 0;
+    for (; fought < CAP && !enoughForSwordMaster(vm); fought++) {
+      expect(grindOneDuel(vm)).toBe(true);
+      // `grindOneDuel` only returns true once back on the map (global #114).
+      expect(vm.currentRoom).toBe(ROOMS.meleeMap.id);
+      expect(vm.haltInfo).toBeNull();
+    }
+    expect(enoughForSwordMaster(vm)).toBe(true);
     expect(vm.vars.readGlobal(VARS.fightsWon)).toBeGreaterThan(3);
+  });
+
+  beat('I · Mêlée map — travel to the Sword Master’s clearing (61)', () => {
+    // The map node #918 walks ego over and `loadRoomWithEgo room=61`.
+    walkTo(vm, ROOMS.meleeMap.swordMaster);
+    expect(driveToRoom(vm, ROOMS.swordMaster.id, { maxTicks: 14000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
     expect(vm.haltInfo).toBeNull();
+  });
+
+  beat('I · Sword Master — win the insult duel; the swordfighting trial is passed', () => {
+    // Talk to Carla → sit out the intro → her duel runs in room 44 (g285=2, she
+    // insults 16..33). `fightSwordMaster` defends with scroll-to-want (the comeback
+    // menu pages 6 at a time) and wins. Beating her sets bit#20 — trial complete.
+    expect(vm.vars.readBit(ROOMS.swordMaster.foughtBit)).toBe(0);
+    expect(fightSwordMaster(vm)).toBe(true);
+    expect(vm.vars.readBit(ROOMS.swordMaster.foughtBit)).toBe(1);
+    expect(waitPlayable(vm)).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  // ALWAYS THE LAST BEAT: snapshot the furthest clean playable state to a save so
+  // the NEXT frontier's beats can be developed by fast-forwarding here
+  // (restoreSave) instead of re-driving from boot — the regression net itself
+  // always runs from boot. As the walkthrough grows, this beat moves to stay last,
+  // so the save tracks the leading edge. Regenerated every green run, so it can't
+  // drift stale.
+  beat('frontier — snapshot the furthest clean state to saves/MI1-walkthrough-frontier', () => {
+    writeFileSync(
+      'saves/MI1-walkthrough-frontier.websave.json',
+      JSON.stringify(snapshotVm(vm, { game: 'MI1', label: 'walkthrough-frontier' })),
+    );
+    // Furthest clean point so far: the Sword Master's clearing (61), her trial
+    // passed (bit#20).
+    expect(vm.currentRoom).toBe(ROOMS.swordMaster.id);
+    expect(vm.vars.readBit(ROOMS.swordMaster.foughtBit)).toBe(1);
   });
 });

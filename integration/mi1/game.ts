@@ -26,6 +26,7 @@ import {
   hasData,
   makeSeededRandom,
   pickAnswer,
+  use,
   walkTo,
 } from '../../src/testkit/scummv5';
 import type { Vm } from '../../src/engine/vm/vm';
@@ -211,6 +212,13 @@ export const ROOMS = {
      * street is reached. (Later progress reroutes it to the docks, room 83.)
      */
     village: 917,
+    /**
+     * "dal Maestro della Spada" (#918) — the Sword Master node. Its verb-11
+     * walks the map figure over and `loadRoomWithEgo room=61` into her clearing
+     * ({@link swordMaster}), where talking to her starts the swordfighting-trial
+     * duel once the readiness gate (`g282 > 3`) is clear.
+     */
+    swordMaster: 918,
   },
 
   /** The clearing (room 52) — the Fettucini circus camp. */
@@ -543,11 +551,20 @@ export const ROOMS = {
    */
   swordMaster: {
     id: 61,
-    /** "Il Maestro della Spada" (#744) — the Sword Master. */
+    /** "Il Maestro della Spada" (#744) — the Sword Master (Carla). Talk to her
+     *  (verb 10) once `g282 > 3` to start the trial duel: her verb script runs
+     *  #116 → `startScript 73 [1,58]` (#58 sets duel mode `g285=2`, pirate-
+     *  attack), then #90 drives the fight in {@link duelRoom}. */
     master: 744,
     /** "il sentiero" (#743) — the path out. It has no walk verb, so a bare
      *  click falls to its default (verb 255) → back to the Mêlée map. */
     path: 743,
+    /** Room the duel itself plays in (#116 `loadRoom 44`); the talk first plays
+     *  an intro cutscene in the close-up room 62, then the fight runs here. */
+    duelRoom: 44,
+    /** bit#20 — set once Carla has been fought (#116 gates on it being clear).
+     *  Beating her sets it; the trial is complete on the win. */
+    foughtBit: 20,
   },
 
   /**
@@ -628,6 +645,10 @@ export const ROOMS = {
 // scratch/duel-introspect.ts). One duel = provoke → open → trade.
 const DUEL_OPENER = 127; // "Mi chiamo Guybrush Threepwood. Preparati a morire!"
 const DUEL_SURRENDER_INSULT = 37; // "Mi arrendo, vinci tu!" — picking it forfeits
+// The duel menu is a 6-wide sliding window over the learned insults/comebacks;
+// these verbs page it (confirmed scratch/carla-scrollprobe.ts).
+const DUEL_SCROLL_UP = 109; // toward lower ids
+const DUEL_SCROLL_DOWN = 110; // toward higher ids
 
 const duelArmed = (vm: Vm): number[] => {
   const out: number[] = [];
@@ -677,15 +698,190 @@ export function tradeInsults(vm: Vm): void {
   }
 }
 
-/** Swordfighting progress, for the walkthrough's per-duel annotations: how many
- *  insults / comebacks the player has LEARNED and how many duels are won. The
- *  learned counts come from the game's own list-builders (#160 walks bit#140 →
- *  g308 insults, #161 walks bit#222 → g309 comebacks); they only rebuild the
- *  duel-menu scratch (g310/g308/g309), harmless to run between duels. */
-export function duelProgress(vm: Vm): { insults: number; comebacks: number; won: number } {
-  vm.runScriptNested(vm.startScriptById(160, { label: 'count-insults' })!);
-  const insults = vm.vars.readGlobal(308);
-  vm.runScriptNested(vm.startScriptById(161, { label: 'count-comebacks' })!);
-  const comebacks = vm.vars.readGlobal(309);
-  return { insults, comebacks, won: vm.vars.readGlobal(VARS.fightsWon) };
+// ── Learned-state truth & lose-to-learn grind ────────────────────────────
+// The game's own counters g308/g309 (#160/#161) are the menu-rebuild scratch,
+// NOT cumulative learned totals — they SHRINK between reads. The source of
+// truth is the persistent bit arrays themselves.
+const readLearned = (vm: Vm, base: number): number[] => {
+  const out: number[] = [];
+  for (let id = 1; id <= 33; id++) if (vm.vars.readBit(base + id)) out.push(id);
+  return out;
+};
+/** Insults the player can throw (bit#140), the source of truth. */
+export const learnedInsults = (vm: Vm): number[] => readLearned(vm, INSULTS_LEARNED_BIT);
+/** Comebacks the player can use (bit#222), the source of truth. */
+export const learnedComebacks = (vm: Vm): number[] => readLearned(vm, COMEBACKS_LEARNED_BIT);
+
+/** In a pirate duel (full mode g285=3) we DEFEND when the turn marker g288 holds
+ *  the opponent (g270); otherwise we ATTACK. (Validated against the #83-runs
+ *  signal, scratch/check-turn.ts.) */
+const duelDefending = (vm: Vm): boolean =>
+  vm.vars.readGlobal(288) === vm.vars.readGlobal(270);
+
+/** Scroll the 6-wide duel window (it pages 6 entries at a time) until `target`
+ *  — an insult on attack, a comeback on defense — is visible, then return its
+ *  verb (or undefined if it can't be paged into view). Performs the scroll picks
+ *  itself; harmless when the menu doesn't page. */
+const duelScrollTo = (vm: Vm, target: number): number | undefined => {
+  const find = (): number | undefined =>
+    duelArmed(vm).find((v) => duelBackingId(vm, v) === target);
+  for (let guard = 0; find() === undefined && guard < 24; guard++) {
+    const window = duelArmed(vm).map((v) => duelBackingId(vm, v));
+    if (window.length === 0) break;
+    const dir =
+      target < Math.min(...window) ? DUEL_SCROLL_UP
+      : target > Math.max(...window) ? DUEL_SCROLL_DOWN
+      : 0;
+    if (dir === 0 || vm.verbs.get(dir)?.state !== 'on') break;
+    const before = window.join(',');
+    pickAnswer(vm, dir);
+    driveUntil(vm, (v) => duelArmed(v).map((x) => duelBackingId(v, x)).join(',') !== before, {
+      maxTicks: 3000,
+    });
+  }
+  return find();
+};
+
+/** The comeback set the swordfighting trial drives toward — every comeback the
+ *  Sword Master's insults (16..33) can map to (1..16). We control the seed, so
+ *  rather than chase a generic minimum the grind targets this fixed set; learning
+ *  a superset of whatever Carla actually draws makes her duel winnable regardless
+ *  of her draw order. For pirate insults the comeback id EQUALS the insult id
+ *  (INSULT_COMEBACK[i]=i), so to learn comeback c we throw insult c. */
+const TARGET_COMEBACKS: readonly number[] = Array.from({ length: 16 }, (_, i) => i + 1);
+
+/** Lose-to-learn pick for one duel menu, with paging. On ATTACK, throw the
+ *  lowest TARGET comeback we still lack (whose insult we know), SCROLLING the
+ *  attack menu to reach it — the high insults 12..16 sit on later pages, so a
+ *  no-scroll picker never throws them and never learns those comebacks. The
+ *  pirate's counter then teaches that comeback (#82) and the lost exchange flips
+ *  us to DEFENSE, where the pirate insults us and we learn a new insult (#83).
+ *  On DEFENSE, scroll to the winning comeback and counter if known; else take the
+ *  hit (the insult's already learned). Never surrenders. */
+const losePick = (vm: Vm): number => {
+  const knownIns = new Set(learnedInsults(vm));
+  const knownCb = new Set(learnedComebacks(vm));
+  const fallback = (): number =>
+    duelArmed(vm).find((v) => duelBackingId(vm, v) !== DUEL_SURRENDER_INSULT) ?? duelArmed(vm)[0]!;
+  if (duelDefending(vm)) {
+    const want = INSULT_COMEBACK[vm.vars.readGlobal(VARS.currentInsult)];
+    if (want !== undefined && knownCb.has(want)) {
+      const v = duelScrollTo(vm, want);
+      if (v !== undefined) return v;
+    }
+    return fallback();
+  }
+  const stillNeeded = TARGET_COMEBACKS.filter((c) => !knownCb.has(c) && knownIns.has(c)).sort(
+    (a, b) => a - b,
+  );
+  for (const c of stillNeeded) {
+    const v = duelScrollTo(vm, c);
+    if (v !== undefined) return v;
+  }
+  // Nothing left to learn this turn — throw any known insult to keep the duel going.
+  for (const i of [...knownIns].filter((x) => x >= 1 && x <= 16).sort((a, b) => a - b)) {
+    const v = duelScrollTo(vm, i);
+    if (v !== undefined) return v;
+  }
+  return fallback();
+};
+
+/** Play ONE provoked pirate duel lose-to-learn, all the way back to the map.
+ *  Drives the greeting opener, the g285=3 exchanges, and the post-gate "Sei
+ *  bravo abbastanza" conversation (exit via its last option) uniformly. Returns
+ *  whether a pirate was found and the duel resolved back on the map. */
+export function grindOneDuel(vm: Vm): boolean {
+  if (!provokeDuel(vm)) return false;
+  for (let step = 0; step < 120; step++) {
+    driveUntil(
+      vm,
+      (v) =>
+        v.currentRoom === ROOMS.meleeMap.id ||
+        v.verbs.get(DUEL_OPENER)?.state === 'on' ||
+        duelArmed(v).length > 0,
+      { maxTicks: 8000 },
+    );
+    if (vm.currentRoom === ROOMS.meleeMap.id) return true;
+    if (vm.verbs.get(DUEL_OPENER)?.state === 'on') {
+      pickAnswer(vm, DUEL_OPENER);
+      driveUntil(vm, (v) => v.verbs.get(DUEL_OPENER)?.state !== 'on', { maxTicks: 4000 });
+      continue;
+    }
+    const opts = duelArmed(vm);
+    if (opts.length === 0) continue;
+    // In the insult game (g285 nonzero) play lose-to-learn; in the post-gate
+    // conversation (mode 0) exit via the last option.
+    const pick = vm.vars.readGlobal(VARS.duelMode) !== 0 ? losePick(vm) : opts[opts.length - 1]!;
+    pickAnswer(vm, pick);
+    driveUntil(vm, (v) => v.verbs.get(pick)?.state !== 'on' || v.currentRoom === ROOMS.meleeMap.id, {
+      maxTicks: 6000,
+    });
+  }
+  return vm.currentRoom === ROOMS.meleeMap.id;
+}
+
+/** Readiness floor for the Sword Master. She only throws ~5 insults (the duel is
+ *  best-of-5), so the *minimum* we'd need is just those comebacks — but we can't
+ *  pin them: the gate's stop-point shifts the RNG at her duel, which changes
+ *  which insults she draws (the grind & duel share the seeded stream). So this is
+ *  a deliberately generous, LATE-tripping set — its hardest members (12/15/16 are
+ *  learned last) guarantee the easy comebacks are in by trip time, leaving margin
+ *  to win 5–0 rather than scraping a 5–1. (Comeback 9 is the one the pirate pool
+ *  never teaches on this seed; she doesn't need it.) Tighter sets still win but
+ *  with a one-exchange margin — see PROGRESS for the tradeoff. */
+const SWORD_MASTER_NEEDED: readonly number[] = [2, 3, 4, 5, 6, 8, 12, 13, 14, 15, 16];
+/** Ready to face the Sword Master: every comeback her seeded duel demands is
+ *  learned AND the readiness gate (`g282 > 3`, four duels won) is clear. */
+export const enoughForSwordMaster = (vm: Vm): boolean => {
+  const have = new Set(learnedComebacks(vm));
+  return SWORD_MASTER_NEEDED.every((c) => have.has(c)) && vm.vars.readGlobal(VARS.fightsWon) > 3;
+};
+
+/** Defense pick for the Sword Master: page the 6-wide comeback window (scroll
+ *  verbs) until the needed comeback is visible, then pick it and let the
+ *  exchange resolve. */
+const pickComebackScrolling = (vm: Vm, want: number | undefined): void => {
+  const pick =
+    (want === undefined ? undefined : duelScrollTo(vm, want)) ??
+    duelArmed(vm).find((v) => duelBackingId(vm, v) !== DUEL_SURRENDER_INSULT) ??
+    duelArmed(vm)[0]!;
+  const tally = vm.vars.readGlobal(263) + vm.vars.readGlobal(262);
+  pickAnswer(vm, pick);
+  driveUntil(
+    vm,
+    (v) =>
+      v.vars.readGlobal(263) + v.vars.readGlobal(262) !== tally ||
+      v.currentRoom !== ROOMS.swordMaster.duelRoom,
+    { maxTicks: 6000 },
+  );
+};
+
+/** Duel the Sword Master (Carla) — assumes ego is already in her clearing (room
+ *  61, reached via the Mêlée-map node #918). Talk to her (#744) to start the
+ *  trial, sit out the intro cutscene, then defend with scroll-to-want until the
+ *  duel resolves. Returns whether she's beaten (bit#20 set and more wins than
+ *  losses). Requires the readiness gate (`g282 > 3`) and the comebacks her seeded
+ *  insults demand. */
+export function fightSwordMaster(vm: Vm): boolean {
+  use(vm, VERBS.talk, ROOMS.swordMaster.master);
+  for (let round = 0; round < 80; round++) {
+    driveUntil(vm, (v) => duelArmed(v).length > 0, { maxTicks: 4000 });
+    const opts = duelArmed(vm);
+    if (opts.length === 0) {
+      if (vm.currentRoom !== ROOMS.swordMaster.duelRoom) break; // duel over
+      continue;
+    }
+    // Her insult game is mode 2 (pirate-attack); before that the menus are the
+    // intro/greeting — advance with the first option.
+    if (vm.vars.readGlobal(VARS.duelMode) !== 2) {
+      pickAnswer(vm, opts[0]!);
+      driveUntil(vm, (v) => v.verbs.get(opts[0]!)?.state !== 'on', { maxTicks: 6000 });
+      continue;
+    }
+    pickComebackScrolling(vm, INSULT_COMEBACK[vm.vars.readGlobal(VARS.currentInsult)]);
+  }
+  return (
+    vm.vars.readBit(ROOMS.swordMaster.foughtBit) === 1 &&
+    vm.vars.readGlobal(263) > vm.vars.readGlobal(262)
+  );
 }
