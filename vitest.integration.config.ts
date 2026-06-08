@@ -9,5 +9,9 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['integration/**/*.test.ts'],
+    // (Default reporter. The beats carry `ctx.annotate(...)` progress notes — e.g.
+    // the swordfight insults/comebacks/wins — but the default reporter hides
+    // annotations on passing tests, so surface them ad-hoc with
+    // `npm run test:integration -- --reporter=verbose` when you want them.)
   },
 });

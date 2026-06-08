@@ -19,7 +19,15 @@
  * (copyrighted) game files. Launch with `npm run test:integration`; when the
  * data isn't present the suite skips via {@link hasGame}.
  */
-import { bootScummV5, hasData, makeSeededRandom } from '../../src/testkit/scummv5';
+import {
+  bootScummV5,
+  driveToRoom,
+  driveUntil,
+  hasData,
+  makeSeededRandom,
+  pickAnswer,
+  walkTo,
+} from '../../src/testkit/scummv5';
 import type { Vm } from '../../src/engine/vm/vm';
 
 /** The build we run the playthrough against (IT — also carries the saves). */
@@ -63,7 +71,58 @@ export const VARS = {
    * `g195 += 478` then the coins go to ego). 0 until that payout.
    */
   money: 195,
+  /**
+   * Insult-swordfighting cross-fight win tally (g282). Incremented in the
+   * win/loss handler (global #74) each time a duel is *won* (winning exchanges
+   * g263 exceed the per-duel threshold g351). The Sword Master only agrees to
+   * fight once `g282 > 3` (room 61 #58) — i.e. four pirate duels won — at which
+   * point a beaten pirate says "Sei bravo abbastanza per sfidare il Maestro
+   * della Spada." This is the readiness gate the grind drives toward.
+   */
+  fightsWon: 282,
+  /**
+   * The insult the opponent most recently threw (g240) — set when the pirate
+   * insults the player (global #83). On a player *reply* turn this is the
+   * insult to counter; the winning comeback is {@link INSULT_COMEBACK}`[g240]`.
+   */
+  currentInsult: 240,
+  /**
+   * Duel mode (g285): 0 during the greeting menu (small talk / "prepare to
+   * die" / leave), nonzero (3 in the pirate duels observed) once the insult
+   * game is running. Used to tell the opener apart from the insult rounds.
+   */
+  duelMode: 285,
 } as const;
+
+/**
+ * Insult-swordfighting mechanic — the data needed to play a duel deterministically.
+ *
+ * Extracted ground-truth from this build (see `scratch/insult-map.ts`): the duel
+ * loop #90 builds its match table (string #37) from constants, and the matcher
+ * #87 accepts comeback C against insult I iff C is in that table at I. Decoded,
+ * the pirate insults (ids 1–15) are countered by the **same-numbered** comeback,
+ * and the Sword Master's insults (16–33) reuse the pirate comebacks. The two
+ * persistent "what you've learned" stores are bit arrays, NOT cleared between
+ * duels: {@link INSULTS_LEARNED_BIT} (insults you can throw, set when a pirate
+ * uses one on you, #83) and {@link COMEBACKS_LEARNED_BIT} (comebacks you can
+ * use, set when a pirate replies with one, #82).
+ *
+ * `INSULT_COMEBACK[i]` = the comeback id that wins against insult `i`. Where an
+ * insult has two valid answers, the first is listed.
+ */
+export const INSULT_COMEBACK: Readonly<Record<number, number>> = {
+  // Pirate insults — identity: comeback i beats insult i.
+  1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10,
+  11: 11, 12: 12, 13: 13, 14: 14, 15: 15,
+  // Sword Master insults — reuse pirate comebacks (insult 16+k → comeback k).
+  16: 16, 17: 1, 18: 2, 19: 3, 20: 4, 21: 5, 22: 6, 23: 7, 24: 8, 25: 9,
+  26: 10, 27: 11, 28: 12, 29: 13, 30: 14, 31: 15, 32: 16, 33: 16,
+} as const;
+
+/** Persistent bit array of insults the player has learned to throw (set in #83). */
+export const INSULTS_LEARNED_BIT = 140;
+/** Persistent bit array of comebacks the player has learned to use (set in #82). */
+export const COMEBACKS_LEARNED_BIT = 222;
 
 /** Verb ids — global, not owned by any room (same in every build). */
 export const VERBS = {
@@ -519,6 +578,10 @@ export const ROOMS = {
     /** bit#483 — the swordfighting-lesson flag, set once the lesson is taken;
      *  it gates Smirk's post-lesson dialog branch. */
     lessonTakenBit: 483,
+    /** "il sentiero" (#592) — the lower path; a bare click walks ego back out
+     *  to the Mêlée map (room 85). (Room 43 has a second "il sentiero", #594,
+     *  the upper one; #592 is the map exit.) */
+    pathToMap: 592,
   },
 
   /**
@@ -530,4 +593,99 @@ export const ROOMS = {
   smirkGym: {
     id: 60,
   },
+
+  /**
+   * The pirate-duel close-up (room 49) — where on-map insult swordfights play
+   * out. A wandering pirate on the map (local #202) that closes on ego fires
+   * global #114, which `loadRoom 49`, sets up ego (#1) vs the pirate, and runs
+   * the duel via #73/#90; when it ends, ego is returned to the map (room 85).
+   * The trade-insults UI is dialog verbs (120+, like other menus). See
+   * {@link INSULT_COMEBACK} for the pick logic.
+   */
+  pirateDuel: {
+    id: 49,
+    /**
+     * West-of-the-fork map spots to wander between to provoke an encounter.
+     * Pirates spawn at random map positions and walk toward random nodes; a
+     * duel fires when one reaches ego. Idling at the east/house edge stays
+     * cold for tens of thousands of ticks, but cycling these west spots
+     * (near the fork node #911 @ 72,88) reliably bumps a pirate within a few
+     * thousand ticks (confirmed: `scratch/stumble.ts`). Ego snaps to the
+     * map's narrow walkboxes, so these are click *targets*, not exact parks.
+     */
+    westSpots: [
+      { x: 50, y: 95 },
+      { x: 72, y: 100 },
+    ],
+  },
 } as const;
+
+// ── Insult-swordfight driving ─────────────────────────────────────────────
+// MI1-specific helpers to drive a pirate duel, kept here so the walkthrough
+// reads as plain beats. A duel is dialog verbs (120+): menu slot `k` (1-based)
+// is verb `119+k` and the insult/comeback id behind it is `VAR(166+k)` (the
+// menu-builders #75/#89 write `g166[k]` and id-name them; confirmed via
+// scratch/duel-introspect.ts). One duel = provoke → open → trade.
+const DUEL_OPENER = 127; // "Mi chiamo Guybrush Threepwood. Preparati a morire!"
+const DUEL_SURRENDER_INSULT = 37; // "Mi arrendo, vinci tu!" — picking it forfeits
+
+const duelArmed = (vm: Vm): number[] => {
+  const out: number[] = [];
+  for (let v = 120; v <= 130; v++) if (vm.verbs.get(v)?.state === 'on') out.push(v);
+  return out;
+};
+const duelBackingId = (vm: Vm, verb: number): number => vm.vars.readGlobal(166 + (verb - 119));
+
+/** Step 1 — ping-pong the west-of-fork spots until a wandering pirate closes on
+ *  ego and the duel loads (room 49). Bounded retry; returns whether it fired. */
+export function provokeDuel(vm: Vm): boolean {
+  const spots = ROOMS.pirateDuel.westSpots;
+  for (let leg = 0; leg < 12; leg++) {
+    walkTo(vm, spots[leg % spots.length]!);
+    if (driveToRoom(vm, ROOMS.pirateDuel.id, { maxTicks: 4000 })) return true;
+  }
+  return false;
+}
+
+/** Step 2 — the greeting menu: pick "Preparati a morire!" to start the insult
+ *  game (duel mode {@link VARS.duelMode}/g285 flips 0 → nonzero). */
+export function openDuel(vm: Vm): void {
+  driveUntil(vm, (v) => v.verbs.get(DUEL_OPENER)?.state === 'on', { maxTicks: 8000 });
+  pickAnswer(vm, DUEL_OPENER);
+  driveUntil(vm, (v) => v.vars.readGlobal(VARS.duelMode) !== 0, { maxTicks: 4000 });
+}
+
+/** Step 3 — trade insults round by round until the duel resolves (ego back on
+ *  the map): the winning comeback for the current insult ({@link INSULT_COMEBACK}
+ *  of {@link VARS.currentInsult}) if it's offered — that wins the exchange, and
+ *  on our own attack turn the same id is just a valid insult to throw — else any
+ *  non-surrender option (lose but LEARN the comeback). Never the surrender line.
+ *  Capped so a misread can't hang. */
+export function tradeInsults(vm: Vm): void {
+  for (let round = 0; round < 40; round++) {
+    driveUntil(vm, (v) => v.currentRoom !== ROOMS.pirateDuel.id || duelArmed(v).length > 0, {
+      maxTicks: 8000,
+    });
+    if (vm.currentRoom !== ROOMS.pirateDuel.id) return; // duel over
+    const options = duelArmed(vm);
+    if (options.length === 0) return; // stuck — caller asserts the failure
+    const want = INSULT_COMEBACK[vm.vars.readGlobal(VARS.currentInsult)];
+    const safe = options.filter((v) => duelBackingId(vm, v) !== DUEL_SURRENDER_INSULT);
+    const pick = safe.find((v) => duelBackingId(vm, v) === want) ?? safe[0] ?? options[0]!;
+    pickAnswer(vm, pick);
+    driveUntil(vm, (v) => v.verbs.get(pick)?.state !== 'on', { maxTicks: 4000 });
+  }
+}
+
+/** Swordfighting progress, for the walkthrough's per-duel annotations: how many
+ *  insults / comebacks the player has LEARNED and how many duels are won. The
+ *  learned counts come from the game's own list-builders (#160 walks bit#140 →
+ *  g308 insults, #161 walks bit#222 → g309 comebacks); they only rebuild the
+ *  duel-menu scratch (g310/g308/g309), harmless to run between duels. */
+export function duelProgress(vm: Vm): { insults: number; comebacks: number; won: number } {
+  vm.runScriptNested(vm.startScriptById(160, { label: 'count-insults' })!);
+  const insults = vm.vars.readGlobal(308);
+  vm.runScriptNested(vm.startScriptById(161, { label: 'count-comebacks' })!);
+  const comebacks = vm.vars.readGlobal(309);
+  return { insults, comebacks, won: vm.vars.readGlobal(VARS.fightsWon) };
+}

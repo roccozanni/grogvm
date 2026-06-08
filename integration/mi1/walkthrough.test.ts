@@ -47,7 +47,7 @@
  * Data-gated (skipped without the game files). Run: `npm run test:integration`.
  */
 import { writeFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, type TestContext } from 'vitest';
 import { snapshotVm } from '../../src/engine/vm/savestate';
 import {
   driveToRoom,
@@ -65,7 +65,17 @@ import {
   walkTo,
 } from '../../src/testkit/scummv5';
 import { VAR_CURRENT_LIGHTS, VAR_EGO } from '../../src/engine/vm/vars';
-import { boot, hasGame, ROOMS, VARS, VERBS } from './game';
+import {
+  boot,
+  duelProgress,
+  hasGame,
+  openDuel,
+  provokeDuel,
+  ROOMS,
+  tradeInsults,
+  VARS,
+  VERBS,
+} from './game';
 
 // One VM for the whole walkthrough, driven forward across beats.
 const vm = boot();
@@ -79,6 +89,28 @@ const beat = (name: string, fn: () => void): void =>
     if (broken) return ctx.skip();
     try {
       fn();
+    } catch (e) {
+      broken = true;
+      throw e;
+    }
+  });
+
+// A beat for a CAPPED loop whose real work finishes before the cap: once
+// `done()` holds, the remaining iterations report as *skipped* (with `skipNote`
+// as the reason) rather than silently passing. The skip stays OUTSIDE the
+// try/catch on purpose — `ctx.skip` throws, and the `broken` catch would
+// otherwise treat it as a break and skip the rest of the run too.
+const beatUntil = (
+  name: string,
+  done: () => boolean,
+  skipNote: string,
+  fn: (ctx: TestContext) => void | Promise<void>,
+): void =>
+  it(name, async (ctx) => {
+    if (broken) return ctx.skip();
+    ctx.skip(done(), skipNote);
+    try {
+      await fn(ctx);
     } catch (e) {
       broken = true;
       throw e;
@@ -604,23 +636,75 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     expect(vm.haltInfo).toBeNull();
   });
 
-  // ── FRONTIER ──────────────────────────────────────────────────────────
-  // Back outside the house (room 43), basic swordfighting lesson taken (30
-  // spent, the sword now Smirk-blessed), the Sword Master's location
-  // discovered, holding the T-shirt (plus the map, chicken, sword, shovel;
-  // meat still carried). Next: fight pirates on the paths to earn insults,
-  // then beat the Sword Master — and the thievery trial.
-
-  // Snapshot the frontier to a save, so the NEXT beat can be developed by
-  // fast-forwarding to here (restoreSave) instead of re-driving from boot —
-  // the regression net itself always runs from boot (above), but exploration
-  // shouldn't have to. Regenerated every green run, so it can't drift stale.
-  beat('frontier — snapshot the end state to saves/MI1-walkthrough-frontier', () => {
+  // Snapshot the last CLEAN playable state (outside the house, room 43, basic
+  // lesson taken) to a save, so the swordfighting-grind beats below can be
+  // developed by fast-forwarding here (restoreSave) instead of re-driving from
+  // boot — the regression net itself always runs from boot. The grind that
+  // follows is the unverified frontier, so the snapshot stays at this clean
+  // point (not mid-duel). Regenerated every green run, so it can't drift stale.
+  beat('frontier — snapshot the clean pre-grind state to saves/MI1-walkthrough-frontier', () => {
     writeFileSync(
       'saves/MI1-walkthrough-frontier.websave.json',
       JSON.stringify(snapshotVm(vm, { game: 'MI1', label: 'walkthrough-frontier' })),
     );
     expect(vm.currentRoom).toBe(ROOMS.house.id);
     expect(vm.vars.readBit(ROOMS.house.lessonTakenBit)).toBe(1);
+  });
+
+  beat('I · House — back out the lower path to the Mêlée map (85)', () => {
+    // The house's lower path (#592) is a bare-click exit back to the map.
+    walkTo(vm, ROOMS.house.pathToMap);
+    expect(driveToRoom(vm, ROOMS.meleeMap.id, { maxTicks: 8000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat('I · Mêlée map — take up a west-of-fork spot to draw pirates out', () => {
+    // Pirates spawn at random map spots and walk toward random nodes; a duel
+    // fires when one closes on ego. The east/house edge stays cold for tens of
+    // thousands of ticks, but the west-of-fork side has the traffic (confirmed
+    // in scratch/stumble.ts). Park here; the per-duel beats below do the actual
+    // wandering that bumps a pirate.
+    walkTo(vm, ROOMS.pirateDuel.westSpots[0]!);
+    expect(vm.currentRoom).toBe(ROOMS.meleeMap.id);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  // The swordfighting trial: win four pirate duels to clear the readiness gate
+  // (g282 > 3), after which the Sword Master will fight. Beats are REGISTERED at
+  // collection time, so we can't break the loop on a runtime var — instead emit
+  // a capped run of duel beats; once we're ready the rest SKIP (beatUntil). Each
+  // beat is ONE encounter: provoke a pirate → "Preparati a morire!" → trade
+  // insults → back to the map. A red one names exactly which duel broke; the
+  // skipped tail is the "early break". Four wins clear the gate today (the picker
+  // wins every duel); the spare beats absorb RNG drift if an upstream change
+  // shifts the run and a duel is lost.
+  const MAX_DUELS = 8;
+  const readyForSwordMaster = (): boolean => vm.vars.readGlobal(VARS.fightsWon) > 3;
+  for (let n = 1; n <= MAX_DUELS; n++) {
+    beatUntil(
+      `I · Pirate duel ${n}/${MAX_DUELS} — provoke, trade insults`,
+      readyForSwordMaster,
+      'Skipped - Ready for the Sword Master',
+      async (ctx) => {
+        expect(provokeDuel(vm)).toBe(true);
+        openDuel(vm);
+        tradeInsults(vm);
+        // The duel returns ego to the map (global #114); settle before the next.
+        expect(driveToRoom(vm, ROOMS.meleeMap.id, { maxTicks: 8000 })).toBe(true);
+        expect(waitPlayable(vm)).toBe(true);
+        expect(vm.haltInfo).toBeNull();
+        // Track the grind's progress in the reporter.
+        const p = duelProgress(vm);
+        await ctx.annotate(
+          `insults learned ${p.insults} · comebacks learned ${p.comebacks} · duels won ${p.won}`,
+        );
+      },
+    );
+  }
+
+  beat('I · Pirate duels — enough won, ready to face the Sword Master (g282>3)', () => {
+    expect(vm.vars.readGlobal(VARS.fightsWon)).toBeGreaterThan(3);
+    expect(vm.haltInfo).toBeNull();
   });
 });
