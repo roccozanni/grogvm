@@ -41,12 +41,31 @@ action waits on `waitReady`, then asserts via named condition-waiters (`waitPick
 the *printing-sentence-blocks-the-next* finding → [INPUT §5](pages/docs/scumm/input.md).
 A clean fast-forward save (`saves/MI1-walkthrough-frontier.websave.json`, gitignored,
 written by the ALWAYS-LAST `frontier` beat and regenerated each green run) sits at the furthest
-clean state — currently the Sword Master's clearing (room 61), swordfighting trial passed.
+clean state — currently the Governor's mansion gate (room 36) with the guard dogs drugged asleep.
 
-**Frontier: Part I's swordfighting trial is COMPLETE — Sword Master beaten (`bit#20`), 36/36
-green from boot. Next: the thievery + treasure trials**, extending the net the same way (one
-seeded VM, beat by beat). The swordfighting route + duel mechanics live in the walkthrough beats
-and `game.ts` helpers, not here.
+**Frontier: Part I's swordfighting + treasure trials are COMPLETE; the thievery trial is under way —
+the mansion's guard dogs are drugged asleep (bit#15) and ego is at the mansion gate (room 36),
+40/40 green from boot. Next: slip into the mansion and steal the idol**, extending the net the same
+way (one seeded VM, beat by beat). Routes + mechanics live in the walkthrough beats and `game.ts`
+helpers, not here. Two findings worth keeping:
+
+- **The petal:** in the flower screen (`g4==215`) Pick up the plant #678 → its verb-9
+  `pickupObject`s #689 ("il petalo giallo") into inventory; #689 itself carries no Pick up verb, and
+  every other forest screen's flowers are red (refused). Drug the meat by **Use petal with meat**
+  (#566's verb-7 sets the drugged class + runs global #182: renames it "la carne condita", consumes
+  the petal), then **Give** the drugged meat to the dogs (#467) — *Give*, not *Use*, is the verb that
+  reaches the feed branch (#80 → room-local #201), which checks the drugged class and sets bit#15.
+- **getDist box-clamp fix (committed-worthy engine fix).** "Give meat to dogs" aborted with "Non
+  riesco ad arrivarci": room 36's ENCD locks boxes 1–6 (the dog-pen sleep-gate), the dogs' walk-to
+  (140,132) sits in locked box 6, so the ego clamps to box 8's edge (x=191) and the sentence-#2
+  proximity gate (`getDist >= 32`) failed at dist 51. Fix: `getDistHandler` now mirrors SCUMM's
+  `getObjActToObjActDist` — it clamps an OBJECT's point into the box the ACTOR can reach
+  (`clampPointToBoxes` over `effectiveBoxes`) before measuring, so the gate passes once the ego is as
+  close as the open boxes allow. No-op for objects whose walk-to is already in a visible box.
+  Confirmed in-browser by the user; 892 unit + 40 integration green.
+
+The two `pushSentence` shortcuts in the dog beat (two-inventory drug combine; give-to-dogs-object)
+are flagged debt at the call site — the headless testkit can't drive inventory-slot / object hover.
 
 ### Open bug-report saves (reported, not yet fixed)
 
@@ -122,18 +141,36 @@ Priority H/M/L = likelihood of biting current/near play × severity.
   object/actor-name, `0x07` string-resource all expand now.
 - [ ] **L/M — `print` `clipped` line-wrap bound not modelled** (`vm.ts:~524`).
   Long lines may overflow / mis-wrap vs the original's clip-X wrapping.
-- [ ] **L — system `print` text clears on cutscene-end / room-change / overwrite /
-  camera scroll, not the talk timer** (`vm.ts advanceOrEndTalk` + `endCutscene` +
-  `moveCameraTo`). Faithful for the known cases (treasure-map close-up room 63
-  prints the dance steps then waits for a *click* → text must persist; the cook's
-  "Non puoi venire di qui!" clears at its `endCutScene`; room 64's "Passano ore"
-  clears when the dig cutscene pans the camera back to the ego). The talk timer
-  still only governs actor speech + `VAR_HAVE_MSG`. Regression surface: a
-  non-keepText system `print` during *free gameplay* with no following
-  cutscene-end / room-change / print / camera move would still linger; none in
-  the walkthrough net, but not exhaustively ruled out. SCUMM's real eraser is
-  `restoreCharsetBg` (screen redraw); we approximate it with those triggers, a
-  camera scroll being the literal redraw.
+- [ ] **M — system `print` text lifetime: `restoreCharsetBg` approximated by
+  cutscene-end / room-change / overwrite / camera scroll, not real screen
+  redraws** (`vm.ts advanceOrEndTalk` + `endCutscene` + `moveCameraTo`). Faithful
+  for the known cases (treasure-map close-up room 63 prints the dance steps then
+  waits for a *click* → text must persist; the cook's "Non puoi venire di qui!"
+  clears at its `endCutScene`; room 64's "Passano ore" clears when the dig
+  cutscene pans the camera back). SCUMM's real eraser is `restoreCharsetBg` (the
+  background under the blasted text is redrawn) — we approximate it with those
+  triggers. **CONCRETE FAILING CASE (deferred, user-reported in-browser): room
+  36's "no animals harmed" disclaimer renders WRONG.** Three coupled problems,
+  all diagnosed:
+  • **Text never shows.** Room-36 local #201 prints the 8 disclaimer lines
+    (`print a=254`, charset 1, colours 2/8/3, offsets 227–434) then hits
+    `endCutScene` (528) on the very next opcode with no delay; our `endCutscene`
+    → `eraseTransientSystemText()` wipes them the same tick, before a frame draws
+    → the white box (object #468, drawn at 219) shows empty.
+  • **Lifecycle is click-dismiss.** `move g32=203` (g32 = VAR_VERB_SCRIPT) routes
+    the next click to room-36 #203, which does `setState 468 0` (hide the box) +
+    restore g32. In SCUMM hiding the box redraws that region → `restoreCharsetBg`
+    erases the text. We DON'T model object-`setState` redraws as a clear trigger,
+    so naively dropping the `endCutscene` erase makes the text stick forever
+    (verified — lingers over the scene after the box is gone). The cook-shout
+    unit test (`vm.test.ts`) pins the current `endCutscene`-clear, so the faithful
+    fix (clear on real redraws incl. object setState) must re-verify the cook +
+    other banners in-browser.
+  • **Render off:** colours (EN "IMPORTANT NOTICE" green vs our magenta) and font
+    weight differ — a charset/CLUT-mapping issue on the `charsetSet=1` + colour
+    2/3/8 path. NOT audio (no sound op gates the disclaimer span; confirmed).
+  Fixing this is the deferred `restoreCharsetBg` refactor + a charset/colour pass;
+  needs in-browser pixel iteration.
 - [ ] **L — flashlight gfx not modelled** (`opcodes/index.ts:~577`, dark-room
   strip extent). Cosmetic; only the flashlight rooms.
 - [ ] **L — global arithmetic doesn't wrap at int16** (`Variables` is
