@@ -169,6 +169,34 @@ register(0xda, makeAddSub(1, 'add'));
 register(0x3a, makeAddSub(-1, 'sub'));
 register(0xba, makeAddSub(-1, 'sub'));
 
+// ─── 0x1B / 0x9B  multiply  ·  0x5B / 0xDB  divide ───────────────────
+// `var OP= value` — the multiplicative siblings of add/sub, same operand
+// shape (dest var-ref, then a value whose mode is bit 7 of the opcode).
+// Arithmetic matches the expression mini-VM (expression.ts): signed 32-bit
+// multiply via Math.imul, signed truncating division, divide-by-zero is a
+// loud halt. MI1 uses them in math scripts (e.g. global #1's coordinate
+// scaling, room 11 #201) with signed immediates like -2 (0xFFFE).
+function makeMulDiv(op: 'mul' | 'div', label: string): OpcodeHandler {
+  return (vm, slot, opcode) => {
+    const dest = readDestRef(slot, vm.vars);
+    const operand = readValue(slot, vm.vars, isVarParam(opcode, 1));
+    const cur = derefRead(dest, slot, vm.vars);
+    let result: number;
+    if (op === 'mul') {
+      result = Math.imul(cur, operand);
+    } else {
+      if (operand === 0) throw new Error(`${label}: divide by zero`);
+      result = (cur / operand) | 0;
+    }
+    writeRef(dest, result, slot, vm.vars);
+    vm.annotate(`${label} 0x${dest.toString(16)} ${op === 'mul' ? '*=' : '/='} ${operand}`);
+  };
+}
+register(0x1b, makeMulDiv('mul', 'multiply'));
+register(0x9b, makeMulDiv('mul', 'multiply'));
+register(0x5b, makeMulDiv('div', 'divide'));
+register(0xdb, makeMulDiv('div', 'divide'));
+
 // ─── Conditional branches ───────────────────────────────────────────
 // All comparison opcodes follow the wiki's `unless (value OP var)
 // goto target` form — the operand order in the byte stream is `var`
@@ -1697,12 +1725,14 @@ function objectWalkPoint(vm: Vm, objId: number): { x: number; y: number } | null
   return clampPointToBoxes(vm.loadedRoom?.walkBoxes ?? [], target.x, target.y);
 }
 
-// ─── loadRoomWithEgo (0x24/0xA4) ─────────────────────────────────────
-// `object[p16] (bit 0x80) room[p8] x[16] y[16]`. Enter `room`, place ego
-// at `object`'s walk-to point there, and — when x != -1 — start ego
-// walking toward (x, y). The intro cutscene uses this to move Guybrush
-// between scenes. (low5=0x04 shared with isGreaterEqual/isLess; bit
-// 0x20 selects this op, so only 0x24/0xA4 are loadRoomWithEgo.)
+// ─── loadRoomWithEgo (0x24/0x64/0xA4/0xE4) ───────────────────────────
+// `object[p16] (bit 0x80) room[p8] (bit 0x40) x[16] y[16]`. Enter `room`,
+// place ego at `object`'s walk-to point there, and — when x != -1 — start
+// ego walking toward (x, y). The intro cutscene uses this to move Guybrush
+// between scenes. (low5=0x04 shared with isGreaterEqual/isLess; bit 0x20
+// selects this op — so all four 0x80/0x40 param-mode combos are
+// loadRoomWithEgo: 0x24/0x64/0xA4/0xE4. Global #121 uses 0xE4 — both
+// operands var-mode — `loadRoomWithEgo obj=L0 room=L1`.)
 function loadRoomWithEgoHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const objId = readVarOrWord(opcode, 1, slot, vm.vars);
   const room = readVarOrByte(opcode, 2, slot, vm.vars);
@@ -1745,7 +1775,9 @@ function loadRoomWithEgoHandler(vm: Vm, slot: ScriptSlot, opcode: number): void 
   vm.annotate(`loadRoomWithEgo obj=${objId} room=${room} (${x},${y})`);
 }
 register(0x24, loadRoomWithEgoHandler);
+register(0x64, loadRoomWithEgoHandler);
 register(0xa4, loadRoomWithEgoHandler);
+register(0xe4, loadRoomWithEgoHandler);
 
 // ─── 0x01 / 0x21 / 0x41 / 0x61 / 0x81 / 0xA1 / 0xC1 / 0xE1  putActor ─
 // Place actor at (x, y) (no walk, instant). Per SCUMM's `o5_putActor`,

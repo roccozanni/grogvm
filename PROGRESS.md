@@ -208,13 +208,20 @@ Priority H/M/L = likelihood of biting current/near play × severity.
 **Watch for** (recurring failure modes in newly-reached content):
 
 - Unimplemented opcodes → an unknown-opcode halt freezes the *whole* VM.
-  Known unregistered opcodes the oracle diff surfaced (2026-06-09; the
-  disassembler decodes them, the executing table has no handler): standalone
-  `multiply` 0x1B/0x9B & `divide` 0x5B/0xDB (only the in-expression `*`/`/` are
-  implemented), `drawBox` 0x3F family, and **`loadRoomWithEgo` variants 0x64
-  (var room) / 0xE4 (both var)** — only 0x24/0xA4 registered, yet 0xE4 appears
-  in an MI1 script. Handler is variant-agnostic → registering them is a
-  one-liner. **In progress: closing the loadRoomWithEgo gap.**
+  The oracle diff (2026-06-09) surfaced the opcodes the disassembler decodes but
+  the executing table had no handler for. **Closed (registered + unit-pinned,
+  pending in-browser confirmation):** standalone `multiply` 0x1B/0x9B & `divide`
+  0x5B/0xDB (`makeMulDiv`, arithmetic matches the expression mini-VM — signed
+  imul, signed truncating div, divide-by-zero halts); `loadRoomWithEgo` variants
+  0x64/0xE4 (the handler was already variant-agnostic — global #121 uses 0xE4,
+  both operands var-mode). **Still deferred:**
+  • `drawBox` (0x3F/0x7F/0xBF/0xFF) — a screen rect-fill; needs a compositor
+    decision. Used by global #130 (a transition script: full-screen
+    `drawBox 0,0,319,199 color=0` repeated) and #155.
+  • `getActorWidth` (0x6C) — appears ONLY nested in global #2's expression; its
+    faithful value is the actor's costume frame width, which we don't yet track,
+    so it can't be a guessed one-liner. `getActorScale` (0x3B) / `getAnimCounter`
+    (0x22) don't appear in MI1 at all — left unregistered (no consumer).
 - Object states beyond the initial `DOBJ` seed (only initial owner/state/class
   is parsed). See [OBJECTS §7a](pages/docs/scumm/objects.md).
 - `saveRestoreVerbs`: we render-skip archived verbs (a subset of SCUMM's

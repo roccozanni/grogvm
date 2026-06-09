@@ -289,6 +289,33 @@ describe('seed opcodes — arithmetic', () => {
     vm.step();
     expect(vm.vars.readGlobal(1)).toBe(39);
   });
+
+  it('0x1B multiply and 0x5B divide with immediate operand (signed, truncating)', () => {
+    const vm = makeVm();
+    vm.vars.writeGlobal(1, 50);
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(
+        0x1b, 0x01, 0x00, 0x03, 0x00, // multiply g1 *= 3 → 150
+        0x5b, 0x01, 0x00, 0x04, 0x00, // divide   g1 /= 4 → 37 (trunc)
+        0x1b, 0x01, 0x00, 0xfe, 0xff, // multiply g1 *= -2 (0xFFFE signed) → -74
+      ),
+    });
+    vm.step();
+    expect(vm.vars.readGlobal(1)).toBe(150);
+    vm.step();
+    expect(vm.vars.readGlobal(1)).toBe(37);
+    vm.step();
+    expect(vm.vars.readGlobal(1)).toBe(-74);
+  });
+
+  it('0x5B divide by zero halts loudly', () => {
+    const vm = makeVm();
+    vm.vars.writeGlobal(1, 10);
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x5b, 0x01, 0x00, 0x00, 0x00) });
+    vm.step();
+    expect(vm.haltInfo!.reason).toMatch(/divide by zero/);
+  });
 });
 
 describe('seed opcodes — branches', () => {
@@ -1656,6 +1683,24 @@ describe('intro-cutscene opcodes', () => {
     vm.startScript({
       scriptId: 1,
       bytecode: bytes(0x24, 0x2a, 0x00, 0x07, 0xff, 0xff, 0x00, 0x00, 0xa0),
+    });
+    vm.step();
+    expect(vm.currentRoom).toBe(7);
+    expect(vm.actors.get(1).room).toBe(7);
+  });
+
+  it('loadRoomWithEgo 0xE4 reads both obj and room as var-refs (MI1 #121)', () => {
+    const vm = makeVm();
+    vm.vars.writeGlobal(1, 1); // VAR_EGO = actor 1
+    vm.vars.writeGlobal(5, 42); // obj id
+    vm.vars.writeGlobal(6, 7); // room id
+    vm.actors.get(1).room = 0;
+    // 0xE4 = both param-mode bits set: obj=g5 (var word), room=g6 (var word),
+    // x=-1 (no walk), y=0; stop. A mode mis-read would land the room on the
+    // wrong byte and never reach room 7.
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(0xe4, 0x05, 0x00, 0x06, 0x00, 0xff, 0xff, 0x00, 0x00, 0xa0),
     });
     vm.step();
     expect(vm.currentRoom).toBe(7);
