@@ -47,6 +47,10 @@ room — that's fine. The mapping from room id to file offset doesn't
 go through the block tree; it lives in the `LOFF` block at the top
 of `LECF`. See [`index-file.md`](index-file.md).
 
+Room **0** is a special case: it has no `LOFF` entry and no `ROOM`
+block anywhere. Boot scripts use `loadRoom 0` mid-initialisation as a
+**blank-screen sentinel** — it binds "no room" and loads nothing.
+
 ## 2. Child blocks (canonical order)
 
 Source order matters — the original engine reads them sequentially.
@@ -60,7 +64,7 @@ A real MI1 game room (id 10, the title screen) contains:
 | `EPAL` | 264   | EGA palette mirror. Ignored by the VGA path.                             |
 | `BOXD` | 50    | Walk-box geometry. See [`walk-boxes.md`](walk-boxes.md). |
 | `BOXM` | 16    | Walk-box adjacency matrix (next-hop routing). See [`walk-boxes.md`](walk-boxes.md). |
-| `CLUT` | 776   | Room palette — 256 RGB triples + 8-byte block header.                    |
+| `CLUT` | 776   | Room palette — 256 RGB triples + 8-byte block header. See §4b.           |
 | `SCAL` | 40    | Per-y actor scaling slots. Not yet consumed by the compositor.           |
 | `RMIM` | big   | Room image container (SMAP + z-planes). See §5.                          |
 | `OBIM` | each  | Object image — one block per object. See [`objects.md`](objects.md). |
@@ -97,6 +101,14 @@ When the room has no `TRNS` block, every CLUT index is opaque. Most
 MI1 rooms have TRNS = 5 (the bright magenta the encoder uses as a
 "keep this transparent" marker).
 
+## 4b. CLUT — room palette
+
+256 RGB triples — 768 payload bytes after the 8-byte block header, one
+triple per palette index. The component values are **full-range
+0–255**, not VGA DAC 0–63: circulating notes disagree about the scale
+for v5 palettes, but the shipped data settles it — MI1 CD VGA and MI2
+DOS CLUTs use the full range and need no ×4 step-up.
+
 ## 5. RMIM — room image
 
 A two-level container:
@@ -114,8 +126,9 @@ RMIM
 The image is at native room dimensions (`RMHD.width × RMHD.height`).
 A decoder reads RMHD for plane count, then SMAP for the bitmap and
 each `ZP##` in source order for occlusion. A compositor stacks the
-SMAP under any drawn objects and actors, with each z-plane index
-hiding actors whose `actorZ` is less than the plane's 1-based index.
+SMAP under any drawn objects and actors, with each z-plane `ZP0k`
+masking the actors at clip level `k` alone — the single-plane rule;
+see [`zplane.md`](zplane.md).
 
 ## 6. ENCD / EXCD — room entry / exit scripts
 
@@ -153,6 +166,12 @@ a dialog pick) and the conversation hung — answers highlighted on hover but
 clicking did nothing. The nested run stops at the first `breakHere`, so an
 ENCD that spans frames still yields back to the scheduler after its prologue
 — exactly the original.
+
+**Transient ("blasted") text clears before the new room's ENCD runs —
+never after.** A room change wipes any leftover overlay text as part of
+the transition, but the wipe must precede the entry script: room 96's
+"Le tre prove" title is printed *by* its ENCD, so a clear that runs
+after entry erases the title the room has just drawn.
 
 **A room change stops the old room's scripts.** SCUMM's `startScene`
 kills every room-local (`WIO_ROOM`) and object/verb (`WIO_FLOBJECT`)

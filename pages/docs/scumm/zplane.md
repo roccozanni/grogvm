@@ -258,6 +258,15 @@ walkBoxMask)`. `alwaysZclip k` sets `forceClip = k`; `neverZclip`
 assigned walk box (`_walkbox`) supplies the default (`mask 0` = in front,
 `mask k` = `ZP0k`).
 
+### Actor over actor — paint order, not planes
+
+Z-planes settle actor-vs-*room* depth only. Actor-vs-actor depth is
+paint order: actors draw back-to-front by room `y` — greater `y` is
+nearer the camera and paints last — with actor id breaking ties at
+equal `y`. This is what draws Guybrush over the seated SCUMM-Bar
+pirates: standing in front of their table, his feet are lower in the
+room, so he sorts later and paints on top.
+
 ### Why some pixels are marked in multiple planes
 
 Because masking is single-plane, a feature that must occlude actors at

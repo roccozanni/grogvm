@@ -46,6 +46,11 @@ owner/state byte per object (`owner = b & 0x0F`, `state = b >> 4`),
 then one `u32` LE class mask per object — indexed by global object id.
 These seed each object's initial owner / state / class at boot.
 
+The layout is stable across localizations: the English and Italian MI1
+`MONKEY.000` are the same byte size, differing only in the values of the
+resource-directory offset tables — translated resources sit at different
+positions in `.001`, but every count and structure is identical.
+
 ---
 
 ## 2. `MAXS`

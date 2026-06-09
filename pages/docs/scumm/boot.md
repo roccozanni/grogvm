@@ -5,7 +5,7 @@ variables* the scripts expect to find already populated, then runs the
 **boot script** (global script `#1`). The boot script sets up the rest
 of the game state and starts the title/intro sequence. This document
 covers what the engine must seed before `#1` runs, and the one
-non-obvious mechanic by which MI1's intro flows from the credits into
+non-obvious mechanic by which MI1's intro flows from the title into
 the first playable room.
 
 ---
@@ -22,33 +22,47 @@ any script runs (the scripts read, never initialise, them):
 - **`VAR_CURSORSTATE` / `VAR_USERPUT`** — start dead/disabled; the boot
   and room scripts turn them on via `cursorCommand`.
 
+Two variable-number assignments in the same space are easy to get
+wrong:
+
+- Variables **15/16** are **`VAR_ACTOR_RANGE_MIN` / `VAR_ACTOR_RANGE_MAX`**
+  — system slots, never scratch space.
+- **`VAR_WALKTO_OBJ` is variable 113 in MI1**, not the 38 that generic
+  v5 tables circulate. Room 58's forest-maze scripts pin it down: they
+  gate on `g113 == 687/688`, the objects the ego is walking to.
+
 ### MI1 copy protection (the "track-b-size" variable)
 
 MI1's reset also writes one game-specific magic value: variable **74 =
-1225**. This is the size, in sectors, of audio track 2 on the original
-CD-ROM. The copy-protection script reads it and quits if it is outside
-the expected range (roughly 1200–1250). With no physical CD, an engine
-seeds the known-good `1225` so the check passes.
+1225** — the "track-b-size", the length in sectors of audio track 2 on
+the original CD-ROM (≈1225 sectors). The copy-protection script
+(global `#176`) reads it and quits unless it falls in **[1200, 1250]**.
+The original engine seeds `1225` unconditionally for MONKEY; an engine
+with no physical CD does the same and the check passes.
 
 ## 2. The boot script
 
-Global script `#1` runs after the seed. Its first local is a **boot
-parameter** that selects how far in to start:
+Global script `#1` runs after the seed. Its first local (`L0`) is a
+**boot parameter** that selects the path:
 
-- `0` — play the credits / attract sequence (the normal cold boot).
-- non-zero — skip the credits and jump nearer a new game (a debug
-  shortcut).
+- `L0 == 0` — the normal cold boot: the credits (room 10), then the
+  attract/title idle — ego parked in room 0 with script `#23` spinning.
+  The title menu itself is gated on the music timer: it appears once
+  `g14 > 5700`, i.e. after the theme has played far enough in.
+- `L0 != 0` (1 or 2) — start a new game directly at the lookout
+  (room 38).
 
-A cold boot therefore plays the full credits, then transitions into the
-opening scene as described next.
+On a cold boot, then, the move from credits to the lookout is driven by
+the **title-idle state** — the player starting a game from the title —
+not by the parameter.
 
-## 3. Credits → first room: following an actor loads it
+## 3. Title → first room: following an actor loads it
 
-The transition from the credits room into the first playable room uses a
-SCUMM mechanic that is easy to miss: **making the camera follow an actor
-who is in a different room loads that room.**
+The transition into the first playable room (the lookout, room 38) uses
+a SCUMM mechanic that is easy to miss: **making the camera follow an
+actor who is in a different room loads that room.**
 
-After the credits, MI1's boot does, in effect:
+When a new game starts, MI1's boot does, in effect:
 
 ```
 putActorInRoom(ego, 38)      // place Guybrush in the lookout room…
@@ -58,7 +72,7 @@ actorFollowCamera(ego)       // …and follow him — which loads room 38
 `actorFollowCamera` doesn't just move the viewport; if the followed
 actor is in a room other than the current one, the engine performs a
 full room change (the same path as an explicit room load) to get to
-them. This is the entire mechanism behind "the credits end and we're
+them. This is the entire mechanism behind "the title ends and we're
 suddenly in the game" — there is no explicit `loadRoom` for the first
 scene.
 
@@ -67,7 +81,8 @@ Two related facts an engine must get right for this to work:
 - **`putActorInRoom` keeps the actor's room** — placing an actor sets
   its position but its room is whatever you pass, not silently the
   current room. (Mixing this up makes "follow ego into room 38" a no-op
-  because ego is still recorded as being in the credits room.)
+  because ego is still recorded as being in room 0, where the title
+  idle parked it.)
 - **`actorFollowCamera` triggers the room load** when the target actor
   is elsewhere.
 

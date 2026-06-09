@@ -49,6 +49,10 @@ LECF
 OBIM and OBCD don't have to interleave — the canonical order is
 "all OBIMs, then all OBCDs," which is what real MI1 rooms use.
 
+There is no object → home-room directory in the index: finding which
+room owns an object means an index over every room's OBCDs (MI1 has
+~83 rooms), so engines build that lookup lazily.
+
 ## 2. CDHD — object code header
 
 A fixed 13-byte header at the start of every OBCD's payload:
@@ -100,6 +104,13 @@ of `RMIM > IM00` (the room background): an `SMAP` child carrying the
 RLE-encoded indexed bitmap, plus zero or more `ZP##` children for
 per-state z-planes.
 
+The `ZP##` chunks stay **per plane** — never collapse them into one
+mask. `ZP0k` masks clip-`k` actors alone: MI1's general-store sword
+(object #388) carries its mask only in `ZP02`, occluding the clip-2
+shopkeeper while the clip-1 ego buying it passes in front. A collapsed
+mask gets both wrong — it clips the ego and never occludes the
+shopkeeper. See [`zplane.md`](zplane.md).
+
 The width / height of the bitmap are the IMHD's `width` / `height`
 (not the SMAP's — SMAP carries the strip count via its offsets table
 but doesn't restate dimensions). Decoded image = `width × height`
@@ -147,10 +158,19 @@ inventory snapshot, and is persisted in the save state.
 ## 6. VERB — verb-id → script-offset table
 
 The OBCD's `VERB` block holds the **verb scripts** that fire when
-the player performs verb actions on this object. One sub-script per
-supported verb, typically `Look at`, `Open`, `Pick up`, `Use`,
-`Talk to`. Each is keyed by verb id; performing a verb action on the
-object runs the matching script.
+the player performs verb actions on this object — typically `Look at`,
+`Open`, `Pick up`, `Use`, `Talk to`. The layout is a table of
+**3-byte entries** — verb id (u8) then offset (u16le) — closed by a
+single `0x00` terminator byte, followed by the verb scripts' bytecode
+concatenated. The stored offsets are relative to the **block header**,
+so the payload index is `offset − 8`.
+
+Two things in real data are normal, not corruption:
+
+- **Shared offsets** — several verb ids may point at the same
+  bytecode; the script reads the verb variable and branches internally.
+- **Verb id `0xFF`** is the **catch-all default handler**: dispatch
+  falls back to it when no entry matches the performed verb.
 
 ## 7. The runtime: state tracking + draw queue
 

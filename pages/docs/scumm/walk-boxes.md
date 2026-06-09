@@ -8,7 +8,7 @@ boxes connect to each other and how actor scale changes with depth.
 A room has two blocks for this:
 
 - **`BOXD`** — *box data*. The geometry of each box (four corner
-  points), plus per-box flags and a SCAL slot.
+  points), plus per-box flags, a mask byte, and a scale word.
 - **`BOXM`** — *box matrix*. A compressed per-box next-hop table the
   original engine uses to plan walks across the box graph. The router
   follows it box-to-box; see [`pathfinding.md`](../engine/pathfinding.md).
@@ -18,7 +18,7 @@ A room has two blocks for this:
 The per-box record layout here was derived empirically from MI1
 rooms 10 (title), 30 (an interior with 9 boxes), and 32. The
 `2 + 20 × count` payload shape holds across every room we sampled,
-and the per-byte field interpretation is consistent with the way
+and the per-field interpretation is consistent with the way
 the SCAL block and `actorOps SO_IGNORE_BOXES` opcode reference
 these fields.
 
@@ -58,10 +58,22 @@ Total payload = `2 + 20 × count`.
 | 4      | i16  | `urx`, `ury`  | Upper-right corner.                                           |
 | 8      | i16  | `lrx`, `lry`  | Lower-right corner.                                           |
 | 12     | i16  | `llx`, `lly`  | Lower-left corner.                                            |
-| 16     | u8   | `mask`        | Y-mask for SCAL. `0x83` is the "no mask" sentinel in MI1.     |
+| 16     | u8   | `mask`        | The box's **z-plane clip level**: `0` = in front of every plane, `k` = masked by `ZP0k`. |
 | 17     | u8   | `flags`       | Per-box flags. **Bit 0x80 = invisible** (excluded from paths).|
-| 18     | u8   | `scaleSlot`   | Index into the room's `SCAL` table (0 = no per-box scaling).  |
-| 19     | u8   | _padding_     | Always zero in MI1/MI2.                                       |
+| 18     | u16  | `scale`       | Bit `0x8000` set: `SCAL`-slot reference (slot = value `& 0x7FFF`). Clear: direct fixed scale `1..255`. |
+
+**Offset 16 is the box's default actor depth**, not a Y-mask for
+`SCAL` as it has sometimes been described: an actor standing in the
+box inherits the mask as its `_zbuf` clip level unless a script forces
+one. MI1 uses values `0`/`1`/`2` (rooms 10/38/33). How the compositor
+consumes it is covered in [ZPLANE](zplane.md)'s box-mask section.
+
+**Offset 18 is a full u16**, not a slot byte plus padding. With bit
+`0x8000` set, the low 15 bits index the room's `SCAL` table; with it
+clear, the value *is* the scale — a direct fixed `1..255`. Reading
+only the low byte as a slot index, a shortcut some long-circulating
+notes take, happens to work for slot references but misreads
+fixed-scale boxes.
 
 **The corners are stored UL → UR → LR → LL.** A box with corners
 `(0, 0, 100, 0, 100, 50, 0, 50)` is the standard `0..100 × 0..50`
@@ -75,11 +87,16 @@ pixel narrower and shorter than intended.
 
 ### The "invisible" flag
 
-Box id 0 is conventionally the **"out of bounds" sentinel** — its
-corners are all set to a magic value (typically `(0x83, 0x83, ...)`
-in MI1) and its flags have bit `0x80` set. The pathfinder skips it
-during rasterization, so it never appears on the walkable mask.
-Real walkable area starts at box id 1.
+Box id 0 is conventionally the **"out of bounds" sentinel** — all
+four of its corners sit at `(-32000, -32000)` and its flags have bit
+`0x80` set. The pathfinder skips it during rasterization, so it never
+appears on the walkable mask. Real walkable area starts at box id 1.
+
+The collapsed corners are also a trap for point-in-box tests: every
+edge cross-product is 0, so a naive same-side containment test claims
+**every** point in the room and resolves everything to box 0. A
+containment test needs a degenerate-case guard — the corner bounding
+box rejects any real room coordinate.
 
 Some rooms use the invisible flag for boxes the player can walk
 *through* but shouldn't be able to *stop in* (entry portals,
@@ -102,7 +119,12 @@ and right span.
 
 Degenerate boxes (a corner repeated, or all corners collinear like
 the box-0 sentinel) produce zero or single-pixel coverage — no
-special case needed.
+special case needed *for rasterization*. But they are real, walked-on
+geometry, not discardable corner cases: MI1 room 38's box 1 is a
+zero-area horizontal line (`UL==LL`, `UR==LR`), and room 33's
+staircase boxes are diagonal lines actors stand on. Containment and
+routing code must treat them as first-class boxes — see
+[`pathfinding.md`](../engine/pathfinding.md).
 
 ## 4. BOXM — the box matrix
 
@@ -149,8 +171,9 @@ When a script issues `walkActorTo(id, x, y)`:
 
 ### Perspective-scale recompute timing
 
-An actor's scale is resolved from the `SCAL` slot of the box it stands in,
-by its `y` (small at the back, full at the front). The non-obvious part is
+An actor's scale is resolved from the scale field of the box it stands in —
+a `SCAL` slot interpolated by its `y` (small at the back, full at the
+front), or a direct fixed value. The non-obvious part is
 *when* to recompute it: on **position change**, not on every tick. The
 rescale lookup runs at two moments — each walk step (while the actor is
 moving), **and every discrete placement event**: `loadRoomWithEgo`,
@@ -161,8 +184,8 @@ first walk step. It is deliberately kept **off** the per-idle-tick path so
 a script-pinned static actor (the room-38 fire, set smaller than its floor
 scale via `setScale`) isn't clobbered — placement is one-shot, so a
 `setScale` that runs after placement in the same script still wins. A box
-with no `SCAL` slot (or no box) resets the actor to full size, so a sub-255
-scale never sticks across rooms.
+whose scale resolves to full size (or no box at all) resets the actor to
+255, so a sub-255 scale never sticks across rooms.
 
 **`ignoreBoxes` actors are exempt from box scaling.** An actor off the walk-box
 grid keeps the scale a script set — the rescale early-returns for an
@@ -171,8 +194,7 @@ costume 40) is set `ignoreBoxes; scale 255,255` and arcs up to y≈36, where the
 box's `SCAL` slot interpolates to ~1; without the exemption the placement
 rescale shrank it to a **single dot** mid-flight. (Same off-grid principle as
 z-clip: an `ignoreBoxes` actor keeps its last-assigned `_walkbox` rather than
-being re-snapped to a box — see [ZPLANE](zplane.md). The rescale and z-clip read
-the *same* assigned box, so they stay consistent.)
+being re-snapped to a box — see [ZPLANE](zplane.md).)
 
 **`initActor` (`actorOps SO_DEFAULT`, 0x08) must clear `ignoreBoxes` + reset
 scale.** Because the exemption above freezes scaling, a *stuck* `ignoreBoxes`

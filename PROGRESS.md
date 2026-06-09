@@ -380,13 +380,32 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
 - **Resource-heap management** — `resourceRoutines` stay no-ops (resources load
   lazily; there's no managed heap to model).
 
+### Comment-sweep doc-debt — drained (2026-06-10)
+
+The facts rescued by the comment-policy sweep are written into the docs:
+opcode-reference + opcodes (the encoding gaps), input + char (inventory
+hover, verb panel, charset facts), walk-boxes (**scale word + mask byte
+corrected**), zplane (actor paint order), pathfinding (facing lookahead,
+scale/z-clip box assignment), boot, room, lighting, objects, index-file,
+session (hang watchdog), costumes (scaled drawing), architecture (save-slot
+bytecode), and a new [engine/camera.md](pages/docs/engine/camera.md). Two
+fact-sheet items were corrected against bytecode/code during the write-up:
+the inventory scroll arrows are verbs **208/209** (109/110 are the
+*conversation* arrows, created by #17), and perspective scale is **not** a
+separate lookup from z-clip — both read the same nearest-box assignment
+(zplane.md already had it right).
+
+Still open (not doc material): screen-shake offsets are an approximation —
+SCUMM's shake table is engine-internal (not in the bytecode), only the on/off
+state is faithful; pending in-browser tuning.
+
 ---
 
 ## Next
 
 Three items ahead, one of which — keep playing MI1 — is the Current section
-above. We no longer track by phase number; ARCHITECTURE §9 keeps the historical
-phase roadmap (and git matches it).
+above. We no longer track by phase number; the numbered-phase roadmap is
+history (git keeps it).
 
 - **Audio timing seam** — DONE this session (see Out of scope → Audio above and
   [engine/audio.md](pages/docs/engine/audio.md)). The PLAN that was here is

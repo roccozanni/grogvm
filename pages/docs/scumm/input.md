@@ -72,7 +72,10 @@ When it runs, it hit-tests whatever is under the cursor and records it:
    moves.
 2. It calls **`findObject(x, y)`** to find a room object at that point,
    and **`actorFromPos(x, y)`** to find an actor, applying class filters
-   (e.g. skipping objects/actors the current verb can't apply to).
+   (e.g. skipping objects/actors the current verb can't apply to). An
+   object hit takes precedence over an actor hit: the SCUMM-Bar's
+   important pirates are drawn by actor 3, but their hotspot is object
+   322.
 3. It writes the result into the game's **active-object globals** (see
    §4): the hovered object becomes object A, or object B if a second
    object is being gathered.
@@ -82,6 +85,17 @@ When it runs, it hit-tests whatever is under the cursor and records it:
 The consequence that matters: **by the time the player clicks, the
 object under the cursor is already stored in a game global.** The click
 itself carries no object id — it doesn't need to.
+
+**The inventory band is hit-tested in screen space.** Alongside the
+virtual mouse, **`VAR_MOUSE_X` / `VAR_MOUSE_Y`** (g44/g45) carry the
+true screen position on every move — including over the verb panel,
+whose script-space origin is y=144 (the 144-tall playfield plus the
+56-line panel make up the original 320×200 screen). `#23` selects the
+inventory band with `g45 ≥ 152 && g44 ≥ 160`, so it sees the inventory
+exactly as on the original single screen. Hovering an item arms the
+item's default verb (`g107` ← Look at) while saving the previously
+armed verb in **`g394`**, restored on hover-out — brushing across the
+inventory doesn't wipe an in-progress command.
 
 ## 3. The click dispatch (verb-input script)
 
@@ -107,6 +121,12 @@ routine:
 `VAR_VERB_SCRIPT` defaults to a global handler at boot and is usually
 overridden per-room by the room's entry script. In MI1 the default
 handler is global `#4`.
+
+**The verb panel's backdrop is itself a verb.** In MI1 the dim
+background behind the command verbs is an image verb — verb `#1`,
+drawing object 1030 (144×48) from the UI room — created `dim` and
+covering the whole command-verb region. The verb hit-test must prefer
+`on` verbs over it, or the backdrop swallows every click in the panel.
 
 **The sentence line is a clickable verb the script self-guards.** The
 sentence line is itself verb `#100` (§6) and is "on", so `findObject`/
@@ -135,6 +155,7 @@ defined by the game's bytecode. MI1 uses:)
 | `g110` | preposition / "awaiting second object" flag |
 | `g181` | object currently under the cursor (hover) |
 | `g182` | the hovered object's *default verb* |
+| `g394` | verb saved while an inventory hover temporarily arms the item's default verb (§2) |
 
 A verb-bar click sets the active verb (`g107 = local1`) and clears the
 object slots. A scene click does nothing to the verb; it relies on the
@@ -160,7 +181,16 @@ passing `(verb, objectA, objectB)` as its first three locals. The
 sentence script is the **executor**: it walks the actor to the object,
 faces it, runs the object's verb code, prints the response. It is *not*
 where objects are gathered — by the time it runs, the sentence is
-complete.
+complete. In an object's verb table, entry id `0xFF` is the catch-all
+**default handler** the dispatch falls back to when no entry matches
+the verb — distinct from the right-click "default verb" below, which
+picks *which* verb to run, not how the object handles it.
+
+**Proximity gating uses actor widths.** Every positioned MI1 actor is
+given a width via `actorOps` — 24 for ego and normal NPCs, 2 for tiny
+actors, 64 for the room-36 giant — and `#2`'s proximity gate reads it:
+`getDist(actor, obj) >= width(obj)/2 + 4 + width(actor)` means "too far
+to interact", so the actor walks closer before the verb code runs.
 
 **A printing sentence blocks the next one.** A sentence whose verb code
 prints a line (e.g. "Look at X" → `printEgo`) doesn't return control until
@@ -297,6 +327,22 @@ its ENCD; "Dai la pentola a …" expands `name[g109]=3` through this actor
 path. Skip storing the name and the target renders blank ("Dai la pentola a
 ").
 
+**Each verb renders in the charset that was current when it was
+defined**, not the one current at draw time. MI1 defines the command
+verbs under charset 6 (a tall serif face), then switches to the small
+dialogue-family charset 1 before creating the sentence line `#100` at
+(160,145) — two faces on screen from one current-charset register. The
+conversation scroll arrows (verbs 109/110, beside the reply slots)
+depend on the same rule: their names are glyph codes (`$02`, `$05`, …)
+that exist only in the verb-panel charset — measured in the dialogue
+charset they have zero width.
+
+**Hover highlight needs a hicolor.** `drawVerb` paints the verb under
+the cursor in its hilite colour only when the verb carries a non-zero
+`hicolor`; a hicolor-0 verb always draws its normal colour. The
+sentence line `#100` is created without one, which is why it never
+lights up.
+
 **Archived verbs are not drawn.** During a conversation MI1 archives the
 sentence line (`#100`) and the action verbs via `saveRestoreVerbs` (a
 non-zero `saveid`) and creates the dialog replies as their own verbs.
@@ -353,9 +399,11 @@ the slot back to the object.
 Inventory items render as **object icons, not text**. The slots are
 "image verbs": the script assigns each slot an object image (via
 `verbOps` image sub-ops) drawn from a **global UI room** that holds the
-slot-cell and arrow artwork, rather than a per-item icon. (In MI1 the UI
-room is room 99; the occupied-cell artwork is a single generic object
-reused for every filled slot.)
+slot-cell and arrow artwork, rather than a per-item icon. In MI1 the UI
+room is room 99: object 1031 is the generic occupied-cell frame (an
+item's own verb-91 entry can supply a different image), 1032 the empty
+cell, and the scroll arrows draw 1028/1029 — or the greyed 1033, `dim`,
+when there is nothing to scroll that way.
 
 ## 8. Putting it together
 

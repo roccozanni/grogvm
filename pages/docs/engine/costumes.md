@@ -34,6 +34,15 @@ are ever needed. The compositor decodes a frame on demand from a frame pointer
 into the stored payload, each tick, for whichever pose each limb is currently
 showing.
 
+## Scaled drawing
+
+When an actor draws below full size, frames are resampled with **centered
+nearest-neighbour** sampling: each destination cell reads its source *middle*,
+`(p + 0.5) · src / dst`, rather than its leading edge. Dropped rows and columns
+are thereby distributed evenly across the sprite instead of bunching at one
+side, so thin features — Guybrush's eyes — survive downscaling. Scale 255 is an
+exact identity: no resampling, pixel for pixel.
+
 ## Transparent pixels
 
 Costume palette index 0 is the format's transparent slot (see

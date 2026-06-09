@@ -170,6 +170,18 @@ plain 1-bpp fonts; the 2-bpp outlined font in MI1 uses `xOffset = −1`
 so each glyph overlaps the right edge of the previous one by 1
 pixel, knitting outlines together cleanly.
 
+### ⚠️ Some releases store the bitstream 180°-rotated
+
+Some releases ship a charset whose glyph bitstream is stored rotated
+180° — and **no header flag distinguishes it**: two charsets with
+byte-identical 25-byte headers can differ this way (observed in the
+Italian MI1 release, charset 2). Detection has to be empirical: in an
+upright font the densest pixel row of glyphs like `L` and `J` is the
+baseline stroke, so it must land in the lower half of the cell — if it
+lands in the upper half, the stream is rotated. Decoding then mirrors
+the pixel grid through its centre, equivalent to re-decoding the
+reversed stream.
+
 ### Empty / zero-sized glyphs
 
 Some character codes (typically ASCII control codes 0x01..0x1F) have
@@ -212,8 +224,8 @@ meaningful entries are indices `1 .. 2^b − 1`:
   4..15 are filler.
 
 The "ink color" the runtime uses is whatever the script writes into
-`colorMap[1]` at runtime (the script sets actor talk colors before
-each dialog burst).
+`colorMap[1]` at runtime (actor talk colours, credit colours — see the
+render-time note below).
 
 Slot 0 is always transparent regardless of its value, mirroring the
 COST convention.
@@ -224,17 +236,21 @@ The embedded `colorMap` entries above index 1 are **editor placeholders,
 not render colours.** A real 2-bpp talk/credit font decodes to glyph
 levels where value 1 is the inner **fill** and value 2 the outer
 **outline**, but the map's slot-2/slot-3 values are arbitrary ramp
-colours (teal/red in MI1) the engine does not use. At draw time SCUMM
-paints:
+colours (teal/red in MI1) the engine does not use. The levels the engine
+actually paints come from the **runtime colour map**, set by script via
+the `cursorCommand` charset-colours sub-op: MI1's boot sets it to
+`[0, 6, 2]`, mapping glyph fill to CLUT 6 and outline to CLUT 2 — which
+is why the verb glyphs carry dark shadows. When an active text colour is
+in play (the `SO_COLOR` the script set — actor talk colour, credit
+colour, etc.) it overrides the fill; the outline keeps the dark map
+entry, so talk and credit text reads as coloured fill with a black
+shadow. Treating the embedded slot-2/3 values as render colours produces
+the wrong (teal-edged) text.
 
-- the **fill** in the active text colour (the `SO_COLOR` the script
-  set — actor talk colour, credit colour, etc.), and
-- the **outline** as a **black shadow** (CLUT 0).
-
-So the only meaningful runtime input is the single text colour; the
-outline is always black regardless of what the charset's colour map
-carries. Treating the embedded slot-2/3 values as the outline colour
-produces the wrong (teal-edged) text.
+An actor's talk colour must be read **live at render time**, not
+captured when the line is printed: the SCUMM-Bar pirates set their talk
+colour from a helper script started *after* the `print` — a frame later
+— so a print-time capture inks the line wrongly.
 
 ---
 
@@ -288,6 +304,13 @@ coexist on screen:
   (`\xff\x02`) neither trigger nor suffer the restore — they accumulate
   and persist until an explicit clear, room change, or reset. A print at
   an already-occupied anchor replaces it.
+
+**System-print state is sticky.** The position, centering, and colour
+one system print establishes (`SO_AT`, `SO_CENTER`, `SO_COLOR`) carry
+over to the next system print that doesn't restate them. MI1's credits
+rely on this: each screen carries `SO_AT`/`SO_CENTER` only on its first
+line, and the following lines inherit. Actor talk never reads the
+sticky state — its placement follows the speaker.
 
 Two real scenes pin down both halves of this rule:
 
@@ -348,8 +371,12 @@ carne@@@@…" in the sentence line.
 ### The talk timer vs. on-screen lifetime
 
 When the talk timer (`VAR_HAVE_MSG`/`talkDelay`, paced by `VAR_CHARINC` ×
-length) drains, **only actor speech** is removed; `VAR_HAVE_MSG` clears so a
-`wait forMessage` releases. **System text is not removed by the timer** — its
+length, with a floor of ~30 jiffies — about half a second — so even a
+one-character line lingers readably) drains, **only actor speech** is
+removed; `VAR_HAVE_MSG` clears so a `wait forMessage` releases. A long
+message split with `\xff\x03` is presented one sentence page at a time;
+each page runs its own timer, and `VAR_HAVE_MSG` stays set until the
+last page is dismissed. **System text is not removed by the timer** — its
 on-screen lifetime is SCUMM's `restoreCharsetBg` (a screen redraw), which we
 approximate with three triggers: the next transient print's per-cycle restore,
 a **room change** (`enterRoom`), and a **cutscene end** (`endCutscene`). An
@@ -441,3 +468,8 @@ In rough order of "what hits you first":
    advances by `width`, but `xOffset` can extend the visible glyph
    past `cursor + width`. Text measurement tracks the max of `cursor +
    xOffset + width` and the bare-cursor advance to size the box.
+9. **One release's charset decodes upside-down and mirrored** → the
+   bitstream is stored 180°-rotated with no header flag (Italian MI1,
+   charset 2). Detect empirically — the densest row of `L`/`J` glyphs
+   must land in the lower half — and mirror the grid through its
+   centre (§4).

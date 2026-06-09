@@ -126,7 +126,24 @@ When a walk-to command fires for an actor:
 Per tick the walker advances the actor toward the active waypoint by its
 horizontal / vertical walk speed (SCUMM's defaults are 8 / 2 —
 horizontal-biased), bumps the waypoint index on arrival, and stops on the
-final waypoint. Facing follows a short look-ahead along the path.
+final waypoint.
+
+Facing while walking derives from a point **16 px ahead along the path**,
+not from the final target. Aimed at the final target, ego faces the
+far-east dock for the entire room-33 cliff descent; the look-ahead reads
+south down the cliff first, then east along the dock. The distance is
+tuned both ways: large enough to smooth the ±1 px jitter of pixel
+stepping, small enough that the facing still turns at corners.
+
+Perspective scale during the walk comes from the box **assigned** at each
+movement step — the same assignment that feeds z-clip (see
+[ZPLANE](../scumm/zplane.md)), so the two always agree. The assignment uses
+a **nearest-box** fallback rather than strict containment: MI1's thin and
+degenerate boxes (the room-33 cliff again) mean a walking actor often sits
+strictly inside *no* box, and strict containment left the scale stuck at
+its last value until the actor reached a wide box, then popping. Nearest-box
+tracks the box the actor is actually walking on, so the scale interpolates
+smoothly.
 
 ## 7. The room-52 high/low guard (worked example)
 

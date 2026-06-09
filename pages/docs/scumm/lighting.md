@@ -67,3 +67,21 @@ full brightness (a purely visual gap). Night scenes that simply ship a
 dark *palette* (mostly-black background, dark-blue sky) look correct
 without the compositor honouring the variable at all — the darkness is
 baked into the room's CLUT, not applied by the lighting code.
+
+## 5. `roomIntensity` and the load-time base palette
+
+Scripted palette darkening goes through the **`roomIntensity`** room-op
+(`roomOps $33` sub-op `$08`, operands `scale start end`): it scales
+palette entries `start..end` by `scale/255` (values above 255
+brighten). The scale is always computed from the room's **load-time
+base palette**, never from the current live values — so stepped fades
+don't compound, and fading back to 255 restores exactly the colours the
+room loaded with.
+
+That base must be captured *after* any boot-time UI palette overrides
+(`setPalColor`) have been applied. MI1's treasure-map close-up (room
+63) is the proof: it blacks the screen out via `setPalColor(0,0,0)`,
+then fades back in by stepping `roomIntensity 255,i,i` across the
+palette — and the map's step-by-step text uses the UI ink, so a base
+snapshot taken before the override fades that text back to the wrong
+colour.

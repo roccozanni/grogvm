@@ -67,8 +67,10 @@ from real game data.
 
 How GrogVM itself is built on top of the reference above.
 
+- [Architecture — Layers & Seams](engine/architecture.md)
 - [Game Identity & Variant Detection](engine/game-identity.md)
 - [Engine Session — Game Loop & Runtime](engine/session.md)
+- [Camera — Follow, Pan & the Viewport](engine/camera.md)
 - [Costume Loading & Decoding](engine/costumes.md)
 - [Pathfinding (Box-Graph Routing)](engine/pathfinding.md)
 - [Room Transitions (Entering & Leaving)](engine/room-transitions.md)

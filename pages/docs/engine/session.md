@@ -100,7 +100,21 @@ Beyond plain play/pause, the session exposes drivers the debug surface uses:
 - **Skip cutscene** — run the VM forward until interactive control returns
   (a verb becomes available), bounded by a tick cap.
 
-## 7. Input
+## 7. The hang watchdog
+
+An **opt-in** diagnostic for the failure mode auto-pause can't see: a game that
+looks alive but has stopped responding to the player. It fires when **three
+consecutive clicks** each produce no progress within a settle window of about
+twelve frames (≈1 s at MI1's ~10 fps pacing). Progress is fingerprinted from
+*progress-only* signals — the current room, monotonic talk/sentence counters,
+commanded walks — deliberately **not** the live-script set (every click
+transiently spawns the verb-redraw script, #12) and not raw variables (the
+music timer churns every tick), either of which would mask a real hang as
+activity. When it trips, it surfaces a warning naming the room and the active
+verb script — catching the input-misroute / wait-on-a-variable-that-never-changes
+class of hang.
+
+## 8. Input
 
 The session handles **engine-level input only**:
 
