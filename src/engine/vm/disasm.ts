@@ -143,7 +143,15 @@ class Decoder {
     this.p++; // 0xFF terminator
     return `[${out.join(',')}]`;
   }
-  /** ASCII string up to `term`, rendering SCUMM escape codes as \xNN. */
+  /**
+   * Message string up to `term`, rendering SCUMM escape codes as \xNN.
+   * Mirrors the engine's `readScummString` length rule (opcodes/index.ts):
+   * a `0xFF`/`0xFE` escape with code ≥ 4 carries a 2-byte argument (var /
+   * string / object / verb id), codes 1–3 do not. (The old `code <= 9`
+   * bound under-read by 2 on the colour/name codes 0x0A/0x0E.) Used for
+   * the *display* strings (print, object/actor/verb names) that the engine
+   * expands at print time.
+   */
   private cstr(term: number): string {
     const bytes: number[] = [];
     while (this.p < this.b.length && this.b[this.p] !== term) {
@@ -151,13 +159,33 @@ class Decoder {
       if (c === 0xff || c === 0xfe) {
         const code = this.u8();
         bytes.push(c, code);
-        if (code >= 4 && code <= 9) {
+        if (code >= 4) {
           this.u8();
           this.u8();
         }
       } else bytes.push(c);
     }
     if (this.p < this.b.length) this.p++; // terminator
+    return this.render(bytes);
+  }
+
+  /**
+   * Raw string up to `term`, with NO escape-code expansion — mirrors the
+   * engine's `stringOps`/`roomOps` load/save readers, which copy bytes
+   * verbatim to the NUL terminator (a stored string's escapes are expanded
+   * only later, at print time, by {@link cstr}). Decoding these with the
+   * escape-aware reader over-reads: code 0x07 in MI1 #154's `loadString`
+   * swallowed the '?' and the NUL terminator as a phantom 2-byte argument.
+   */
+  private rawstr(term: number): string {
+    const bytes: number[] = [];
+    while (this.p < this.b.length && this.b[this.p] !== term) bytes.push(this.u8());
+    if (this.p < this.b.length) this.p++; // terminator
+    return this.render(bytes);
+  }
+
+  /** Render decoded bytes: printable ASCII verbatim, else `\xNN`. */
+  private render(bytes: number[]): string {
     return bytes
       .map((x) => (x >= 32 && x < 127 ? String.fromCharCode(x) : `\\x${x.toString(16).padStart(2, '0')}`))
       .join('');
@@ -487,8 +515,8 @@ class Decoder {
         return `setRGBRoomIntensity (${r},${g},${b}) ${this.p8(s2, 1)}..${this.p8(s2, 2)}`;
       }
       case 0x0c: return 'shadowPalette';
-      case 0x0d: return `saveString ${this.p8(s, 1)} "${this.cstr(0)}"`;
-      case 0x0e: return `loadString ${this.p8(s, 1)} "${this.cstr(0)}"`;
+      case 0x0d: return `saveString ${this.p8(s, 1)} "${this.rawstr(0)}"`;
+      case 0x0e: return `loadString ${this.p8(s, 1)} "${this.rawstr(0)}"`;
       case 0x10: return `cycleSpeed ${this.u8()},${this.u8()}`;
       default: return `<<roomOps sub 0x${s.toString(16)}>>`;
     }
@@ -553,8 +581,14 @@ class Decoder {
   private resourceSub(): string {
     const s = this.u8();
     const lo = s & 0x1f;
-    if (lo === 0x14) return `loadObject room=${this.p8(s, 2)} obj=${this.p16(s, 1)}`;
-    return `sub=${lo}${lo <= 0x12 ? ` ${this.p8(s, 1)}` : ''}`;
+    // Mirror the executing handler (opcodes/index.ts 0x0C): subop 0x11
+    // (clearHeap) takes NO arg, 0x14 (loadFlObject) takes TWO var-or-byte
+    // args, every other subop takes exactly ONE. The old `lo <= 0x12` rule
+    // wrongly gave 0x11 an arg (over-read by 1) and denied 0x13 (nukeCharset)
+    // one (under-read by 1), and read 0x14's object as a word.
+    if (lo === 0x11) return 'clearHeap';
+    if (lo === 0x14) return `loadFlObject obj=${this.p8(s, 1)} room=${this.p8(s, 2)}`;
+    return `sub=0x${lo.toString(16)} ${this.p8(s, 1)}`;
   }
 
   private matrixSub(): string {
@@ -569,7 +603,7 @@ class Decoder {
   private stringSub(): string {
     const s = this.u8();
     const lo = s & 0x1f;
-    if (lo === 1) return `loadString id=${this.p8(s, 1)} "${this.cstr(0)}"`;
+    if (lo === 1) return `loadString id=${this.p8(s, 1)} "${this.rawstr(0)}"`;
     if (lo === 2) return `copyString ${this.p8(s, 1)},${this.p8(s, 2)}`;
     if (lo === 3) return `writeChar ${this.p8(s, 1)},${this.p8(s, 2)},${this.p8(s, 3)}`;
     if (lo === 4) return `readChar res=${this.vref()} ${this.p8(s, 1)},${this.p8(s, 2)}`;

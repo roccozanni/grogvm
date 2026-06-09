@@ -208,6 +208,13 @@ Priority H/M/L = likelihood of biting current/near play × severity.
 **Watch for** (recurring failure modes in newly-reached content):
 
 - Unimplemented opcodes → an unknown-opcode halt freezes the *whole* VM.
+  Known unregistered opcodes the oracle diff surfaced (2026-06-09; the
+  disassembler decodes them, the executing table has no handler): standalone
+  `multiply` 0x1B/0x9B & `divide` 0x5B/0xDB (only the in-expression `*`/`/` are
+  implemented), `drawBox` 0x3F family, and **`loadRoomWithEgo` variants 0x64
+  (var room) / 0xE4 (both var)** — only 0x24/0xA4 registered, yet 0xE4 appears
+  in an MI1 script. Handler is variant-agnostic → registering them is a
+  one-liner. **In progress: closing the loadRoomWithEgo gap.**
 - Object states beyond the initial `DOBJ` seed (only initial owner/state/class
   is parsed). See [OBJECTS §7a](pages/docs/scumm/objects.md).
 - `saveRestoreVerbs`: we render-skip archived verbs (a subset of SCUMM's
@@ -293,23 +300,42 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
 
 **Tooling**
 
-- **Disassembler misaligns on ~13% of MI1 scripts (want to address).** The
-  linear sweep in `disasm.ts` hits a byte it can't size (a rare opcode whose
-  operand layout we don't mirror, or embedded non-code data), then every
-  instruction after it is garbage until — if ever — it re-syncs; a run ending
-  `aligned: false` flags it. Concrete fallout:
-  • `disgrogate SCAN` hits inside a misaligned script are *leads, not proof*.
-  • the Explorer's **referenced global scripts** scan (`referencedGlobalScripts`
-    in `room/extract.ts` — regexes `startScript`/`chainScript` lines for literal
-    ids) silently misses any reference that lands in a misaligned tail, so a
-    room's global list can be incomplete.
-  • `global #178 tail` is one reproducible instance of the mis-size.
-  Fixes to weigh: (a) close the remaining operand-size gaps so the linear decode
-  aligns — `opcodes/index.ts` (the executing table) decodes the same stream
-  correctly, so the disassembler is missing/mismatching some operand lengths;
-  diffing the two would surface which. (b) decode from real entry points and
-  follow jumps instead of a blind linear pass, so embedded data is never decoded
-  as code. (a) is the smaller, higher-leverage fix.
+- **Disassembler operand-size gaps — FIXED (2026-06-09, fix (a)).** Took the
+  higher-leverage path: diffed the disassembler against the executing opcode
+  table (`SEED_OPCODES`) as an oracle. The oracle runs each executing handler
+  over a permissive mock VM and records the highest **byte index actually read**
+  (immune to jumps, which only do pointer arithmetic) → the engine's true
+  instruction boundary; comparing that to the disasm's per-instruction next-offset
+  surfaces every *silent* mis-size the `aligned:false` flag can't (a mis-sized
+  operand still decodes as plausible opcodes). Probe: `scratch/disasm-oracle-diff.ts`.
+  The "~13% misaligned" figure was already stale — **0 hard `aligned:false` fails**
+  across all 721 MI1 scripts; the survey found 3 *silent* boundary mismatches from
+  2 genuine bugs, both now fixed in `disasm.ts` (unit-pinned):
+  • **resourceRoutines (0x0C) subop sizing.** The old `lo <= 0x12` rule gave
+    subop 0x11 (clearHeap, no arg) a phantom arg byte and denied 0x13
+    (nukeCharset) its arg; 0x14 (loadFlObject) read its object as a word.
+    Now mirrors the handler: 0x11 none, 0x14 two p8 args, every other one p8.
+  • **stringOps loadString (0x27/1) + roomOps saveString/loadString (0x0D/0x0E).**
+    The engine copies a *stored* string raw to the NUL; the disasm decoded it with
+    the escape-aware `cstr`, so `0xFF 0x07` swallowed the following byte + the NUL
+    terminator (MI1 #154). Added `rawstr` (no escape expansion) for these; escapes
+    are expanded only at print time, by `cstr`.
+  Also aligned `cstr`'s escape-length rule to the engine's `readScummString`
+  (code ≥ 4 → +2 bytes, was `4..9` — under-read the 0x0A/0x0E name/colour codes;
+  no MI1 message string exercised it, oracle still 0 after). After all three:
+  **oracle = 0 mismatches across 721 scripts.** Downstream `referencedGlobalScripts`
+  (room/extract.ts) and `disgrogate SCAN` are now trustworthy on the linear pass.
+  Option (b) (decode from entry points, follow jumps) is unneeded for MI1.
+
+  • **Discovered byproduct — engine opcode-coverage gaps (NOT disasm bugs; the
+    disasm decodes them fine, the executing table has no handler → would halt if
+    reached).** The oracle's "no executing handler" list: standalone `multiply`
+    (0x1B/0x9B) & `divide` (0x5B/0xDB) — only the `*`/`/` *inside expressions* are
+    implemented; `drawBox` (0x3F family); and **`loadRoomWithEgo` variants 0x64
+    (var room) / 0xE4 (both var)** — only 0x24/0xA4 are registered, yet the oracle
+    saw 0xE4 *present* in an MI1 script. The handler is variant-agnostic, so
+    registering 0x64/0xE4 to it is a trivially-correct one-liner — but it's a
+    play-path engine change; verify in-browser before committing. (See Watch-for.)
 
 ### Out of scope (their own phases)
 

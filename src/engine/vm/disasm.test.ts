@@ -91,6 +91,39 @@ describe('disasm — single instructions', () => {
     expect(out[0]!.text).toBe('print a=254 text="A"');
     expect(out[1]!.text).toBe('print a=254 text="B"');
   });
+
+  it('sizes resourceRoutines subops like the executing table (0x11 none, 0x13 one, 0x14 two)', () => {
+    // Each pairs the subop with a trailing breakHere (0x80); the sweep must
+    // land on it. 0x11 clearHeap takes NO arg, 0x13 nukeCharset takes one,
+    // 0x14 loadFlObject takes two var-or-byte args, every other subop one.
+    const clearHeap = disassemble(bytes(0x0c, 0x11, 0x80));
+    expect(clearHeap[0]!.text).toBe('resourceRoutines clearHeap');
+    expect(clearHeap[1]!.text).toBe('breakHere');
+
+    const loadScript = disassemble(bytes(0x0c, 0x01, 0x05, 0x80));
+    expect(loadScript[0]!.text).toBe('resourceRoutines sub=0x1 5');
+    expect(loadScript[1]!.text).toBe('breakHere');
+
+    const nukeCharset = disassemble(bytes(0x0c, 0x13, 0x03, 0x80));
+    expect(nukeCharset[0]!.text).toBe('resourceRoutines sub=0x13 3');
+    expect(nukeCharset[1]!.text).toBe('breakHere');
+
+    const loadFlObject = disassemble(bytes(0x0c, 0x14, 0x07, 0x02, 0x80));
+    expect(loadFlObject[0]!.text).toBe('resourceRoutines loadFlObject obj=7 room=2');
+    expect(loadFlObject[1]!.text).toBe('breakHere');
+  });
+
+  it('reads stringOps loadString raw to NUL — escapes are NOT 2-byte args here', () => {
+    // `loadString id=48 "in \xff\x07?"` then breakHere. The engine copies a
+    // stored string verbatim to the NUL; the 0xFF 0x07 must NOT consume the
+    // following '?' + NUL as an escape argument (which would swallow the
+    // breakHere). Mirrors MI1 global #154.
+    const out = disassemble(
+      bytes(0x27, 0x01, 0x30, 0x69, 0x6e, 0x20, 0xff, 0x07, 0x3f, 0x00, 0x80),
+    );
+    expect(out[0]!.text).toBe('stringOps loadString id=48 "in \\xff\\x07?"');
+    expect(out[1]!.text).toBe('breakHere');
+  });
 });
 
 describe('disasm — stream walking', () => {
