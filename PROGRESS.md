@@ -209,15 +209,16 @@ Priority H/M/L = likelihood of biting current/near play × severity.
 
 - Unimplemented opcodes → an unknown-opcode halt freezes the *whole* VM.
   The oracle diff (2026-06-09) surfaced the opcodes the disassembler decodes but
-  the executing table had no handler for. **Closed (registered + unit-pinned,
-  pending in-browser confirmation):** standalone `multiply` 0x1B/0x9B & `divide`
-  0x5B/0xDB (`makeMulDiv`, arithmetic matches the expression mini-VM — signed
-  imul, signed truncating div, divide-by-zero halts); `loadRoomWithEgo` variants
-  0x64/0xE4 (the handler was already variant-agnostic — global #121 uses 0xE4,
-  both operands var-mode). **Still deferred:**
-  • `drawBox` (0x3F/0x7F/0xBF/0xFF) — a screen rect-fill; needs a compositor
-    decision. Used by global #130 (a transition script: full-screen
-    `drawBox 0,0,319,199 color=0` repeated) and #155.
+  the executing table had no handler for. **Closed (registered + unit-pinned):**
+  standalone `multiply` 0x1B/0x9B & `divide` 0x5B/0xDB (`makeMulDiv`, arithmetic
+  matches the expression mini-VM — signed imul, signed truncating div,
+  divide-by-zero halts); `loadRoomWithEgo` variants 0x64/0xE4 (handler was
+  already variant-agnostic — global #121 uses 0xE4); `drawBox`
+  0x3F/0x7F/0xBF/0xFF (persistent screen rect-fill in `vm.drawnBoxes`, applied
+  by the compositor over the bg, cleared on room change — the win/credits #130
+  full-screen clear-to-black + #155). **drawBox pixels NOT yet verified
+  in-browser** — operand sizing is oracle-proven, but no save sits near the
+  credits/#155 to check the visual fill. **Still deferred:**
   • `getActorWidth` (0x6C) — appears ONLY nested in global #2's expression; its
     faithful value is the actor's costume frame width, which we don't yet track,
     so it can't be a guessed one-liner. `getActorScale` (0x3B) / `getAnimCounter`
@@ -322,11 +323,20 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
     subop 0x11 (clearHeap, no arg) a phantom arg byte and denied 0x13
     (nukeCharset) its arg; 0x14 (loadFlObject) read its object as a word.
     Now mirrors the handler: 0x11 none, 0x14 two p8 args, every other one p8.
-  • **stringOps loadString (0x27/1) + roomOps saveString/loadString (0x0D/0x0E).**
-    The engine copies a *stored* string raw to the NUL; the disasm decoded it with
-    the escape-aware `cstr`, so `0xFF 0x07` swallowed the following byte + the NUL
-    terminator (MI1 #154). Added `rawstr` (no escape expansion) for these; escapes
-    are expanded only at print time, by `cstr`.
+  • **stringOps loadString (0x27/1) — first fixed BACKWARDS, then corrected
+    (commit 9a6c4f3).** The oracle showed disasm (escape-aware `cstr`, ends @445)
+    vs engine (raw scan-to-NUL, ends @443) and I wrongly made the disasm match
+    the engine (`rawstr`). The ENGINE was the buggy side: MI1 #154's
+    copy-protection question embeds `0xFF 0x07` (string-var substitution) whose
+    2-byte arg's 2nd byte is `0x00` — a raw scan stops at that inner NUL, ending
+    2 bytes early and mis-decoding the next bytes as a phantom drawBox/putActor.
+    The real game data proves @445 is right: the next loadStrings are the wheel
+    locations (Antigua/Barbados/Jamaica/…). Corrected: engine `loadString` now
+    uses `readScummString` (escape-aware), disasm reverted to `cstr`. **Lesson:
+    the executing table is usually right but NOT axiomatic — ground against the
+    game data, not bookkeeping that can share the same bug.** (`roomOps`
+    saveString/loadString stay raw via `rawstr`/engine-raw — disk-I/O strings,
+    no escapes, unexercised in MI1.)
   Also aligned `cstr`'s escape-length rule to the engine's `readScummString`
   (code ≥ 4 → +2 bytes, was `4..9` — under-read the 0x0A/0x0E name/colour codes;
   no MI1 message string exercised it, oracle still 0 after). After all three:
@@ -335,14 +345,14 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
   Option (b) (decode from entry points, follow jumps) is unneeded for MI1.
 
   • **Discovered byproduct — engine opcode-coverage gaps (NOT disasm bugs; the
-    disasm decodes them fine, the executing table has no handler → would halt if
-    reached).** The oracle's "no executing handler" list: standalone `multiply`
-    (0x1B/0x9B) & `divide` (0x5B/0xDB) — only the `*`/`/` *inside expressions* are
-    implemented; `drawBox` (0x3F family); and **`loadRoomWithEgo` variants 0x64
-    (var room) / 0xE4 (both var)** — only 0x24/0xA4 are registered, yet the oracle
-    saw 0xE4 *present* in an MI1 script. The handler is variant-agnostic, so
-    registering 0x64/0xE4 to it is a trivially-correct one-liner — but it's a
-    play-path engine change; verify in-browser before committing. (See Watch-for.)
+    disasm decodes them, the executing table had no handler → would halt if
+    reached).** All now CLOSED except `getActorWidth` (commits a15af0c, 14c00ef;
+    see Watch-for): standalone `multiply`/`divide` (0x1B/0x9B/0x5B/0xDB),
+    `loadRoomWithEgo` variants 0x64/0xE4, and `drawBox` (0x3F family) are
+    registered + unit-pinned. `getActorWidth` (0x6C, nested in #2's expression)
+    still deferred — needs costume frame-width we don't track. Note: walking the
+    oracle *past* the newly-handled `drawBox` is what exposed the loadString
+    backwards-fix above (it had been masked by drawBox halting the sweep).
 
 ### Out of scope (their own phases)
 
