@@ -974,6 +974,45 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     expect(vm.haltInfo).toBeNull();
   });
 
+  beat('I · Governor\'s mansion → the sea — caught with the idol, dumped overboard, recover it', () => {
+    const ego = vm.vars.readGlobal(VAR_EGO);
+    const inside = ROOMS.governorInterior;
+    const sea = ROOMS.seaBottom;
+
+    // The grab runs straight into the Sheriff/Governor catch (#212): an excuse
+    // menu, then the smitten-stammer cascade in the Governor's close-up (room
+    // 23) — all don't-care comedy options. Pick the first armed answer each time
+    // until control returns in the mansion.
+    const answers = () =>
+      [...vm.verbs.entries()].filter(([k, v]) => k >= 120 && k <= 129 && v.state === 'on');
+    for (let step = 0; step < 14; step++) {
+      if (!driveUntil(vm, () => answers().length > 0, { maxTicks: 8000 })) break;
+      const k = answers()[0]![0];
+      pickAnswer(vm, k);
+      driveUntil(vm, () => !answers().some(([j]) => j === k), { maxTicks: 6000 });
+    }
+    expect(waitPlayable(vm)).toBe(true);
+    expect(vm.currentRoom).toBe(inside.id);
+
+    // Walk out with the idol: opening the gate door (#633) while holding it runs
+    // the Sheriff block (#217) — Fester won't budge. Telling him he's blocking
+    // the exit (#122) provokes him to hurl ego (and the idol) into the harbor.
+    use(vm, VERBS.open, inside.entryDoor);
+    expect(
+      driveUntil(vm, (v) => v.verbs.get(inside.festerBlockingExit)?.state === 'on', { maxTicks: 14000 }),
+    ).toBe(true);
+    pickAnswer(vm, inside.festerBlockingExit);
+
+    // Splash — the sea bottom (room 42), tied to the idol. Pick it up: the
+    // stolen idol recovered, the thievery trial's prize in hand.
+    expect(driveToRoom(vm, sea.id, { maxTicks: 20000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    expect(vm.getObjectOwner(sea.idol)).not.toBe(ego);
+    use(vm, VERBS.pickUp, sea.idol);
+    expect(waitPickedUp(vm, sea.idol)).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
   // ALWAYS THE LAST BEAT: snapshot the furthest clean playable state to a save so
   // the NEXT frontier's beats can be developed by fast-forwarding here
   // (restoreSave) instead of re-driving from boot — the regression net itself
@@ -985,14 +1024,12 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       'saves/MI1-walkthrough-frontier.websave.json',
       JSON.stringify(snapshotVm(vm, { game: 'MI1', label: 'walkthrough-frontier' })),
     );
-    // Furthest clean point so far: inside the Governor's mansion (room 53) with
-    // the idol (#635) in hand — the file (from Otis's cake) opened the grab
-    // through the hole. Swordfighting + treasure trials passed; the thievery
-    // trial has the idol, next is the exit, where the Sheriff catches ego and
-    // dumps him (and the idol) in the sea.
+    // Furthest clean point so far: the sea bottom (room 42) with the idol
+    // (#578) recovered — caught leaving the mansion, dumped in the harbor, and
+    // picked it back up. All three trials are now effectively done (sword +
+    // treasure + the idol); next is the rope-cutting escape off the sea floor.
     const ego = vm.vars.readGlobal(VAR_EGO);
-    expect(vm.currentRoom).toBe(ROOMS.governorInterior.id);
-    expect(vm.vars.readBit(ROOMS.governorMansion.dogsAsleepBit)).toBe(1);
-    expect(vm.getObjectOwner(ROOMS.governorInterior.idol)).toBe(ego);
+    expect(vm.currentRoom).toBe(ROOMS.seaBottom.id);
+    expect(vm.getObjectOwner(ROOMS.seaBottom.idol)).toBe(ego);
   });
 });

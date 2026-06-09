@@ -586,6 +586,29 @@ export const ROOMS = {
     waxLips: 642,
     /** "il togli-graffette" (#643) — gauntlet joke item. */
     stapleRemover: 643,
+    /**
+     * The grab cutscene (#211) runs straight into the Sheriff/Governor catch
+     * (#212): an excuse menu, then the smitten-stammer cascade in the Governor's
+     * close-up (room 23) — all don't-care options (pick any). Control then
+     * returns in the mansion; trying to leave via {@link entryDoor} (#633) with
+     * the idol runs the Sheriff block (#217), whose taunt menu offers this:
+     * verb 122 "…ma stai bloccando l'uscita" — provoking Fester to dump ego (and
+     * the idol) into the harbor.
+     */
+    festerBlockingExit: 122,
+  },
+
+  /**
+   * The sea bottom (room 42) — where Fester throws ego, tied to the idol, after
+   * the mansion theft. The idol here is a fresh object ("l'idolo meraviglioso",
+   * #578) with a real Pick up verb (9); grabbing it is the thievery prize. The
+   * floor is littered with sharp things (saw/knife/scissors/cleaver/axe/sword)
+   * for the rope-cutting escape that follows.
+   */
+  seaBottom: {
+    id: 42,
+    /** "l'idolo meraviglioso" (#578) — Pick up (verb 9) to recover the idol. */
+    idol: 578,
   },
 
   /**
