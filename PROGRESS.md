@@ -296,17 +296,19 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
 
 **Stubbed opcodes (cosmetic / peripheral)**
 
-- `roomOps`: `saveString` / `loadString` (disk-I/O strings, raw scan; 0 uses in
-  MI1). **DONE since this list was written:** `roomIntensity` (0x08) +
-  `setRGBRoomIntensity` (0x0B) both scale the palette from the base CLUT
-  (per-channel, clamped — room 29's Voodoo-Lady colour pulse); `shakeOn`/
-  `shakeOff` (0x05/0x06) toggle `vm.shakeEnabled` and the renderer jolts the
-  frame vertically (waveform is an approximation — engine-internal, tune
-  in-browser).
-- `cursorCommand` image subops (0x2C): `setCursorImage` / `setCursorHotspot` /
-  `setCursor` — 0 uses in MI1 (default crosshair).
-- `matrixOp` (0x30): `setBoxScale` / `createBoxMatrix` no-ops (`setBoxFlags`
-  is implemented — per-screen box locking).
+- **Section B (0 MI1 uses) now LOUD-HALT, not silent** (2026-06-09): an
+  unreached path / MI2 that hits one is caught immediately. `roomOps` saveLoad
+  (0x09) / saveString (0x0D) / loadString (0x0E); `cursorCommand` cursor-image
+  subops 0x0A/0x0B/0x0C (setCursorImage / setCursorHotspot / initCursor — needs
+  the charset-glyph cursor decoder); `matrixOp` setBoxScale (0x02/0x03);
+  `soundKludge` (0x4C, now registered with a named throw). Implement on first
+  halt. (`createBoxMatrix` 0x04 stays a correct no-op — mask rebuilt on
+  setBoxFlags.)
+- **DONE this session:** `roomIntensity` (0x08) + `setRGBRoomIntensity` (0x0B)
+  scale the palette from the base CLUT (per-channel, clamped — room 29's
+  Voodoo-Lady colour pulse); `shakeOn`/`shakeOff` (0x05/0x06) toggle
+  `vm.shakeEnabled` and the renderer jolts the frame vertically (waveform is an
+  approximation — engine-internal, tune in-browser).
 - Dialog escape codes still deferred: sound `0x09`, mid-string colour `0x0E`
   (both 0 uses in MI1). **keep-text `0x02` is NOT a gap** — the print path
   (`decodeScummStringPages` → `addSystemText`) accumulates keepText lines and
