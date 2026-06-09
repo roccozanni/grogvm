@@ -209,20 +209,18 @@ Priority H/M/L = likelihood of biting current/near play × severity.
 
 - Unimplemented opcodes → an unknown-opcode halt freezes the *whole* VM.
   The oracle diff (2026-06-09) surfaced the opcodes the disassembler decodes but
-  the executing table had no handler for. **Closed (registered + unit-pinned):**
-  standalone `multiply` 0x1B/0x9B & `divide` 0x5B/0xDB (`makeMulDiv`, arithmetic
-  matches the expression mini-VM — signed imul, signed truncating div,
-  divide-by-zero halts); `loadRoomWithEgo` variants 0x64/0xE4 (handler was
-  already variant-agnostic — global #121 uses 0xE4); `drawBox`
-  0x3F/0x7F/0xBF/0xFF (persistent screen rect-fill in `vm.drawnBoxes`, applied
-  by the compositor over the bg, cleared on room change — the win/credits #130
-  full-screen clear-to-black + #155). **drawBox pixels NOT yet verified
-  in-browser** — operand sizing is oracle-proven, but no save sits near the
-  credits/#155 to check the visual fill. **Still deferred:**
-  • `getActorWidth` (0x6C) — appears ONLY nested in global #2's expression; its
-    faithful value is the actor's costume frame width, which we don't yet track,
-    so it can't be a guessed one-liner. `getActorScale` (0x3B) / `getAnimCounter`
-    (0x22) don't appear in MI1 at all — left unregistered (no consumer).
+  the executing table had no handler for. **ALL such MI1 opcodes now closed
+  (registered + unit-pinned):** standalone `multiply` 0x1B/0x9B & `divide`
+  0x5B/0xDB (`makeMulDiv`); `loadRoomWithEgo` variants 0x64/0xE4; `drawBox`
+  0x3F/0x7F/0xBF/0xFF (persistent screen rect-fill in `vm.drawnBoxes`); and
+  `getActorWidth` 0x6C/0xEC (actor `_width`, set by actorOps SO_ACTOR_WIDTH,
+  read by global #2's interaction-proximity gate). The oracle now reports 0
+  boundary mismatches AND zero no-handler gaps across all 721 MI1 scripts —
+  every decoded opcode has an executing handler and they agree on every
+  boundary. `getActorScale` (0x3B) / `getAnimCounter` (0x22) don't appear in MI1
+  at all — left unregistered (no consumer to verify against). **Caveat:
+  `drawBox` pixels NOT yet verified in-browser** — operand sizing is
+  oracle-proven, but no save sits near the credits/#155 to check the visual fill.
 - Object states beyond the initial `DOBJ` seed (only initial owner/state/class
   is parsed). See [OBJECTS §7a](pages/docs/scumm/objects.md).
 - `saveRestoreVerbs`: we render-skip archived verbs (a subset of SCUMM's
@@ -346,13 +344,14 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
 
   • **Discovered byproduct — engine opcode-coverage gaps (NOT disasm bugs; the
     disasm decodes them, the executing table had no handler → would halt if
-    reached).** All now CLOSED except `getActorWidth` (commits a15af0c, 14c00ef;
-    see Watch-for): standalone `multiply`/`divide` (0x1B/0x9B/0x5B/0xDB),
-    `loadRoomWithEgo` variants 0x64/0xE4, and `drawBox` (0x3F family) are
-    registered + unit-pinned. `getActorWidth` (0x6C, nested in #2's expression)
-    still deferred — needs costume frame-width we don't track. Note: walking the
-    oracle *past* the newly-handled `drawBox` is what exposed the loadString
-    backwards-fix above (it had been masked by drawBox halting the sweep).
+    reached).** All now CLOSED (commits a15af0c, 14c00ef, 272fba0; see
+    Watch-for): standalone `multiply`/`divide` (0x1B/0x9B/0x5B/0xDB),
+    `loadRoomWithEgo` variants 0x64/0xE4, `drawBox` (0x3F family), and
+    `getActorWidth` (0x6C — actor `_width` via actorOps SO_ACTOR_WIDTH, NOT
+    costume frame-width). Oracle: 0 boundary mismatches AND zero no-handler gaps
+    across 721 scripts. Note: walking the oracle *past* the newly-handled
+    `drawBox` is what exposed the loadString backwards-fix above (it had been
+    masked by drawBox halting the sweep).
 
 ### Out of scope (their own phases)
 
