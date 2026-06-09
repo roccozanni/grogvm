@@ -41,19 +41,22 @@ action waits on `waitReady`, then asserts via named condition-waiters (`waitPick
 the *printing-sentence-blocks-the-next* finding → [INPUT §5](pages/docs/scumm/input.md).
 A clean fast-forward save (`saves/MI1-walkthrough-frontier.websave.json`, gitignored,
 written by the ALWAYS-LAST `frontier` beat and regenerated each green run) sits at the furthest
-clean state — currently the sea bottom (room 42) with the idol ("l'idolo meraviglioso", #578) recovered.
+clean state — currently the Mêlée docks (room 83), surfaced from the sea with the rescue vowed (bit#304).
 
-**Frontier: ALL THREE Part-I trials are effectively done — swordfighting + treasure + the stolen idol.
-The full thievery trial is now in the net: dogs → mansion gauntlet → Otis's cake/file → grab the idol
-→ caught by the Sheriff → dumped in the sea → idol recovered. 46/46 green from boot.** Next: the
-rope-cutting escape off the sea floor (room 42 is littered with sharp things), then Part I's wrap-up.
+**Frontier: Part I is COMPLETE — all three trials done (sword + treasure + idol), the Governor
+kidnapped, and Guybrush has vowed to get a crew + ship to rescue her (bit#304). 47/47 green from boot.**
+Next: Part II — find a ship (Stan's used vessels) and a crew. The thievery trial + Part-I wrap-up are now
+fully in the net: dogs → mansion gauntlet → Otis's cake/file → grab the idol → caught by the Sheriff →
+dumped in the sea → recover the idol → auto-escape up the ladder → the docks vow.
 The idol-theft route as built (each a from-boot beat): **(a)** enter the mansion + trip the right-door
 gauntlet for the loot → **(b)** prison: talk Otis → buy the mint → give Otis mint + rat repellent for
 the cake → open it for the file → **(c)** back to the mansion, Walk to the hole (spioncino #637) with
 the file → grab cutscene #211 → the idol (#635) → **(d)** the grab chains into the Sheriff/Governor
 catch (#212; pick any excuse + the smitten-stammer menus), control returns, then leaving via door #633
 with the idol fires the Sheriff block (#217) — taunt #122 "stai bloccando l'uscita" → thrown in the
-harbor (rooms 53→83→42) → Pick up the sea idol (#578) = prize in hand. ALL DONE.
+harbor (rooms 53→83→42) → Pick up the sea idol (#578) → **(e)** the pickup auto-climbs the ladder up to
+the docks (room 83); the kidnapping conversation runs and the vow "Andrò a procurarmi un equipaggio ed
+una nave" (#123) sets bit#304 = Part I done. ALL DONE.
 Routes + mechanics live in the walkthrough beats and `game.ts` helpers, not here. Findings worth keeping:
 
 - **Into the mansion:** dogs-asleep (#201) lifts the dog-pen box lock and sets the gate door's class,

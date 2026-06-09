@@ -1013,6 +1013,28 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     expect(vm.haltInfo).toBeNull();
   });
 
+  beat('I · Sea → Mêlée docks — surface with the idol; vow to get a crew and a ship', () => {
+    const docks = ROOMS.docks;
+
+    // Grabbing the idol auto-climbs the ladder: the escape script surfaces ego
+    // on the Mêlée docks (room 83), where the kidnapping conversation runs.
+    expect(driveToRoom(vm, docks.id, { maxTicks: 20000 })).toBe(true);
+
+    // Declare the rescue — "Andrò a procurarmi un equipaggio ed una nave…" (#123)
+    // ends the conversation and sets the quest flag (bit#304), Part I's setup
+    // done and the hunt for a ship begun.
+    expect(vm.vars.readBit(docks.questDeclaredBit)).toBe(0);
+    expect(
+      driveUntil(vm, (v) => v.verbs.get(docks.getCrewAndShip)?.state === 'on', { maxTicks: 14000 }),
+    ).toBe(true);
+    pickAnswer(vm, docks.getCrewAndShip);
+    expect(
+      driveUntil(vm, (v) => v.vars.readBit(docks.questDeclaredBit) === 1, { maxTicks: 8000 }),
+    ).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
   // ALWAYS THE LAST BEAT: snapshot the furthest clean playable state to a save so
   // the NEXT frontier's beats can be developed by fast-forwarding here
   // (restoreSave) instead of re-driving from boot — the regression net itself
@@ -1024,12 +1046,10 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       'saves/MI1-walkthrough-frontier.websave.json',
       JSON.stringify(snapshotVm(vm, { game: 'MI1', label: 'walkthrough-frontier' })),
     );
-    // Furthest clean point so far: the sea bottom (room 42) with the idol
-    // (#578) recovered — caught leaving the mansion, dumped in the harbor, and
-    // picked it back up. All three trials are now effectively done (sword +
-    // treasure + the idol); next is the rope-cutting escape off the sea floor.
-    const ego = vm.vars.readGlobal(VAR_EGO);
-    expect(vm.currentRoom).toBe(ROOMS.seaBottom.id);
-    expect(vm.getObjectOwner(ROOMS.seaBottom.idol)).toBe(ego);
+    // Furthest clean point so far: surfaced on the Mêlée docks (room 83), the
+    // rescue vowed (bit#304) — all three trials done, the Governor kidnapped,
+    // and the quest for a crew + ship begun. Part I's setup is complete.
+    expect(vm.currentRoom).toBe(ROOMS.docks.id);
+    expect(vm.vars.readBit(ROOMS.docks.questDeclaredBit)).toBe(1);
   });
 });

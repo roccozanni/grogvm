@@ -607,8 +607,29 @@ export const ROOMS = {
    */
   seaBottom: {
     id: 42,
-    /** "l'idolo meraviglioso" (#578) — Pick up (verb 9) to recover the idol. */
+    /** "l'idolo meraviglioso" (#578) — Pick up (verb 9) to recover the idol. Its
+     *  verb-9 (#203) grabs it AND auto-climbs the ladder, surfacing ego on the
+     *  Mêlée docks ({@link docks}, room 83). */
     idol: 578,
+  },
+
+  /**
+   * The Mêlée docks (room 83) — ego surfaces here after the underwater escape.
+   * A dockside conversation about the Governor's kidnapping runs; declaring the
+   * rescue plan ("get a crew and a ship") closes out Part I's setup and sends
+   * the player off to find a ship.
+   */
+  docks: {
+    id: 83,
+    /**
+     * Dialog answer "Andrò a procurarmi un equipaggio ed una nave e la salverò"
+     * (#123) — the "I'll get a crew and a ship" vow. Picking it ends the
+     * conversation and sets {@link questDeclaredBit}.
+     */
+    getCrewAndShip: 123,
+    /** `bit#304` — set when the rescue is vowed (#123); the Part-I-into-II
+     *  quest flag (also read by other rooms' ENCD, e.g. the jail). */
+    questDeclaredBit: 304,
   },
 
   /**
