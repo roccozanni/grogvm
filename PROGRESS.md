@@ -41,25 +41,32 @@ action waits on `waitReady`, then asserts via named condition-waiters (`waitPick
 the *printing-sentence-blocks-the-next* finding → [INPUT §5](pages/docs/scumm/input.md).
 A clean fast-forward save (`saves/MI1-walkthrough-frontier.websave.json`, gitignored,
 written by the ALWAYS-LAST `frontier` beat and regenerated each green run) sits at the furthest
-clean state — currently back in the Mêlée jail (room 31) with the file ("la lima") in hand.
+clean state — currently inside the Governor's mansion (room 53) with the idol ("l'idolo favoloso") in hand.
 
-**Frontier: Part I's swordfighting + treasure trials are COMPLETE; the thievery trial is under way —
-ego has slipped past the drugged dogs, looted the mansion gauntlet, and traded Otis (prison) the
-mint + rat repellent for Aunt Tillie's cake, which opens to the file. 44/44 green from boot.**
+**Frontier: Part I's swordfighting + treasure trials are COMPLETE; the thievery trial is nearly done —
+ego has slipped past the drugged dogs, looted the mansion gauntlet, traded Otis (prison) for the cake →
+file, and used it to grab the IDOL through the hole. 45/45 green from boot.**
 The full idol-theft route (confirmed in the bytecode, being built beat by beat): **(a)** enter the
 mansion + trip the right-door gauntlet for the loot [DONE] → **(b)** out to the prison, talk Otis →
 buy the mint at the store → give Otis mint + rat repellent for the cake → open it for the file [DONE]
-→ **(c)** back to the mansion, through the hole in the wall (broken window #638) → grab cutscene #211
-→ the idol (#635) → **(d)** exit with the idol → door #633 fires the Sheriff catch (#217: Fester actor
-9 + Governor actor 10, an excuse dialog menu) → thrown in the sea → pick up the idol = trial complete.
+→ **(c)** back to the mansion, Walk to the hole (spioncino #637) with the file → grab cutscene #211
+→ the idol (#635) [DONE] → **(d)** exit with the idol → door #633 fires the Sheriff catch (#217: Fester
+actor 9 + Governor actor 10, an excuse dialog menu) → thrown in the sea → pick up the idol = trial
+complete. NOTE (d) start: a plain Open on door #633 after the grab did NOT fire #217 in a quick probe —
+the exit trigger needs investigation (proximity? the bare-click default verb? a different exit object?).
 Routes + mechanics live in the walkthrough beats and `game.ts` helpers, not here. Findings worth keeping:
 
 - **Into the mansion:** dogs-asleep (#201) lifts the dog-pen box lock and sets the gate door's class,
   so gate door #465 now opens (Open → global #25 → state 1) and Walk-to → `loadRoomWithEgo room=53`.
   Inside, the right-hand door #632 — opened, then Walk-to — runs the gauntlet cutscene (local #210),
   which arms the joke items and hands ego four of them (#640 rat repellent, #641 style manual, #642
-  wax lips, #643 staple remover) before returning control. The idol #635 is NOT directly pickable
-  (verbs 8/90/91 only); the grab is the #211 cutscene, armed via the broken window once you hold the file.
+  wax lips, #643 staple remover) before returning control.
+- **Grabbing the idol:** the idol #635 is NOT directly pickable (verbs 8/90/91 only), and the broken
+  window #638's own verbs are dead ends ("careful not to cut myself"). The hole you go through is the
+  **spioncino #637** (its only verb is 11/walk-to): a bare click runs verb-11, which checks ego holds
+  the file then `startScript 211` — the grab cutscene reaches through the gauntlet and `pickupObject`s
+  the idol. (Confirmed by driving; the disasm of #637's class gate reads inverted vs the executing
+  engine — ground truth is the run.)
 - **The prison (Otis) leg.** Talking to Otis (#405/actor 4) sets bit#420 and returns control with no
   menu — his breath complaint IS the trigger; bit#420 unlocks the store shopkeeper's "Avrei bisogno
   d'una mentina" line (verb 124, 1 piece of eight → mint #395). Otis DEFAULTS to class 6 (death-breath);

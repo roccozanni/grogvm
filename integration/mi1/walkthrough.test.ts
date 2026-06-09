@@ -941,6 +941,39 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     expect(vm.haltInfo).toBeNull();
   });
 
+  beat("I · Governor's mansion — through the hole with the file: grab the idol", () => {
+    const ego = vm.vars.readGlobal(VAR_EGO);
+    const jail = ROOMS.prison;
+    const inside = ROOMS.governorInterior;
+
+    // Back to the mansion, file in hand: jail exit #400 → store street; the
+    // mansion node #431 → the gate (36); the dogs are still asleep, so open the
+    // gate door and walk into the interior (53).
+    walkTo(vm, jail.entrance);
+    expect(driveToRoom(vm, ROOMS.storeStreet.id, { maxTicks: 14000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    walkTo(vm, ROOMS.storeStreet.mansion);
+    expect(driveToRoom(vm, ROOMS.governorMansion.id, { maxTicks: 14000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    use(vm, VERBS.open, ROOMS.governorMansion.door);
+    walkTo(vm, ROOMS.governorMansion.door);
+    expect(driveToRoom(vm, inside.id, { maxTicks: 14000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+
+    // With the file (the opened cake) in hand, Walk to the spioncino (#637, the
+    // hole in the wall — a bare click runs its only verb, 11): it checks ego
+    // holds the file then fires the grab cutscene (#211), which reaches through
+    // the booby-trap gauntlet and `pickupObject`s the idol (#635) into inventory.
+    expect(vm.getObjectOwner(jail.cake)).toBe(ego); // the file
+    expect(vm.getObjectOwner(inside.idol)).not.toBe(ego);
+    walkTo(vm, inside.hole);
+    expect(
+      driveUntil(vm, (v) => v.getObjectOwner(inside.idol) === ego, { maxTicks: 40000 }),
+    ).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
   // ALWAYS THE LAST BEAT: snapshot the furthest clean playable state to a save so
   // the NEXT frontier's beats can be developed by fast-forwarding here
   // (restoreSave) instead of re-driving from boot — the regression net itself
@@ -952,15 +985,14 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       'saves/MI1-walkthrough-frontier.websave.json',
       JSON.stringify(snapshotVm(vm, { game: 'MI1', label: 'walkthrough-frontier' })),
     );
-    // Furthest clean point so far: back in the Mêlée jail (room 31) with the
-    // file in hand — Otis traded the cake for the mint + rat repellent, and
-    // opening it yielded "la lima" (class 6). Swordfighting + treasure trials
-    // passed; thievery trial has the file, next stop the mansion's broken
-    // window to grab the idol.
+    // Furthest clean point so far: inside the Governor's mansion (room 53) with
+    // the idol (#635) in hand — the file (from Otis's cake) opened the grab
+    // through the hole. Swordfighting + treasure trials passed; the thievery
+    // trial has the idol, next is the exit, where the Sheriff catches ego and
+    // dumps him (and the idol) in the sea.
     const ego = vm.vars.readGlobal(VAR_EGO);
-    expect(vm.currentRoom).toBe(ROOMS.prison.id);
+    expect(vm.currentRoom).toBe(ROOMS.governorInterior.id);
     expect(vm.vars.readBit(ROOMS.governorMansion.dogsAsleepBit)).toBe(1);
-    expect(vm.getObjectOwner(ROOMS.prison.cake)).toBe(ego);
-    expect((vm.objectClasses.get(ROOMS.prison.cake) ?? 0) & (1 << ROOMS.prison.cakeIsFileClassBit)).not.toBe(0);
+    expect(vm.getObjectOwner(ROOMS.governorInterior.idol)).toBe(ego);
   });
 });

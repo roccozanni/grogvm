@@ -562,10 +562,18 @@ export const ROOMS = {
      * stapleRemover} #643 and {@link ratRepellent} #640 — then returns control.
      */
     rightDoor: 632,
-    /** "la finestra rotta" (#638) — the broken window / hole in the wall. In its
-     *  base state every verb just warns "careful not to cut myself"; it arms into
-     *  the idol-grab cutscene (#211) once ego holds the file. */
+    /** "la finestra rotta" (#638) — the broken window. Its own verbs all warn
+     *  "careful not to cut myself"; the hole you actually go through is the
+     *  {@link hole} (#637) beside it. */
     brokenWindow: 638,
+    /**
+     * "lo spioncino" (#637) — the hole in the wall. Walk-to (verb 11, a bare
+     * click) is its only verb: it checks ego holds the file, then runs the grab
+     * cutscene (local #211) — Guybrush reaches through the gauntlet and the
+     * cutscene `pickupObject`s the idol (#635) into inventory. ("Enter the hole
+     * in the wall" with the file.)
+     */
+    hole: 637,
     /** "l'idolo favoloso" (#635) — the idol, the thievery-trial prize. Not
      *  directly pickable; the grab cutscene #211 `pickupObject`s it. */
     idol: 635,
