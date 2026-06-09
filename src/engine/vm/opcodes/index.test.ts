@@ -318,6 +318,31 @@ describe('seed opcodes — arithmetic', () => {
   });
 });
 
+describe('seed opcodes — getActorWidth (0x6C) + actorOps width', () => {
+  it('actorOps SO_ACTOR_WIDTH stores the width; getActorWidth reads it back', () => {
+    const vm = makeVm();
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(
+        0x13, 0x03, 0x10, 0x40, 0xff, // actorOps a=3 { width=64 }
+        0x6c, 0x00, 0x00, 0x03, // getActorWidth g0 = width(actor 3)
+        0xa0, // stopObjectCode
+      ),
+    });
+    vm.step();
+    expect(vm.actors.get(3).width).toBe(64);
+    vm.step();
+    expect(vm.vars.readGlobal(0)).toBe(64);
+  });
+
+  it('getActorWidth on an unconfigured actor returns the default (24)', () => {
+    const vm = makeVm();
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x6c, 0x00, 0x00, 0x05) });
+    vm.step();
+    expect(vm.vars.readGlobal(0)).toBe(24);
+  });
+});
+
 describe('seed opcodes — drawBox (0x3F)', () => {
   it('records a box and consumes the 11-byte immediate form (MI1 #130 credits clear)', () => {
     const vm = makeVm();

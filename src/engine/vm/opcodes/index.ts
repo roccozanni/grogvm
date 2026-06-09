@@ -1516,6 +1516,11 @@ register(0xe3, makeActorReadOp('getActorFacing', (a) => FACING_FROM_OLD.indexOf(
 // (global #110: `if getActorCostume(ego) != 1` → "can't pull it out here").
 register(0x71, makeActorReadOp('getActorCostume', (a) => a.costume));
 register(0xf1, makeActorReadOp('getActorCostume', (a) => a.costume));
+// getActorWidth (0x6C/0xEC) — the actor's SCUMM `_width` (set by actorOps
+// SO_ACTOR_WIDTH, default DEFAULT_ACTOR_WIDTH). p8 actor. MI1 reads it only in
+// global #2's interaction-proximity gate (getDist >= width(obj)/2+4+width(a)).
+register(0x6c, makeActorReadOp('getActorWidth', (a) => a.width));
+register(0xec, makeActorReadOp('getActorWidth', (a) => a.width));
 // getActorWalkBox (0x7B/0xFB) — same non-orthogonal low-5-bits family
 // as multiply/getActorScale/divide. Returns the id of the walk box the
 // actor stands in (0 when no room/boxes). Resolved from the actor's
@@ -2085,8 +2090,9 @@ function actorOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
         ops.push('subop0F');
         break;
       case 0x10: {
-        readVarOrByte(sub, 1, slot, vm.vars); // width
-        ops.push('setWidth');
+        const w = readVarOrByte(sub, 1, slot, vm.vars);
+        if (actor) actor.width = w;
+        ops.push(`setWidth(${w})`);
         break;
       }
       case 0x11: {

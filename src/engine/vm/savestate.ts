@@ -72,6 +72,7 @@ interface ActorSnapshot {
   readonly talkColor: number;
   readonly name: string;
   readonly scale: number;
+  readonly width: number;
   readonly ignoreBoxes: boolean;
   readonly walkBox: number;
   readonly forceClip: number;
@@ -116,6 +117,7 @@ export interface SaveState {
   readonly objectClasses: ReadonlyArray<[number, number]>;
   readonly objectDrawQueue: ReadonlyArray<number>;
   readonly objectDrawPositions: ReadonlyArray<[number, { x: number; y: number }]>;
+  readonly drawnBoxes: ReadonlyArray<{ left: number; top: number; right: number; bottom: number; color: number }>;
 
   // ── Room / camera ───────────────────────────────────────────────
   readonly currentRoom: number;
@@ -244,6 +246,7 @@ export function snapshotVm(vm: Vm, meta?: { game?: string; label?: string; saved
       talkColor: a.talkColor,
       name: a.name,
       scale: a.scale,
+      width: a.width,
       ignoreBoxes: a.ignoreBoxes,
       walkBox: a.walkBox,
       forceClip: a.forceClip,
@@ -284,6 +287,7 @@ export function snapshotVm(vm: Vm, meta?: { game?: string; label?: string; saved
     objectClasses: [...vm.objectClasses],
     objectDrawQueue: [...vm.objectDrawQueue],
     objectDrawPositions: [...vm.objectDrawPositions].map(([id, p]) => [id, { ...p }]),
+    drawnBoxes: vm.drawnBoxes.map((b) => ({ ...b })),
 
     currentRoom: vm.currentRoom,
     boxFlags: [...vm.boxFlagOverrides],
@@ -368,6 +372,8 @@ export function restoreVm(vm: Vm, state: SaveState): void {
   for (const [id, v] of state.objectClasses) vm.objectClasses.set(id, v);
   for (const id of state.objectDrawQueue) vm.objectDrawQueue.add(id);
   for (const [id, p] of state.objectDrawPositions) vm.objectDrawPositions.set(id, { ...p });
+  vm.drawnBoxes.length = 0;
+  for (const b of state.drawnBoxes) vm.drawnBoxes.push({ ...b });
 
   // Room / camera. Set currentRoom + pseudoRooms + UI overrides + box flags
   // BEFORE reloading room resources so the CLUT overrides re-apply over the
@@ -435,6 +441,7 @@ function applyActorSnapshot(a: Actor, snap: ActorSnapshot): void {
   a.talkColor = snap.talkColor;
   a.name = snap.name;
   a.scale = snap.scale;
+  a.width = snap.width;
   a.ignoreBoxes = snap.ignoreBoxes;
   a.walkBox = snap.walkBox;
   a.forceClip = snap.forceClip;

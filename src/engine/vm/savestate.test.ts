@@ -46,6 +46,7 @@ function loadUpState(vm: Vm): void {
   vm.objectClasses.set(303, 0b1010);
   vm.objectDrawQueue.add(300);
   vm.objectDrawQueue.add(303);
+  vm.drawnBoxes.push({ left: 0, top: 0, right: 319, bottom: 199, color: 7 });
 
   // Room / camera.
   vm.currentRoom = 33;
@@ -102,6 +103,7 @@ function loadUpState(vm: Vm): void {
   ego.facing = 'W';
   ego.name = 'Guybrush Threepwood';
   ego.scale = 200;
+  ego.width = 48;
   ego.forceClip = 0;
   ego.walkTarget = { x: 50, y: 100 };
   ego.walkPath = [{ x: 60, y: 110 }, { x: 50, y: 100 }];
@@ -178,9 +180,12 @@ describe('save-state — synthetic round-trip', () => {
     expect(vm2.activeDialog!.text).toBe('Sono Guybrush Threepwood');
     expect(vm2.snapshotTalkQueue().pages).toEqual(['pagina 2', 'pagina 3']);
 
+    expect(vm2.drawnBoxes).toEqual([{ left: 0, top: 0, right: 319, bottom: 199, color: 7 }]);
+
     const ego = vm2.actors.get(3);
     expect(ego.x).toBe(160);
     expect(ego.facing).toBe('W');
+    expect(ego.width).toBe(48);
     expect(ego.name).toBe('Guybrush Threepwood');
     expect(ego.walkPath).toEqual([{ x: 60, y: 110 }, { x: 50, y: 100 }]);
     expect(ego.anim.stopped).toBe(0b10);

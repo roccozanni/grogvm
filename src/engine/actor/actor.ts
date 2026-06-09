@@ -60,6 +60,17 @@ export interface Actor {
   name: string;
   /** Per-actor scale, 0..255 where 255 = 100%. SCUMM scales actors as they walk away. */
   scale: number;
+  /**
+   * SCUMM's `_width`: the actor's logical pixel width, set by `actorOps`
+   * SO_ACTOR_WIDTH (subop 0x10) and read by `getActorWidth` (0x6C). It is a
+   * stored field — NOT the live costume-frame width and NOT {@link drawBounds}
+   * (the composited box) — which is why scripts assign it explicitly. MI1 sets
+   * it for every actor it positions (ego/NPCs = 24, tiny actors = 2, the
+   * room-36 giant = 64) and reads it only in global #2's interaction-proximity
+   * gate: `getDist(a,obj) >= width(obj)/2 + 4 + width(a)` ⇒ too far to interact.
+   * Defaults to {@link DEFAULT_ACTOR_WIDTH} before a script sets it.
+   */
+  width: number;
   /** When true, the actor walks in straight lines ignoring walk boxes. */
   ignoreBoxes: boolean;
   /**
@@ -133,6 +144,10 @@ const EMPTY_ANIM_STATE: AnimState = {
 export const DEFAULT_WALK_SPEED_X = 8;
 export const DEFAULT_WALK_SPEED_Y = 2;
 export const DEFAULT_SCALE = 0xff;
+// Pre-config fallback for actor width (SCUMM `_width`). MI1 assigns width via
+// actorOps before it matters, but 24 is the value it uses for ego and
+// normal-size NPCs, so it's the sensible "normal actor" default.
+export const DEFAULT_ACTOR_WIDTH = 24;
 
 // SCUMM `Actor::initActor` chore-frame defaults. Record = frame*4 + dir.
 export const DEFAULT_INIT_FRAME = 1;
@@ -154,6 +169,7 @@ export function createActor(id: number): Actor {
     talkColor: 0,
     name: '',
     scale: DEFAULT_SCALE,
+    width: DEFAULT_ACTOR_WIDTH,
     ignoreBoxes: false,
     walkBox: -1,
     forceClip: -1,
