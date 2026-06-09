@@ -442,18 +442,13 @@ describe('seed opcodes — cursorCommand (0x2C)', () => {
     expect(vm.isHalted).toBe(false);
   });
 
-  it('setCursorImage (0x0A) consumes two direct-byte args', () => {
-    const vm = makeVm();
-    const slot = vm.startScript({ scriptId: 1, bytecode: bytes(0x2c, 0x0a, 0x01, 0x02) });
-    vm.step();
-    expect(slot.pc).toBe(4);
-  });
-
-  it('setCursorHotspot (0x0B) consumes three direct-byte args', () => {
-    const vm = makeVm();
-    const slot = vm.startScript({ scriptId: 1, bytecode: bytes(0x2c, 0x0b, 0x01, 0x05, 0x06) });
-    vm.step();
-    expect(slot.pc).toBe(5);
+  it('cursor-image subops (0x0A/0x0B/0x0C) halt loudly — unmodelled, no MI1 use', () => {
+    for (const sub of [0x0a, 0x0b, 0x0c]) {
+      const vm = makeVm();
+      vm.startScript({ scriptId: 1, bytecode: bytes(0x2c, sub, 0x01, 0x02, 0x03) });
+      vm.step();
+      expect(vm.haltInfo!.reason).toMatch(/cursor-image subop .* not implemented/);
+    }
   });
 
   it('charsetColor (0x0E) reads a word-vararg list terminated by 0xFF', () => {
@@ -1140,6 +1135,23 @@ describe('room-entry opcodes', () => {
     vm.step(); // shakeOff
     expect(vm.shakeEnabled).toBe(false);
     expect(vm.haltInfo).toBeNull();
+  });
+
+  it('unmodelled section-B opcodes halt loudly when hit (no MI1 use)', () => {
+    const cases: Array<[string, number[], RegExp]> = [
+      ['roomOps saveLoad', [0x33, 0x09, 0x00, 0x00], /saveLoad .* not implemented/],
+      ['roomOps saveString', [0x33, 0x0d, 0x00, 0x00], /saveString .* not implemented/],
+      ['roomOps loadString', [0x33, 0x0e, 0x00, 0x00], /loadString .* not implemented/],
+      ['matrixOp setBoxScale', [0x30, 0x02, 0x01, 0x02], /setBoxScale.* not implemented/],
+      ['soundKludge', [0x4c, 0x01, 0x00, 0xff], /soundKludge .* not implemented/],
+    ];
+    for (const [label, code, re] of cases) {
+      const vm = makeVm();
+      vm.startScript({ scriptId: 1, bytecode: bytes(...code) });
+      vm.step();
+      expect(vm.haltInfo, label).not.toBeNull();
+      expect(vm.haltInfo!.reason, label).toMatch(re);
+    }
   });
 
   it('isSoundRunning always returns 0 (audio stubbed)', () => {

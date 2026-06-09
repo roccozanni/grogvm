@@ -404,24 +404,16 @@ register(0x2c, (vm, slot) => {
       vm.cursor.userput--;
       vm.annotate('cursorCommand userputSoftOff');
       break;
-    case 0x0a: {
-      const cur = readVarOrByte(subop, 1, slot, vm.vars);
-      const ch = readVarOrByte(subop, 2, slot, vm.vars);
-      vm.annotate(`cursorCommand setCursorImage cur=${cur} char=${ch} (stub)`);
-      break;
-    }
-    case 0x0b: {
-      const cur = readVarOrByte(subop, 1, slot, vm.vars);
-      const x = readVarOrByte(subop, 2, slot, vm.vars);
-      const y = readVarOrByte(subop, 3, slot, vm.vars);
-      vm.annotate(`cursorCommand setCursorHotspot cur=${cur} (${x},${y}) (stub)`);
-      break;
-    }
-    case 0x0c: {
-      const cur = readVarOrByte(subop, 1, slot, vm.vars);
-      vm.annotate(`cursorCommand initCursor cur=${cur} (stub)`);
-      break;
-    }
+    case 0x0a:
+    case 0x0b:
+    case 0x0c:
+      // Custom cursor glyph / hotspot / init-cursor — never used by MI1 (it
+      // keeps the default crosshair) and not modelled. Halt loudly so a script
+      // that ever hits one is caught immediately, rather than silently leaving
+      // the wrong cursor. Needs the charset-glyph-as-cursor decoder.
+      throw new Error(
+        `cursorCommand: cursor-image subop 0x${action.toString(16).padStart(2, '0')} not implemented (no MI1 use)`,
+      );
     case 0x0d: {
       const charset = readVarOrByte(subop, 1, slot, vm.vars);
       vm.currentCharset = charset;
@@ -596,13 +588,28 @@ function matrixOpHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
     vm.annotate(`matrixOp setBoxFlags box=${box} flags=0x${val.toString(16)}`);
     return;
   }
-  vm.annotate(`matrixOp setBoxScale box=${box} val=${val} (stub)`);
+  // setBoxScale (0x02/0x03) — per-box runtime scale, never used by MI1 (box
+  // scale comes from the SCAL slots at load) and not modelled. Halt loudly so
+  // a hit is caught immediately. Any other subop here is genuinely unknown.
+  throw new Error(
+    `matrixOp: subop 0x${action.toString(16).padStart(2, '0')} (setBoxScale) not implemented (no MI1 use)`,
+  );
 }
 register(0x30, matrixOpHandler);
 register(0x02, makeSoundOp('startMusic'));
 register(0x82, makeSoundOp('startMusic'));
 register(0x20, (vm) => {
   vm.annotate('stopMusic (stub)');
+});
+
+// ─── 0x4C  soundKludge ───────────────────────────────────────────────
+// iMUSE control message (word-vararg list). Audio is Phase 9, but unlike the
+// load-bearing audio stubs (startSound/isSoundRunning, which MI1 hits 100s of
+// times and must fall through), soundKludge has ZERO MI1 uses — so halt loudly
+// to catch a hit immediately instead of silently swallowing it. Registered
+// explicitly (rather than left unknown) so the halt names the opcode.
+register(0x4c, () => {
+  throw new Error('soundKludge (0x4C) not implemented (no MI1 use; audio is Phase 9)');
 });
 
 // ─── 0x72 / 0xF2  loadRoom ───────────────────────────────────────────
@@ -2685,13 +2692,10 @@ function roomOpsHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
       vm.annotate(`roomOps roomIntensity scale=${scale} range=${start}..${end}`);
       return;
     }
-    case 0x09: {
-      // saveLoad: a, b (var-or-byte)
-      const a = readVarOrByte(subop, 1, slot, vm.vars);
-      const b = readVarOrByte(subop, 2, slot, vm.vars);
-      vm.annotate(`roomOps saveLoad ${a},${b} (stub)`);
-      return;
-    }
+    case 0x09:
+      // saveLoad screen trigger — never used by MI1, not modelled. Halt loudly
+      // so a hit is caught immediately.
+      throw new Error('roomOps: saveLoad (subop 0x09) not implemented (no MI1 use)');
     case 0x0a: {
       // screenEffect (SO_ROOM_FADE): a single var-or-word operand. v5
       // splits it into two effect numbers — low byte = switchRoomEffect
@@ -2730,26 +2734,13 @@ function roomOpsHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
       vm.annotate(`roomOps setRGBRoomIntensity (${rs},${gs},${bs}) ${lo}..${hi}`);
       return;
     }
-    case 0x0d: {
-      // saveString: a, b (var-or-byte, then NUL-terminated string)
-      const a = readVarOrByte(subop, 1, slot, vm.vars);
-      const start = slot.pc;
-      while (slot.pc < slot.bytecode.length && slot.bytecode[slot.pc] !== 0) slot.pc++;
-      if (slot.pc >= slot.bytecode.length) throw new Error('roomOps saveString: missing 0x00 terminator');
-      slot.pc++;
-      vm.annotate(`roomOps saveString slot=${a} len=${slot.pc - start - 1} (stub)`);
-      return;
-    }
-    case 0x0e: {
-      // loadString: a, then NUL-terminated string
-      const a = readVarOrByte(subop, 1, slot, vm.vars);
-      const start = slot.pc;
-      while (slot.pc < slot.bytecode.length && slot.bytecode[slot.pc] !== 0) slot.pc++;
-      if (slot.pc >= slot.bytecode.length) throw new Error('roomOps loadString: missing 0x00 terminator');
-      slot.pc++;
-      vm.annotate(`roomOps loadString slot=${a} len=${slot.pc - start - 1} (stub)`);
-      return;
-    }
+    case 0x0d:
+      // saveString / loadString — disk-I/O strings (save filenames etc.),
+      // never used by MI1 and not modelled. Halt loudly so a hit is caught
+      // immediately rather than silently dropping the I/O.
+      throw new Error('roomOps: saveString (subop 0x0D) not implemented (no MI1 use)');
+    case 0x0e:
+      throw new Error('roomOps: loadString (subop 0x0E) not implemented (no MI1 use)');
     default:
       throw new Error(
         `roomOps: unknown subop 0x${action.toString(16).padStart(2, '0')} (raw=0x${subop.toString(16)})`,
