@@ -445,7 +445,7 @@ a backstop, not the exact count; bumped to 60 with the cause noted in the test.
   **base level** (no open `cutScene`). Our `abortCutscene` wrongly required an
   active cutscene frame. Fixed to skip whichever slot holds an armed `overridePc`
   (faithful: SCUMM keys the override by stack level, base level included). →
-  [CUTSCENES §4](pages/docs/scumm/cutscenes.md). *(In-browser confirm pending.)*
+  [CUTSCENES §4](pages/docs/scumm/cutscenes.md). Confirmed working in-browser.
 - **English CD release (MP3 tracks).** `games/MI1-EN-CD-DOS-VGA` ships the music
   as `TrackN.mp3`. Added `mp3DurationJiffies` (Xing/Info frame count, CBR
   fallback) + a content-dispatching `audioDurationJiffies` (FLAC vs MP3 by
