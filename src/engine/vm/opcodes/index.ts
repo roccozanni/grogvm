@@ -1155,6 +1155,13 @@ function drawObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   // this one, so only the most-recently-drawn frame shows — matching the
   // strip overwrite. Exact-box match (not overlap) keeps a legitimately
   // distinct object — an item resting over a larger fixture — untouched.
+  //
+  // Erasing the previous frame ALSO reverts its state to 0: the overdrawn
+  // object is no longer on screen, so `getObjectState` must report it hidden.
+  // The prison's rat-hole animation (room 31 #207) relies on this — it cycles
+  // a hole's three same-box frames by re-picking a random one whose state is 0
+  // and drawing it; without the state reset all three latch at state 1 after
+  // one pass and the picker spins forever with no state-0 frame to draw.
   const drawn = vm.loadedRoom?.objects.get(obj);
   if (drawn) {
     // Compare effective (runtime SO_AT, else IMHD) boxes — the forest tiles
@@ -1172,6 +1179,7 @@ function drawObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
       const o = box(otherId, other.imhd);
       if (o.x === b.x && o.y === b.y && o.width === b.width && o.height === b.height) {
         vm.objectDrawQueue.delete(otherId);
+        vm.objectStates.set(otherId, 0);
       }
     }
   }
