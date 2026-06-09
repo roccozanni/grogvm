@@ -1147,8 +1147,9 @@ register(0xdd, actorSetClassHandler);
 // scripts — likely "use defaults" markers; we accept them silently
 // rather than halting, since they consume no further bytes.
 //
-// We're a stub until the object compositor lands; honour the byte
-// shape and update object state on `setImage`.
+// Fully wired to the object compositor: SO_AT repositions (vm.objectDrawPositions),
+// SO_IMAGE sets the state image, and every form queues the object for drawing
+// and sets its state (see the per-subop handling below).
 function drawObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const obj = readVarOrWord(opcode, 1, slot, vm.vars);
   // v5 drawObject carries exactly ONE sub-operation byte (NOT a
@@ -2186,10 +2187,10 @@ register(0xd3, actorOpsHandler);
 // "bits 0..4 select action, bits 7/6/5 select per-arg mode" pattern.
 //
 // Subops mutate `vm.verbs` — the verb-bar renderer iterates that map
-// each frame. Image-based verb sprites (subop 0x01 setImage) and
-// string-resource names (subop 0x14 setNameStr) remain stubs: those
-// need an object-image / string-resource hand-off that hasn't landed.
-// Both are rare in MI1's verb bar (which uses plain text names).
+// each frame. Both image-based verb sprites (subop 0x01 setImage → stores the
+// object binding the verb bar composites) and string-resource names (subop
+// 0x14 setNameStr → copies a stringOps buffer into the verb name, e.g. the
+// insult-duel menus) are wired; most MI1 verbs are plain inline text names.
 function verbOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const verbId = readVarOrByte(opcode, 1, slot, vm.vars);
   const subops: string[] = [];
