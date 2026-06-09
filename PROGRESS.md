@@ -16,10 +16,10 @@ Lean tracker. Two buckets:
 
 Playing MI1 from boot and fixing each blocker engine-faithfully (committed on
 `main`). **Unit suite green + tsc clean**, plus a data-gated, from-boot
-integration playthrough (`npm run test:integration`). The whole of **Part I is
-playable end-to-end** — intro, the three-trials setup, the kitchen/circus/shops
-loop, the forest maze, and the insult-swordfighting grind up to the Sword Master
-gate (see Frontier below).
+integration playthrough (`npm run test:integration`). **All of Part I now plays
+end-to-end from boot** — intro, the three trials (insult-swordfighting, the
+buried treasure, and the idol theft), then the Sheriff's catch, the underwater
+escape, and the docks vow that opens Part II (see Frontier below).
 
 **Working principle (agreed 2026-06-02):** no hacks/shortcuts — every change is
 the final, SCUMM-faithful solution. Confirm the real mechanism first (disassemble
@@ -44,71 +44,32 @@ written by the ALWAYS-LAST `frontier` beat and regenerated each green run) sits 
 clean state — currently the Mêlée docks (room 83), surfaced from the sea with the rescue vowed (bit#304).
 
 **Frontier: Part I is COMPLETE — all three trials done (sword + treasure + idol), the Governor
-kidnapped, and Guybrush has vowed to get a crew + ship to rescue her (bit#304). 47/47 green from boot.**
-Next: Part II — find a ship (Stan's used vessels) and a crew. The thievery trial + Part-I wrap-up are now
-fully in the net: dogs → mansion gauntlet → Otis's cake/file → grab the idol → caught by the Sheriff →
-dumped in the sea → recover the idol → auto-escape up the ladder → the docks vow.
-The idol-theft route as built (each a from-boot beat): **(a)** enter the mansion + trip the right-door
-gauntlet for the loot → **(b)** prison: talk Otis → buy the mint → give Otis mint + rat repellent for
-the cake → open it for the file → **(c)** back to the mansion, Walk to the hole (spioncino #637) with
-the file → grab cutscene #211 → the idol (#635) → **(d)** the grab chains into the Sheriff/Governor
-catch (#212; pick any excuse + the smitten-stammer menus), control returns, then leaving via door #633
-with the idol fires the Sheriff block (#217) — taunt #122 "stai bloccando l'uscita" → thrown in the
-harbor (rooms 53→83→42) → Pick up the sea idol (#578) → **(e)** the pickup auto-climbs the ladder up to
-the docks (room 83); the kidnapping conversation runs and the vow "Andrò a procurarmi un equipaggio ed
-una nave" (#123) sets bit#304 = Part I done. ALL DONE.
-Routes + mechanics live in the walkthrough beats and `game.ts` helpers, not here. Findings worth keeping:
+kidnapped, and Guybrush has vowed to get a crew + ship to rescue her (bit#304). The whole from-boot
+net is green.** The clean fast-forward save sits on the Mêlée docks (room 83), quest vowed. The full
+Part-I arc (dogs → mansion gauntlet → Otis's cake/file → grab the idol → Sheriff catch → the sea →
+recover the idol → auto-escape → the docks vow) is in the net; routes + mechanics live in the
+walkthrough beats and `game.ts` helpers, not here.
 
-- **Into the mansion:** dogs-asleep (#201) lifts the dog-pen box lock and sets the gate door's class,
-  so gate door #465 now opens (Open → global #25 → state 1) and Walk-to → `loadRoomWithEgo room=53`.
-  Inside, the right-hand door #632 — opened, then Walk-to — runs the gauntlet cutscene (local #210),
-  which arms the joke items and hands ego four of them (#640 rat repellent, #641 style manual, #642
-  wax lips, #643 staple remover) before returning control.
-- **Grabbing the idol:** the idol #635 is NOT directly pickable (verbs 8/90/91 only), and the broken
-  window #638's own verbs are dead ends ("careful not to cut myself"). The hole you go through is the
-  **spioncino #637** (its only verb is 11/walk-to): a bare click runs verb-11, which checks ego holds
-  the file then `startScript 211` — the grab cutscene reaches through the gauntlet and `pickupObject`s
-  the idol. (Confirmed by driving; the disasm of #637's class gate reads inverted vs the executing
-  engine — ground truth is the run.)
-- **The Sheriff catch + the sea.** The grab cutscene #211 chains straight into the catch #212 (it does
-  NOT wait for a manual exit): the Sheriff + Governor confront ego with an excuse menu, then the
-  smitten-stammer cascade in the Governor's close-up (room 23) — all don't-care options. Only AFTER
-  that does control return in the mansion AND #215 reposition ego near the door. THEN leaving via door
-  #633 (Open) with the idol runs #217 (Fester blocks the exit); its taunt menu's #122 "stai bloccando
-  l'uscita" provokes the throw (rooms 53→83→42). (A plain Open *before* finishing the convo can't fire
-  #217 — ego is parked far right by the grab and can't path to the door yet; that earlier dead-end was
-  the convo not being complete, not a bug.) In the sea (room 42) the idol is a fresh object #578 with a
-  real Pick up verb — grab it for the prize.
-- **The prison (Otis) leg.** Talking to Otis (#405/actor 4) sets bit#420 and returns control with no
-  menu — his breath complaint IS the trigger; bit#420 unlocks the store shopkeeper's "Avrei bisogno
-  d'una mentina" line (verb 124, 1 piece of eight → mint #395). Otis DEFAULTS to class 6 (death-breath);
-  giving him the mint CLEARS class 6, and his give-handler (verb-80 → room-local #203) only takes the
-  repellent once class 6 is clear — then he hands over the cake (#420). **Opening the cake** sets class 3
-  and clears class 6 (`actorSetClass [6,131]` = clear-6, set-3, since 131 = 0x80|3), renaming it
-  "la lima" — that class-3 flip is the file marker the beat asserts (the disasm read these inverted; the
-  executing engine is ground truth — #203/#420 are in the misaligning ~13%).
-- **Rat-animation drawObject fix (committed engine fix, confirmed in-browser).** Entering the prison
-  froze the VM: room 31's three #207 loops animate a rat-hole by re-picking one of its three same-box
-  frames whose state is 0 and drawing it — but our `drawObject` set each drawn frame to state 1 and
-  never reverted the previous, so after one pass all three latched at state 1 and the picker spun (100k-
-  step guard). Fix (`opcodes/index.ts` `drawObjectHandler`): the same-box eviction we already do now
-  ALSO reverts the overdrawn object's state to 0 (erased = hidden), sustaining the loop. Unit-pinned in
-  `phase8.test.ts`; 892 unit + 44 integration green.
+> **NEXT SESSION — start Part II.** Guybrush needs a *ship* (Stan's used vessels) and a *crew*.
+> Restore the frontier save to land on the docks, then extend the net beat by beat from boot the same
+> way (one seeded VM; develop each beat by fast-forwarding the frontier save, then fold it in). First
+> scouting step: from the docks, find the route to Stan's ship-yard and the crew (the Voodoo Lady /
+> the SCUMM Bar pirates) — disassemble first, drive headless, assert mechanics not strings.
 
-- **The petal:** in the flower screen (`g4==215`) Pick up the plant #678 → its verb-9
-  `pickupObject`s #689 ("il petalo giallo") into inventory; #689 itself carries no Pick up verb, and
-  every other forest screen's flowers are red (refused). Drug the meat by **Use petal with meat**
-  (#566's verb-7 sets the drugged class + runs global #182: renames it "la carne condita", consumes
-  the petal), then **Give** the drugged meat to the dogs (#467) — *Give*, not *Use*, is the verb that
-  reaches the feed branch (#80 → room-local #201), which checks the drugged class and sets bit#15.
-- **getDist box-clamp fix (committed-worthy engine fix).** "Give meat to dogs" aborted with "Non
-  riesco ad arrivarci": room 36's ENCD locks boxes 1–6 (the dog-pen sleep-gate), the dogs' walk-to
-  (140,132) sits in locked box 6, so the ego clamps to box 8's edge (x=191) and the sentence-#2
-  proximity gate (`getDist >= 32`) failed at dist 51. Fix: `getDistHandler` now mirrors SCUMM's
+Two engine fixes made along this arc (kept here until folded into `pages/docs/`):
+
+- **Rat-animation drawObject fix (confirmed in-browser).** Entering the prison (room 31) froze the VM:
+  its three #207 loops animate a rat-hole by re-picking one of the hole's three same-box frames whose
+  state is 0 and drawing it — but `drawObject` set each drawn frame to state 1 and never reverted the
+  previous, so after one pass all three latched and the picker spun (100k-step guard). Fix
+  (`opcodes/index.ts` `drawObjectHandler`): the same-box eviction now ALSO reverts the overdrawn
+  object's state to 0 (erased = hidden), sustaining the loop. Unit-pinned in the opcode test file.
+- **getDist box-clamp fix (confirmed in-browser).** "Give meat to dogs" aborted with "Non riesco ad
+  arrivarci": the dogs' walk-to sits in a locked box, so ego clamps to a far box edge and the
+  sentence-#2 proximity gate (`getDist >= 32`) failed. Fix: `getDistHandler` mirrors SCUMM's
   `getObjActToObjActDist` — it clamps an OBJECT's point into the box the ACTOR can reach
-  (`clampPointToBoxes` over `effectiveBoxes`) before measuring, so the gate passes once the ego is as
-  close as the open boxes allow. No-op for objects whose walk-to is already in a visible box.
-  Confirmed in-browser by the user; 892 unit + 40 integration green.
+  (`clampPointToBoxes` over `effectiveBoxes`) before measuring. No-op for objects whose walk-to is
+  already in a visible box.
 
 **Testkit debt — `pushSentence` shortcuts (flagged at each call site).** A few beats commit a
 sentence directly because the faithful click flow can't drive the gesture headlessly. Re-assessed
