@@ -47,6 +47,7 @@ function loadUpState(vm: Vm): void {
   vm.objectDrawQueue.add(300);
   vm.objectDrawQueue.add(303);
   vm.drawnBoxes.push({ left: 0, top: 0, right: 319, bottom: 199, color: 7 });
+  vm.shakeEnabled = true;
 
   // Room / camera.
   vm.currentRoom = 33;
@@ -181,6 +182,7 @@ describe('save-state — synthetic round-trip', () => {
     expect(vm2.snapshotTalkQueue().pages).toEqual(['pagina 2', 'pagina 3']);
 
     expect(vm2.drawnBoxes).toEqual([{ left: 0, top: 0, right: 319, bottom: 199, color: 7 }]);
+    expect(vm2.shakeEnabled).toBe(true);
 
     const ego = vm2.actors.get(3);
     expect(ego.x).toBe(160);

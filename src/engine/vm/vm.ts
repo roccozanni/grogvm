@@ -436,6 +436,15 @@ export class Vm {
    */
   readonly drawnBoxes: DrawnBox[] = [];
   /**
+   * Screen-shake toggle, set by `roomOps shakeOn`/`shakeOff` (0x33 subops
+   * 0x05/0x06). SCUMM jolts the whole virtual screen vertically each frame
+   * while on; the renderer reads this flag to apply the jitter. Cleared on
+   * room change. MI1 uses it in rooms 11 and 53. NOTE: the shake *waveform*
+   * (amplitude/timing) is engine-internal — not in the game bytecode — so the
+   * present-path jitter is a documented approximation pending in-browser tuning.
+   */
+  shakeEnabled = false;
+  /**
    * Currently-loaded room id (per the VM's view). Set by `loadRoom`
    * (0x72/0xF2) and related opcodes; consumed by the room-render path
    * once the compositor lands. Zero = no room yet.
@@ -989,6 +998,8 @@ export class Vm {
     // drawBox writes persist on the screen until the next room redraw (same
     // lifetime as the draw queue / system text below).
     this.drawnBoxes.length = 0;
+    // SCUMM stops the shake on a room change.
+    this.shakeEnabled = false;
     // Redrawing the screen for a new room erases any blasted system text
     // (signs / part-titles / credits) from the old one — they live on the
     // framebuffer, not in a persistent layer. Cleared here, before the
@@ -2269,6 +2280,7 @@ export class Vm {
     this.objectDrawQueue.clear();
     this.objectDrawPositions.clear();
     this.drawnBoxes.length = 0;
+    this.shakeEnabled = false;
     this.currentRoom = 0;
     this.frameAccumulator = 0;
     this.loadedRoom = null;

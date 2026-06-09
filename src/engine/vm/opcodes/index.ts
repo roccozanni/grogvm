@@ -2085,8 +2085,9 @@ function actorOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
         break;
       }
       case 0x0f:
-        // observed in MI1 boot following setCostume — wiki doesn't
-        // list this subop; treated as no-arg no-op for now.
+        // SO_ACTOR_VARIABLE-adjacent no-arg subop, seen in MI1 boot after
+        // setCostume. Confirmed a genuine no-op (no args, no state) — accept
+        // and continue.
         ops.push('subop0F');
         break;
       case 0x10: {
@@ -2569,6 +2570,33 @@ register(0xcc, (vm, slot) => {
   vm.annotate(`pseudoRoom realRoom=${id} aliases=[${mapped.join(',')}]`);
 });
 
+// Scale palette entries [start..end] per channel against the room's BASE
+// CLUT (vm.basePalette), writing the live palette the compositor reads. This
+// is SCUMM's darkenPalette/colorIntensityRange: each channel of entry i becomes
+// `base * scale / 255`, CLAMPED to 255 — scales > 255 BRIGHTEN (the Voodoo
+// Lady's reveal pulses room 29's ranges with scales of 500/900 = ×2/×3.5 to
+// flash blue/green/red/white). Scaling from the base (not the live palette)
+// makes a fade-out→fade-in restore exactly. Shared by roomIntensity (one scale
+// for all three channels) and setRGBRoomIntensity (per-channel).
+function scalePaletteRange(
+  vm: Vm,
+  rScale: number,
+  gScale: number,
+  bScale: number,
+  start: number,
+  end: number,
+): void {
+  const live = vm.loadedRoom?.palette;
+  const base = vm.basePalette;
+  if (!live || !base) return;
+  const scales = [rScale, gScale, bScale];
+  for (let i = Math.max(0, start); i <= end && i < 256; i++) {
+    for (let k = 0; k < 3; k++) {
+      live[i * 3 + k] = Math.min(255, Math.floor((base[i * 3 + k]! * scales[k]!) / 255));
+    }
+  }
+}
+
 // ─── 0x33 / 0x73 / 0xB3 / 0xF3  roomOps ──────────────────────────────
 // Multi-subop opcode for room-level effects: scrolling, screen
 // transitions, palette manipulation, shake, save/load string. For
@@ -2633,10 +2661,12 @@ function roomOpsHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
       return;
     }
     case 0x05:
-      vm.annotate('roomOps shakeOn (stub)');
+      vm.shakeEnabled = true;
+      vm.annotate('roomOps shakeOn');
       return;
     case 0x06:
-      vm.annotate('roomOps shakeOff (stub)');
+      vm.shakeEnabled = false;
+      vm.annotate('roomOps shakeOff');
       return;
     case 0x08: {
       // roomIntensity (SO_ROOM_INTENSITY → darkenPalette): scale, start, end
@@ -2650,15 +2680,7 @@ function roomOpsHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
       const scale = readVarOrByte(subop, 1, slot, vm.vars);
       const start = readVarOrByte(subop, 2, slot, vm.vars);
       const end = readVarOrByte(subop, 3, slot, vm.vars);
-      const live = vm.loadedRoom?.palette;
-      const base = vm.basePalette;
-      if (live && base) {
-        for (let i = Math.max(0, start); i <= end && i < 256; i++) {
-          for (let k = 0; k < 3; k++) {
-            live[i * 3 + k] = Math.floor((base[i * 3 + k]! * scale) / 255);
-          }
-        }
-      }
+      scalePaletteRange(vm, scale, scale, scale, start, end);
       vm.annotate(`roomOps roomIntensity scale=${scale} range=${start}..${end}`);
       return;
     }
@@ -2691,15 +2713,20 @@ function roomOpsHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
       return;
     }
     case 0x0b: {
-      // setRGBRoomIntensity (colorIntensityRange): rs, gs, bs (3 words)
-      // then a second subop reads two bytes (lo, hi).
+      // setRGBRoomIntensity (colorIntensityRange): rs, gs, bs (3 words) then a
+      // second subop byte carrying the range args lo, hi (var-or-byte). Scales
+      // entries [lo..hi] per channel against the base CLUT. MI1 room 29's
+      // Voodoo-Lady reveal pulses this with scales like (50,50,500) /
+      // (500,50,50) / (900,900,900) — dim two channels, boost one → blue/red/
+      // white flashes across the two palette halves (17..207, 208..255).
       const rs = readVarOrWord(subop, 1, slot, vm.vars);
       const gs = readVarOrWord(subop, 2, slot, vm.vars);
       const bs = readVarOrWord(subop, 3, slot, vm.vars);
       const sub2 = readU8(slot);
       const lo = readVarOrByte(sub2, 1, slot, vm.vars);
       const hi = readVarOrByte(sub2, 2, slot, vm.vars);
-      vm.annotate(`roomOps setRGBRoomIntensity (${rs},${gs},${bs}) ${lo}..${hi} (stub)`);
+      scalePaletteRange(vm, rs, gs, bs, lo, hi);
+      vm.annotate(`roomOps setRGBRoomIntensity (${rs},${gs},${bs}) ${lo}..${hi}`);
       return;
     }
     case 0x0d: {

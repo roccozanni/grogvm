@@ -118,6 +118,7 @@ export interface SaveState {
   readonly objectDrawQueue: ReadonlyArray<number>;
   readonly objectDrawPositions: ReadonlyArray<[number, { x: number; y: number }]>;
   readonly drawnBoxes: ReadonlyArray<{ left: number; top: number; right: number; bottom: number; color: number }>;
+  readonly shakeEnabled: boolean;
 
   // ── Room / camera ───────────────────────────────────────────────
   readonly currentRoom: number;
@@ -288,6 +289,7 @@ export function snapshotVm(vm: Vm, meta?: { game?: string; label?: string; saved
     objectDrawQueue: [...vm.objectDrawQueue],
     objectDrawPositions: [...vm.objectDrawPositions].map(([id, p]) => [id, { ...p }]),
     drawnBoxes: vm.drawnBoxes.map((b) => ({ ...b })),
+    shakeEnabled: vm.shakeEnabled,
 
     currentRoom: vm.currentRoom,
     boxFlags: [...vm.boxFlagOverrides],
@@ -374,6 +376,7 @@ export function restoreVm(vm: Vm, state: SaveState): void {
   for (const [id, p] of state.objectDrawPositions) vm.objectDrawPositions.set(id, { ...p });
   vm.drawnBoxes.length = 0;
   for (const b of state.drawnBoxes) vm.drawnBoxes.push({ ...b });
+  vm.shakeEnabled = state.shakeEnabled;
 
   // Room / camera. Set currentRoom + pseudoRooms + UI overrides + box flags
   // BEFORE reloading room resources so the CLUT overrides re-apply over the

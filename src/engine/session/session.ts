@@ -50,6 +50,13 @@ const MNEMONICS_PER_SLOT_IN_FINGERPRINT = 3;
 /** All-black 256-colour palette for the brief no-room interval. */
 const BLACK_PALETTE = new Uint8Array(768);
 
+// Vertical screen-shake offsets (px) cycled per frame while `roomOps shakeOn`
+// is active — a small oscillation around rest. APPROXIMATION: SCUMM's real
+// shake table is engine-internal (not in the game bytecode), so the exact
+// amplitude/timing is a placeholder to tune in-browser; only the on/off STATE
+// is engine-faithful.
+const SHAKE_OFFSETS = [0, 2, 4, 2, 0, -2, -4, -2] as const;
+
 export function createSession(
   game: SessionGame,
   renderer: Renderer,
@@ -90,6 +97,8 @@ export function createSession(
   let lastH = -1;
   let roomScratch = new Uint8Array(320 * 200); // full-room compose buffer
   let viewScratch = new Uint8Array(320 * 200); // presented viewport slice
+  let shakeScratch = new Uint8Array(320 * 200); // vertically-jittered frame when shaking
+  let shakePhase = 0; // advances per presented frame while shakeEnabled
 
   const frameSubs = new Set<(f: FrameInfo) => void>();
 
@@ -212,6 +221,33 @@ export function createSession(
         const src = y * roomW + cameraLeft;
         fb.set(roomBuf.subarray(src, src + viewportW), y * viewportW);
       }
+    }
+
+    // Screen shake (roomOps shakeOn): jolt the finished frame vertically by a
+    // small per-frame offset. Gated on the flag, so normal frames are byte-for-
+    // byte unchanged. Content shifts up/down with the vacated band cleared to
+    // palette 0 (black). (Waveform is approximate — see SHAKE_OFFSETS.)
+    if (vm.shakeEnabled) {
+      const off = SHAKE_OFFSETS[shakePhase % SHAKE_OFFSETS.length]!;
+      shakePhase++;
+      if (off !== 0) {
+        const need = viewportW * height;
+        if (shakeScratch.length < need) shakeScratch = new Uint8Array(need);
+        const sh = shakeScratch.subarray(0, need);
+        if (off > 0) {
+          // shift content DOWN by `off` rows; top `off` rows black.
+          sh.fill(0, 0, off * viewportW);
+          sh.set(fb.subarray(0, (height - off) * viewportW), off * viewportW);
+        } else {
+          // shift content UP by `-off` rows; bottom rows black.
+          const a = -off;
+          sh.set(fb.subarray(a * viewportW, height * viewportW), 0);
+          sh.fill(0, (height - a) * viewportW, need);
+        }
+        fb = sh;
+      }
+    } else {
+      shakePhase = 0;
     }
 
     if (viewportW !== lastW || height !== lastH) {

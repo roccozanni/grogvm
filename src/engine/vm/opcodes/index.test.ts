@@ -1093,6 +1093,55 @@ describe('room-entry opcodes', () => {
     expect(vm.haltInfo).toBeNull();
   });
 
+  it('roomOps setRGBRoomIntensity scales per channel from base, clamping >255', () => {
+    const vm = makeVm();
+    const palette = new Uint8Array(768);
+    const base = new Uint8Array(768);
+    base[0] = 200; base[1] = 100; base[2] = 50; // entry 0
+    base[3] = 80; base[4] = 40; base[5] = 20; // entry 1
+    (vm as unknown as { loadedRoom: object }).loadedRoom = {
+      id: 29, width: 320, height: 200, numObjects: 0, palette,
+      transparentIndex: null, indexed: new Uint8Array(0), stripMethods: [],
+      zPlanes: [], entryScript: null, exitScript: null,
+      localScripts: new Map(), objects: new Map(), walkBoxes: [],
+      boxMatrix: [], scaleSlots: [],
+    };
+    vm.basePalette = base;
+    // setRGBRoomIntensity (50,50,500) range 0..1: dim R/G to ~20%, boost B ~2x.
+    // sub2=0x00 → lo,hi direct bytes. 500 = 0x01F4.
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(0x33, 0x0b, 0x32, 0x00, 0x32, 0x00, 0xf4, 0x01, 0x00, 0x00, 0x01, 0xa0),
+    });
+    vm.step();
+    vm.step();
+    // entry0 (200,100,50): R=200*50/255=39, G=100*50/255=19, B=50*500/255=98
+    // entry1 (80,40,20):   R=15, G=7, B=20*500/255=39
+    expect([...palette.slice(0, 6)]).toEqual([39, 19, 98, 15, 7, 39]);
+
+    // (900,900,900) on entry 0 — rescales from BASE; R/G overflow → clamp 255.
+    vm.startScript({
+      scriptId: 2,
+      bytecode: bytes(0x33, 0x0b, 0x84, 0x03, 0x84, 0x03, 0x84, 0x03, 0x00, 0x00, 0x00, 0xa0),
+    });
+    vm.step();
+    vm.step();
+    // entry0: R=200*900/255=705→255, G=100*900/255=352→255, B=50*900/255=176
+    expect([...palette.slice(0, 3)]).toEqual([255, 255, 176]);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  it('roomOps shakeOn/shakeOff toggles vm.shakeEnabled', () => {
+    const vm = makeVm();
+    expect(vm.shakeEnabled).toBe(false);
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x33, 0x05, 0x33, 0x06, 0xa0) });
+    vm.step(); // shakeOn
+    expect(vm.shakeEnabled).toBe(true);
+    vm.step(); // shakeOff
+    expect(vm.shakeEnabled).toBe(false);
+    expect(vm.haltInfo).toBeNull();
+  });
+
   it('isSoundRunning always returns 0 (audio stubbed)', () => {
     const vm = makeVm();
     vm.startScript({ scriptId: 1, bytecode: bytes(0x7c, 0x00, 0x00, 0x09) });
