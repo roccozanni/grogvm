@@ -508,6 +508,56 @@ export const ROOMS = {
     /** `bit#15` — the dogs-asleep flag (#201 sets it once they eat the drugged
      *  meat). The gate for getting past them into the mansion. */
     dogsAsleepBit: 15,
+    /**
+     * "la porta" (#465) — the mansion gate door. Once the dogs are drugged
+     * asleep (#201 unlocks the pen boxes + sets the door's class), Open it
+     * (verb 2 → global #25 swings it to state 1) then Walk to it (verb 11 →
+     * `loadRoomWithEgo obj=633 room=53`) to step into the mansion interior
+     * ({@link governorInterior}).
+     */
+    door: 465,
+  },
+
+  /**
+   * The Governor's mansion interior (room 53), entered through the gate door
+   * ({@link governorMansion}'s `door`, ego arrives at the interior door #633).
+   * The idol ("l'idolo favoloso", #635) sits behind a booby-trap gauntlet; the
+   * thievery trial plays out here across several cutscenes (grab via the hole,
+   * the Sheriff's catch).
+   */
+  governorInterior: {
+    id: 53,
+    /**
+     * "la porta" (#633) — the interior side of the gate door, back out to the
+     * mansion gate ({@link governorMansion}, room 36). Verb 2 branches: if ego
+     * already holds the idol (#635) it runs the Sheriff catch (#217) instead of
+     * letting you leave.
+     */
+    entryDoor: 633,
+    /**
+     * "la porta" (#632) — the right-hand door. Open it (verb 2), then Walk to
+     * it (verb 11): with the door open its verb-11 runs the booby-trap gauntlet
+     * cutscene (local #210), which arms the joke items and hands ego four of
+     * them — {@link styleManual} #641, {@link waxLips} #642, {@link
+     * stapleRemover} #643 and {@link ratRepellent} #640 — then returns control.
+     */
+    rightDoor: 632,
+    /** "la finestra rotta" (#638) — the broken window / hole in the wall. In its
+     *  base state every verb just warns "careful not to cut myself"; it arms into
+     *  the idol-grab cutscene (#211) once ego holds the file. */
+    brokenWindow: 638,
+    /** "l'idolo favoloso" (#635) — the idol, the thievery-trial prize. Not
+     *  directly pickable; the grab cutscene #211 `pickupObject`s it. */
+    idol: 635,
+    /** "il repellente per roditori" (#640) — rat repellent; one of the gauntlet
+     *  items, traded to Otis in the prison for the cake. */
+    ratRepellent: 640,
+    /** "Il Manuale dello Stile" (#641) — gauntlet joke item. */
+    styleManual: 641,
+    /** "le labbra di cera" (#642) — gauntlet joke item. */
+    waxLips: 642,
+    /** "il togli-graffette" (#643) — gauntlet joke item. */
+    stapleRemover: 643,
   },
 
   /**

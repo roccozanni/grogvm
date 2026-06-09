@@ -41,13 +41,25 @@ action waits on `waitReady`, then asserts via named condition-waiters (`waitPick
 the *printing-sentence-blocks-the-next* finding → [INPUT §5](pages/docs/scumm/input.md).
 A clean fast-forward save (`saves/MI1-walkthrough-frontier.websave.json`, gitignored,
 written by the ALWAYS-LAST `frontier` beat and regenerated each green run) sits at the furthest
-clean state — currently the Governor's mansion gate (room 36) with the guard dogs drugged asleep.
+clean state — currently inside the Governor's mansion (room 53) with the gauntlet's joke loot in hand.
 
 **Frontier: Part I's swordfighting + treasure trials are COMPLETE; the thievery trial is under way —
-the mansion's guard dogs are drugged asleep (bit#15) and ego is at the mansion gate (room 36),
-40/40 green from boot. Next: slip into the mansion and steal the idol**, extending the net the same
-way (one seeded VM, beat by beat). Routes + mechanics live in the walkthrough beats and `game.ts`
-helpers, not here. Two findings worth keeping:
+ego has slipped past the drugged dogs into the mansion (room 53) and tripped the booby-trap gauntlet,
+which dropped four joke items into inventory (incl. the rat repellent #640), 41/41 green from boot.**
+The full idol-theft route (confirmed in the bytecode, being built beat by beat): **(a)** enter the
+mansion + trip the right-door gauntlet for the loot [DONE] → **(b)** out to the prison, give Otis the
+rat repellent for a cake, open the cake → file → **(c)** back to the mansion, through the hole in the
+wall (broken window #638) → grab cutscene #211 → the idol (#635) → **(d)** exit with the idol → door
+#633 fires the Sheriff catch (#217: Fester actor 9 + Governor actor 10, an excuse dialog menu) → thrown
+in the sea → pick up the idol = trial complete. Routes + mechanics live in the walkthrough beats and
+`game.ts` helpers, not here. Findings worth keeping:
+
+- **Into the mansion:** dogs-asleep (#201) lifts the dog-pen box lock and sets the gate door's class,
+  so gate door #465 now opens (Open → global #25 → state 1) and Walk-to → `loadRoomWithEgo room=53`.
+  Inside, the right-hand door #632 — opened, then Walk-to — runs the gauntlet cutscene (local #210),
+  which arms the joke items and hands ego four of them (#640 rat repellent, #641 style manual, #642
+  wax lips, #643 staple remover) before returning control. The idol #635 is NOT directly pickable
+  (verbs 8/90/91 only); the grab is the #211 cutscene, armed via the broken window once you hold the file.
 
 - **The petal:** in the flower screen (`g4==215`) Pick up the plant #678 → its verb-9
   `pickupObject`s #689 ("il petalo giallo") into inventory; #689 itself carries no Pick up verb, and

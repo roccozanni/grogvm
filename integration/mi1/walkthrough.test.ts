@@ -780,6 +780,36 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     expect(vm.haltInfo).toBeNull();
   });
 
+  beat("I · Governor's mansion — slip inside and trip the booby-trap gauntlet for the joke loot", () => {
+    const ego = vm.vars.readGlobal(VAR_EGO);
+    const mansion = ROOMS.governorMansion;
+    const inside = ROOMS.governorInterior;
+
+    // Dogs down: the gate door (#465) now opens — the dog-feed #201 lifted the
+    // pen-box lock and set the door's class. Open it, then walk through →
+    // `loadRoomWithEgo room=53` lands ego at the interior door (#633).
+    use(vm, VERBS.open, mansion.door);
+    walkTo(vm, mansion.door);
+    expect(driveToRoom(vm, inside.id, { maxTicks: 14000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+
+    // The idol sits behind a booby-trap gauntlet. The right-hand door (#632),
+    // once opened, runs the gauntlet cutscene (local #210) on Walk-to: it arms
+    // the four joke items and drops them into ego's hands, then hands control
+    // back. The rat repellent (#640) is the one we'll trade Otis for the cake.
+    const loot = [inside.ratRepellent, inside.styleManual, inside.waxLips, inside.stapleRemover];
+    for (const item of loot) expect(vm.getObjectOwner(item)).not.toBe(ego);
+    use(vm, VERBS.open, inside.rightDoor);
+    walkTo(vm, inside.rightDoor);
+    expect(
+      driveUntil(vm, (v) => v.getObjectOwner(inside.ratRepellent) === ego, { maxTicks: 40000 }),
+    ).toBe(true);
+    for (const item of loot) expect(vm.getObjectOwner(item)).toBe(ego);
+    expect(vm.currentRoom).toBe(inside.id);
+    expect(waitPlayable(vm)).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
   // ALWAYS THE LAST BEAT: snapshot the furthest clean playable state to a save so
   // the NEXT frontier's beats can be developed by fast-forwarding here
   // (restoreSave) instead of re-driving from boot — the regression net itself
@@ -791,11 +821,12 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       'saves/MI1-walkthrough-frontier.websave.json',
       JSON.stringify(snapshotVm(vm, { game: 'MI1', label: 'walkthrough-frontier' })),
     );
-    // Furthest clean point so far: the Governor's mansion gate (36) with the
-    // guard dogs drugged asleep (bit#15) — swordfighting + treasure trials
-    // passed, thievery trial under way and the dogs are down, ready to slip
-    // into the mansion.
-    expect(vm.currentRoom).toBe(ROOMS.governorMansion.id);
+    // Furthest clean point so far: inside the Governor's mansion (room 53),
+    // dogs drugged asleep behind us and the booby-trap gauntlet's four joke
+    // items in hand — swordfighting + treasure trials passed, thievery trial
+    // under way, next stop the prison to trade Otis the rat repellent.
+    expect(vm.currentRoom).toBe(ROOMS.governorInterior.id);
     expect(vm.vars.readBit(ROOMS.governorMansion.dogsAsleepBit)).toBe(1);
+    expect(vm.getObjectOwner(ROOMS.governorInterior.ratRepellent)).toBe(vm.vars.readGlobal(VAR_EGO));
   });
 });
