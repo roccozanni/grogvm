@@ -113,13 +113,15 @@ describe('disasm — single instructions', () => {
     expect(loadFlObject[1]!.text).toBe('breakHere');
   });
 
-  it('reads stringOps loadString raw to NUL — escapes are NOT 2-byte args here', () => {
-    // `loadString id=48 "in \xff\x07?"` then breakHere. The engine copies a
-    // stored string verbatim to the NUL; the 0xFF 0x07 must NOT consume the
-    // following '?' + NUL as an escape argument (which would swallow the
-    // breakHere). Mirrors MI1 global #154.
+  it('reads stringOps loadString escape-aware — an escape arg byte of 0x00 is NOT the terminator', () => {
+    // `loadString id=48 "in \xff\x07?"` then breakHere. The string embeds a
+    // 0xFF 0x07 (string-var substitution) whose 2-byte argument's second byte
+    // is 0x00; a raw scan-to-NUL would stop there and mis-decode the rest. The
+    // escape-aware reader skips the arg, finds the real NUL after '?', and the
+    // breakHere decodes cleanly. This is exactly MI1 #154's copy-protection
+    // question string (whose mis-read produced a phantom drawBox/putActor).
     const out = disassemble(
-      bytes(0x27, 0x01, 0x30, 0x69, 0x6e, 0x20, 0xff, 0x07, 0x3f, 0x00, 0x80),
+      bytes(0x27, 0x01, 0x30, 0x69, 0x6e, 0x20, 0xff, 0x07, 0x21, 0x00, 0x3f, 0x00, 0x80),
     );
     expect(out[0]!.text).toBe('stringOps loadString id=48 "in \\xff\\x07?"');
     expect(out[1]!.text).toBe('breakHere');

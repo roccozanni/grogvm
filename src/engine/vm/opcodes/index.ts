@@ -2923,18 +2923,18 @@ register(0x27, (vm, slot) => {
   const action = subop & 0x1f;
   switch (action) {
     case 0x01: {
-      // loadString: resId (var-or-byte), then NUL-terminated ASCII.
+      // loadString: resId (var-or-byte), then a SCUMM string. The string can
+      // embed 0xFF escape sequences whose control codes (>= 4) carry a 2-byte
+      // argument — a raw scan-to-NUL would stop at the first 0x00 even when
+      // it's an inner argument byte, truncating the string and desyncing the
+      // PC. readScummString skips escape args to find the true terminator.
+      // The copy-protection quiz (#154) is the case: its question string
+      // embeds `\xFF\x07` (string-var substitution) whose 2-byte arg's second
+      // byte is 0x00, so a raw scan ended the string 2 bytes early and then
+      // mis-decoded the following bytes (a phantom drawBox / putActor) instead
+      // of the answer-option loadStrings (Antigua, Barbados, …).
       const id = readVarOrByte(subop, 1, slot, vm.vars);
-      const start = slot.pc;
-      while (slot.pc < slot.bytecode.length && slot.bytecode[slot.pc] !== 0) {
-        slot.pc++;
-      }
-      const end = slot.pc;
-      if (slot.pc >= slot.bytecode.length) {
-        throw new Error('stringOps loadString: missing 0x00 terminator');
-      }
-      slot.pc++; // consume the terminator
-      const text = slot.bytecode.slice(start, end);
+      const text = readScummString(slot);
       vm.strings.set(id, text);
       vm.annotate(`stringOps loadString id=${id} len=${text.length}`);
       return;

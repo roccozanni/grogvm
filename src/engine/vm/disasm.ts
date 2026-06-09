@@ -603,7 +603,7 @@ class Decoder {
   private stringSub(): string {
     const s = this.u8();
     const lo = s & 0x1f;
-    if (lo === 1) return `loadString id=${this.p8(s, 1)} "${this.rawstr(0)}"`;
+    if (lo === 1) return `loadString id=${this.p8(s, 1)} "${this.cstr(0)}"`;
     if (lo === 2) return `copyString ${this.p8(s, 1)},${this.p8(s, 2)}`;
     if (lo === 3) return `writeChar ${this.p8(s, 1)},${this.p8(s, 2)},${this.p8(s, 3)}`;
     if (lo === 4) return `readChar res=${this.vref()} ${this.p8(s, 1)},${this.p8(s, 2)}`;

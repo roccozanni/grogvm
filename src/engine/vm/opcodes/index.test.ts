@@ -591,6 +591,28 @@ describe('seed opcodes — boot prefix from real MI1', () => {
       'stopObjectCode',
     ]);
   });
+
+  it('loadString is escape-aware: a 0x00 inside a 0xFF escape arg is not the terminator (MI1 #154)', () => {
+    const vm = makeVm();
+    // loadString id=48 "in \xFF\x07?" then stopObjectCode. The 0xFF 0x07
+    // (string-var substitution) carries a 2-byte arg whose 2nd byte is 0x00;
+    // a raw scan-to-NUL would stop there, store a 6-byte string, and then run
+    // the '?' (0x3F) byte as a phantom drawBox. Escape-aware reading skips the
+    // arg, ends at the real NUL, and the stopObjectCode runs.
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(
+        0x27, 0x01, 0x30, // stringOps loadString id=48
+        0x69, 0x6e, 0x20, 0xff, 0x07, 0x21, 0x00, 0x3f, 0x00, // "in \xFF\x07?" + NUL
+        0x00, // stopObjectCode
+      ),
+    });
+    while (!vm.isHalted && vm.step()) {}
+    expect(vm.isHalted).toBe(false);
+    // Stored bytes: i,n,space,0xFF,0x07,0x21,0x00,0x3F = 8 (escape + arg kept).
+    expect(vm.strings.get(48)!.length).toBe(8);
+    expect(vm.trace.map((e) => e.mnemonic)).toContain('stopObjectCode');
+  });
 });
 
 describe('seed opcodes — cursorCommand state wiring', () => {
