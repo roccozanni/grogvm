@@ -71,8 +71,8 @@ with the renderer providing an in-memory implementation for assertion.
 
 ## Where to read more
 
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** — the overall design,
-  layering, and the guiding principles the codebase tries to follow.
+- **[pages/docs/engine/architecture.md](pages/docs/engine/architecture.md)**
+  — the architecture: layers, seams, and the guiding principles.
 - **[`pages/docs/`](pages/docs/index.md)** — self-contained references
   for every binary format GrogVM has cracked open:
   [SMAP](pages/docs/scumm/smap.md) (room backgrounds),
