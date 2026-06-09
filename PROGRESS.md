@@ -154,11 +154,13 @@ Priority H/M/L = likelihood of biting current/near play × severity.
     are **GENUINE** — present in the original game. Not a bug; ignore. → [ZPLANE].
 - [ ] **M — dialog/string escape codes still deferred**
   (`decodeScummString` / `expandSubstitution`, `opcodes/index.ts:~2155`):
-  keep-text `0xFF02`, sound `0xFF09`, actor-name `0xFF0A`, mid-string colour
-  `0xFF0E` (each consumed but emits nothing). Surfaces as blank/wrong text or
-  missing inline colour in dialogue-heavy content. (Also in Stubbed opcodes
-  below.) *Done since last review:* `0x04` int, `0x05` verb-name, `0x06`
-  object/actor-name, `0x07` string-resource all expand now.
+  sound `0xFF09`, mid-string colour `0xFF0E` (consumed, emit nothing; both 0
+  uses in MI1). Mid-string colour surfaces as missing inline colour in
+  dialogue. *Done / non-gaps:* `0x04` int, `0x05` verb-name, `0x06`
+  object/actor-name, `0x07` string-resource all expand; **keep-text `0xFF02` is
+  handled** in the talk path (`decodeScummStringPages` sets keepText →
+  `addSystemText` accumulates it) — only static `decodeScummString` strips it,
+  correctly; actor-name `0xFF0A` only matters in dialogue text.
 - [ ] **L/M — `print` `clipped` line-wrap bound not modelled** (`vm.ts:~524`).
   Long lines may overflow / mis-wrap vs the original's clip-X wrapping.
 - [ ] **M — system `print` text lifetime: `restoreCharsetBg` approximated by
@@ -294,15 +296,23 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
 
 **Stubbed opcodes (cosmetic / peripheral)**
 
-- `roomOps`: `shakeOn`/`shakeOff`, `roomIntensity` / `setRGBRoomIntensity`,
-  `saveString` / `loadString`.
+- `roomOps`: `saveString` / `loadString` (disk-I/O strings, raw scan; 0 uses in
+  MI1). **DONE since this list was written:** `roomIntensity` (0x08) +
+  `setRGBRoomIntensity` (0x0B) both scale the palette from the base CLUT
+  (per-channel, clamped — room 29's Voodoo-Lady colour pulse); `shakeOn`/
+  `shakeOff` (0x05/0x06) toggle `vm.shakeEnabled` and the renderer jolts the
+  frame vertically (waveform is an approximation — engine-internal, tune
+  in-browser).
 - `cursorCommand` image subops (0x2C): `setCursorImage` / `setCursorHotspot` /
-  `setCursor`.
+  `setCursor` — 0 uses in MI1 (default crosshair).
 - `matrixOp` (0x30): `setBoxScale` / `createBoxMatrix` no-ops (`setBoxFlags`
   is implemented — per-screen box locking).
-- Dialog escape codes still deferred: keep-text `0x02`, sound `0x09`, actor
-  name `0x0A`, mid-string colour `0x0E`. (`0x04`–`0x07` now expand — see the
-  Tier-2 entry above.)
+- Dialog escape codes still deferred: sound `0x09`, mid-string colour `0x0E`
+  (both 0 uses in MI1). **keep-text `0x02` is NOT a gap** — the print path
+  (`decodeScummStringPages` → `addSystemText`) accumulates keepText lines and
+  clears transient ones; only the static `decodeScummString` (verb/object
+  names) strips it, correctly. actor-name `0x0A` similarly only matters in
+  dialogue. (`0x04`–`0x07` expand — see the Tier-2 entry above.)
 
 **Tooling**
 
