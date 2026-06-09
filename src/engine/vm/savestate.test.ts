@@ -1,12 +1,5 @@
-import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { parseResourceFile } from '../resources/file';
-import { parseIndexFile } from '../resources/index-file';
-import { parseLoff } from '../resources/loff';
-import { SCUMM_V5_XOR_KEY } from '../resources/xor';
-import { bootGame } from './boot';
 import { SEED_OPCODES } from './opcodes/index';
-import { VAR_EGO } from './vars';
 import { restoreVm, SAVE_VERSION, type SaveState, SaveStateError, snapshotVm } from './savestate';
 import type { ActiveDialog, VerbSlot } from './vm';
 import { Vm } from './vm';
@@ -221,58 +214,5 @@ describe('save-state — synthetic round-trip', () => {
     const vm = freshVm();
     const bad = { ...snapshotVm(vm), version: SAVE_VERSION + 1 } as SaveState;
     expect(() => restoreVm(freshVm(), bad)).toThrow(SaveStateError);
-  });
-});
-
-// ── Real-MI1 integration round-trip ─────────────────────────────────
-
-const INDEX = 'games/MI1-IT-CD-DOS-VGA/MONKEY.000';
-const RESOURCE = 'games/MI1-IT-CD-DOS-VGA/MONKEY.001';
-const hasData = existsSync(INDEX) && existsSync(RESOURCE);
-
-function bootMi1(): Vm {
-  const index = parseIndexFile(parseResourceFile(new Uint8Array(readFileSync(INDEX)), SCUMM_V5_XOR_KEY));
-  const res = parseResourceFile(new Uint8Array(readFileSync(RESOURCE)), SCUMM_V5_XOR_KEY);
-  return bootGame(res, index, parseLoff(res), 'MI1').vm;
-}
-
-describe.skipIf(!hasData)('save-state — real MI1 round-trip', () => {
-  it('snapshot → restore into a fresh boot reproduces the live state exactly', () => {
-    const vm = bootMi1();
-    // Drive the intro into the first interactive room (real scripts,
-    // actors, dialog, verbs — a rich, representative state).
-    for (let t = 0; t < 60000 && vm.currentRoom !== 33 && !vm.haltInfo; t++) vm.tick();
-    expect(vm.currentRoom).toBe(33);
-    expect(vm.haltInfo).toBeNull();
-    // Let it settle a few frames so dialog/verbs/actors are populated.
-    for (let i = 0; i < 24; i++) vm.tick();
-
-    const snap = snapshotVm(vm, { game: 'MI1' });
-    const json = JSON.stringify(snap);
-
-    const vm2 = bootMi1();
-    restoreVm(vm2, JSON.parse(json) as SaveState);
-
-    // The restored VM re-serializes byte-for-byte identically.
-    expect(JSON.stringify(snapshotVm(vm2, { game: 'MI1' }))).toBe(json);
-    // And key observable state matches.
-    expect(vm2.currentRoom).toBe(33);
-    expect(vm2.loadedRoom?.id).toBe(33);
-    expect(vm2.haltInfo).toBeNull();
-    const ego = vm2.vars.readGlobal(VAR_EGO);
-    expect(vm2.actors.get(ego).room).toBe(33);
-    expect(vm2.actors.get(ego).x).toBe(vm.actors.get(ego).x);
-  });
-
-  it('a restored VM keeps ticking without halting', () => {
-    const vm = bootMi1();
-    for (let t = 0; t < 60000 && vm.currentRoom !== 33 && !vm.haltInfo; t++) vm.tick();
-    expect(vm.currentRoom).toBe(33);
-
-    const vm2 = bootMi1();
-    restoreVm(vm2, JSON.parse(JSON.stringify(snapshotVm(vm))) as SaveState);
-    for (let i = 0; i < 120; i++) vm2.tick();
-    expect(vm2.haltInfo).toBeNull();
-    expect(vm2.currentRoom).toBe(33);
   });
 });

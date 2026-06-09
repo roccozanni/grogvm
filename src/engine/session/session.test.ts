@@ -1,60 +1,147 @@
 /**
- * EngineSession integration tests — headless (MemoryRenderer + ManualClock),
- * data-gated on real MI1 like mi1-smoke / savestate. Proves the loop,
- * frame production, lifecycle, and input all work without a DOM or rAF.
+ * EngineSession tests — fully synthetic (MemoryRenderer + ManualClock, a
+ * hand-built one-room game), so they run in the default data-free suite and
+ * pin the *session layer* — the loop, frame production, lifecycle, input —
+ * not any particular game. The real-game drive-through lives in
+ * `integration/mi1/session.test.ts`.
+ *
+ * The synthetic game is the minimum `bootGame` needs: a LECF with one ROOM and
+ * global script #1 (the boot script). The boot bytecode is the only knob — a
+ * yield-loop keeps a slot alive forever (the steady-state most tests want); a
+ * lone `stopObjectCode` dies immediately (the all-slots-dead path). Headless and
+ * deterministic, so unlike a real animated game it CAN settle to a stable
+ * fingerprint — which is what lets us exercise the idle auto-pause synthetically.
  */
-import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { parseResourceFile } from '../resources/file';
-import { parseIndexFile } from '../resources/index-file';
+import { parseBlocks } from '../resources/block';
 import { parseLoff } from '../resources/loff';
-import { SCUMM_V5_XOR_KEY } from '../resources/xor';
+import type { ResourceFile } from '../resources/tree';
+import type { IndexFile } from '../resources/index-file';
 import { MemoryRenderer } from '../render/memory';
 import { VAR_MOUSE_X, VAR_VIRT_MOUSE_Y } from '../vm/vars';
-import type { Vm } from '../vm/vm';
 import { createSession } from './session';
 import { ManualClock } from './clock';
-import type { EngineSession, SessionGame } from './types';
+import type { SessionGame } from './types';
 
-const INDEX = 'games/MI1-IT-CD-DOS-VGA/MONKEY.000';
-const RESOURCE = 'games/MI1-IT-CD-DOS-VGA/MONKEY.001';
-const hasData = existsSync(INDEX) && existsSync(RESOURCE);
+// ── synthetic-game builder ────────────────────────────────────────────────
+// SCUMM blocks: 4-char tag + big-endian u32 size (header included) + payload.
 
-function makeGame(): SessionGame {
-  const index = parseIndexFile(parseResourceFile(new Uint8Array(readFileSync(INDEX)), SCUMM_V5_XOR_KEY));
-  const resourceFile = parseResourceFile(new Uint8Array(readFileSync(RESOURCE)), SCUMM_V5_XOR_KEY);
-  return { resourceFile, index, loff: parseLoff(resourceFile), gameId: 'MI1' };
+function block(tag: string, payload: Uint8Array | number[] = []): Uint8Array {
+  const body = payload instanceof Uint8Array ? payload : new Uint8Array(payload);
+  const out = new Uint8Array(8 + body.length);
+  for (let i = 0; i < 4; i++) out[i] = tag.charCodeAt(i);
+  const size = out.length;
+  out[4] = (size >>> 24) & 0xff;
+  out[5] = (size >>> 16) & 0xff;
+  out[6] = (size >>> 8) & 0xff;
+  out[7] = size & 0xff;
+  out.set(body, 8);
+  return out;
 }
 
-/** Fast-forward the underlying VM into the first interactive room (room 33)
- *  WITHOUT composing every tick — keeps the test quick. We exercise the
- *  session layer from there. */
-function fastForwardToRoom33(vm: Vm): void {
-  for (let t = 0; t < 60000 && vm.currentRoom !== 33 && !vm.haltInfo; t++) vm.tick();
-  for (let i = 0; i < 24; i++) vm.tick(); // settle actors/verbs/dialog
+function concat(...bufs: Uint8Array[]): Uint8Array {
+  const out = new Uint8Array(bufs.reduce((s, b) => s + b.length, 0));
+  let off = 0;
+  for (const b of bufs) {
+    out.set(b, off);
+    off += b.length;
+  }
+  return out;
 }
 
-describe.skipIf(!hasData)('EngineSession — real MI1', () => {
-  it('step() composes the current room and presents it to the renderer', () => {
+/** Minimal decodable SMAP: one uncompressed (method 0x01) strip per 8px column. */
+function smapBody(width: number, height: number, fill: number): Uint8Array {
+  const stripCount = width / 8;
+  const offsets = stripCount * 4;
+  const strip = new Uint8Array(1 + height * 8);
+  strip[0] = 0x01;
+  strip.fill(fill, 1);
+  const out = new Uint8Array(offsets + stripCount * strip.length);
+  for (let i = 0; i < stripCount; i++) {
+    const start = offsets + i * strip.length + 8; // +8: offsets are block-relative
+    out[i * 4] = start & 0xff;
+    out[i * 4 + 1] = (start >>> 8) & 0xff;
+    out[i * 4 + 2] = (start >>> 16) & 0xff;
+    out[i * 4 + 3] = (start >>> 24) & 0xff;
+    out.set(strip, offsets + i * strip.length);
+  }
+  return out;
+}
+
+/** A recognisable (non-black) 256-colour CLUT so palette assertions have teeth. */
+function clutBody(): Uint8Array {
+  const out = new Uint8Array(768);
+  for (let i = 0; i < 256; i++) {
+    out[i * 3] = i;
+    out[i * 3 + 1] = 255 - i;
+    out[i * 3 + 2] = (i * 7) & 0xff;
+  }
+  return out;
+}
+
+const ROOM_ID = 5;
+const ROOM_W = 320;
+const ROOM_H = 144;
+/** breakHere; jump -4 → yields every frame forever, keeping the slot alive. */
+const BOOT_YIELD_LOOP = [0x80, 0x18, 0xfc, 0xff];
+/** stopObjectCode → the boot slot dies on its first frame. */
+const BOOT_DIE = [0x00];
+
+/** Assemble a one-room game whose boot script (#1) runs `bootBytecode`. */
+function makeSyntheticGame(bootBytecode: number[] = BOOT_YIELD_LOOP): SessionGame {
+  const room = block(
+    'ROOM',
+    concat(
+      block('RMHD', [ROOM_W & 0xff, ROOM_W >>> 8, ROOM_H & 0xff, ROOM_H >>> 8, 0, 0]),
+      block('CLUT', clutBody()),
+      block('TRNS', [0, 0]),
+      block('RMIM', concat(block('RMIH', [0, 0]), block('IM00', block('SMAP', smapBody(ROOM_W, ROOM_H, 42))))),
+      block('ENCD', [0xa0]), // stopObjectCode — entry script just returns
+    ),
+  );
+  const scrp = block('SCRP', bootBytecode);
+
+  // LOFF (1 entry) sits between the LECF and LFLF headers, so the ROOM block
+  // lands at a fixed offset; SCRP follows the ROOM inside the same LFLF.
+  const roomOffset = 8 /* LECF */ + (8 + 1 + 5) /* LOFF */ + 8 /* LFLF */;
+  const loffBytes = block('LOFF', [1, ROOM_ID, roomOffset & 0xff, (roomOffset >>> 8) & 0xff, 0, 0]);
+  const lecf = block('LECF', concat(loffBytes, block('LFLF', concat(room, scrp))));
+
+  const resourceFile: ResourceFile = { bytes: lecf, tree: parseBlocks(lecf) };
+  const loff = parseLoff(resourceFile);
+
+  const index: IndexFile = {
+    maxs: { raw: [], numVariables: 800, numBitVariables: 2048, numLocalObjects: 200, numCharsets: 0, numVerbs: 0 },
+    rooms: [],
+    // Script #1 lives `room.length` bytes past the ROOM block it follows.
+    scripts: [
+      { room: 0, offset: 0 },
+      { room: ROOM_ID, offset: room.length },
+    ],
+    sounds: [],
+    costumes: [],
+    charsets: [],
+    objects: [],
+  };
+
+  return { resourceFile, index, loff, gameId: 'MI1' };
+}
+
+describe('EngineSession — synthetic game', () => {
+  it('step() composes the loaded room and presents it to the renderer', () => {
     const renderer = new MemoryRenderer();
-    const session = createSession(makeGame(), renderer, new ManualClock());
-    fastForwardToRoom33(session.vm);
-    expect(session.vm.currentRoom).toBe(33);
+    const session = createSession(makeSyntheticGame(), renderer, new ManualClock());
+    session.enterRoom(ROOM_ID);
 
     const frame = session.step();
 
-    // FrameInfo describes the composed room frame.
-    expect(frame.roomId).toBe(33);
-    expect(frame.width).toBeGreaterThan(0);
+    expect(frame.roomId).toBe(ROOM_ID);
+    // Non-scrolling room: the presented viewport equals min(320, roomWidth).
+    expect(frame.width).toBe(Math.min(320, ROOM_W));
+    expect(frame.height).toBe(ROOM_H);
     expect(frame.framebuffer.length).toBe(frame.width * frame.height);
-    // Camera-driven viewport: the presented frame is at most VIEWPORT_W wide,
-    // and equals min(320, roomWidth) — never the full width of a wide room.
-    const roomW = session.vm.loadedRoom!.width;
-    expect(frame.width).toBe(Math.min(320, roomW));
-    expect(frame.width).toBeLessThanOrEqual(320);
-    expect(frame.compose.actorsDrawn).toBeGreaterThanOrEqual(1);
     expect(frame.halted).toBe(false);
-    // It actually reached the renderer at the right size, with a real palette.
+    // It reached the renderer at the right size, with the room's real palette.
     expect(renderer.presentCount).toBeGreaterThan(0);
     expect(renderer.width).toBe(frame.width);
     expect(renderer.height).toBe(frame.height);
@@ -62,9 +149,17 @@ describe.skipIf(!hasData)('EngineSession — real MI1', () => {
     expect(renderer.palette.some((b) => b !== 0)).toBe(true);
   });
 
+  it('enterRoom warps into a room, loads it, and reports the warp', () => {
+    const session = createSession(makeSyntheticGame(), new MemoryRenderer(), new ManualClock());
+    session.enterRoom(ROOM_ID);
+    expect(session.vm.currentRoom).toBe(ROOM_ID);
+    expect(session.vm.loadedRoom?.id).toBe(ROOM_ID);
+    expect(session.vm.haltInfo).toBeNull();
+    expect(session.status().idleReason).toMatch(/warped to room 5/);
+  });
+
   it('onFrame subscribers receive each presented frame; unsubscribe stops it', () => {
-    const session = createSession(makeGame(), new MemoryRenderer(), new ManualClock());
-    fastForwardToRoom33(session.vm);
+    const session = createSession(makeSyntheticGame(), new MemoryRenderer(), new ManualClock());
     const seen: number[] = [];
     const off = session.onFrame((f) => seen.push(f.tickCount));
     session.step();
@@ -78,12 +173,11 @@ describe.skipIf(!hasData)('EngineSession — real MI1', () => {
   it('play() ticks via the clock and pause() stops it', () => {
     const renderer = new MemoryRenderer();
     const clock = new ManualClock();
-    const session = createSession(makeGame(), renderer, clock);
+    // autoPauseOnIdle off: the yield-loop would otherwise settle and self-pause.
+    const session = createSession(makeSyntheticGame(), renderer, clock, { autoPauseOnIdle: false });
 
     session.play();
     expect(clock.running).toBe(true);
-    // ~30 frames at 60 Hz. Early boot is busy (scripts dispatching / cutscene
-    // running), so it won't auto-pause this soon.
     for (let i = 0; i < 30; i++) clock.advance(1000 / 60);
     const ticked = session.status().tickCount;
     expect(ticked).toBeGreaterThan(0);
@@ -99,14 +193,13 @@ describe.skipIf(!hasData)('EngineSession — real MI1', () => {
   it('setRate throttles the tick cadence', () => {
     const slowClock = new ManualClock();
     const fastClock = new ManualClock();
-    const sSlow = createSession(makeGame(), new MemoryRenderer(), slowClock);
-    const sFast = createSession(makeGame(), new MemoryRenderer(), fastClock);
+    const sSlow = createSession(makeSyntheticGame(), new MemoryRenderer(), slowClock, { autoPauseOnIdle: false });
+    const sFast = createSession(makeSyntheticGame(), new MemoryRenderer(), fastClock, { autoPauseOnIdle: false });
 
     sSlow.setRate(10); // 100 ms / tick
     sFast.setRate(60); // ~16.7 ms / tick
     sSlow.play();
     sFast.play();
-    // Same wall-clock budget delivered in 16.7 ms steps to both.
     for (let i = 0; i < 60; i++) {
       slowClock.advance(1000 / 60);
       fastClock.advance(1000 / 60);
@@ -114,48 +207,39 @@ describe.skipIf(!hasData)('EngineSession — real MI1', () => {
     expect(sFast.status().tickCount).toBeGreaterThan(sSlow.status().tickCount);
   });
 
-  it('skipCutscene fast-forwards the intro into interactive room 33', () => {
-    const session = createSession(makeGame(), new MemoryRenderer(), new ManualClock());
-    session.skipCutscene();
-    expect(session.vm.loadedRoom?.id).toBe(33);
-    expect(session.vm.haltInfo).toBeNull();
-    expect([...session.vm.verbs.values()].some((v) => v.state === 'on')).toBe(true);
-    // NB: it returns `false` (caps at MAX_SKIP_TICKS) for this path — room 33's
-    // ego idle animation keeps the yield fingerprint changing, so the
-    // idle+interactive stop never trips. Faithful to the ported logic; the
-    // value of this control here is the synchronous drive-through to room 33.
+  it('auto-pauses once the engine settles into a stable idle fingerprint', () => {
+    // The yield-loop is the canonical "waiting for input" steady state: same
+    // slots yielded, no actors moving — the fingerprint stops changing and the
+    // idle streak trips. (A real animated game never settles headlessly, so
+    // this is the path the MI1 suite can't cover.)
+    const clock = new ManualClock();
+    const session = createSession(makeSyntheticGame(), new MemoryRenderer(), clock);
+    session.play();
+    for (let i = 0; i < 200 && session.status().playing; i++) clock.advance(1000 / 60);
+    expect(session.status().playing).toBe(false);
+    expect(session.status().idleReason).toMatch(/idle/);
+    expect(clock.running).toBe(false);
   });
 
-  it('play() runs continuously through the intro without a spurious pause', () => {
-    // Exercises the loop's progress / cutscene-guard paths: they must NOT
-    // misfire and auto-pause while real scripts are dispatching. (Positive
-    // idle-pause triggering is validated in-app via the Debug surface — MI1's
-    // animated rooms never go fingerprint-stable headlessly.)
-    const renderer = new MemoryRenderer();
+  it('pauses with "all slots dead" once every script has stopped', () => {
     const clock = new ManualClock();
-    const session = createSession(makeGame(), renderer, clock);
-    let sawRoom = false;
-    session.onFrame((f) => {
-      if (f.roomId !== null) sawRoom = true;
-    });
+    const session = createSession(makeSyntheticGame(BOOT_DIE), new MemoryRenderer(), clock);
     session.play();
-    for (let i = 0; i < 300; i++) clock.advance(1000 / 60);
-    expect(session.status().playing).toBe(true);
-    expect(session.status().tickCount).toBeGreaterThan(100);
-    expect(renderer.presentCount).toBeGreaterThan(0);
-    expect(sawRoom).toBe(true); // a room loaded + composed during play
+    for (let i = 0; i < 60 && session.status().playing; i++) clock.advance(1000 / 60);
+    expect(session.status().playing).toBe(false);
+    expect(session.status().idleReason).toBe('all slots dead');
   });
 
   it('snapshot → restore through the session reproduces the room', () => {
-    const s1 = createSession(makeGame(), new MemoryRenderer(), new ManualClock());
-    fastForwardToRoom33(s1.vm);
+    const s1 = createSession(makeSyntheticGame(), new MemoryRenderer(), new ManualClock());
+    s1.enterRoom(ROOM_ID);
     const snap = s1.snapshot('t', 1000);
     const json = JSON.stringify(snap);
 
-    const s2 = createSession(makeGame(), new MemoryRenderer(), new ManualClock());
+    const s2 = createSession(makeSyntheticGame(), new MemoryRenderer(), new ManualClock());
     s2.restore(JSON.parse(json));
-    expect(s2.vm.currentRoom).toBe(33);
-    expect(s2.vm.loadedRoom?.id).toBe(33);
+    expect(s2.vm.currentRoom).toBe(ROOM_ID);
+    expect(s2.vm.loadedRoom?.id).toBe(ROOM_ID);
     expect(s2.vm.haltInfo).toBeNull();
     // Re-serialises identically (same meta → byte-equal).
     expect(JSON.stringify(s2.snapshot('t', 1000))).toBe(json);
@@ -165,7 +249,7 @@ describe.skipIf(!hasData)('EngineSession — real MI1', () => {
   });
 
   it('reboot returns to a fresh boot (tick counter reset)', () => {
-    const session = createSession(makeGame(), new MemoryRenderer(), new ManualClock());
+    const session = createSession(makeSyntheticGame(), new MemoryRenderer(), new ManualClock());
     for (let i = 0; i < 20; i++) session.step();
     expect(session.status().tickCount).toBe(20);
     session.reboot();
@@ -174,7 +258,7 @@ describe.skipIf(!hasData)('EngineSession — real MI1', () => {
   });
 
   it('sendInput writes mouse vars and toggles button holds', () => {
-    const session = createSession(makeGame(), new MemoryRenderer(), new ManualClock());
+    const session = createSession(makeSyntheticGame(), new MemoryRenderer(), new ManualClock());
     session.sendInput({ type: 'move', roomX: 42, roomY: 17 });
     expect(session.vm.mouseRoomX).toBe(42);
     expect(session.vm.mouseRoomY).toBe(17);
@@ -193,7 +277,7 @@ describe.skipIf(!hasData)('EngineSession — real MI1', () => {
   it('dispose stops the clock and disposes the renderer', () => {
     const renderer = new MemoryRenderer();
     const clock = new ManualClock();
-    const session = createSession(makeGame(), renderer, clock);
+    const session = createSession(makeSyntheticGame(), renderer, clock, { autoPauseOnIdle: false });
     session.play();
     expect(clock.running).toBe(true);
     session.dispose();
