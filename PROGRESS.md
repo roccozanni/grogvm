@@ -41,18 +41,18 @@ action waits on `waitReady`, then asserts via named condition-waiters (`waitPick
 the *printing-sentence-blocks-the-next* finding → [INPUT §5](pages/docs/scumm/input.md).
 A clean fast-forward save (`saves/MI1-walkthrough-frontier.websave.json`, gitignored,
 written by the ALWAYS-LAST `frontier` beat and regenerated each green run) sits at the furthest
-clean state — currently inside the Governor's mansion (room 53) with the gauntlet's joke loot in hand.
+clean state — currently back in the Mêlée jail (room 31) with the file ("la lima") in hand.
 
 **Frontier: Part I's swordfighting + treasure trials are COMPLETE; the thievery trial is under way —
-ego has slipped past the drugged dogs into the mansion (room 53) and tripped the booby-trap gauntlet,
-which dropped four joke items into inventory (incl. the rat repellent #640), 41/41 green from boot.**
+ego has slipped past the drugged dogs, looted the mansion gauntlet, and traded Otis (prison) the
+mint + rat repellent for Aunt Tillie's cake, which opens to the file. 44/44 green from boot.**
 The full idol-theft route (confirmed in the bytecode, being built beat by beat): **(a)** enter the
-mansion + trip the right-door gauntlet for the loot [DONE] → **(b)** out to the prison, give Otis the
-rat repellent for a cake, open the cake → file → **(c)** back to the mansion, through the hole in the
-wall (broken window #638) → grab cutscene #211 → the idol (#635) → **(d)** exit with the idol → door
-#633 fires the Sheriff catch (#217: Fester actor 9 + Governor actor 10, an excuse dialog menu) → thrown
-in the sea → pick up the idol = trial complete. Routes + mechanics live in the walkthrough beats and
-`game.ts` helpers, not here. Findings worth keeping:
+mansion + trip the right-door gauntlet for the loot [DONE] → **(b)** out to the prison, talk Otis →
+buy the mint at the store → give Otis mint + rat repellent for the cake → open it for the file [DONE]
+→ **(c)** back to the mansion, through the hole in the wall (broken window #638) → grab cutscene #211
+→ the idol (#635) → **(d)** exit with the idol → door #633 fires the Sheriff catch (#217: Fester actor
+9 + Governor actor 10, an excuse dialog menu) → thrown in the sea → pick up the idol = trial complete.
+Routes + mechanics live in the walkthrough beats and `game.ts` helpers, not here. Findings worth keeping:
 
 - **Into the mansion:** dogs-asleep (#201) lifts the dog-pen box lock and sets the gate door's class,
   so gate door #465 now opens (Open → global #25 → state 1) and Walk-to → `loadRoomWithEgo room=53`.
@@ -60,6 +60,21 @@ in the sea → pick up the idol = trial complete. Routes + mechanics live in the
   which arms the joke items and hands ego four of them (#640 rat repellent, #641 style manual, #642
   wax lips, #643 staple remover) before returning control. The idol #635 is NOT directly pickable
   (verbs 8/90/91 only); the grab is the #211 cutscene, armed via the broken window once you hold the file.
+- **The prison (Otis) leg.** Talking to Otis (#405/actor 4) sets bit#420 and returns control with no
+  menu — his breath complaint IS the trigger; bit#420 unlocks the store shopkeeper's "Avrei bisogno
+  d'una mentina" line (verb 124, 1 piece of eight → mint #395). Otis DEFAULTS to class 6 (death-breath);
+  giving him the mint CLEARS class 6, and his give-handler (verb-80 → room-local #203) only takes the
+  repellent once class 6 is clear — then he hands over the cake (#420). **Opening the cake** sets class 3
+  and clears class 6 (`actorSetClass [6,131]` = clear-6, set-3, since 131 = 0x80|3), renaming it
+  "la lima" — that class-3 flip is the file marker the beat asserts (the disasm read these inverted; the
+  executing engine is ground truth — #203/#420 are in the misaligning ~13%).
+- **Rat-animation drawObject fix (committed engine fix, confirmed in-browser).** Entering the prison
+  froze the VM: room 31's three #207 loops animate a rat-hole by re-picking one of its three same-box
+  frames whose state is 0 and drawing it — but our `drawObject` set each drawn frame to state 1 and
+  never reverted the previous, so after one pass all three latched at state 1 and the picker spun (100k-
+  step guard). Fix (`opcodes/index.ts` `drawObjectHandler`): the same-box eviction we already do now
+  ALSO reverts the overdrawn object's state to 0 (erased = hidden), sustaining the loop. Unit-pinned in
+  `phase8.test.ts`; 892 unit + 44 integration green.
 
 - **The petal:** in the flower screen (`g4==215`) Pick up the plant #678 → its verb-9
   `pickupObject`s #689 ("il petalo giallo") into inventory; #689 itself carries no Pick up verb, and
@@ -76,8 +91,21 @@ in the sea → pick up the idol = trial complete. Routes + mechanics live in the
   close as the open boxes allow. No-op for objects whose walk-to is already in a visible box.
   Confirmed in-browser by the user; 892 unit + 40 integration green.
 
-The two `pushSentence` shortcuts in the dog beat (two-inventory drug combine; give-to-dogs-object)
-are flagged debt at the call site — the headless testkit can't drive inventory-slot / object hover.
+**Testkit debt — `pushSentence` shortcuts (flagged at each call site).** A few beats commit a
+sentence directly because the faithful click flow can't drive the gesture headlessly. Re-assessed
+2026-06-09 (each verified, not assumed):
+- **Two-inventory combine** (dog beat: Use petal with meat) — both objects are carried; the kit's
+  `useWith` takes object B from the *room*, not a second inventory slot.
+- **Give onto an actor-object** (dog beat: give meat to dogs; Otis: give mint/repellent to #405) —
+  the receive-handler is verb-80 on the OBJECT, but `give(item, actorId)` resolves to the actor (no
+  verb-80 there) and `useWith(item, objId)`'s scene click doesn't resolve object B onto an actor-
+  overlaid object; both hit global #3 "Non sembra funzionare". (Contrast the troll/brother gives,
+  whose actors ARE reachable by the actor-give path — `give()` drives those for real.)
+- **One-object verb on a carried item** (Otis beat: Open the cake) — no kit gesture for arming a verb
+  and clicking an inventory slot to commit a one-object sentence.
+Each `pushSentence` is the exact `doSentence` the verb input would build, so the engine path under
+test is identical. Retire them by teaching the testkit: two-inventory object B, a give committed onto
+an actor-object, and a one-object inventory-slot verb. (Backlog item under Input / UI below.)
 
 ### Open bug-report saves (reported, not yet fixed)
 
@@ -218,6 +246,10 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
 
 - **Inventory scroll arrows** (verbs 208/209) for >8 items — needs a full
   inventory to exercise.
+- **Testkit gestures to retire the `pushSentence` debt** (see the debt note in
+  Current): a two-inventory combine (object B from a second inventory slot), a
+  give committed onto an actor-object (verb-80 receiver), and a one-object verb
+  on an inventory slot. Each would let a flagged shortcut become a real click.
 
 **Rendering**
 

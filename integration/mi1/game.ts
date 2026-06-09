@@ -449,6 +449,10 @@ export const ROOMS = {
      * bit#453, the church-detour gate, is clear, so it just loads room 35.)
      */
     townArch: 433,
+    /** "l'entrata" (#434) — the prison entrance. Walk-to (verb 11) →
+     *  `loadRoomWithEgo obj=400 room=31`, dropping ego inside the jail
+     *  ({@link prison}, room 31) where Otis is locked up. */
+    prison: 434,
   },
 
   /**
@@ -480,9 +484,21 @@ export const ROOMS = {
       aboutShovel: 121,
       /** Sub-menu: "La voglio." — buy the item just brought up. */
       wantIt: 120,
+      /**
+       * "Avrei bisogno d'una mentina per l'alito." — buy the breath mint
+       * ({@link mint}, #395) for 1 piece of eight. This option is GATED: it
+       * only arms after Otis has been spoken to (the prison sets {@link
+       * ROOMS.prison}'s `talkedBit`, bit#420), which is what unlocks the
+       * mint line in the shopkeeper's tree.
+       */
+      breathMint: 124,
       /** "Vorrei dare un'occhiata in giro." — ends the chat, control back. */
       lookAround: 125,
     },
+    /** "la mentina" (#395) — the breath mint, bought via {@link
+     *  buyAnswers}.`breathMint`; given to Otis to settle his death-breath so he
+     *  trades the cake. */
+    mint: 395,
     /** "la porta" (#387) → back out to the street (room 34); Open (verb 2)
      *  then click to walk through. */
     door: 387,
@@ -516,6 +532,10 @@ export const ROOMS = {
      * ({@link governorInterior}).
      */
     door: 465,
+    /** "il sentiero" (#466) — the path back out to the general-store street
+     *  ({@link storeStreet}, room 34); verb-11 is a straight `loadRoomWithEgo
+     *  obj=431 room=34`. The route to the prison for the file. */
+    path: 466,
   },
 
   /**
@@ -558,6 +578,45 @@ export const ROOMS = {
     waxLips: 642,
     /** "il togli-graffette" (#643) — gauntlet joke item. */
     stapleRemover: 643,
+  },
+
+  /**
+   * The Mêlée jail (room 31), reached from the store street's "l'entrata"
+   * ({@link storeStreet}'s `prison`, #434). Otis the prisoner is locked in a
+   * cell; he has Aunt Tillie's carrot cake with a file baked in. The trade is a
+   * two-step bribe: settle his death-breath with a mint, then give him the rat
+   * repellent — he hands over the cake, which opens to the file ("la lima")
+   * needed to grab the idol. (Rats scurry the cell — three same-box-frame
+   * animation loops, local #207.)
+   */
+  prison: {
+    id: 31,
+    /** "l'entrata" (#400) — the exit, back out to the store street (room 34). */
+    entrance: 400,
+    /**
+     * "il prigioniero" (#405) — Otis, also ACTOR 4 (the give-target is the
+     * object id). Talk to him (verb 10) once, near the bars: he runs his
+     * monologue (he's a victim of society; his breath is awful) and sets {@link
+     * talkedBit} — which unlocks the breath-mint line at the store. Giving him
+     * an item routes to his verb-80 → room-local #203.
+     */
+    prisoner: 405,
+    /** Otis as an ACTOR (id 4) — used to find a floor point by the bars to walk
+     *  to before talking / giving (he sits at the far-left cell). */
+    prisonerActor: 4,
+    /** `bit#420` — set the first time Otis is spoken to; the gate that arms the
+     *  store's breath-mint dialog option. */
+    talkedBit: 420,
+    /**
+     * "la torta" (#420) — Aunt Tillie's carrot cake, handed over after Otis gets
+     * his mint + rat repellent. Open it (verb 2) and it renames to "la lima"
+     * (the file) — the file for the idol grab.
+     */
+    cake: 420,
+    /** Class 3 (bit 2) on {@link cake} — SET when the cake is opened into the
+     *  file (the verb-2 `actorSetClass` clears class 6 and sets class 3).
+     *  Asserted instead of the localized "la lima" rename. */
+    cakeIsFileClassBit: 2,
   },
 
   /**

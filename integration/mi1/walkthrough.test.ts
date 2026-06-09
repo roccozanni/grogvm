@@ -810,6 +810,137 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     expect(vm.haltInfo).toBeNull();
   });
 
+  beat('I · Mêlée jail — speak with Otis; he wants a breath mint (arms the store mint line)', () => {
+    const ego = vm.vars.readGlobal(VAR_EGO);
+    const inside = ROOMS.governorInterior;
+    const jail = ROOMS.prison;
+
+    // The idol needs a file, baked into Otis's cake. Out of the mansion to the
+    // jail: interior door #633 → gate (36); the gate path #466 → store street
+    // (34); the prison entrance #434 → the jail (31).
+    walkTo(vm, inside.entryDoor);
+    expect(driveToRoom(vm, ROOMS.governorMansion.id, { maxTicks: 14000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    walkTo(vm, ROOMS.governorMansion.path);
+    expect(driveToRoom(vm, ROOMS.storeStreet.id, { maxTicks: 14000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    walkTo(vm, ROOMS.storeStreet.prison);
+    expect(driveToRoom(vm, jail.id, { maxTicks: 14000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+
+    // Otis is locked in the far-left cell. Walk to his bars and Talk: his
+    // monologue (a victim of society; can't keep his breath fresh in here) runs
+    // and hands control straight back — no menu. It sets bit#420, the gate that
+    // unlocks the breath-mint line in the shopkeeper's tree.
+    expect(vm.vars.readBit(jail.talkedBit)).toBe(0);
+    const otis = vm.actors.get(jail.prisonerActor);
+    walkTo(vm, { x: otis.x + 30, y: otis.y });
+    waitIdle(vm);
+    use(vm, VERBS.talk, jail.prisoner);
+    expect(driveUntil(vm, (v) => v.vars.readBit(jail.talkedBit) === 1, { maxTicks: 12000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat('I · General store — buy the breath mint Otis asked for', () => {
+    const ego = vm.vars.readGlobal(VAR_EGO);
+    const jail = ROOMS.prison;
+    const store = ROOMS.store;
+
+    // Out of the jail (#400) → store street (34), in through the store door.
+    walkTo(vm, jail.entrance);
+    expect(driveToRoom(vm, ROOMS.storeStreet.id, { maxTicks: 14000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    use(vm, VERBS.open, ROOMS.storeStreet.storeDoor);
+    walkTo(vm, ROOMS.storeStreet.storeDoor);
+    expect(driveToRoom(vm, store.id, { maxTicks: 14000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+
+    // Ring for the shopkeeper, talk to him, pick the mint line — armed only
+    // because Otis has been spoken to (bit#420). It costs 1 piece of eight; the
+    // mint (#395) lands in inventory. Then leave the chat (look-around) the same
+    // way the sword/shovel buy does, and step back out to the street.
+    const startMoney = vm.vars.readGlobal(VARS.money);
+    expect(vm.getObjectOwner(store.mint)).not.toBe(ego);
+    use(vm, VERBS.push, store.bell);
+    use(vm, VERBS.talk, store.shopkeeper);
+    pickDialogAnswer(vm, store.buyAnswers.breathMint);
+    expect(driveUntil(vm, (v) => v.getObjectOwner(store.mint) === ego, { maxTicks: 8000 })).toBe(true);
+    expect(waitGlobal(vm, VARS.money, startMoney - 1)).toBe(true);
+    pickDialogAnswer(vm, store.buyAnswers.lookAround);
+    expect(waitPlayable(vm)).toBe(true);
+
+    use(vm, VERBS.open, store.door);
+    walkTo(vm, store.door);
+    expect(driveToRoom(vm, ROOMS.storeStreet.id, { maxTicks: 14000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat('I · Mêlée jail — bribe Otis (mint + repellent) for the cake; open it for the file', () => {
+    const ego = vm.vars.readGlobal(VAR_EGO);
+    const jail = ROOMS.prison;
+    const inside = ROOMS.governorInterior;
+
+    // Back to the jail, mint in hand.
+    walkTo(vm, ROOMS.storeStreet.prison);
+    expect(driveToRoom(vm, jail.id, { maxTicks: 14000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+
+    const otis = vm.actors.get(jail.prisonerActor);
+    const approach = () => {
+      walkTo(vm, { x: otis.x + 30, y: otis.y });
+      waitIdle(vm);
+    };
+    // DEBT — the two gives and the cake-open commit via `pushSentence` rather
+    // than the click flow. Otis's receive-handler is verb-80 on the OBJECT #405
+    // (→ room-local #203). The faithful click gestures both miss him (verified
+    // from a clean pre-trade state): `give(item, actor 4)` resolves to the actor
+    // — startObject obj=4 has no verb-80 — and `useWith(item, #405)`'s scene
+    // click doesn't resolve objectB to 405 onto the actor-overlaid object; both
+    // commit a give the engine answers with the generic "Non sembra funzionare"
+    // (global #3), never reaching #203. Only doSentence(give, item, 405) does.
+    // (This is unlike the troll/brother gives, whose actors ARE reachable by the
+    // actor-give path — give() drives those for real.) The cake-open is a
+    // separate gap: "Apri" on a CARRIED item, and the kit has no one-object
+    // inventory-verb gesture (the give/useWith helpers only cover two-object
+    // sentences, where the slot is object A). Each triple is the exact doSentence
+    // the verb input would build, so the engine path under test is identical.
+    // Retire both by teaching the testkit to commit a give onto an actor-object
+    // and a one-object verb onto an inventory slot.
+    //
+    // Mint first — settles Otis's death-breath so he'll deal; then the rat
+    // repellent — he trades Aunt Tillie's carrot cake (#420 → ego).
+    expect(vm.getObjectOwner(jail.cake)).not.toBe(ego);
+    approach();
+    // Otis defaults to class 6 (death-breath); his "Mentina al grog!" reaction
+    // CLEARS class 6 — and the repellent trade below only accepts once his breath
+    // is settled (class 6 clear). Wait for the reaction to actually START (the
+    // committed sentence isn't picked up the same tick, so waitPlayable alone can
+    // return before the cutscene begins) and then for it to end.
+    vm.pushSentence({ verb: VERBS.give, objectA: ROOMS.store.mint, objectB: jail.prisoner });
+    expect(driveUntil(vm, (v) => v.activeDialog !== null, { maxTicks: 14000 })).toBe(true);
+    expect(waitPlayable(vm, 40000)).toBe(true);
+    approach();
+    // The repellent trade is a long hand-over cutscene (Otis eats, thanks you,
+    // produces the cake) — the cake transfers only at its tail, so wait it out.
+    vm.pushSentence({ verb: VERBS.give, objectA: inside.ratRepellent, objectB: jail.prisoner });
+    expect(driveUntil(vm, (v) => v.getObjectOwner(jail.cake) === ego, { maxTicks: 40000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+
+    // Open the cake (the second DEBT case noted above) → it renames to "la lima"
+    // and the verb-2 `actorSetClass` sets class 3 (and clears class 6): that
+    // class flip is the file marker. Assert the class, not the localized name.
+    const isFile = (v: typeof vm) =>
+      ((v.objectClasses.get(jail.cake) ?? 0) & (1 << jail.cakeIsFileClassBit)) !== 0;
+    expect(isFile(vm)).toBe(false);
+    vm.pushSentence({ verb: VERBS.open, objectA: jail.cake, objectB: 0 });
+    expect(driveUntil(vm, isFile, { maxTicks: 6000 })).toBe(true);
+    expect(vm.getObjectOwner(jail.cake)).toBe(ego);
+    expect(waitPlayable(vm)).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
   // ALWAYS THE LAST BEAT: snapshot the furthest clean playable state to a save so
   // the NEXT frontier's beats can be developed by fast-forwarding here
   // (restoreSave) instead of re-driving from boot — the regression net itself
@@ -821,12 +952,15 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       'saves/MI1-walkthrough-frontier.websave.json',
       JSON.stringify(snapshotVm(vm, { game: 'MI1', label: 'walkthrough-frontier' })),
     );
-    // Furthest clean point so far: inside the Governor's mansion (room 53),
-    // dogs drugged asleep behind us and the booby-trap gauntlet's four joke
-    // items in hand — swordfighting + treasure trials passed, thievery trial
-    // under way, next stop the prison to trade Otis the rat repellent.
-    expect(vm.currentRoom).toBe(ROOMS.governorInterior.id);
+    // Furthest clean point so far: back in the Mêlée jail (room 31) with the
+    // file in hand — Otis traded the cake for the mint + rat repellent, and
+    // opening it yielded "la lima" (class 6). Swordfighting + treasure trials
+    // passed; thievery trial has the file, next stop the mansion's broken
+    // window to grab the idol.
+    const ego = vm.vars.readGlobal(VAR_EGO);
+    expect(vm.currentRoom).toBe(ROOMS.prison.id);
     expect(vm.vars.readBit(ROOMS.governorMansion.dogsAsleepBit)).toBe(1);
-    expect(vm.getObjectOwner(ROOMS.governorInterior.ratRepellent)).toBe(vm.vars.readGlobal(VAR_EGO));
+    expect(vm.getObjectOwner(ROOMS.prison.cake)).toBe(ego);
+    expect((vm.objectClasses.get(ROOMS.prison.cake) ?? 0) & (1 << ROOMS.prison.cakeIsFileClassBit)).not.toBe(0);
   });
 });
