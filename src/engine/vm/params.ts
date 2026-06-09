@@ -1,41 +1,6 @@
 /**
- * SCUMM v5 parameter decoding.
- *
- * # Opcode byte
- *
- * Each opcode is a single byte split into two parts:
- *
- *   ┌────┬────┬────┬────┬────┬────┬────┬────┐
- *   │ a  │ b  │ c  │           op           │
- *   └────┴────┴────┴────┴────┴────┴────┴────┘
- *     7    6    5    4    3    2    1    0
- *
- *   - bits 0..4 — the *opcode family* (32 family slots).
- *   - bits 5..7 — *parameter mode flags* (a, b, c) indicating which
- *     of up to three parameters is a **variable reference** instead
- *     of an **immediate**:
- *       bit 7 (0x80) → param 1 is a var-ref
- *       bit 6 (0x40) → param 2 is a var-ref
- *       bit 5 (0x20) → param 3 is a var-ref
- *
- *   In practice each handler decides which bits matter for its
- *   family. Some opcodes (e.g. `setVar` = 0x1A) treat param 1 as a
- *   destination var-ref unconditionally and only use bit 7 to choose
- *   the source mode of param 2. Don't over-generalize — let handlers
- *   pull what they need.
- *
- * # Variable reference word
- *
- * When a parameter is a var-ref, the next two bytes are a u16 LE
- * "reference word" whose top bits select the variable scope (matching
- * ScummVM v5 conventions):
- *
- *   - `0x8000` set        → **bit-var**;  index = bits 0..14
- *   - `0x4000` set        → **local** variable; index = low 12 bits
- *   - `0x2000` set        → **indexed/array** access — another word
- *                            follows (its own var-or-immediate mode);
- *                            the final index is `(ref & ~0x2000) + offset`
- *   - none of the above   → **global** variable; index = bits 0..12
+ * SCUMM v5 parameter decoding — opcode param-mode bits and the var-ref
+ * scope word. Encoding details in pages/docs/scumm/opcodes.md.
  */
 
 import type { ScriptSlot } from './slot';
@@ -83,15 +48,9 @@ export function readI16(slot: ScriptSlot): number {
 }
 
 /**
- * Read a value parameter: either a SIGNED i16 immediate or a dereferenced
- * variable, depending on the opcode's param-mode bit. v5 direct words are
- * signed (see {@link readVarOrWord}); this reader feeds setVar / add / sub and
- * every comparison, so reading it unsigned silently corrupts negative
- * immediates — `move v = -1` would store 65535, `add v, -1` would add 65534,
- * `isEqual v, -1` would compare against 65535. Self-consistent until a var holds
- * a *true* negative (e.g. a `sub` underflow) or crosses the signed `readVarOrWord`
- * path, at which point comparisons mismatch. Kept in lock-step with
- * `readVarOrWord` so both immediate readers agree.
+ * Read a value parameter: SIGNED i16 immediate or dereferenced var, per the
+ * opcode's param-mode bit. v5 direct words are signed — an unsigned read
+ * silently corrupts negative immediates. Lock-step with {@link readVarOrWord}.
  */
 export function readValue(
   slot: ScriptSlot,
@@ -113,10 +72,8 @@ export function readVarRef(slot: ScriptSlot, vars: Variables): number {
 }
 
 /**
- * Like {@link readVarRef} but also returns the resolved ref word.
- * Used by diagnostic-rich opcode handlers (currently the comparison
- * family) so the trace can label *which* variable a script polled —
- * critical for figuring out why a wait loop never releases.
+ * Like {@link readVarRef} but also returns the resolved ref word, so the
+ * trace can label which variable a script polled.
  */
 export function readVarRefWithRef(
   slot: ScriptSlot,
@@ -126,14 +83,7 @@ export function readVarRefWithRef(
   return { ref, value: derefRead(ref, slot, vars) };
 }
 
-/**
- * Render a (post-`resolveIndexedRef`) ref word as a human-readable
- * label. The encoding (already documented in the file header):
- *   bit 15 (0x8000) → bit-var
- *   bit 14 (0x4000) → local var
- *   else            → global var
- * Indexed (0x2000) bit is already cleared by `resolveIndexedRef`.
- */
+/** Render a (post-`resolveIndexedRef`) ref word as a human-readable label. */
 export function formatRefLabel(ref: number): string {
   if (ref & 0x8000) return `bit#${ref & 0x7fff}`;
   if (ref & 0x4000) return `L${ref & 0x0fff}`;
@@ -224,14 +174,9 @@ export function writeRef(
 }
 
 /**
- * Read a SCUMM "var-or-direct byte" parameter — when `paramIndex`'s
- * mode bit is set on `modeByte`, the next two bytes are a var-ref word
- * (dereferenced); otherwise the next byte is a direct u8 immediate.
- *
- * Used for multi-subop opcodes (cursorCommand, stringOps, roomOps, …)
- * where the *subop byte itself* carries per-arg mode flags — same
- * bit positions as on the main opcode (0x80 = arg1, 0x40 = arg2,
- * 0x20 = arg3).
+ * Read a "var-or-direct byte" parameter: var-ref word when `paramIndex`'s
+ * mode bit is set on `modeByte` (the subop byte carries the same mode-bit
+ * positions as the main opcode), else a direct u8.
  */
 export function readVarOrByte(
   modeByte: number,
@@ -246,13 +191,9 @@ export function readVarOrByte(
 }
 
 /**
- * Read a SCUMM "var-or-direct word" parameter. Variable form reads a
- * dereffed var-ref word (2 bytes); direct form reads a SIGNED i16 LE
- * immediate — v5 direct words are signed (like jump offsets), so e.g.
- * `0xFFFE` is the sentinel `-2`, not 65534. Reading it unsigned silently
- * broke signed comparisons: the insult-duel loss signal `startScript 74
- * [65534]` (= -2) was stored as 65534, so `#74`'s `isGreater L0 val=0`
- * scored every lost exchange as a WIN (you could never lose a swordfight).
+ * Read a "var-or-direct word" parameter. The direct form is a SIGNED i16 —
+ * v5 direct words are signed, so `0xFFFE` is `-2`, not 65534; an unsigned
+ * read breaks every signed comparison downstream.
  */
 export function readVarOrWord(
   modeByte: number,
@@ -267,13 +208,8 @@ export function readVarOrWord(
 }
 
 /**
- * Read a v5 word-vararg list — a sequence of `(markerByte, u16 value)`
- * pairs terminated by `0xFF`. Each marker's `0x80` bit selects var-ref
- * vs immediate for its value, exactly like a subop's arg mode. Returns
- * the decoded values in order.
- *
- * Used by opcodes like cursorCommand's `charsetColor` subop and the
- * various `*List` argument forms.
+ * Read a v5 word-vararg list — `(markerByte, u16 value)` pairs terminated
+ * by `0xFF`; each marker's `0x80` bit selects var-ref vs immediate.
  */
 export function readWordVararg(
   slot: ScriptSlot,

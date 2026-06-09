@@ -1,5 +1,5 @@
-// Pure markdown→HTML helpers for the content pipeline (§9 Phase 12). No Vite,
-// no DOM — string in, string out — so the slug/title/link logic is Node-tested.
+// Pure markdown→HTML helpers for the content pipeline. No Vite, no DOM —
+// string in, string out — so the slug/title/link logic is Node-tested.
 import MarkdownIt from 'markdown-it';
 import matter from 'gray-matter';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -21,11 +21,9 @@ export function slugFor(filename: string): string {
 
 const md: MarkdownIt = new MarkdownIt({ html: true, linkify: true });
 
-// A markdown link to another doc (`../scumm/smap.md`) points at a
-// file; its URL is that file's route — the same "URL = file path" rule the rest
-// of the site uses (routeForFile). So: resolve the link against the current
-// file's path, then map it to a route. `currentFile`/`pagesDir` ride in
-// markdown-it's env (see renderBody); without them a .md href is left alone.
+// Relative `.md` links between docs resolve to the target file's route (the
+// site-wide "URL = file path" rule). `currentFile`/`pagesDir` ride in
+// markdown-it's env; without them a .md href is left alone.
 const renderToken = (
   tokens: Parameters<NonNullable<typeof md.renderer.rules.link_open>>[0],
   idx: number,
@@ -60,17 +58,15 @@ export function renderBody(source: string, currentFile?: string, pagesDir?: stri
 }
 
 /**
- * The island mount marker. An app page authors this (on its own line) in its
- * markdown to say where the island's `#app` div goes; markdown-it passes it
- * through verbatim as an HTML block, so it survives into the rendered body.
+ * Authored (on its own line) in an app page's markdown to say where the
+ * island's `#app` div goes; markdown-it passes it through verbatim.
  */
 export const ISLAND_MARKER = '<!--island-->';
 
 /**
- * Compose an app page's `<main>` body: the authored markdown around the island.
- * Prose segments are wrapped in `.prose` so they get the shared typography; the
- * `#app` mount lands at the marker (or after the prose if none) and stays
- * OUTSIDE `.prose` so the island keeps its own dense, purpose-built layout.
+ * Prose segments wrap in `.prose` for the shared typography; the `#app` mount
+ * lands at the marker (or after the prose) and stays OUTSIDE `.prose` so the
+ * island keeps its own dense layout.
  */
 export function composeIslandBody(renderedHtml: string): string {
   const i = renderedHtml.indexOf(ISLAND_MARKER);
@@ -81,10 +77,7 @@ export function composeIslandBody(renderedHtml: string): string {
   return `${prose(before)}<div id="app"></div>\n${prose(after)}`;
 }
 
-/**
- * The output path for a route: `/` → `index.html`, `/library/` →
- * `library/index.html`, `/docs/x/` → `docs/x/index.html`.
- */
+/** `/` → `index.html`, `/docs/x/` → `docs/x/index.html`. */
 export function routeToOutputPath(route: string): string {
   const clean = route.replace(/^\/+|\/+$/g, '');
   return clean === '' ? 'index.html' : `${clean}/index.html`;
@@ -99,9 +92,8 @@ function markdownFiles(dir: string): string[] {
 }
 
 /**
- * Route derived from a page's path under the pages root — the file's location
- * IS its URL: `index.md` → `/`, `library.md` → `/library/`, `docs/index.md` →
- * `/docs/`, `docs/scumm/room.md` → `/docs/scumm/room/`.
+ * The file's location IS its URL: `index.md` → `/`, `docs/index.md` → `/docs/`,
+ * `docs/scumm/room.md` → `/docs/scumm/room/`.
  */
 export function routeForFile(pagesDir: string, file: string): string {
   const rel = relative(pagesDir, file).replace(/\\/g, '/').replace(/\.md$/i, '').toLowerCase();
@@ -110,7 +102,6 @@ export function routeForFile(pagesDir: string, file: string): string {
   return `/${rel}/`;
 }
 
-/** Every page under the pages root (recursive); route comes from its path. */
 export function loadPages(pagesDir: string): Page[] {
   return markdownFiles(pagesDir)
     .sort()

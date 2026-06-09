@@ -1,50 +1,6 @@
 /**
- * SCUMM v5 costume animation decoder.
- *
- * Each costume has a table of *anim definitions* (16 per "logical
- * anim", grouped by 4 cardinal directions × 4 logical anims). When a
- * script starts an anim on an actor (animateActor, walkActorTo's
- * implicit walk anim, …), the engine looks up the matching anim
- * definition, sets per-limb playback state, and the compositor reads
- * each limb's *current command-stream byte* to pick a frame index
- * from the limb's image table.
- *
- * # Anim definition layout
- *
- * Each record sits at `animOffsets[animId]` (read with the
- * COSTUME_OFFSET_ADJUST −6 base) and is variable-length:
- *
- *   u16 LE mask            // which limbs this anim drives; MSB-first
- *   for each set bit (high → low):
- *     u16 LE frameIndex    // start index into the anim-cmd array
- *     if frameIndex != 0xFFFF:
- *       u8 lengthAndFlags  // bit 7 = no-loop, bits 0..6 = (length - 1)
- *     else:
- *       (no length byte — the disabled-limb marker is 2 bytes total)
- *
- * Limbs NOT named by the mask are left untouched, so e.g. a talk anim can
- * drive the head while the body holds the pose a walk left it in. See
- * pages/docs/scumm/costume-anim.md for the format derivation.
- *
- * # Limb numbering
- *
- * The mask is processed MSB-first: bit 15 (0x8000) → limb 0, bit 14 →
- * limb 1, … so limb `i` is bit `15 - i`. The per-bit modifier bytes are
- * read in that order.
- *
- * # Anim cmds
- *
- * `header.animCmdOffset` points at a flat byte array of frame indices
- * interleaved with a tiny command set (0x71-0x7C). `0x79` stops a limb
- * and `0x7A` un-stops it (a persistent per-limb bit, see AnimState.stopped);
- * the rest (sound / hide / skip) aren't drawable pictures. Per-limb
- * playback walks a window of this array: starting at the limb's `start`
- * offset, advancing one byte per tick, looping back to `start` after
- * `length` bytes (unless the no-loop flag is set, in which case it stops
- * on the last byte).
- *
- * Command bytes don't composite a picture — playback skips past them to
- * the next real frame index in the window.
+ * SCUMM v5 costume animation playback (anim records + per-limb command
+ * stream). Format reference: pages/docs/scumm/costume-anim.md.
  */
 
 import type { CostumeHeader } from './costume';
@@ -62,13 +18,9 @@ const CMD_UNSTOP = 0x7a; // → clear the "stopped" bit (resume drawing)
 const isAnimCmd = (b: number): boolean => b >= CMD_LO && b <= CMD_HI;
 
 /**
- * v5 base correction. ScummVM reads every stored costume offset relative
- * to `_baseptr`; our `payload` array begins **6 bytes past** `_baseptr`
- * (we parse numAnim/format at payload[0]/[1]; the v5 layout has them at
- * `_baseptr[6]`/`[7]`). So every stored offset VALUE — the anim record,
- * the cmd stream, the limb image table — is read at `payload[value - 6]`.
- * (Frame pointers are decoded via `decodeCostumeFrame`, whose own −6 is
- * this same correction, so they need no extra adjustment.)
+ * Every offset value stored in a COST block is measured from an origin
+ * 6 bytes before our payload, so it is read at `payload[value - 6]`.
+ * See pages/docs/scumm/costume-anim.md §"The −6 offset base".
  */
 export const COSTUME_OFFSET_ADJUST = -6;
 
@@ -99,10 +51,9 @@ export interface AnimState {
   /** One slot per limb, indexed 0..15. Inactive limbs read frame 0. */
   readonly limbs: ReadonlyArray<LimbPlayback>;
   /**
-   * Per-limb "stopped" bitmask (bit `i` = limb `i`). A stopped limb does
-   * NOT draw. Set by the `0x79` cmd, cleared by `0x7A`; persists across
-   * `startAnim` calls — this is how the walk freezes the head limb (the
-   * body sprite carries the head) while stand/talk resume it.
+   * Per-limb "stopped" bits (bit `i` = limb `i`); a stopped limb does NOT
+   * draw. Set by cmd `0x79`, cleared by `0x7A`, and persists across
+   * `startAnim` calls — how the walk freezes the head limb.
    */
   readonly stopped: number;
 }
@@ -125,25 +76,18 @@ export function createAnimState(_header: CostumeHeader): AnimState {
 }
 
 /**
- * Read the costume's anim-cmd byte for one limb at its current
- * cursor. Returns 0 for inactive limbs — the compositor uses that as
- * the limb's image-table entry index (which is the "init pose" frame
- * convention SCUMM v5 follows).
+ * A limb's current cursor as a positional frame index (no payload
+ * access here); 0 for inactive limbs — the v5 "init pose" convention.
  */
 export function currentLimbFrame(state: AnimState, limbIdx: number): number {
   const limb = state.limbs[limbIdx];
   if (!limb || !limb.active) return 0;
-  // Without access to the costume payload here, return the cursor
-  // itself as a positional index. The compositor combines this with
-  // the limb's image table to find the frame ptr.
   return limb.cursor;
 }
 
 /**
- * Read the anim-cmd byte at a limb's current playback position from
- * the costume's anim-cmd array. Returns 0 if the limb is inactive or
- * the cursor would land outside the payload — the compositor uses 0
- * as the "no frame change" sentinel.
+ * The anim-cmd byte at a limb's current playback position; 0 when the
+ * limb is inactive or the cursor lands outside the payload.
  */
 export function currentAnimCmd(
   state: AnimState,
@@ -158,12 +102,9 @@ export function currentAnimCmd(
 }
 
 /**
- * Resolve the picture index a limb should draw this tick — or -1 for
- * "draw nothing". Returns -1 when the limb is inactive, **stopped**, or
- * its whole window is command bytes. Command bytes (`0x71-0x7C`: sound /
- * loop / stop markers) are not drawable pictures, so we advance past
- * them (wrapping within the loop window) to the next real picture — an
- * active limb never blanks for a tick.
+ * The picture index a limb draws this tick, or -1 for "draw nothing"
+ * (inactive, stopped, or all-command window). Command bytes (0x71-0x7C)
+ * aren't pictures — skip past them so an active limb never blanks.
  */
 export function currentLimbPicture(
   state: AnimState,
@@ -184,24 +125,10 @@ export function currentLimbPicture(
 }
 
 /**
- * Start a new anim on an actor. Decodes the anim record at
- * `header.animOffsets[animId]` per the v5 algorithm:
- *
- *   u16 LE mask           — processed MSB-first; limb `i` = bit `15-i`
- *   per set bit:
- *     u16 LE frameIndex j — index into the anim-cmd stream
- *     if j != 0xFFFF: u8 extra  — low 7 bits = length, bit 7 = no-loop
- *
- * `animCmds[j]` decides the limb's fate: `0x7A` un-stops it, `0x79`
- * stops it (a persistent per-limb bit — neither sets playback), and
- * anything else starts playback over `cmds[j .. j+(extra&0x7f)]`.
- *
- * Limbs NOT named by the mask are left untouched (so talk can drive the
- * head while the body holds its pose). All stored offsets are read with
- * the `COSTUME_OFFSET_ADJUST` (−6) base correction.
- *
- * A `0`/`0xFFFF` entry in animOffsets is the "anim not defined"
- * sentinel — we keep the current limb state.
+ * Start an anim: decode the record at `header.animOffsets[animId]` and
+ * update ONLY the limbs its mask names — unmasked limbs keep playing
+ * (talk drives the head while the body holds its pose). Record layout:
+ * pages/docs/scumm/costume-anim.md §"Animation records".
  */
 export function startAnim(
   state: AnimState,
@@ -229,8 +156,8 @@ export function startAnim(
   let r = recordStart;
   let mask = payload[r]! | (payload[r + 1]! << 8);
   r += 2;
-  // A full anim start applies every limb the mask names (ScummVM passes
-  // usemask = all-ones); partial usemask updates aren't modelled.
+  // A full anim start applies every limb the mask names; partial usemask
+  // updates aren't modelled.
   let i = 0;
   while ((mask & 0xffff) !== 0 && i < LIMB_COUNT) {
     if (mask & 0x8000) {
@@ -268,9 +195,8 @@ export function startAnim(
 }
 
 /**
- * Advance every active, non-stopped limb one tick. Loop-on-end for
- * default anims, sticky-on-last-byte for no-loop anims. Returns a new
- * state object (the old one stays unchanged).
+ * Advance every active, non-stopped limb one tick: loop on end, or stick
+ * on the last byte for no-loop anims. Returns a new state object.
  */
 export function stepAnim(state: AnimState): AnimState {
   let anyAdvancing = false;

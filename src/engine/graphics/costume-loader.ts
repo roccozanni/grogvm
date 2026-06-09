@@ -1,14 +1,6 @@
 /**
- * SCUMM v5 costume loader — resolves a costume id to a parsed
- * `LoadedCostume` (header + raw payload) ready for the actor
- * compositor to decode frame-by-frame.
- *
- * Same shape as `room/loader.ts` (LOFF-driven lookup + tree-walk to
- * find the block) and `vm/scripts.ts` (DCOS-driven id → room/offset
- * resolution). We don't decode every frame up-front — those are
- * needed lazily based on the actor's current anim state. Storing the
- * payload alongside the header lets the compositor call
- * `decodeCostumeFrame(payload, framePtr)` on demand.
+ * Costume id → parsed header + raw payload (frames decode lazily).
+ * See pages/docs/engine/costumes.md.
  */
 
 import type { IndexFile } from '../resources/index-file';
@@ -34,14 +26,8 @@ export interface LoadedCostume {
 }
 
 /**
- * Resolve a costume id to its parsed header + payload.
- *
- * Throws {@link CostumeLoadError} on:
- *   - costume id 0 / out of range
- *   - unused DCOS slot (room = 0)
- *   - owning room not in LOFF
- *   - resolved offset doesn't land on a COST block in the tree
- *   - header parse fails
+ * Resolve a costume id to its parsed header + payload via DCOS + LOFF;
+ * throws {@link CostumeLoadError} on any unresolvable step.
  */
 export function loadCostume(
   file: ResourceFile,
@@ -89,8 +75,6 @@ export function loadCostume(
 }
 
 function findCostBlockAt(file: ResourceFile, offset: number) {
-  // The COST block lives directly under an LFLF. `walkCostumes` already
-  // enumerates them all so we just match on absolute offset.
   for (const entry of walkCostumes(file)) {
     if (entry.costBlock.offset === offset) return entry.costBlock;
   }

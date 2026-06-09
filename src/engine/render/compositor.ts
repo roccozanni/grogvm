@@ -1,45 +1,8 @@
 /**
- * Frame compositor — assembles one rendered frame from the VM's
- * current state (loaded room + actors) into an indexed framebuffer.
- *
- * The caller owns the framebuffer (typically one buffer per frame,
- * allocated by the main loop). We mutate it in place to avoid a per-
- * frame allocation. Callers that want to keep the room background
- * pristine can pass a separate buffer or copy after.
- *
- * # Layers
- *
- *   1. Background — copy `room.indexed` into the framebuffer.
- *   2. Actors — for each visible actor in the room, decode the
- *      current frame of each populated limb (via `currentLimbFrame`
- *      from the costume-anim stub) and composite it through the
- *      costume's local palette, honouring Z-plane occlusion and
- *      TRNS transparency. Order: by actor id ascending — SCUMM
- *      relies on this for predictable layering when actors overlap.
- *   3. (Future) Object overlays — drawObject's queue feeds in here.
- *
- * # Empty rooms
- *
- * When `room` is `null` (e.g. the script just called `loadRoom 0`,
- * the "no room" sentinel), we fill the framebuffer with palette
- * index 0. The renderer's transparent-index setup decides whether
- * that reads as "black" or "transparent" to the user.
- *
- * # Dimension mismatch
- *
- * Throws if `framebuffer.length` is smaller than `room.width *
- * room.height`. Extra space at the end is allowed (and left
- * untouched) so callers can share a single max-sized buffer across
- * rooms of different sizes.
- *
- * # Decode failures
- *
- * Per-limb decode (`decodeCostumeFrame`) can throw if the RLE stream
- * is malformed or the frame pointer is bogus. We catch those at the
- * limb level and skip just that limb — the rest of the actor (and
- * the other actors) still render. The reason goes into
- * `result.skippedLimbs` so the inspector can surface why something
- * didn't draw.
+ * Frame compositor — assembles one frame (background → drawBox fills →
+ * drawn objects → actors) into a caller-owned indexed framebuffer,
+ * mutated in place. Per-limb decode failures skip just that limb and
+ * surface in the result for the inspector.
  */
 
 import type { Actor } from '../actor/actor';
@@ -71,54 +34,34 @@ export interface ComposeFrameInput {
   readonly framebuffer: Uint8Array;
   /**
    * Actors to composite on top of the background. Caller filters by
-   * `actor.room === room.id` and visibility — compositor draws every
-   * passed actor. Pass an empty array (or omit) to draw only the bg.
+   * room and visibility — the compositor draws every passed actor.
    */
   readonly actors?: ReadonlyArray<Actor>;
-  /**
-   * Resolves an actor's costume id → its loaded payload + header.
-   * Return `null` to skip that actor (costume not loadable). Typical
-   * implementation: `(id) => vm.getCostume(id)`.
-   */
+  /** Resolves a costume id → loaded payload + header; `null` skips that actor. */
   readonly getCostume?: (costumeId: number) => LoadedCostume | null;
-  /**
-   * Object ids the script has queued for drawing this frame. The
-   * compositor draws each one's current-state image (from
-   * `room.objects[id]`) at its IMHD-recorded position, between the
-   * background and the actors. Typically:
-   *   `objectDrawQueue: vm.objectDrawQueue,`
-   *   `getObjectState: (id) => vm.objectStates.get(id) ?? 0,`
-   */
+  /** Object ids queued by `drawObject` this frame, drawn between background and actors. */
   readonly objectDrawQueue?: Iterable<number>;
   /**
-   * State for each object — drives which IMxx image variant gets
-   * drawn. State 0 = invisible (skipped). State N = `images.get(N)`.
-   * Defaults to "treat absent as state 1" so callers that don't
-   * track state explicitly still see something drawn.
+   * State for each object — picks the IMxx image variant: 0 = invisible,
+   * N = `images.get(N)`. Absent objects default to state 1.
    */
   readonly getObjectState?: (objectId: number) => number;
   /**
-   * Runtime draw position for an object set by `drawObject … at x,y` (SO_AT),
-   * or `undefined` to fall back to the object's IMHD position. Drives both the
-   * blit position and the object's z-plane placement. Typically:
-   *   `getObjectPosition: (id) => vm.objectDrawPositions.get(id),`
+   * Runtime draw position from `drawObject … at x,y` (SO_AT); `undefined`
+   * falls back to the object's IMHD position. Drives both the blit and the
+   * object's z-plane placement.
    */
   readonly getObjectPosition?: (objectId: number) => { x: number; y: number } | undefined;
   /**
-   * Whether an actor is in SCUMM's **NeverClip** object class (class 20,
-   * bit 19) — set by `setClass`. Such actors always draw in front of every
-   * z-plane regardless of the walk box they stand in, matching SCUMM's
-   * `zbuf = _forceClip ? _forceClip : (neverClip ? 0 : maskFromBox(_walkbox))`
-   * precedence. Only consulted for the box-default path (forceClip ≤ 0);
-   * an explicit `alwaysZclip` (forceClip > 0) still wins. Typically:
-   *   `isNeverClip: (id) => ((vm.objectClasses.get(id) ?? 0) & (1 << 19)) !== 0`
-   * Defaults to "no actor is NeverClip".
+   * Whether an actor is in SCUMM's NeverClip object class (class 20) —
+   * always in front of every z-plane. Only consulted on the box-default
+   * path; an explicit `alwaysZclip` still wins (zplane.md §8).
    */
   readonly isNeverClip?: (actorId: number) => boolean;
   /**
-   * Rectangles painted by the `drawBox` opcode (vm.drawnBoxes), applied over
-   * the background before objects/actors, in order. Coords are inclusive
-   * screen pixels; `color` is a CLUT index. Clamped to the framebuffer.
+   * Rectangles painted by the `drawBox` opcode, applied over the background
+   * before objects/actors, in order. Coords are inclusive screen pixels;
+   * `color` is a CLUT index. Clamped to the framebuffer.
    */
   readonly drawnBoxes?: ReadonlyArray<{
     readonly left: number;
@@ -188,8 +131,8 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
 
   if (!room) {
     framebuffer.fill(0);
-    // No room → the credits/win screen. drawBox fills land on the blank
-    // screen at the dims the caller supplies (boxes skipped without them).
+    // No room → credits/win screen: drawBox fills still land, at the
+    // caller-supplied dims (skipped without them).
     if (drawnBoxes?.length && screenWidth && screenHeight) {
       for (const box of drawnBoxes) fillBox(framebuffer, screenWidth, screenHeight, box);
     }
@@ -215,19 +158,14 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
   // Background.
   framebuffer.set(room.indexed);
 
-  // drawBox fills — painted over the background, before objects/actors
-  // (SCUMM writes them to the virtual screen behind everything drawn after).
+  // drawBox fills go over the background, before objects/actors — SCUMM
+  // writes them to the virtual screen behind everything drawn after.
   if (drawnBoxes?.length) {
     for (const box of drawnBoxes) fillBox(framebuffer, room.width, room.height, box);
   }
 
-  // Objects — drawn between bg and actors. SCUMM uses TRNS-indexed
-  // transparency on object SMAPs (same convention as the room bg).
-  // A drawn object's own z-planes (if any) make it a foreground that occludes
-  // actors behind it (the trunks/foliage in room 58, the title logo, the
-  // general-store wall items). The plane collection itself is shared with the
-  // debug overlay via collectForegroundPlanes/mergeForeground; here the loop
-  // also paints the object images and records draw skips.
+  // Objects — between bg and actors, with TRNS-indexed transparency (the
+  // room-bg convention). Their z-planes feed actorOcclusionPlanes below.
   if (objectDrawQueue) {
     for (const objId of objectDrawQueue) {
       const obj = room.objects.get(objId);
@@ -263,25 +201,19 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
     return { actorsDrawn, skippedActors, skippedLimbs, objectsDrawn, skippedObjects };
   }
 
-  // The merged actor-occlusion stack: room z-planes OR'd with every drawn
-  // object's z-plane at its runtime position. Same helpers the Z-planes debug
-  // overlay uses, so what masks an actor and what the overlay paints can't drift.
   const actorZPlanes = actorOcclusionPlanes(room, {
     objectDrawQueue,
     getObjectState,
     getObjectPosition,
   });
 
-  // Render actors back-to-front by room y (SCUMM's actor sort): an actor
-  // lower on screen (greater y) is nearer the camera, so it paints last and
-  // occludes those behind. Id breaks ties for stable layering. This is what
-  // puts Guybrush (front, greater y) over the seated SCUMM-Bar pirates
-  // (behind the table, lesser y) instead of the id-order reverse.
+  // Actors render back-to-front by room y (SCUMM's actor sort): greater y =
+  // nearer the camera, paints last. Id breaks ties for stable layering.
   const sorted = [...actors].sort((a, b) => a.y - b.y || a.id - b.id);
   for (const actor of sorted) {
     // Clear last frame's hit-test bounds up front; only a successful
-    // composite re-establishes them (so a skipped / undrawn actor reads
-    // as "not on screen" for actorFromPos).
+    // composite re-establishes them, so an undrawn actor reads as
+    // "not on screen" for actorFromPos.
     actor.drawBounds = null;
     if (!actor.visible) {
       skippedActors.push({ actorId: actor.id, reason: 'visible=false' });
@@ -300,24 +232,13 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
       continue;
     }
 
-    // Resolve the drawable limbs + sprite box from actor + costume state.
-    // The SAME function backs `actorFromPos` hit-testing, so what the player
-    // can click on and what gets painted can never drift apart. SCUMM picks
-    // the anim-driven picture per active limb (or frame 0 in the no-anim init
-    // pose); decode failures on active limbs surface to the inspector.
+    // prepareActorDraw also backs `actorFromPos` hit-testing, so what the
+    // player can click and what gets painted can never drift apart.
     const prep = prepareActorDraw(actor, costume);
     const limbSkipsBefore = skippedLimbs.length;
     for (const s of prep.skippedLimbs) {
       skippedLimbs.push({ actorId: actor.id, limbIdx: s.limbIdx, reason: s.reason });
     }
-    // Z-clip level is per-actor (not per-limb). SCUMM's `_forceClip`
-    // (actorOps neverZclip / alwaysZclip) decides the single z-plane that
-    // masks this actor: alwaysZclip k → ZP0k alone; not-forced → the
-    // NeverClip class (→ 0, in front) or the actor's walk-box mask. This is
-    // why the room-33 ego (mask-1 dock box) passes behind the houses while
-    // the room-38 ego (mask-0 box) stays in front of the wall. clipPlane 0 =
-    // in front of every plane; a merged drawn-object foreground (OR'd into
-    // plane 1) only occludes clipPlane-1 actors.
     const clipPlane = resolveClipPlane(
       actor,
       room.walkBoxes,
@@ -336,9 +257,7 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
           mirror: prep.mirror,
           clipPlane,
           zPlanes: actorZPlanes,
-          // Actor scale (0..255, 255 = full); SCUMM scales actors by depth.
           scale: prep.scale,
-          // Running _xmove/_ymove for this limb (sum of earlier limbs' xinc).
           accX,
           accY,
         });
@@ -368,36 +287,12 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
 }
 
 /**
- * Resolve an actor's z-clip level — the 1-based z-plane (`ZP0k`) that
- * masks it, SCUMM's `_zbuf`. 0 = in front of every plane (no masking).
- * Mirrors SCUMM's `zbuf = _forceClip ? _forceClip : (neverClipClass ? 0
- * : maskFromBox(_walkbox))`:
- *
- *   - `alwaysZclip k` (forceClip > 0) → clipPlane = k: the actor is
- *     masked by ZP0k alone. An explicit script-set clip always wins.
- *   - **not forced** — `neverZclip` (forceClip == 0, the opcode that
- *     *clears* the forced clip) or unset (forceClip < 0):
- *       · NeverClip class → 0 (in front of every plane).
- *       · otherwise → the `mask` of the actor's stored `_walkbox`
- *         (`actor.walkBox`): mask 0 = in front, mask N (>0) = masked by
- *         ZP0N. An actor with no assigned box (`walkBox < 0` — never placed,
- *         or just init'd) defaults to in front.
- *
- * NB: `forceClip == 0` is NOT "always in front" — it's SCUMM's *unset*
- * sentinel, so neverZclip and the never-set default behave identically
- * (front-via-class or via box mask). What keeps the Mêlée sparkles in
- * front is the NeverClip *class*, not forceClip; the clouds use an
- * explicit `alwaysZclip 1` (forceClip > 0). The box is the one maintained
- * as walk state (see `rescaleActorForPosition`), resolved from position with
- * the nearest-box fallback as the actor moves — so MI1's thin dock/cliff line
- * boxes (which strictly contain no interior point) still yield the mask the
- * actor walks on (room-33 ego on box 4, a diagonal line) — never re-derived
- * here at draw time. An `ignoreBoxes` actor keeps its last box.
- *
- * Single-plane (not cumulative) masking is what lets MI1 room 30 render:
- * its `ZP02 ⊇ ZP01` (ZP01 = the foreground barrels, ZP02 also covers the
- * loft railing/stairs), so a floor actor at clipPlane 1 must be masked by
- * ZP01 alone and walk *in front* of the stairs. See pages/docs/scumm/zplane.md.
+ * Resolve the 1-based z-plane (`ZP0k`) that masks an actor — SCUMM's
+ * `zbuf = _forceClip ? _forceClip : (neverClipClass ? 0 : maskFromBox(_walkbox))`;
+ * 0 = in front of every plane. NB: `forceClip == 0` is the *unset*
+ * sentinel (`neverZclip` only clears a forced clip), NOT "always in
+ * front" — fronting comes from the NeverClip class or a mask-0 box.
+ * Full derivation and the cases that pin it down: pages/docs/scumm/zplane.md §8.
  */
 function resolveClipPlane(
   actor: Actor,
@@ -406,13 +301,9 @@ function resolveClipPlane(
 ): number {
   if (actor.forceClip > 0) return actor.forceClip;
   if (neverClipClass) return 0;
-  // Use the actor's stored _walkbox (maintained during movement/placement,
-  // retained while ignoreBoxes) rather than re-deriving the box from pixel
-  // position here — SCUMM tracks the box as walk state and never recomputes it
-  // at draw time. An airborne/off-grid ignoreBoxes actor keeps the mask of the
-  // box it last stood in (init clears it to -1 → front), instead of being
-  // snapped to the nearest box every frame; that's why there's no longer an
-  // `if (actor.ignoreBoxes) return 0` escape hatch here.
+  // The stored _walkbox is walk state — never re-derived from pixel position
+  // at draw time, so an airborne ignoreBoxes actor keeps its last box
+  // (init clears it to -1 → front). See zplane.md §"Box-mask".
   const box = actor.walkBox >= 0 ? walkBoxes.find((b) => b.id === actor.walkBox) : undefined;
   return box ? box.mask : 0;
 }
@@ -435,14 +326,10 @@ export interface ForegroundPlaneOptions {
 }
 
 /**
- * Collect every drawn object's z-planes as {@link ForegroundPlane}s at their
- * runtime positions — the foreground inputs to {@link mergeForeground}. Skips
- * objects not in the room, hidden (state ≤ 0), or imageless; those draw-skip
- * reasons are surfaced by {@link composeFrame}'s own pass, not duplicated here.
- * Each `ZP0k` targets plane k alone (the single-plane rule): the title logo's
- * ZP01 hides the clip-1 clouds; the store sword's ZP02 hides only the clip-2
- * shopkeeper. Solid-fill planes were already dropped by the loader (forest
- * path trunks), so they never appear here.
+ * Collect every drawn object's z-planes at their runtime positions — the
+ * inputs to {@link mergeForeground}. Skips hidden/imageless objects (their
+ * skip reasons surface in {@link composeFrame}'s own pass). Solid-fill
+ * planes were already dropped by the loader (zplane.md §"fully-set mask").
  */
 export function collectForegroundPlanes(
   room: LoadedRoom,
@@ -481,16 +368,10 @@ export function actorOcclusionPlanes(
 }
 
 /**
- * OR each drawn object's z-plane into the room plane it *targets* — `ZP0k`
- * into plane `k` (`planeIndex` k-1) at the object's runtime position —
- * returning the effective plane stack for actor occlusion. This mirrors the
- * room planes' own `ZP0k → plane k` mapping, so the single-plane rule holds for
- * drawn objects too: a clip-`k` actor is masked by the room foreground PLUS the
- * drawn foreground *of plane k alone*. If an object targets a plane the room
- * doesn't have, the stack is extended so a clip-`k` actor has a `planes[k-1]`
- * to test (the general-store sword's `ZP02` occludes the clip-2 shopkeeper even
- * where the room defines no plane 2). With no foreground planes it returns the
- * room's own stack unchanged.
+ * OR each drawn object's `ZP0k` into room plane `k` at the object's runtime
+ * position — NOT into a single merged foreground, so the single-plane rule
+ * holds for objects too (zplane.md §"Each ZP## targets its own plane"). The
+ * stack is extended when an object targets a plane the room lacks.
  */
 function mergeForeground(
   room: LoadedRoom,
@@ -518,12 +399,8 @@ function mergeForeground(
   return masks.map((mask) => ({ width: w, height: h, mask }));
 }
 
-/**
- * Blit one object image into the framebuffer at its IMHD-recorded
- * position, honouring the room's TRNS transparent index. Clipping
- * keeps us inside the framebuffer for objects that overhang the
- * room (rare but legal).
- */
+/** Blit one object image, honouring the room's TRNS transparent index and
+ *  clipping to the framebuffer (objects can legally overhang the room). */
 function drawObjectImage(
   framebuffer: Uint8Array,
   fbWidth: number,
@@ -538,9 +415,7 @@ function drawObjectImage(
   const h = obj.imhd.height;
   if (w === 0 || h === 0) return;
   if (indexed.length !== w * h) {
-    // Decoded image size doesn't match IMHD — defensive bail-out
-    // rather than read past end. The image was skipped at decode
-    // time too, so this is mostly belt-and-braces.
+    // Size/IMHD mismatch — bail rather than read past the end.
     return;
   }
   const startX = Math.max(0, -left);

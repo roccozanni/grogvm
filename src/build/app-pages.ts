@@ -1,8 +1,6 @@
-// App-page staging (§9 Phase 12). App pages (pages/*.md with a `script:`) need
-// Vite to bundle their island, so the generator writes a real HTML entry + a
-// co-located entry.ts into a gitignored staging root that Vite uses as `root`.
-// Content pages stay static (content-plugin). The staging entry.ts mirrors the
-// thin caller the old pages/**/index.ts used — just generated, not authored.
+// App-page staging: pages/*.md with a `script:` need Vite to bundle their
+// island, so the generator writes a real HTML entry + a co-located entry.ts
+// into a gitignored staging root that Vite uses as `root`.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { loadPages, routeToOutputPath, renderBody, composeIslandBody, type Page } from './generate';
@@ -29,7 +27,6 @@ mount(root);
 `;
 }
 
-/** Write each app page's HTML entry + entry.ts into the staging root. */
 export function writeAppPages(pagesDir: string, stagingRoot: string): void {
   for (const page of appPages(pagesDir)) {
     const htmlPath = join(stagingRoot, routeToOutputPath(page.route));

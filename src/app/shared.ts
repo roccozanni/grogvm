@@ -1,15 +1,9 @@
-/**
- * Shared bootstrap helpers for the app islands (src/app/<screen>/index.ts).
- * Each island mounts into a host element; these centralise the boilerplate:
- * browser-support gate, resolving the `?game=` install, and the
- * folder-permission re-grant.
- */
+/** Shared bootstrap helpers for the app islands. See pages/docs/engine/architecture.md. */
 import { checkBrowserSupport, renderUnsupported } from '../platform/browser-support';
 import { ensureReadPermission } from '../platform/storage/permission';
 import { listGames, type StoredGame } from '../platform/storage/games';
 import { libraryHref } from '../platform/routing/routing';
 
-/** Gate `root` on browser support; calls `render(root)` if OK. */
 export function mountPage(root: HTMLElement, render: (root: HTMLElement) => void): void {
   const unsupported = checkBrowserSupport();
   if (unsupported) {
@@ -19,13 +13,11 @@ export function mountPage(root: HTMLElement, render: (root: HTMLElement) => void
   render(root);
 }
 
-/** Resolve a `?game=` value (the per-install UUID) to its stored install. */
 export async function findInstalledById(installId: string): Promise<StoredGame | null> {
   const games = await listGames();
   return games.find((g) => g.id === installId) ?? null;
 }
 
-/** A "nothing to show here" message with a link back to the library. */
 export function renderMissingGame(root: HTMLElement, message: string): void {
   const wrap = document.createElement('div');
   wrap.className = 'page-message';
@@ -35,14 +27,8 @@ export function renderMissingGame(root: HTMLElement, message: string): void {
   root.replaceChildren(wrap);
 }
 
-/**
- * Ensure read permission to the game's folder, then call `onReady`.
- *
- * Browsers don't persist File System Access grants across sessions, and
- * `requestPermission` needs a user gesture — which a fresh page load (after
- * navigating from a link) doesn't have. So: if already granted, proceed; else
- * show a button whose click provides the gesture for the re-grant.
- */
+// File System Access grants don't persist across sessions, and the re-grant
+// needs a user gesture a fresh page load doesn't have — hence the button.
 export function withReadPermission(
   root: HTMLElement,
   game: StoredGame,

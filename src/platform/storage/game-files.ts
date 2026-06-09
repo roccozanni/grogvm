@@ -1,8 +1,4 @@
-/**
- * Load + parse a stored game's `.000`/`.001` files into the bundle an
- * EngineSession (and the resource browsers) need. Shared by the Play page;
- * the legacy player still has its own inline copy until task 7.
- */
+/** Load + parse a stored game's `.000`/`.001` files into the SessionGame bundle. */
 import { parseResourceFile } from '../../engine/resources/file';
 import { parseIndexFile } from '../../engine/resources/index-file';
 import { parseLoff } from '../../engine/resources/loff';
@@ -33,12 +29,9 @@ const CD_TRACK_RE = /^track(\d+)\.(fla|mp3)$/i;
 const CD_TRACK_HEADER_BYTES = 2048;
 
 /**
- * Read every `TrackN.{fla,mp3}` CD-audio track's duration (jiffies) from its
- * header, up front (like the other resources), so the VM can time CD-trigger
- * sounds. Only the header is read — a partial `File.slice`, not the whole
- * multi-MB track ({@link audioDurationJiffies} needs the FLAC STREAMINFO or
- * the MP3 Xing/Info frame; `file.size` feeds the MP3 CBR fallback). Tracks
- * are discovered from the folder, not assumed.
+ * Read each `TrackN.{fla,mp3}` track's duration (jiffies) so the VM can time
+ * CD-trigger sounds. Only the header is sliced, never the whole multi-MB
+ * track; `file.size` feeds the MP3 CBR fallback.
  */
 async function readCdTrackDurations(
   dir: FileSystemDirectoryHandle,
@@ -54,7 +47,6 @@ async function readCdTrackDurations(
   return durations;
 }
 
-/** Read + parse the game's index + resource files into a `SessionGame`. */
 export async function loadSessionGame(game: StoredGame): Promise<SessionGame> {
   const indexName = indexFilenameFor(game.gameId);
   const resourcesName = resourcesFilenameFor(game.gameId);

@@ -1,13 +1,6 @@
 /**
- * Game-agnostic VM drivers — advance the engine and feed it input. Nothing
- * here is MI1-specific: every function operates on a bare {@link Vm}, so it
- * works for any SCUMM-v5 game the engine boots (MI2 and beyond reuse it
- * unchanged). The MI1-specific load/boot/save glue lives in `mi1.ts`, which
- * re-exports these for convenience.
- *
- * Because there's no game data involved, these are unit-testable against a
- * synthetic VM (see `drive.test.ts`) — those tests run everywhere, including
- * CI without the game files.
+ * Game-agnostic VM drivers — advance a bare {@link Vm} and feed it input;
+ * any v5 game reuses them. See pages/docs/engine/harness.md.
  */
 import {
   VAR_MOUSE_X,
@@ -18,9 +11,9 @@ import {
 import type { Vm } from '../engine/vm/vm';
 
 /**
- * Point the virtual mouse at a room coordinate. Writes both the virtual
- * (g20/g21) and screen (g44/g45) mouse vars plus `mouseRoomX/Y`, exactly as
- * the shell's input layer does, so a hover poller sees a consistent position.
+ * Point the virtual mouse at a room coordinate. Writes the virtual AND screen
+ * mouse vars plus `mouseRoomX/Y`, like the shell's input layer — a partial
+ * write leaves the hover poller seeing an inconsistent position.
  */
 export function setMouse(vm: Vm, x: number, y: number): void {
   vm.mouseRoomX = x;
@@ -65,10 +58,9 @@ export function driveToRoom(vm: Vm, room: number, opts?: DriveOptions): boolean 
 }
 
 /**
- * Move the cursor to `(x, y)` and let the per-frame hover poller run a few
- * frames so it hit-tests the object under the cursor (the faithful way the
- * click flow learns what's there). `ticks` is jiffies — the default 24 ≈ 4
- * game frames at MI1's pacing, enough for the poller to fire.
+ * Move the cursor to `(x, y)` and drive a few jiffies so the per-frame hover
+ * poller hit-tests what's under it (default 24 ≈ 4 game frames, enough for
+ * the poller to fire).
  */
 export function hover(vm: Vm, x: number, y: number, ticks = 24): void {
   setMouse(vm, x, y);

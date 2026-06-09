@@ -1,10 +1,4 @@
-/**
- * Charsets dossier panel. Like costumes, charsets ship in the room's LFLF (in
- * MI1 they all sit in one LFLF, so most rooms show none). Each charset renders
- * its populated glyphs as thumbnails and a live text renderer — type a string,
- * pick an ink, see it laid out by the real `renderText`. Glyph/text colours map
- * through the current room's CLUT (gray ramp when no room palette is available).
- */
+/** Charsets dossier panel: glyph thumbnails + a live `renderText` preview. See pages/docs/scumm/char.md. */
 import { el, append } from '../reactive';
 import {
   charsetPayload,

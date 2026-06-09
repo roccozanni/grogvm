@@ -1,31 +1,12 @@
-/**
- * The clock seam (ARCHITECTURE.md §5.9, §11 Q10).
- *
- * The engine must run headless in Node, but `requestAnimationFrame` is a
- * browser API. So `EngineSession` never calls rAF itself — it arms an
- * injected `Clock`. The browser supplies a rAF-backed clock (shell-side,
- * written in a later Phase-10 task); tests and Node drivers use the
- * {@link ManualClock} here, which advances time by hand. This is what makes
- * the whole game loop deterministically testable.
- */
+/** The clock seam (pages/docs/engine/session.md §1). */
 export interface Clock {
-  /**
-   * Begin invoking `onTick(nowMs)` repeatedly until {@link stop}. `nowMs`
-   * is a monotonic millisecond timestamp (e.g. `performance.now()` in the
-   * browser; whatever the test feeds in `ManualClock`). The session uses it
-   * to throttle to a target tick rate and to batch ticks when the clock
-   * cadence runs slower than the rate.
-   */
+  /** Begin invoking `onTick(nowMs)` until {@link stop}. `nowMs` is a monotonic ms timestamp. */
   start(onTick: (nowMs: number) => void): void;
-  /** Stop invoking the callback. Safe to call when not started. */
+  /** Safe to call when not started. */
   stop(): void;
 }
 
-/**
- * Headless clock: the caller drives time explicitly via {@link advance}.
- * No rAF, no `Date.now` — fully deterministic, so a test can step the
- * session loop one controlled timestamp at a time.
- */
+/** Headless, deterministic clock — the caller drives time via {@link advance}. */
 export class ManualClock implements Clock {
   private cb: ((nowMs: number) => void) | null = null;
   private now = 0;

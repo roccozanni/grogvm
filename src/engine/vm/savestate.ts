@@ -1,38 +1,9 @@
 /**
- * Save / restore — a self-describing JSON snapshot of the live VM state.
- *
- * # What a save carries (and what it doesn't)
- *
- * A save is *only* the engine's runtime state: variables, script slots,
- * actors, object/verb/inventory state, the camera/cursor/dialog state,
- * and so on. It does **not** carry anything reconstructable from the
- * game files — room backgrounds, costume bitmaps, and even script
- * bytecode are reloaded through the VM's resolvers at restore time. So a
- * restore needs a freshly {@link bootGame}-ed VM (same game, so its
- * resolvers and MAXS sizes match) to load into.
- *
- * Per-slot bytecode is the one exception: we store each *live* slot's
- * bytecode in the save (base64). A running slot's bytecode can come from
- * several sources (a global SCRP, a room ENCD/EXCD, a local LSCR, a verb
- * or sentence script) and its PC points mid-stream; rather than
- * re-deriving the source and re-resolving it, we round-trip the exact
- * bytes so the slot resumes precisely. Dead slots store nothing. Slot
- * bytecode is small (KBs across 25 slots) so this is cheap and robust.
- *
- * The RNG state is also deliberately absent: the original interpreter
- * seeds its random generator once at process start and never saves the
- * seed, so an original save resumes the stream from wherever the process
- * happens to be — future draws diverge from the live run. Our saves
- * diverging the same way is faithful, not a bug. Reproducibility where it
- * matters (the test playthrough) comes from seeding the VM at boot, not
- * from the save (see {@link VmInit.random}).
- *
- * # Format
- *
- * Plain JSON. TypedArrays (variable banks, locals, string resources) are
- * base64-encoded; Maps/Sets become entry/value arrays. The shape is
- * versioned ({@link SAVE_VERSION}); {@link restoreVm} rejects a version
- * it doesn't understand rather than silently mis-loading.
+ * Save / restore — a self-describing, versioned JSON snapshot of the VM's
+ * runtime state; nothing reconstructable from the game files is stored,
+ * EXCEPT each live slot's bytecode (round-tripped verbatim so a mid-stream
+ * PC resumes exactly). RNG state is deliberately absent — the original
+ * never saved it either. See pages/docs/engine/session.md.
  */
 
 import type { Actor, Facing } from '../actor/actor';
@@ -113,7 +84,7 @@ export interface SaveState {
   readonly objectStates: ReadonlyArray<[number, number]>;
   readonly objectOwners: ReadonlyArray<[number, number]>;
   readonly inventoryNames: ReadonlyArray<[number, string]>;
-  /** `setObjectName` ($54) renames; optional for backward compat. */
+  /** `setObjectName` ($54) renames. */
   readonly objectNameOverrides?: ReadonlyArray<[number, string]>;
   readonly objectClasses: ReadonlyArray<[number, number]>;
   readonly objectDrawQueue: ReadonlyArray<number>;
@@ -126,10 +97,8 @@ export interface SaveState {
   // ── Room / camera ───────────────────────────────────────────────
   readonly currentRoom: number;
   /**
-   * Current room's walk-box flag overrides (box id → flags), set at runtime
-   * via matrixOp setBoxFlags. Optional: a save without it (older) restores
-   * with the room's disk flags. Re-applied to the mask after the room
-   * reloads, since restore does not re-run the entry script that sets them.
+   * Runtime walk-box flag overrides (box id → flags) — saved because a
+   * restore does not re-run the entry script that set them.
    */
   readonly boxFlags?: ReadonlyArray<[number, number]>;
   readonly pseudoRooms: ReadonlyArray<[number, number]>;
@@ -383,10 +352,9 @@ export function restoreVm(vm: Vm, state: SaveState): void {
   vm.shakeEnabled = state.shakeEnabled;
   vm.audio.restore(state.sound);
 
-  // Room / camera. Set currentRoom + pseudoRooms + UI overrides + box flags
-  // BEFORE reloading room resources so the CLUT overrides re-apply over the
-  // freshly-decoded palette. Box-flag locks are consulted live by the
-  // box-graph pathfinder, so restoring them into boxFlagOverrides is enough.
+  // currentRoom + pseudoRooms + UI overrides + box flags must be set BEFORE
+  // the room-resource reload below, so the CLUT overrides re-apply over the
+  // freshly-decoded palette.
   vm.currentRoom = state.currentRoom;
   for (const [box, flags] of state.boxFlags ?? []) vm.boxFlagOverrides.set(box, flags);
   for (const [k, v] of state.pseudoRooms) vm.pseudoRooms.set(k, v);

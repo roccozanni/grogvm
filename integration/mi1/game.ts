@@ -1,23 +1,8 @@
 /**
- * MI1 integration config — the per-game knobs the playthrough drives by.
- *
- * The engine is driven entirely by **numeric ids** (verb ids, object ids,
- * dialog-answer verb ids), which are game-structural: identical across the
- * IT/EN builds because the bytecode is the same — only the displayed string
- * resources are translated. So one suite covers the game, against any build.
- * Keep it that way: assert *mechanics*, never a localized string. Where a
- * test needs to check produced text, derive the expectation from the same
- * build (e.g. a dialog answer's own `name`), don't hardcode a translation.
- *
- * Ids are grouped by **room** (each `ROOMS.<name>` bundles its own id with the
- * objects/scripts that live there) plus global {@link VERBS} (verb ids) and
- * {@link VARS} (story/puzzle var ids) groups. Add a room by adding an entry;
- * add an object/script by adding a field to its room — the playthrough reads
- * them as `ROOMS.x.field`.
- *
- * These tests are NOT part of the default `npm test` run — they need the real
- * (copyrighted) game files. Launch with `npm run test:integration`; when the
- * data isn't present the suite skips via {@link hasGame}.
+ * MI1 playthrough config + duel helpers — numeric ids only (build-agnostic:
+ * IT/EN share bytecode; never assert a localized string — see
+ * pages/docs/engine/harness.md §7). The id labels and mechanic notes here are
+ * the knowledge home for game-specific walkthrough facts.
  */
 import {
   bootScummV5,

@@ -1,24 +1,7 @@
 /**
- * Room lighting — the bit-flags packed into `VAR_CURRENT_LIGHTS` (g9).
- *
- * `vars.ts` maps names to variable *indices*; this file holds the
- * *values* that go into one of them. The engine seeds g9 to a lit
- * default at reset (every v4–v5 game) and the `lights` opcode (0x70)
- * overwrites it per-room.
- *
- * Flag values are the documented SCUMM lightmode bits (derived, not
- * transcribed from engine source):
- *
- *   - `room_lights_on` (bit 2, value 4) — the room is lit. When clear,
- *     scripts treat the room as dark. MI1's sentence script #2 gates
- *     "Look at" on this: with g9 == 0 it answers "Non si riesce, troppo
- *     buio" instead of the real object description.
- *   - `actor_use_base_palette` (bit 0) / `actor_use_colors` (bit 1) —
- *     how actors pick up the room palette.
- *
- * Without the reset seed g9 stays 0 and *every* room reads as dark —
- * the `lights` opcode is never dispatched on MI1's credits→room-33
- * intro path, so the lit state can only come from this default.
+ * Lightmode bit-flags packed into `VAR_CURRENT_LIGHTS` (g9); the engine
+ * seeds a lit default at reset and the `lights` opcode overwrites it
+ * per-room. See pages/docs/scumm/lighting.md.
  */
 
 export const LIGHTMODE_ACTOR_USE_BASE_PALETTE = 1;

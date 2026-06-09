@@ -1,9 +1,7 @@
 /**
- * The camera viewport: SCUMM displays a fixed-width window into a room that
- * may be wider, scrolled horizontally by the camera. This is the single
- * source of truth for "which slice is on screen", shared by the frame
- * compositor (session), the overlay renderer (play-area), and input mapping —
- * so the pixels, the cursor, and the clicks all agree.
+ * Camera viewport — the single source of truth for "which room slice is on
+ * screen", shared by the frame compositor, overlay renderer, and input
+ * mapping so pixels, cursor, and clicks all agree.
  */
 
 /** The on-screen viewport width in native pixels (the SCUMM screen is 320 wide). */

@@ -1,16 +1,7 @@
 /**
- * Resource extraction for the Explorer — a *graceful* room dossier built from
- * the same decoders the VM uses (`decodeRoom`, `decodeZPlanes`,
- * `parseRoomObjects`, the box/scale parsers), but with a different contract:
- * the VM's {@link loadRoom} is all-or-nothing (one bad object throws away the
- * whole room), whereas a format browser must keep showing what it *can* parse
- * even when a section is malformed. So every section is isolated behind a
- * try/catch and surfaced as a {@link Section} — a broken object list never
- * blanks the background, and the failure reason is shown rather than swallowed.
- *
- * Presentation-agnostic: returns plain data (indices, bytecode, parsed
- * structs). The browser renders it to DOM, a CLI could print it — neither
- * decoding nor rendering policy lives here.
+ * Room dossier for the Explorer: same decoders as the VM, but per-section
+ * try/catch — a format browser must show what it CAN parse, unlike the VM's
+ * all-or-nothing loadRoom.
  */
 import type { Block } from '../resources/block';
 import { findChild, payloadOf, type ResourceFile } from '../resources/tree';
@@ -24,10 +15,9 @@ import { parseScal, type ScaleSlot } from '../pathfinding/scale';
 import { disassemble } from '../vm/disasm';
 import { loadGlobalScript } from '../vm/scripts';
 
-/** A room as addressable in the Explorer: its SCUMM id + where it lives. */
 export interface RoomRef {
   readonly roomId: number;
-  /** 0-based LFLF position inside LECF — for display and tying sibling resources. */
+  /** 0-based LFLF position inside LECF. */
   readonly lflfIndex: number;
   readonly roomBlock: Block;
 }
@@ -70,11 +60,7 @@ export interface RoomDossier {
   readonly scaleSlots: Section<readonly ScaleSlot[]>;
 }
 
-/**
- * Every room present in LOFF, paired with its block and LFLF index, sorted by
- * room id — the Explorer's room rail. Rooms walked from LECF that have no LOFF
- * id (e.g. the room-0 sentinel slot) are skipped.
- */
+/** Every LOFF room sorted by id; LECF rooms with no LOFF id are skipped. */
 export function listRooms(file: ResourceFile, loff: RoomOffsetTable): RoomRef[] {
   const roomIdAt = new Map<number, number>();
   for (const [roomId, offset] of loff) roomIdAt.set(offset, roomId);
@@ -113,8 +99,7 @@ export function extractRoom(file: ResourceFile, ref: RoomRef): RoomDossier {
     };
   });
 
-  // Z-planes need the background dimensions; if the background failed there's
-  // nothing to size them against.
+  // Z-planes are sized by the background dimensions.
   const zPlanes = section<readonly DecodedZPlane[]>(() => {
     if (!background.ok) throw new Error('background failed; cannot size z-planes');
     return decodeZPlanes(file, roomBlock, background.value.width, background.value.height).planes;
@@ -150,7 +135,6 @@ export function extractRoom(file: ResourceFile, ref: RoomRef): RoomDossier {
   };
 }
 
-/** A global script this room reaches into, resolved for display. */
 export interface ReferencedScript {
   readonly id: number;
   /** Owning room id (from DSCR). */
@@ -174,10 +158,8 @@ function referencedGlobalIds(bytecode: Uint8Array): number[] {
 }
 
 /**
- * The global scripts this room *directly* calls — `startScript`/`chainScript`
- * with a literal global id from the room's own scripts (ENCD/EXCD/local) or its
- * object verbs. Resolved via DSCR; ids that don't resolve (unused slot, dynamic
- * id) are dropped. Not transitive — only one hop out of the room.
+ * Global scripts this room *directly* calls with a literal id (one hop, not
+ * transitive). Ids that don't resolve via DSCR are dropped.
  */
 export function referencedGlobalScripts(
   dossier: RoomDossier,
@@ -214,8 +196,7 @@ function collectScripts(file: ResourceFile, roomBlock: Block): RoomScript[] {
   const excd = findChild(roomBlock, 'EXCD');
   if (excd) scripts.push({ label: 'EXCD (exit)', kind: 'exit', id: null, bytecode: new Uint8Array(payloadOf(file, excd)) });
 
-  // LSCR blocks are direct ROOM children; their payload is a u8 script id
-  // followed by the bytecode (the same shape loadRoom captures for dispatch).
+  // LSCR payload: u8 script id, then bytecode.
   for (const child of roomBlock.children ?? []) {
     if (child.tag !== 'LSCR') continue;
     const payload = payloadOf(file, child);

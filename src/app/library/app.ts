@@ -1,10 +1,7 @@
 import { renderLibrary } from './library';
 
-// Controller for the `/` page: it renders the library and re-renders it after an
-// install or remove. The player and explorer are separate pages (/play/,
-// /explore/), reached by link — see pages/ and ARCHITECTURE.md §7 / §11 Q11.
-// Installing opens the directory picker directly off the button (see install.ts),
-// so there's no second screen — only a flash for the occasional error.
+// Controller for the library page; player and explorer are separate pages
+// reached by link — see pages/docs/engine/architecture.md §3.
 export class App {
   constructor(private readonly root: HTMLElement) {}
 

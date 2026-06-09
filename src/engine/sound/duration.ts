@@ -1,33 +1,16 @@
 /**
- * Playback-duration readers for the two SOUN formats whose length lives
- * inside MONKEY.001: digitized PCM (`SBL`) and standard MIDI (`ROL`/`ADL`/
- * `SPK`). Both return a length in jiffies (1/60 s) — what the silent timing
- * backend counts down so `isSoundRunning` reports truthfully for a sound's
- * real span. CD-trigger sounds (durations in separate `TrackN.fla` files) are
- * timed by {@link flacDurationJiffies}, also here.
- *
- * Block sizing in SOUN is mixed and both conventions are exercised here:
- *   - SCUMM containers (`SOUN`/`SOU `/`SBL `/`ROL `/`ADL `/`SPK `) carry a
- *     big-endian size that INCLUDES the 8-byte tag+size header.
- *   - The inner audio/MIDI chunks (`AUhd`/`AUdt`/`MDhd`/`MThd`/`MTrk`) carry
- *     a big-endian size of the payload ONLY (standard MIDI / Creative-AU
- *     convention).
- * Verified against MI1 sounds #28 (SBL) and #50 (MIDI).
+ * Playback-duration readers (jiffies, 1/60 s) for SBL PCM, standard MIDI, and
+ * CD-track files. Formats and size conventions: pages/docs/scumm/sound.md;
+ * how the engine uses them: pages/docs/engine/audio.md.
  */
 
 const JIFFY_HZ = 60;
 const secToJiffies = (sec: number): number => Math.round(sec * JIFFY_HZ);
 
 /**
- * Duration (jiffies) of a FLAC stream, read from its STREAMINFO metadata
- * block — `totalSamples / sampleRate`. Only the header is needed (the first
- * ~42 bytes), so callers pass a partial read of the file rather than the
- * whole thing. Returns 0 for a non-FLAC / truncated header so a missing CD
- * track can't hang a wait.
- *
- * MI1 (CD-DOS-VGA) ships its redbook music as `TrackN.fla` (real FLAC); the
- * 24-byte CD-trigger sounds name a track whose length lives only in these
- * files (see `parseSound`).
+ * Duration of a FLAC stream from its STREAMINFO block — only the first ~42
+ * bytes are needed, so callers pass a partial read. Returns 0 for a non-FLAC
+ * or truncated header (non-gating, so a missing CD track can't hang a wait).
  */
 export function flacDurationJiffies(header: Uint8Array): number {
   if (header.length < 26) return 0;
@@ -60,13 +43,9 @@ const MP3_BITRATES_L3_MPEG1 = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192
 const MP3_BITRATES_L3_MPEG2 = [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160];
 
 /**
- * Duration (jiffies) of an MP3 stream from its header. The accurate path is
- * the Xing/Info tag in the first frame, whose frame count gives
- * `frames × samplesPerFrame / sampleRate` for both VBR and CBR (the EN MI1
- * `TrackN.mp3` rips carry an `Info` tag). Falls back to a CBR estimate
- * (`audioBytes × 8 / bitrate`, needing `fileSize`) when no Xing/Info is
- * present. Returns 0 if no frame header is found within `data` (e.g. a large
- * ID3v2 tag pushed the first frame past the partial read) — non-gating, safe.
+ * Duration of an MP3 stream: exact via the Xing/Info frame count when present,
+ * else a CBR estimate from `fileSize`. Returns 0 (non-gating) when no frame
+ * header is found within the partial read.
  */
 export function mp3DurationJiffies(data: Uint8Array, fileSize: number): number {
   // Skip an ID3v2 tag (syncsafe size at bytes 6..9) to reach the audio.
@@ -109,12 +88,7 @@ export function mp3DurationJiffies(data: Uint8Array, fileSize: number): number {
   return secToJiffies((fileSize - i) / ((kbps * 1000) / 8));
 }
 
-/**
- * Duration (jiffies) of a CD-audio track file from its header, dispatching on
- * content: FLAC (`fLaC` magic) → {@link flacDurationJiffies}, otherwise MP3
- * → {@link mp3DurationJiffies}. `fileSize` is only used for the MP3 CBR
- * fallback. Returns 0 for anything unrecognized (non-gating).
- */
+/** CD-track duration, dispatching on content (FLAC magic, else MP3). 0 if unrecognized. */
 export function audioDurationJiffies(header: Uint8Array, fileSize: number): number {
   if (header.length >= 4 && tag(header, 0) === 'fLaC') return flacDurationJiffies(header);
   return mp3DurationJiffies(header, fileSize);
@@ -126,8 +100,8 @@ const be32 = (b: Uint8Array, o: number): number =>
   ((b[o]! << 24) | (b[o + 1]! << 16) | (b[o + 2]! << 8) | b[o + 3]!) >>> 0;
 
 /**
- * Locate the first payload-sized inner chunk with `wantTag` in `[start, end)`,
- * walking the EXCLUSIVE-size convention. Returns its payload range or null.
+ * First chunk with `wantTag` in `[start, end)`. Inner chunks use the
+ * EXCLUSIVE size convention (payload only) — see sound.md.
  */
 function findChunk(
   b: Uint8Array,
@@ -149,12 +123,9 @@ function findChunk(
 }
 
 /**
- * Duration of a digitized `SBL` block. Its `AUdt` chunk wraps a Creative
- * Voice (VOC) block-1: type byte, 24-bit LE length, a time-constant, a
- * codec byte, then 8-bit unsigned PCM. The sample rate is read straight
- * from the time-constant (`1e6 / (256 - tc)`) — it is per-sound, not a
- * fixed assumption. (MI1's AUhd payload is a constant `00 00 80` whose
- * meaning we don't rely on.)
+ * Duration of a digitized `SBL` block (VOC block-1 inside `AUdt` — layout in
+ * sound.md). The sample rate comes from the per-sound time-constant; never
+ * assume a fixed rate.
  */
 export function sblDurationJiffies(sblPayload: Uint8Array): number {
   const audt = findChunk(sblPayload, 0, sblPayload.length, 'AUdt');

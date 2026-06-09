@@ -1,29 +1,6 @@
 /**
- * SCUMM v5 room loader — resolves a room id to a fully-decoded
- * `LoadedRoom` ready for the compositor to consume.
- *
- * Sits on top of Phase 2 (background bitmap, palette, transparency) and
- * Phase 3 (z-planes) decoders. We add: ROOM-block resolution via LOFF,
- * room-scoped scripts (ENCD entry script, EXCD exit script) captured
- * for the VM to dispatch, and a single error type for the failure
- * modes the engine cares about (no LOFF entry, no ROOM block, etc.).
- *
- * Walk geometry (BOXD boxes + BOXM routing matrix) is decoded here and
- * handed to the box-graph pathfinder (`pathfinding/boxgraph.ts`).
- *
- * # Resolution flow
- *
- *   roomId → LOFF[roomId]               (file offset of ROOM block)
- *          → walk file tree to find the matching Block by offset
- *          → decodeRoom() + decodeZPlanes() + capture ENCD/EXCD
- *
- * # Room id 0
- *
- * SCUMM uses room 0 as the "no room loaded" sentinel — boot scripts
- * call `loadRoom 0` mid-init to blank the screen before switching to
- * a real room. There's no entry in LOFF for room 0. The loader throws
- * `RoomLoadError` on id 0; the VM's `loadRoom` opcode handler catches
- * that and sets `loadedRoom = null` (the compositor renders a blank).
+ * Room id → fully-decoded LoadedRoom, via LOFF. Transition sequencing
+ * (EXCD/ENCD dispatch) lives in the VM: pages/docs/engine/room-transitions.md.
  */
 
 import { findChild, payloadOf, type ResourceFile } from '../resources/tree';
@@ -56,52 +33,25 @@ export interface LoadedRoom {
   readonly stripMethods: readonly number[];
   /** Z-planes for occlusion — index N hides actors with `actorZ < N`. */
   readonly zPlanes: readonly DecodedZPlane[];
-  /** ENCD bytecode — runs when the engine enters this room. `null` if absent. */
+  /** ENCD bytecode, `null` if absent. */
   readonly entryScript: Uint8Array | null;
-  /** EXCD bytecode — runs when the engine leaves this room. `null` if absent. */
+  /** EXCD bytecode, `null` if absent. */
   readonly exitScript: Uint8Array | null;
-  /**
-   * Local scripts (LSCR blocks) keyed by their script id. SCUMM v5
-   * reserves ids 200..255 for local scripts; the `startScript` opcode
-   * routes those ids to the current room's localScripts table.
-   */
+  /** LSCR blocks keyed by script id (200..255 — the room-local id range). */
   readonly localScripts: ReadonlyMap<number, Uint8Array>;
-  /**
-   * Room objects (OBCD + OBIM pairs) keyed by `obj_id`. Each entry
-   * carries the object's position (CDHD/IMHD), per-state image data
-   * (IM01, IM02, …), and the OBNA name. Consumed by the frame
-   * compositor when `drawObject` queues an object for the current
-   * frame.
-   */
   readonly objects: ReadonlyMap<number, LoadedObject>;
-  /**
-   * Walk boxes for pathfinding. Empty array when the room has no
-   * BOXD (some title / cutscene rooms don't). The box-graph
-   * pathfinder routes over these via {@link boxMatrix}; the boxes
-   * also drive actor perspective scaling and z-clip.
-   */
+  /** Empty when the room has no BOXD (some title / cutscene rooms). */
   readonly walkBoxes: ReadonlyArray<WalkBox>;
-  /**
-   * BOXM box-matrix — SCUMM's per-box shortest-path lookup, the graph the
-   * pathfinder walks (`getNextBox(from, to)`). Empty when the room has no
-   * BOXM; routing then degrades to a straight line.
-   */
+  /** Empty when the room has no BOXM; routing then degrades to a straight line. */
   readonly boxMatrix: BoxMatrix;
-  /**
-   * Per-room `SCAL` scale slots (perspective-depth gradients). Empty when the
-   * room has no `SCAL` block. A walk box's `scale` field selects one (or a
-   * direct scale) — see `pathfinding/scale.ts`.
-   */
+  /** SCAL perspective gradients; empty when absent. */
   readonly scaleSlots: readonly ScaleSlot[];
 }
 
 /**
- * Resolve a room id to a fully-decoded `LoadedRoom`.
- *
- * Throws `RoomLoadError` on:
- *   - room id not present in LOFF (e.g. room 0, unused slots)
- *   - LOFF offset doesn't land on a known ROOM block in the file tree
- *   - any of the Phase 2 / Phase 3 decoders throw (rethrown wrapped)
+ * Throws `RoomLoadError` when the id has no LOFF entry, the offset matches no
+ * ROOM block, or a decoder fails. Room 0 always throws: SCUMM's "no room"
+ * sentinel has no LOFF entry — the VM catches it and blanks the screen.
  */
 export function loadRoom(
   file: ResourceFile,
@@ -139,40 +89,29 @@ export function loadRoom(
   const encdBlock = findChild(roomBlock, 'ENCD');
   const excdBlock = findChild(roomBlock, 'EXCD');
 
-  // LSCR blocks live as direct children of ROOM. Each one's payload
-  // starts with a u8 script id (200..255 in MI1), followed by the
-  // bytecode. We collect them into a Map for O(1) lookup at
-  // startScript dispatch time.
+  // LSCR payload: u8 script id, then bytecode (copied so it outlives the file).
   const localScripts = new Map<number, Uint8Array>();
   for (const child of roomBlock.children ?? []) {
     if (child.tag !== 'LSCR') continue;
     const payload = payloadOf(file, child);
     if (payload.length < 1) continue;
     const id = payload[0]!;
-    // Bytecode is everything after the id byte. We copy so the
-    // returned buffer is independent of the file's lifetime.
     localScripts.set(id, new Uint8Array(payload.subarray(1)));
   }
 
   const objects = parseRoomObjects(file, roomBlock);
 
-  // BOXD is optional — title / cutscene rooms can omit it. We
-  // default to an empty list rather than throw so the loader
-  // remains usable for those rooms.
+  // BOXD / BOXM / SCAL are all optional — default to empty, don't throw.
   const boxdBlock = findChild(roomBlock, 'BOXD');
   const walkBoxes = boxdBlock
     ? parseWalkBoxes(payloadOf(file, boxdBlock))
     : [];
-  // BOXM is the routing graph over those boxes. Optional alongside BOXD
-  // (rooms without it route straight-line). Indexed by box id, so it's
-  // parsed against the BOXD box count.
   const boxmBlock = findChild(roomBlock, 'BOXM');
   const boxMatrix =
     boxmBlock && walkBoxes.length > 0
       ? parseBoxMatrix(payloadOf(file, boxmBlock), walkBoxes.length)
       : [];
 
-  // SCAL — perspective scale gradients. Optional (most rooms have none).
   const scalBlock = findChild(roomBlock, 'SCAL');
   const scaleSlots = scalBlock ? parseScal(payloadOf(file, scalBlock)) : [];
 
@@ -196,12 +135,6 @@ export function loadRoom(
   };
 }
 
-/**
- * Find the ROOM block at the given absolute file offset by walking
- * the LECF tree. `walkRooms` already enumerates every `LFLF > ROOM`
- * pair so we just match on offset. O(N) per call where N is the
- * number of LFLFs (~100 for MI1) — fine, loadRoom is rare.
- */
 function findRoomBlockAt(file: ResourceFile, offset: number) {
   for (const entry of walkRooms(file)) {
     if (entry.roomBlock.offset === offset) return entry.roomBlock;

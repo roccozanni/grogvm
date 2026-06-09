@@ -20,6 +20,8 @@ export function checkBrowserSupport(): UnsupportedReason | null {
   return { missing, isBrave: detectBrave() };
 }
 
+// Brave disables the File System Access API behind a global flag (not
+// per-site Shields); it exposes `navigator.brave`, so no UA sniffing.
 function detectBrave(): boolean {
   return typeof navigator !== 'undefined' && 'brave' in navigator;
 }

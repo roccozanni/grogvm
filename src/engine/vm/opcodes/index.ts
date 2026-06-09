@@ -1,24 +1,8 @@
 /**
- * Seed opcode set for Phase 5.
- *
- * The goal is *not* to be comprehensive — it's to provide just enough
- * dispatch for the boot script to start executing and for any branch
- * we can reach to behave correctly. Anything we haven't written halts
- * the VM cleanly via the dispatcher's default-fail path.
- *
- * Opcodes are listed in family order. Each entry registers one or
- * more byte values (the base opcode plus parameter-mode variants).
- *
- * # Convention
- *
- * - Handlers consume their parameters from the slot's bytecode and
- *   advance `slot.pc` past them.
- * - Param-mode bits in the opcode byte select *value* parameters
- *   (immediate vs var-ref). The **destination** parameter of a write
- *   opcode (e.g. `setVar`'s first param) is always a raw var-ref
- *   word — no mode bit consulted.
- * - Every handler calls `vm.annotate(...)` with a short mnemonic so
- *   the trace ring and halt panel can render something meaningful.
+ * SCUMM v5 opcode handlers. Dispatch/encoding conventions:
+ * pages/docs/scumm/opcodes.md; per-opcode layouts:
+ * pages/docs/scumm/opcode-reference.md. Operand layouts must stay in
+ * sync with disasm.ts.
  */
 
 import {
@@ -58,15 +42,8 @@ import type { ScriptSlot } from '../slot';
 import type { OpcodeHandler, Vm, VerbSlot } from '../vm';
 
 /**
- * Resolve an actor id to the table slot. SCUMM v5 convention: an
- * `id` of 0 passed to an actor opcode is the **ego shorthand** —
- * resolve via `VAR_EGO` (global #1, the actor id of the player
- * character). MI1 boot uses `putActor 0 (320, 72)` to place Guybrush
- * at the title-menu position; without the ego resolution this is a
- * no-op and the title screen has no visible actor.
- *
- * Returns null for out-of-range or fully-unresolved ids (covers the
- * pre-boot state where VAR_EGO is still 0).
+ * Actor id 0 is the SCUMM ego shorthand — resolved via VAR_EGO.
+ * Null for out-of-range or still-unresolved ids (pre-boot VAR_EGO=0).
  */
 function actorOrNull(vm: Vm, id: number): Actor | null {
   let resolved = id;
@@ -76,7 +53,6 @@ function actorOrNull(vm: Vm, id: number): Actor | null {
   return vm.actors.get(resolved);
 }
 
-/** Global variable holding the current ego (player-character) actor id. */
 const VAR_EGO = 1;
 
 const handlers = new Map<number, OpcodeHandler>();
@@ -89,31 +65,24 @@ function register(opcode: number, handler: OpcodeHandler): void {
 }
 
 // ─── 0x00  stopObjectCode ────────────────────────────────────────────
-// End the current script. Kills the slot.
 register(0x00, (vm, slot) => {
   vm.annotate('stopObjectCode');
   slot.kill();
 });
 
 // ─── 0xA0  stopObjectCode (alias) ────────────────────────────────────
-// Same opcode family, used by some scripts in MI1. Conservatively
-// register it too — both forms appear in descumm output.
 register(0xa0, (vm, slot) => {
   vm.annotate('stopObjectCode');
   slot.kill();
 });
 
 // ─── 0x80  breakHere ─────────────────────────────────────────────────
-// Yield to the scheduler. No parameters.
 register(0x80, (vm, slot) => {
   vm.annotate('breakHere');
   slot.yield_();
 });
 
 // ─── 0x18  jumpRelative ──────────────────────────────────────────────
-// Unconditional jump. Operand is a signed 16-bit displacement applied
-// to the PC after reading it (i.e. relative to the byte AFTER the
-// displacement word).
 register(0x18, (vm, slot) => {
   const delta = readI16(slot);
   slot.pc += delta;
@@ -121,9 +90,6 @@ register(0x18, (vm, slot) => {
 });
 
 // ─── 0x1A  setVar ────────────────────────────────────────────────────
-// Two params: dest var-ref word (always raw), value (immediate or var
-// ref based on bit-7 of the opcode byte). Variant 0x9A has bit-7 set
-// → source is a var ref.
 function makeSetVar(label: string): OpcodeHandler {
   return (vm, slot, opcode) => {
     const dest = readDestRef(slot, vm.vars);
@@ -136,8 +102,6 @@ register(0x1a, makeSetVar('setVar'));
 register(0x9a, makeSetVar('setVar'));
 
 // ─── 0x46 / 0xC6  inc / dec ──────────────────────────────────────────
-// Single var-ref param. In v5 these are *separate* opcodes — bit 7 is
-// not a param-mode flag here, it selects increment vs decrement.
 register(0x46, (vm, slot) => {
   const ref = readDestRef(slot, vm.vars);
   const cur = readValueAtRef(ref, slot, vm);
@@ -171,12 +135,8 @@ register(0x3a, makeAddSub(-1, 'sub'));
 register(0xba, makeAddSub(-1, 'sub'));
 
 // ─── 0x1B / 0x9B  multiply  ·  0x5B / 0xDB  divide ───────────────────
-// `var OP= value` — the multiplicative siblings of add/sub, same operand
-// shape (dest var-ref, then a value whose mode is bit 7 of the opcode).
-// Arithmetic matches the expression mini-VM (expression.ts): signed 32-bit
-// multiply via Math.imul, signed truncating division, divide-by-zero is a
-// loud halt. MI1 uses them in math scripts (e.g. global #1's coordinate
-// scaling, room 11 #201) with signed immediates like -2 (0xFFFE).
+// Arithmetic matches the expression mini-VM: signed 32-bit multiply,
+// truncating division, loud halt on divide-by-zero.
 function makeMulDiv(op: 'mul' | 'div', label: string): OpcodeHandler {
   return (vm, slot, opcode) => {
     const dest = readDestRef(slot, vm.vars);
@@ -199,19 +159,9 @@ register(0x5b, makeMulDiv('div', 'divide'));
 register(0xdb, makeMulDiv('div', 'divide'));
 
 // ─── 0x3F / 0x7F / 0xBF / 0xFF  drawBox ──────────────────────────────
-// Paint a filled rectangle in a CLUT colour onto the screen. Operand
-// layout (left, top, then a SECOND param-mode byte, then right, bottom,
-// colour) is the one the disassembler decodes — validated by linear
-// alignment on real MI1 bytecode: global #130's drawBox at offset 65 is
-// followed by the next opcode exactly 11 bytes on, and the whole credits
-// script (#130, 2666 B, 18 drawBoxes) decodes clean through to the end.
-// The second byte carries the colour's var/direct mode (bit 0x80). MI1
-// only emits the 0x3F form (all-immediate); the box coords are read as
-// plain words to match the disassembler byte-for-byte. The fill itself
-// lives in vm.drawnBoxes, re-applied by the compositor each frame and
-// cleared on room change (SCUMM writes straight to the virtual screen,
-// which persists until the next room redraw). Used by the win/credits
-// sequence (#130) to clear to black between cards and by #155.
+// Fills persist in vm.drawnBoxes (re-applied each frame, cleared on room
+// change) — SCUMM paints the virtual screen, which persists until the
+// next room redraw.
 function drawBoxHandler(vm: Vm, slot: ScriptSlot): void {
   const left = readU16(slot);
   const top = readU16(slot);
@@ -228,16 +178,9 @@ register(0xbf, drawBoxHandler);
 register(0xff, drawBoxHandler);
 
 // ─── Conditional branches ───────────────────────────────────────────
-// All comparison opcodes follow the wiki's `unless (value OP var)
-// goto target` form — the operand order in the byte stream is `var`
-// first then `value`, and the **jump fires when the named condition
-// is FALSE**. In other words: the body that follows the comparison
-// runs when the relation holds; the jump skips (or repeats, for
-// backward deltas) the body when it doesn't.
-//
-// In code below `a = var` (read first), `b = value` (read second).
-// `jumpWhen(a, b)` returns the negated form so the helper can stay
-// uniform across the family.
+// `unless (value OP var) goto target` (opcodes.md §3): operands arrive
+// var-then-value and the jump fires when the condition is FALSE — the
+// inverted predicates below are correct.
 
 function makeJumpIf(
   label: string,
@@ -255,36 +198,25 @@ function makeJumpIf(
   };
 }
 
-// 0x48 / 0xC8 — isEqual: unless (value == var) goto → jump when a != b
 register(0x48, makeJumpIf('isEqual', (a, b) => a !== b));
 register(0xc8, makeJumpIf('isEqual', (a, b) => a !== b));
 
-// 0x08 / 0x88 — isNotEqual: unless (value != var) goto → jump when a == b
 register(0x08, makeJumpIf('isNotEqual', (a, b) => a === b));
 register(0x88, makeJumpIf('isNotEqual', (a, b) => a === b));
 
-// 0x04 / 0x84 — isGreaterEqual: unless (value >= var) goto
-//                              → jump when value < var → jump when a > b
 register(0x04, makeJumpIf('isGE', (a, b) => a > b));
 register(0x84, makeJumpIf('isGE', (a, b) => a > b));
 
-// 0x44 / 0xC4 — isLess: unless (value < var) goto
-//                       → jump when value >= var → jump when a <= b
 register(0x44, makeJumpIf('isLess', (a, b) => a <= b));
 register(0xc4, makeJumpIf('isLess', (a, b) => a <= b));
 
-// 0x78 / 0xF8 — isGreater: unless (value > var) goto
-//                          → jump when value <= var → jump when a >= b
 register(0x78, makeJumpIf('isGreater', (a, b) => a >= b));
 register(0xf8, makeJumpIf('isGreater', (a, b) => a >= b));
 
-// 0x38 / 0xB8 — lessOrEqual: unless (value <= var) goto
-//                            → jump when value > var → jump when a < b
 register(0x38, makeJumpIf('isLE', (a, b) => a < b));
 register(0xb8, makeJumpIf('isLE', (a, b) => a < b));
 
 // ─── 0x28  equalZero / 0xA8  notEqualZero ────────────────────────────
-// Test a single var against 0, conditional jump.
 register(0x28, (vm, slot) => {
   const a = readVarRef(slot, vm.vars);
   const delta = readI16(slot);
@@ -299,14 +231,8 @@ register(0xa8, (vm, slot) => {
 });
 
 // ─── 0x1D / 0x9D  ifClassOfIs ────────────────────────────────────────
-// `opcode object[p16] {class[v16]}... 0xFF target[16]`. Conditional
-// branch: `unless (object matches every listed class) goto target`.
-// Each class value carries the class in its low 7 bits and a polarity
-// in bit 0x80 (set = "must be IN this class", clear = "must NOT be"),
-// the same encoding `actorSetClass` (0x5D) writes. Class N occupies bit
-// N-1 of `vm.objectClasses` (classes are 1-based). The read side of the
-// class system — previously `objectClasses` was write-only. MI1 uses it
-// heavily (e.g. the door script checks the object's class before acting).
+// Class values share actorSetClass's encoding (low 7 bits = class,
+// bit 0x80 = polarity). Class N occupies bit N-1 of the mask (1-based).
 function ifClassOfIsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const obj = readVarOrWord(opcode, 1, slot, vm.vars);
   const classes = readWordVararg(slot, vm.vars);
@@ -328,19 +254,12 @@ register(0x1d, ifClassOfIsHandler);
 register(0x9d, ifClassOfIsHandler);
 
 // ─── 0x26 / 0xA6  setVarRange ────────────────────────────────────────
-// Initialise a contiguous run of variables from inline literals.
-// Layout: dest var-ref (u16 LE), count u8, then `count` values. Values
-// are u8 when bit 7 of the opcode is clear (0x26), u16 LE when set
-// (0xA6). The dest is the *starting* index — successive values write
-// into dest+0, dest+1, … with whatever scope bits the dest carries.
 function makeSetVarRange(asWord: boolean): OpcodeHandler {
   return (vm, slot) => {
     const dest = readDestRef(slot, vm.vars);
     const count = readU8(slot);
     for (let i = 0; i < count; i++) {
       const v = asWord ? readI16(slot) : readU8(slot);
-      // Increment the *index* portion of the ref while preserving the
-      // scope flag bits (locals=0x8000, bit-vars=0x4000).
       writeRef(dest + i, v, slot, vm.vars);
     }
     vm.annotate(`setVarRange dest=0x${dest.toString(16)} count=${count}`);
@@ -350,27 +269,13 @@ register(0x26, makeSetVarRange(false));
 register(0xa6, makeSetVarRange(true));
 
 // ─── 0x2C  cursorCommand ─────────────────────────────────────────────
-// Multi-subop opcode controlling cursor visibility, userput
-// enable/disable, the active cursor image / hotspot, and the active
-// charset. Bits 0..4 of the subop select the action; bits 5..7 select
-// per-arg parameter modes (var-ref vs direct byte) the same way as on
-// the main opcode byte.
-//
-// The visibility / userput / charset subops mutate VM state (Phase 7
-// — drives the cursor overlay + verb bar). The cursor-image /
-// hotspot / initCursor subops still stub: those rely on a charset-
-// glyph-as-cursor decoder we haven't built yet. Default crosshair
-// covers the playable goal.
 register(0x2c, (vm, slot) => {
   const subop = readU8(slot);
   const action = subop & 0x1f;
-  // Cursor / userput state are COUNTERS (see o5_cursorCommand): hard
-  // on/off set 1/0, the "soft" variants increment/decrement so a
-  // cutscene's soft-off nests and a soft-on only re-shows the cursor if
-  // it was up before. `state`/`userput` are mirrored into
-  // VAR_CURSORSTATE / VAR_USERPUT at the end (matching the original's
-  // `if (version >= 4)` tail), so a script polling them right after this
-  // opcode sees the live value.
+  // Cursor/userput are COUNTERS (o5_cursorCommand): hard on/off set 1/0,
+  // the soft variants nest via ++/-- ; both are mirrored into
+  // VAR_CURSORSTATE / VAR_USERPUT after the switch (the original's
+  // version >= 4 tail).
   switch (action) {
     case 0x01: // SO_CURSOR_ON
       vm.cursor.state = 1;
@@ -407,10 +312,6 @@ register(0x2c, (vm, slot) => {
     case 0x0a:
     case 0x0b:
     case 0x0c:
-      // Custom cursor glyph / hotspot / init-cursor — never used by MI1 (it
-      // keeps the default crosshair) and not modelled. Halt loudly so a script
-      // that ever hits one is caught immediately, rather than silently leaving
-      // the wrong cursor. Needs the charset-glyph-as-cursor decoder.
       throw new Error(
         `cursorCommand: cursor-image subop 0x${action.toString(16).padStart(2, '0')} not implemented (no MI1 use)`,
       );
@@ -421,10 +322,8 @@ register(0x2c, (vm, slot) => {
       break;
     }
     case 0x0e: {
-      // charsetColor: word-vararg list of CLUT indices, terminated by 0xFF.
-      // SCUMM's _charsetColorMap — the text renderer maps glyph pixel values
-      // through it (value 1 = fill, value 2 = shadow/outline, …). MI1 sets
-      // [0,6,2], which gives the verb panel its dark-magenta glyph shadow.
+      // charsetColor → SCUMM's _charsetColorMap: the text renderer maps
+      // glyph pixel values through it (see pages/docs/scumm/char.md).
       const colors = readWordVararg(slot, vm.vars);
       vm.charsetColorMap = colors;
       vm.annotate(`cursorCommand charsetColor [${colors.join(',')}]`);
@@ -435,18 +334,13 @@ register(0x2c, (vm, slot) => {
         `cursorCommand: unknown subop 0x${action.toString(16).padStart(2, '0')} (raw=0x${subop.toString(16)})`,
       );
   }
-  // o5_cursorCommand tail (version >= 4): publish the counters.
   vm.vars.writeGlobal(VAR_CURSORSTATE, vm.cursor.state);
   vm.vars.writeGlobal(VAR_USERPUT, vm.cursor.userput);
 });
 
 // ─── 0x98  systemOps ─────────────────────────────────────────────────
-// Restart / pause / quit. Layout: u8 subop (1 restart, 2 pause, 3
-// quit). We record the request as VM state rather than acting on it —
-// a script-triggered restart or quit must NOT kill the inspector
-// mid-debug. The shell reads `vm.systemRequest` and decides what to do
-// (the inspector simply surfaces it). Sub-op 3 (quit) is what the
-// copy-protection script invokes after the "wrong code" message.
+// Recorded as vm.systemRequest rather than acted on — a script-issued
+// restart/quit must not kill the inspector; the shell decides.
 register(0x98, (vm, slot) => {
   const sub = readU8(slot);
   const request = sub === 1 ? 'restart' : sub === 2 ? 'pause' : sub === 3 ? 'quit' : null;
@@ -456,19 +350,13 @@ register(0x98, (vm, slot) => {
 
 // ─── 0x12 / 0x92  panCameraTo ────────────────────────────────────────
 // ─── 0x32 / 0xB2  setCameraAt ────────────────────────────────────────
-// Camera position is the CENTRE of the viewport (SCUMM v5 convention)
-// — for a 320-wide screen the visible room slice is `[x-160, x+160)`.
-// `setCameraAt` snaps the camera to the target X; `panCameraTo` smooth-
-// scrolls there over frames (vm.stepCameraPan) and detaches the actor
-// follow, so a `wait forCamera` after it actually waits for the pan and
-// the camera holds its scripted position instead of chasing the ego.
+// Camera x is the CENTRE of the viewport — the visible slice is
+// [x-160, x+160).
 function panCameraToHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const v = readVarOrWord(opcode, 1, slot, vm.vars);
-  // panCameraTo STOPS the camera following the ego — otherwise
-  // moveCameraFollow re-snaps onto the actor every frame. Room 64's dig
-  // cutscene relies on this: it pans to x=160, moves ego offscreen to x=395
-  // for the "hours pass" text, then pans to x=336, and only re-engages
-  // tracking with an explicit actorFollowCamera at the end.
+  // panCameraTo detaches actor-follow — otherwise moveCameraFollow
+  // re-snaps every frame; room 64's dig cutscene re-engages it with an
+  // explicit actorFollowCamera at the end.
   vm.cameraFollowActor = 0;
   vm.cameraDest = vm.clampCameraX(v);
   vm.annotate(`panCameraTo ${v} → dest=${vm.cameraDest}`);
@@ -486,12 +374,8 @@ register(0x32, setCameraAtHandler);
 register(0xb2, setCameraAtHandler);
 
 // ─── 0x52 / 0xD2  actorFollowCamera ──────────────────────────────────
-// Lock the camera to track an actor. Per the SCUMM v5 engine, following
-// an actor that is in a DIFFERENT room than the current one switches to
-// that room (startScene) — this is how MI1's boot enters the opening
-// lookout: it putActorInRoom(ego, 38) then actorFollowCamera(ego), and
-// the follow triggers the room load. Per-tick camera panning still
-// isn't wired; we snap to the actor's X.
+// Following an actor in a DIFFERENT room switches rooms (SCUMM
+// startScene) — this is how MI1's boot enters the opening lookout.
 function actorFollowCameraHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const id = readVarOrByte(opcode, 1, slot, vm.vars);
   const actor = actorOrNull(vm, id);
@@ -499,8 +383,7 @@ function actorFollowCameraHandler(vm: Vm, slot: ScriptSlot, opcode: number): voi
     if (actor.room > 0 && actor.room !== vm.currentRoom) {
       vm.enterRoom(actor.room);
     }
-    // Snap once now, then track per tick (vm.moveCameraFollow). Re-engaging
-    // the follow cancels any in-progress scripted pan.
+    // Snap now, then track per tick; re-engaging cancels a scripted pan.
     vm.cameraFollowActor = actor.id;
     vm.cameraDest = null;
     vm.moveCameraTo(vm.clampCameraX(actor.x));
@@ -514,9 +397,7 @@ register(0xd2, actorFollowCameraHandler);
 // ─── 0x3C / 0xBC  stopSound ──────────────────────────────────────────
 // ─── 0x02 / 0x82  startMusic ─────────────────────────────────────────
 // ─── 0x20         stopMusic  (no params) ─────────────────────────────
-// Routed through the audio backend (the timing seam). No audio OUTPUT yet
-// — SilentTimingBackend models only playback duration, which is what the
-// isSoundRunning poll-loops below need to pace cutscenes/transitions.
+// Routed through the audio timing backend — see pages/docs/scumm/sound.md.
 function startSoundHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const id = readVarOrByte(opcode, 1, slot, vm.vars);
   vm.audio.startSound(id, vm.getSoundResource(id));
@@ -534,10 +415,8 @@ register(0x3c, stopSoundHandler);
 register(0xbc, stopSoundHandler);
 
 // ─── 0x7C / 0xFC  isSoundRunning ─────────────────────────────────────
-// `opcode result sound[p8]`. Reads the backend's timing authority: 1 while
-// the sound is still within its duration (or looping), else 0. Scripts
-// busy-wait on this (breakHere + equalZero loop-back) to hold a transition
-// for a sound's real span; the stub's constant 0 collapsed those holds.
+// Timing authority for script busy-wait pacing — see
+// pages/docs/scumm/sound.md (a constant 0 collapses cutscene holds).
 function isSoundRunningHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const dest = readDestRef(slot, vm.vars);
   const sound = readVarOrByte(opcode, 1, slot, vm.vars);
@@ -549,13 +428,8 @@ register(0x7c, isSoundRunningHandler);
 register(0xfc, isSoundRunningHandler);
 
 // ─── 0x62 / 0xE2  stopScript ─────────────────────────────────────────
-// `opcode script[p8]`. Kill every slot running the given global script id.
-// Script 0 means "stop the CURRENT script" — SCUMM `o5_stopScript`:
-// `if (script == 0) stopObjectCode()`. Scripts use `stopScript 0` to
-// terminate themselves at a guard (e.g. #4's verb-100 / sentence-line
-// branch: clicking the sentence line must abort #4 before it arms g107,
-// not fall through and set the active verb to 100). Treating 0 as a no-op
-// let that fall-through corrupt the sentence state.
+// Script 0 stops the CURRENT script (o5_stopScript) — NOT a no-op; #4's
+// sentence-line guard relies on aborting itself here.
 function stopScriptHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const scriptId = readVarOrByte(opcode, 1, slot, vm.vars);
   if (scriptId === 0) {
@@ -572,16 +446,9 @@ register(0x62, stopScriptHandler);
 register(0xe2, stopScriptHandler);
 
 // ─── 0x30  matrixOp ──────────────────────────────────────────────────
-// `opcode sub-opcode [box[p8] val[p8]]` — manipulate walk-box flags /
-// scale / rebuild the box matrix. Sub-opcodes: $01 setBoxFlags,
-// $02/$03 setBoxScale, $04 createBoxMatrix (no args). We pathfind with grid
-// A* over the walkable mask, so:
-//   - setBoxFlags applies (bit 0x80 locks the box → dropped from the mask;
-//     this is how a closed door seals its corridor). See vm.setBoxFlags.
-//   - setBoxScale stays a no-op (per-box scale is read from the SCAL/box
-//     scale slots at load, not retuned at runtime here).
-//   - createBoxMatrix is a no-op: we rebuild the mask on each setBoxFlags, so
-//     there's no separate matrix to recompute.
+// createBoxMatrix is a no-op (the walkable mask is rebuilt on every
+// setBoxFlags); setBoxScale halts loudly — no MI1 use, box scale comes
+// from the SCAL slots at load.
 function matrixOpHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
   const sub = readU8(slot);
   if (sub === 0x04) {
@@ -596,9 +463,6 @@ function matrixOpHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
     vm.annotate(`matrixOp setBoxFlags box=${box} flags=0x${val.toString(16)}`);
     return;
   }
-  // setBoxScale (0x02/0x03) — per-box runtime scale, never used by MI1 (box
-  // scale comes from the SCAL slots at load) and not modelled. Halt loudly so
-  // a hit is caught immediately. Any other subop here is genuinely unknown.
   throw new Error(
     `matrixOp: subop 0x${action.toString(16).padStart(2, '0')} (setBoxScale) not implemented (no MI1 use)`,
   );
@@ -618,20 +482,12 @@ register(0x20, (vm) => {
 });
 
 // ─── 0x4C  soundKludge ───────────────────────────────────────────────
-// iMUSE control message (word-vararg list). Audio is Phase 9, but unlike the
-// load-bearing audio stubs (startSound/isSoundRunning, which MI1 hits 100s of
-// times and must fall through), soundKludge has ZERO MI1 uses — so halt loudly
-// to catch a hit immediately instead of silently swallowing it. Registered
-// explicitly (rather than left unknown) so the halt names the opcode.
+// Zero MI1 uses — registered only so the halt names the opcode.
 register(0x4c, () => {
   throw new Error('soundKludge (0x4C) not implemented (no MI1 use; audio is Phase 9)');
 });
 
 // ─── 0x72 / 0xF2  loadRoom ───────────────────────────────────────────
-// Switch the engine to a new room. Layout: room id (var-or-byte via
-// bit 0x80 of opcode). The actual transition logic lives in
-// `vm.enterRoom`: run previous room's EXCD, swap loadedRoom, run new
-// room's ENCD.
 function loadRoomHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const roomId = readVarOrByte(opcode, 1, slot, vm.vars);
   vm.enterRoom(roomId);
@@ -648,14 +504,9 @@ register(0x72, loadRoomHandler);
 register(0xf2, loadRoomHandler);
 
 // ─── 0x70 / 0xF0  lights ─────────────────────────────────────────────
-// Set the room lighting mode. Layout: arg1 (var-or-byte via bit 0x80),
-// then two raw bytes arg2/arg3. The third arg selects the mode: when
-// it's 0, arg1 becomes `VAR_CURRENT_LIGHTS` (the room-lit bit-flags —
-// see LIGHTMODE_* in vars.ts). Non-zero arg3 is the flashlight variant
-// (arg2 = flashlight strip extent); we don't model the flashlight gfx,
-// but still consume the operands and trigger a redraw so the script
-// stays aligned. The boot seeds VAR_CURRENT_LIGHTS to a lit default, so
-// most rooms never need this — it's used by the few dark rooms.
+// arg3 = 0 → arg1 becomes VAR_CURRENT_LIGHTS; non-zero = flashlight
+// variant (not modelled — operands still consumed so the stream stays
+// aligned). See pages/docs/scumm/lighting.md.
 register(0x70, lightsHandler);
 register(0xf0, lightsHandler);
 function lightsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
@@ -666,26 +517,16 @@ function lightsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
     vm.vars.writeGlobal(VAR_CURRENT_LIGHTS, arg1);
     vm.annotate(`lights g9=${arg1}`);
   } else {
-    // Flashlight mode — not modeled visually yet.
     vm.annotate(`lights flashlight w=${arg2} mode=${arg3}`);
   }
 }
 
 // ─── 0x14 / 0x94 / 0xD8  print / printEgo ────────────────────────────
-// Print a string into an actor's text slot. Layout: actor (var-or-byte
-// via bit 0x80 of opcode), then a *non-looped* sequence of subops —
-// subop 0x0F (print text) is terminal: it reads a NUL-terminated string
-// (with `0xFF NN` SCUMM control codes embedded) and the opcode ends.
-//
-// 0xD8 `printEgo` is the same except actor is implicit ("ego" = the
-// current player actor). We treat both as stubs for Phase 6 — the
-// dialog renderer lands when verb UI ships.
+
+// Reads to the 0x00 terminator, consuming `0xFF NN` escapes — codes >= 4
+// carry a 2-byte arg that may itself contain 0x00, so a naive scan
+// truncates. The length rule must match decodeScummString exactly.
 function readScummString(slot: ScriptSlot): Uint8Array {
-  // Reads bytes until 0x00 terminator. SCUMM strings can contain `0xFF NN`
-  // escape sequences where NN is a control byte; some control codes
-  // (var substitution / show-string / show-name / show-verb) take an
-  // additional 2-byte argument. We need to consume those without
-  // mistaking the inner bytes for the 0x00 terminator.
   const start = slot.pc;
   while (slot.pc < slot.bytecode.length) {
     const b = slot.bytecode[slot.pc];
@@ -696,10 +537,6 @@ function readScummString(slot: ScriptSlot): Uint8Array {
     if (b === 0xff) {
       slot.pc++; // escape
       const code = slot.bytecode[slot.pc++]!;
-      // Control codes 0x01–0x03 are 2-byte (0xFF + code); 0x04 and up
-      // carry a 2-byte argument (var/string/object/verb id) → 4-byte
-      // total. Mirrors decodeScummString's length rule exactly so the
-      // PC-advancing reader and the display decoder never disagree.
       if (code >= 4) slot.pc += 2;
       continue;
     }
@@ -708,32 +545,22 @@ function readScummString(slot: ScriptSlot): Uint8Array {
   throw new Error('SCUMM string: missing 0x00 terminator');
 }
 
-/** SCUMM print target for developer debug strings — suppressed on screen
- *  (real system/narrator text uses actor 255). */
+/** Developer debug-print channel — suppressed on screen; real narrator
+ *  text is actor 255 (see pages/docs/scumm/char.md). */
 const DEBUG_PRINT_ACTOR = 253;
 
 function printHandler(actor: number, vm: Vm, slot: ScriptSlot): void {
   const ops: string[] = [];
-  // The speaking actor (printEgo / print actor=0 → ego). When this is a
-  // real actor and the script gives no explicit SO_AT / SO_COLOR, it's
-  // an actor talking: default to the actor's talk color and position the
-  // text above the actor (the SCUMM talk default), not the system
-  // bottom-centre fallback.
+  // A real speaker with no explicit SO_AT/SO_COLOR is actor talk: default
+  // to the actor's talk color, centred above the actor (SCUMM talk default).
   const speaker = actorOrNull(vm, actor);
   const speakerId = actor === 0 ? vm.vars.readGlobal(VAR_EGO) : actor;
-  // Actor 253 is the developers' DEBUG-text channel: every `print a=253` is an
-  // English debug string (in this IT build) — "Player won", "Checking reply for
-  // pirate skill", "in set-replies", etc. Most are gated by bit#482 (debug off
-  // in shipped play); a few (e.g. #89's "in set-replies") are ungated oversights.
-  // Real on-screen system/narrator text uses actor 255. So debug prints must not
-  // render; we still parse the opcode's subops/text to advance the PC, then drop
-  // the commit (see SO_TEXTSTRING below).
+  // Debug prints still parse subops/text (to advance the PC) but never
+  // render — see pages/docs/scumm/char.md on actor 253.
   const isDebug = actor === DEBUG_PRINT_ACTOR;
-  // System prints (no speaker — actor 255, credits/narrator) inherit the
-  // sticky `_string[0]` state so a bare `print` reuses the last set
-  // position/colour/centre (the MI1 credits depend on this). Actor talk
-  // starts fresh — its position/colour come from the actor, not the
-  // persisted state.
+  // System prints (no speaker) inherit the sticky _string[0] state so a
+  // bare `print` reuses the last position/colour/centre — the MI1 credits
+  // depend on this. Actor talk starts fresh.
   const isSystem = speaker === null;
   const st = vm.printState;
   let atX: number | null = isSystem ? st.x : null;
@@ -749,9 +576,8 @@ function printHandler(actor: number, vm: Vm, slot: ScriptSlot): void {
     const action = sub & 0x0f;
     switch (action) {
       case 0x00: {
-        // SO_AT — absolute screen position for the text anchor. In
-        // SCUMM this also clears the overhead flag (an explicit anchor
-        // overrides "above the actor").
+        // SO_AT also clears overhead — an explicit anchor overrides
+        // "above the actor" (SCUMM).
         atX = readVarOrWord(sub, 1, slot, vm.vars);
         atY = readVarOrWord(sub, 2, slot, vm.vars);
         overhead = false;
@@ -759,14 +585,12 @@ function printHandler(actor: number, vm: Vm, slot: ScriptSlot): void {
         break;
       }
       case 0x01: {
-        // SO_COLOR — ink (CLUT index) for the text glyph.
         color = readVarOrByte(sub, 1, slot, vm.vars);
         colorSet = true;
         ops.push(`color(${color})`);
         break;
       }
       case 0x02: {
-        // SO_CLIPPED — max x boundary; line-wrap caps here.
         clipped = readVarOrWord(sub, 1, slot, vm.vars);
         ops.push(`clipped(${clipped})`);
         break;
@@ -776,7 +600,6 @@ function printHandler(actor: number, vm: Vm, slot: ScriptSlot): void {
         ops.push('center');
         break;
       case 0x06:
-        // SO_LEFT — explicit left-anchored (resets any prior `center`).
         center = false;
         ops.push('left');
         break;
@@ -785,34 +608,23 @@ function printHandler(actor: number, vm: Vm, slot: ScriptSlot): void {
         ops.push('overhead');
         break;
       case 0x08: {
-        // SO_SAY_VOICE — reads a word arg. We have no audio yet so
-        // ignore the value beyond consuming the bytes.
+        // SO_SAY_VOICE — one word arg (CD voice id); consumed, no output.
         const a = readVarOrWord(sub, 1, slot, vm.vars);
         ops.push(`voice(${a})`);
         break;
       }
       case 0x0f: {
-        // SO_TEXTSTRING — read NUL-terminated text and exit the opcode.
         const buf = readScummString(slot);
-        // Debug channel (actor 253): consume the text to keep the PC aligned,
-        // but never render it or touch the system-print state.
         if (isDebug) return;
-        // Split into sentence pages at \xff\x03; the first shows now, the
-        // rest are queued and advanced by the talk timer (see queueTalkPages).
-        // keepText (\xff\x02) flags a sign/credit that must persist past the
-        // talk timer rather than auto-clear.
+        // Pages split at \xff\x03: the first shows now, the rest queue on
+        // the talk timer. keepText (\xff\x02) persists past the timer.
         const { pages, keepText } = decodeScummStringPages(buf, vm, slot);
         const text = pages[0] ?? '';
         const preview = Array.from(buf)
           .map((b) => (b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : `\\x${b.toString(16).padStart(2, '0')}`))
           .join('');
-        // Commit the dialog to the VM so the shell renders it.
-        // Empty strings count as "clear" — some scripts use a 0-byte
-        // print to dismiss the previous bubble.
-        // Persist the (possibly subop-updated) string state for system
-        // prints so the next bare `print` inherits it. Done regardless
-        // of whether the text is empty — a 0-byte clear still leaves the
-        // position/colour set for what follows.
+        // Persist the sticky state even for an empty (= "clear") print —
+        // a 0-byte clear still leaves position/colour set for what follows.
         if (isSystem) {
           st.x = atX;
           st.y = atY;
@@ -822,28 +634,17 @@ function printHandler(actor: number, vm: Vm, slot: ScriptSlot): void {
           st.overhead = overhead;
           st.clipped = clipped;
         }
-        // Route by channel: system prints (no speaker — signs, narrator,
-        // credits) go to the persistent `systemText` slot; real-actor
-        // talk goes to the transient `activeDialog` slot. Keeping them
-        // separate stops actor speech from clobbering an on-screen sign
-        // (and vice-versa) — both can be visible at once. The talk timer
-        // (VAR_HAVE_MSG / talkDelay) is driven identically for both so
-        // wait-for-message pacing is unchanged.
+        // System prints go to the persistent systemText slot, actor talk
+        // to the transient activeDialog — both can be on screen at once.
+        // Empty string = dismiss the previous bubble.
         if (text.length === 0) {
           if (isSystem) vm.clearSystemText();
           else vm.activeDialog = null;
           vm.endTalk();
         } else {
-          // Actor talk (valid speaker, no explicit SO_AT) defaults to
-          // the actor's talk color and positions above the actor,
-          // centred — like the original. Explicit SO_AT / SO_COLOR /
-          // system messages (actor 255 → no speaker) keep their values
-          // and the bottom-centre fallback.
           const isTalk = speaker !== null && atX === null;
-          // An actor talking with no explicit SO_COLOR takes its ink from the
-          // actor's talkColor — resolved LIVE at render time (see
-          // ActiveDialog.colorFromActor), so a colour set by a helper script
-          // that runs after this print still applies.
+          // Talk ink resolves LIVE at render time (colorFromActor) — a
+          // helper script may set talkColor after this print.
           const colorFromActor = !colorSet && speaker !== null;
           const dlg = {
             actorId: speakerId,
@@ -859,11 +660,8 @@ function printHandler(actor: number, vm: Vm, slot: ScriptSlot): void {
           };
           if (isSystem) vm.addSystemText(dlg);
           else vm.activeDialog = dlg;
-          // Pace the conversation: mark the message as "being said" so
-          // a following wait-for-message holds until it's read.
+          // Mark the message "being said" so wait-for-message holds.
           vm.beginTalk(text);
-          // Queue any further sentence pages (\xff\x03-separated); the
-          // talk timer flips to each in turn before the message clears.
           vm.queueTalkPages(pages.slice(1), dlg, isSystem);
         }
         vm.annotate(`print actor=${actor} [${ops.join(',')}] "${preview}"`);
@@ -875,10 +673,8 @@ function printHandler(actor: number, vm: Vm, slot: ScriptSlot): void {
         );
     }
   }
-  // No text-string subop → the script issued a "configure-only"
-  // print (just set position/color for a later print, or clear). The
-  // MI1 credits use exactly this to prime the sticky state for the
-  // following bare prints — so persist it on this path too.
+  // Configure-only print (no text subop) — the MI1 credits prime the
+  // sticky state this way, so persist it on this path too.
   if (isSystem) {
     st.x = atX;
     st.y = atY;
@@ -898,46 +694,20 @@ function printOpcode(vm: Vm, slot: ScriptSlot, opcode: number): void {
 register(0x14, printOpcode);
 register(0x94, printOpcode);
 register(0xd8, (vm, slot) => {
-  // printEgo — actor is implicit (the player character)
   printHandler(0, vm, slot);
 });
 
 // ─── 0x58  beginOverride / endOverride ───────────────────────────────
-// Mark a cutscene as "skippable" — the player can hit Escape to abort
-// to a fixed continuation point. Layout for `flag=1` (begin):
-//   0x58 0x01 0x18 dlo dhi   — beginOverride + flag + EMBEDDED jump
-//                              opcode + i16 delta giving the skip
-//                              target relative to the byte after the
-//                              delta. The 3 embedded bytes look like a
-//                              normal `jump` instruction so the script
-//                              can be disassembled cleanly, but they
-//                              MUST be consumed by `beginOverride`
-//                              itself — dispatching them as a real
-//                              jump would unconditionally skip the
-//                              cutscene body (which is exactly what
-//                              we saw before this fix).
-// For `flag=0` (end): nothing more to read.
-//
-// Escape IS wired: input.ts → play.ts `onEscape` → session sees key
-// 'Escape' → `vm.abortCutscene()`, which jumps this slot to `overridePc`.
-// Until the player actually skips, the captured target just sits here and
-// normal execution falls through into the cutscene body.
+// begin (flag=1) must consume its embedded jump bytes (0x18 + i16 delta)
+// itself — dispatching them as a real jump would unconditionally skip
+// the cutscene body. ESC machinery: pages/docs/scumm/cutscenes.md.
 register(0x58, (vm, slot) => {
   const flag = readU8(slot);
   if (flag !== 0) {
-    // Consume the embedded jump pattern. The opcode byte is informational
-    // (always 0x18 in MI1's bytecode) — we read the i16 delta and
-    // compute the absolute override target.
     const jumpOp = readU8(slot);
     const delta = readI16(slot);
     const overrideTarget = slot.pc + delta;
-    // Stash on the slot itself so future Escape handling has somewhere
-    // to read it from. The opcode byte goes into the annotation for
-    // diagnostics in case the format ever differs.
     slot.overridePc = overrideTarget;
-    // The original clears VAR_OVERRIDE here; abortCutscene() sets it
-    // back to 1 if the player actually skips, so the override code can
-    // tell "ran to completion" (0) from "was aborted" (1).
     vm.vars.writeGlobal(VAR_OVERRIDE, 0);
     vm.annotate(`beginOverride target=0x${overrideTarget.toString(16)} (op=0x${jumpOp.toString(16)})`);
   } else {
@@ -947,10 +717,7 @@ register(0x58, (vm, slot) => {
 });
 
 // ─── 0x40  cutscene / 0xC0  endCutscene ──────────────────────────────
-// cutscene reads a word-vararg arg list (passed to VAR_CUTSCENE_START_
-// SCRIPT) and freezes every other script; endCutscene thaws them and
-// runs VAR_CUTSCENE_END_SCRIPT. MI1's credits are wrapped in one — the
-// start/end scripts (#18/#19) hide and restore the cursor + user input.
+// See pages/docs/scumm/cutscenes.md for the bracket machinery.
 register(0x40, (vm, slot) => {
   const args = readWordVararg(slot, vm.vars);
   vm.beginCutscene(args, slot.slotIndex);
@@ -962,9 +729,6 @@ register(0xc0, (vm) => {
 });
 
 // ─── 0x60 / 0xE0  freezeScripts ──────────────────────────────────────
-// Layout: flag (var-or-byte via bit 0x80). flag == 0 thaws ALL scripts;
-// otherwise freeze every other slot (resistant ones too when
-// flag >= 0x80). Freezing is cumulative (per-slot count).
 function freezeScriptsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const flag = readVarOrByte(opcode, 1, slot, vm.vars);
   if (flag === 0) {
@@ -978,9 +742,6 @@ register(0x60, freezeScriptsHandler);
 register(0xe0, freezeScriptsHandler);
 
 // ─── 0x68 / 0xE8  isScriptRunning ────────────────────────────────────
-// Result var = 1 if a slot currently holds the given script id (any
-// status except dead), 0 otherwise. Layout: result var-ref u16,
-// script id (var-or-byte via opcode bit 7).
 function isScriptRunningHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const dest = readDestRef(slot, vm.vars);
   const scriptId = readVarOrByte(opcode, 1, slot, vm.vars);
@@ -992,10 +753,8 @@ register(0x68, isScriptRunningHandler);
 register(0xe8, isScriptRunningHandler);
 
 // ─── 0x16 / 0x96  getRandomNumber ────────────────────────────────────
-// Result var = random integer in [0, max] (inclusive), drawn from the
-// VM's injectable entropy source via {@link Vm.randomInt} — Math.random
-// in the app, a seeded generator under test (see VmInit.random) so a
-// scripted playthrough reproduces bit-for-bit.
+// Result ∈ [0, max] INCLUSIVE; entropy is injectable via vm.randomInt
+// (seeded under test for reproducible playthroughs).
 function getRandomNrHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const dest = readDestRef(slot, vm.vars);
   const max = readVarOrByte(opcode, 1, slot, vm.vars);
@@ -1007,12 +766,8 @@ register(0x16, getRandomNrHandler);
 register(0x96, getRandomNrHandler);
 
 // ─── 0x07 / 0x47 / 0x87 / 0xC7  setState ─────────────────────────────
-// Set an object's state byte. State drives which OBIM image variant gets
-// composited (open/closed door, etc.) and is consulted by `ifState`. SCUMM's
-// setObjectState also marks the object dirty so it redraws in its new state —
-// we mirror that by queuing a current-room object for drawing, so e.g. opening
-// the SCUMM Bar door (state 1) actually renders the open doorway. State 0 stays
-// queued but the compositor skips it (the closed door lives in the room bg).
+// Mirrors SCUMM's putState + mark-dirty: queue the object for redraw
+// (pages/docs/scumm/objects.md §7).
 function setStateHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const obj = readVarOrWord(opcode, 1, slot, vm.vars);
   const state = readVarOrByte(opcode, 2, slot, vm.vars);
@@ -1026,9 +781,6 @@ register(0x87, setStateHandler);
 register(0xc7, setStateHandler);
 
 // ─── 0x0F / 0x8F  getObjectState ─────────────────────────────────────
-// `opcode result object[p16]`. Result var ← the object's current state
-// (0 if never set). Mirror of setState; rooms read it on entry to
-// branch on door open/closed etc.
 function getObjectStateHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const dest = readDestRef(slot, vm.vars);
   const obj = readVarOrWord(opcode, 1, slot, vm.vars);
@@ -1040,11 +792,8 @@ register(0x0f, getObjectStateHandler);
 register(0x8f, getObjectStateHandler);
 
 // ─── 0x10 / 0x90  getObjectOwner ─────────────────────────────────────
-// `opcode result object[p16]`. Result var ← the object's owner actor id
-// (15 = the room itself, OF_OWNER_ROOM; an actor id = in that actor's
-// inventory; 0 = nobody / removed). See vm.getObjectOwner — a room object
-// with no explicit owner reads as 15, which MI1's sentence script #2 gates
-// the walk-to-object approach on. Mirror of setOwnerOf.
+// Room objects with no explicit owner read 15 (OF_OWNER_ROOM) — see
+// pages/docs/scumm/objects.md §7a.
 function getObjectOwnerHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const dest = readDestRef(slot, vm.vars);
   const obj = readVarOrWord(opcode, 1, slot, vm.vars);
@@ -1056,32 +805,15 @@ register(0x10, getObjectOwnerHandler);
 register(0x90, getObjectOwnerHandler);
 
 // ─── 0x0B / 0x4B / 0x8B / 0xCB  getVerbEntryPoint ────────────────────
-// `opcode result object[p16] verb[p16]`. Result var ← the script entry
-// offset for `verb` on `object`, or 0 when the object responds to no
-// such verb. Scripts use it as a boolean "does this object respond to
-// this verb?" — so we return 1 when present, 0 otherwise (we keep
-// per-verb bytecode slices, not raw offsets; the truthiness is what
-// callers test).
-//
-// CRUCIAL: SCUMM's getVerbEntrypoint matches the exact verb **OR verb
-// 0xFF** (the object's default-action verb) — `*verbptr == entry ||
-// *verbptr == 0xFF`. So an object with a 0xFF default responds to ANY
-// verb query. MI1 room exits rely on this: the "uscita" objects carry
-// verb 0xFF (= loadRoomWithEgo) and the player clicks them with the
-// default walk-to verb 11. The sentence script #2 does
-// `getVerbEntryPoint(exit, 11)` and, finding it truthy (via the 0xFF
-// fallback), takes the run-the-verb branch → `startObject(exit, 11)` →
-// which itself falls back to verb 0xFF → loadRoom. Without the 0xFF
-// match here, #2 read 0, took the walk-only branch, and the exit never
-// opened (Guybrush walked off-screen but never changed rooms).
+// Returns 1/0, not a real offset (we keep per-verb bytecode slices;
+// callers only test truthiness). Must match the exact verb OR the 0xFF
+// default-verb entry — room exits depend on it (opcode-reference.md).
 function getVerbEntryPointHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const dest = readDestRef(slot, vm.vars);
   const obj = readVarOrWord(opcode, 1, slot, vm.vars);
   const verb = readVarOrWord(opcode, 2, slot, vm.vars);
-  // findObjectCode (not just loadedRoom) so the query also answers for a
-  // carried inventory item — MI1's inventory script #9 gates `startObject
-  // item 91` on this; if it read 0 for off-room items, every inventory
-  // slot fell through to the generic-frame fallback.
+  // findObjectCode (not loadedRoom) so carried inventory items answer
+  // too — inventory script #9 gates `startObject item 91` on this.
   const verbs = vm.findObjectCode(obj)?.verbs;
   const has = verbs ? (verbs.has(verb) || verbs.has(0xff)) : false;
   const entry = has ? 1 : 0;
@@ -1091,20 +823,9 @@ function getVerbEntryPointHandler(vm: Vm, slot: ScriptSlot, opcode: number): voi
 for (const op of [0x0b, 0x4b, 0x8b, 0xcb]) register(op, getVerbEntryPointHandler);
 
 // ─── 0xAB  saveRestoreVerbs ──────────────────────────────────────────
-// `opcode sub-opcode start[p8] end[p8] mode[p8]` — bulk verb-slot
-// juggling over the id range [start, end]. The cutscene start script
-// (#18) SAVEs the command + inventory verb ranges so the bar vanishes
-// for the cutscene; the end script (#19) RESTOREs them.
-//   sub 0x01 save:    hide each verb in range, remembering its prior
-//                     `state` in `vm.savedVerbStates` (skip ones with
-//                     no slot, or already saved).
-//   sub 0x02 restore: bring saved verbs in range back to their prior
-//                     state and forget the saved entry.
-//   sub 0x03 delete:  remove verbs in range outright (`state=deleted`).
-// `mode` is the original engine's per-save id; MI1's save/restore are
-// range-symmetric, so we match purely on the id range (the saved-state
-// map is itself keyed by verb id), which keeps the bar hide/restore
-// exact without modelling save-slot ids.
+// `mode` (the original's per-save id) is deliberately unused — MI1's
+// save/restore are range-symmetric and savedVerbStates is keyed by
+// verb id.
 function saveRestoreVerbsHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
   const sub = readU8(slot);
   const start = readVarOrByte(sub, 1, slot, vm.vars);
@@ -1114,7 +835,6 @@ function saveRestoreVerbsHandler(vm: Vm, slot: ScriptSlot, _opcode: number): voi
   for (const verb of vm.verbs.values()) {
     if (verb.id < start || verb.id > end) continue;
     if (action === 0x01) {
-      // save + hide — don't overwrite an existing save or re-hide.
       if (verb.state === 'off' || vm.savedVerbStates.has(verb.id)) continue;
       vm.savedVerbStates.set(verb.id, verb.state);
       verb.state = 'off';
@@ -1134,13 +854,8 @@ function saveRestoreVerbsHandler(vm: Vm, slot: ScriptSlot, _opcode: number): voi
 register(0xab, saveRestoreVerbsHandler);
 
 // ─── 0x5D / 0xDD  actorSetClass ──────────────────────────────────────
-// Layout: `object[p16] classes[v16]...` (no jump). The object inherits
-// each listed class. Per-class value: 0 clears ALL classes; otherwise
-// the low 7 bits are the class number (1-based) and bit 0x80 selects
-// set (1) vs clear (0) — derived from MI1 room 1's ENCD, which toggles
-// class 32 (Untouchable) on/off as `32` and `0x80|32`. Class N → bit
-// N-1 of the object's mask. (Distinct opcode from ifClassOfIs 0x1D,
-// which is the same family + bit 0x40 and carries a jump target.)
+// Value encoding per opcode-reference.md; class N occupies bit N-1 of
+// the mask (classes are 1-based).
 function actorSetClassHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const obj = readVarOrWord(opcode, 1, slot, vm.vars);
   const classes = readWordVararg(slot, vm.vars);
@@ -1160,35 +875,14 @@ function actorSetClassHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
 register(0x5d, actorSetClassHandler);
 register(0xdd, actorSetClassHandler);
 
-// ─── 0x05 / 0x25 / 0x45 / … drawObject ───────────────────────────────
-// Place an object on screen. Layout: obj (var-or-word), then a loop
-// of subops terminated by 0xFF (same shape as verbOps/actorOps).
-//   0x01: at(x, y) — two var-or-word args
-//   0x02: setImage(state) — one var-or-word arg
-// Other actions appear as `subop & 0x1f == 0` no-op slots in MI1
-// scripts — likely "use defaults" markers; we accept them silently
-// rather than halting, since they consume no further bytes.
-//
-// Fully wired to the object compositor: SO_AT repositions (vm.objectDrawPositions),
-// SO_IMAGE sets the state image, and every form queues the object for drawing
-// and sets its state (see the per-subop handling below).
+// ─── 0x05 / 0x85  drawObject ─────────────────────────────────────────
+// Exactly ONE subop byte — NOT a 0xFF-terminated list (opcodes.md §5).
+// Owns only 0x05/0x85: 0x25/0x65/0xA5/0xE5 are pickupObject.
 function drawObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const obj = readVarOrWord(opcode, 1, slot, vm.vars);
-  // v5 drawObject carries exactly ONE sub-operation byte (NOT a
-  // 0xFF-terminated list — that was a verbOps/actorOps-shaped misread that
-  // happened to survive room 28's bare form, whose subop is 0xFF, but ran
-  // off the end of room 58's `drawObject … at x,y` and mis-decoded the
-  // following setState as a bogus subop). Low 5 bits select the action,
-  // the high bits are the params' var-modes. SO_AT (1) repositions,
-  // SO_IMAGE (2) sets the state image; any other value (incl. the bare
-  // 0xFF / SO_END) is a plain redraw at the current position/state.
-  // SCUMM's o5_drawObject ALWAYS sets the object's state (`state = 1`
-  // default; SO_IMAGE overrides) — drawObject's job is to make an object
-  // visible in a given image, so a bare / SO_AT draw shows state 1, NOT
-  // "keep current state". This matters for the dialog close-ups (room 58):
-  // the ENCD draws every scenery object then `setState 0` (hidden), and the
-  // conversation reveals a piece with a bare `drawObject` — which must flip
-  // it back to state 1, not leave it hidden.
+  // Always sets the object's state (1 unless SO_IMAGE overrides) — its
+  // job is to make the object visible (objects.md "drawObject always
+  // sets state"; room 58's reveals depend on the flip from 0).
   const ops: string[] = [];
   let state = 1;
   const sub = readU8(slot);
@@ -1196,14 +890,9 @@ function drawObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
     case 0x01: {
       const x = readVarOrWord(sub, 1, slot, vm.vars);
       const y = readVarOrWord(sub, 2, slot, vm.vars);
-      // SO_AT moves the object to (x * 8, y * 8) — both operands are in strips
-      // — and it draws there until the next reposition. The compositor reads
-      // this override in preference to the IMHD default. (See
-      // objectDrawPositions.) Strips on BOTH axes is what makes room 58's
-      // forest tile vertically: each screen is a top band (h=88) at y=0 and a
-      // bottom band (h=56) at strip-y 11 → 88px, which butt together to fill
-      // the 144-row room. Treating y as pixels stacks them at y=11 and the
-      // scene collapses into the top ~99 rows.
+      // SO_AT operands are STRIP units on BOTH axes → (x*8, y*8); room
+      // 58's vertical forest tiling breaks if y is read as pixels
+      // (objects.md §7).
       vm.objectDrawPositions.set(obj, { x: x * 8, y: y * 8 });
       ops.push(`at(${x * 8},${y * 8})`);
       break;
@@ -1220,34 +909,14 @@ function drawObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
       break;
   }
   vm.objectStates.set(obj, state);
-  // Queue for the next compose. If the object's state is 0 (or never
-  // set), the compositor will skip it; the queue membership matters
-  // for "explicit redraw" semantics, not visibility.
-  //
-  // SCUMM redraws an object by restoring the background strips under its
-  // bounding box and blitting the new image — which ERASES any object
-  // previously drawn at the same spot. MI1 animates background fixtures
-  // (the swinging chandelier pirate = objs 357/358, the dog, etc.) as
-  // several single-frame objects that share one bounding box, cycled by a
-  // loop script's bare `drawObject`. Our compositor is retained-mode (it
-  // redraws every queued object each frame), so without eviction all the
-  // frames pile up and the animation freezes after a single cycle. Evict
-  // any already-queued object covering the exact same box before queueing
-  // this one, so only the most-recently-drawn frame shows — matching the
-  // strip overwrite. Exact-box match (not overlap) keeps a legitimately
-  // distinct object — an item resting over a larger fixture — untouched.
-  //
-  // Erasing the previous frame ALSO reverts its state to 0: the overdrawn
-  // object is no longer on screen, so `getObjectState` must report it hidden.
-  // The prison's rat-hole animation (room 31 #207) relies on this — it cycles
-  // a hole's three same-box frames by re-picking a random one whose state is 0
-  // and drawing it; without the state reset all three latch at state 1 after
-  // one pass and the picker spins forever with no state-0 frame to draw.
+  // Same-box eviction emulates SCUMM's strip overwrite (our queue is
+  // retained-mode — objects.md). Eviction must ALSO revert the overdrawn
+  // object's state to 0: room 31's rat-hole loop (#207) re-picks among
+  // state-0 frames and spins forever without the reset.
   const drawn = vm.loadedRoom?.objects.get(obj);
   if (drawn) {
-    // Compare effective (runtime SO_AT, else IMHD) boxes — the forest tiles
-    // share an IMHD origin (0,0) but are repositioned to distinct spots, so
-    // an IMHD-only match would wrongly evict siblings of the same size.
+    // Compare effective (SO_AT-overridden) boxes — forest tiles share an
+    // IMHD origin, so an IMHD-only match would evict repositioned siblings.
     const box = (id: number, imhd: { x: number; y: number; width: number; height: number }) => {
       const p = vm.objectDrawPositions.get(id);
       return { x: p?.x ?? imhd.x, y: p?.y ?? imhd.y, width: imhd.width, height: imhd.height };
@@ -1269,69 +938,32 @@ function drawObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   vm.objectDrawQueue.add(obj);
   vm.annotate(`drawObject obj=${obj} [${ops.join(',')}]`);
 }
-// drawObject's only top-level operand is `object[p16]` (mode bit 0x80);
-// it has no second param at this level (the rest is a 0xFF-terminated
-// subop list). So it owns exactly 0x05 / 0x85 — NOT all eight high-bit
-// variants. The low5=0x05 family is non-orthogonal: 0x25 / 0x65 / 0xa5 /
-// 0xe5 are `pickupObject` (see below), and registering drawObject across
-// the whole family silently swallowed them.
 register(0x05, drawObjectHandler);
 register(0x85, drawObjectHandler);
 
 // ─── 0x25 / 0x65 / 0xa5 / 0xe5  pickupObject ─────────────────────────
-// `opcode object[p16] room[p8]`. Picks an object up into Ego's
-// inventory: set the object's owner to `VAR_EGO`, put it in **state 1**,
-// and **mark it for drawing** — mirroring SCUMM's `putState(obj,1)` +
-// `markObjectRectAsDirty(obj)`. The state-1 image is the object's
-// "removed from the scene" appearance: MI1 bakes pickable items into the
-// room background (the SCUMM-Bar kitchen meat/pot/fish are painted into
-// the SMAP) and a pickable object's image is the patch that *erases* the
-// baked-in item once it's taken. So after pickup the object must be
-// **drawn**, not dropped — dropping it leaves the background item visible
-// on the table even though it's in the inventory. (Verified by rendering
-// room 41: drawing obj 566 at state 1 clears the meat from the counter.)
-//
-// `room == 0` means "the current room" (the arg only matters for
-// loading an object's image from a room it isn't currently in — we
-// resolve images lazily, so we just record it in the trace).
-//
-// SCUMM's o5_pickupObject also `putClass(obj, kObjectClassUntouchable, 1)` —
-// once taken, the object's room hit-box must stop responding (you've removed
-// it from the scene). Without it the item vanishes visually (state-1 patch)
-// yet still hit-tests in the room, so you can keep clicking the empty spot.
-// findObject already skips Untouchable (class 32), so setting the class here
-// closes the hit-area side that the visual fix left open.
+// Four steps, all required (objects.md "pickupObject is four steps"):
+// own to ego, state 1 + DRAW (the state-1 image is the eraser patch over
+// the baked-in room item), mark Untouchable, refresh inventory.
+// `room == 0` means the current room.
 function pickupObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const obj = readVarOrWord(opcode, 1, slot, vm.vars);
   const room = readVarOrByte(opcode, 2, slot, vm.vars);
   const ego = vm.vars.readGlobal(VAR_EGO);
-  // Snapshot the name BEFORE the object leaves the room context, so a
-  // carried item keeps its label after leaving its pickup room.
+  // Snapshot the name BEFORE the object leaves its room context.
   vm.captureInventoryName(obj, room);
   vm.objectOwners.set(obj, ego);
   vm.objectStates.set(obj, 1);
-  // Mark Untouchable (class 32 → bit 31) so the room hit-test no longer
-  // returns it — SCUMM putClass(obj, kObjectClassUntouchable, 1).
   vm.objectClasses.set(obj, ((vm.objectClasses.get(obj) ?? 0) | (1 << 31)) >>> 0);
-  // Draw the state-1 image (the "taken" patch that covers the baked-in
-  // background item). Only meaningful while the object is in the current
-  // room; the compositor skips queue ids absent from the loaded room.
   vm.objectDrawQueue.add(obj);
-  // Refresh the inventory display (lays the item into the verb slots).
   vm.runInventoryScript(1);
   vm.annotate(`pickupObject obj=${obj} room=${room} → owner ${ego}`);
 }
 for (const op of [0x25, 0x65, 0xa5, 0xe5]) register(op, pickupObjectHandler);
 
 // ─── 0x35 / 0x75 / 0xb5 / 0xf5  findObject ───────────────────────────
-// Identify the topmost object at room coords `(x, y)`. Writes the
-// object id to `dest` (or 0 when nothing is hit). Variants encode the
-// parameter modes for x / y in bits 7 / 6 (bit 5 is part of the base
-// opcode pattern, not a mode).
-//
-// When no room is loaded, returns 0 — matches the original engine's
-// behaviour and matters for scripts like MI1 #23 that poll for clicks
-// while in the post-credits room-0 state.
+// Returns 0 when no room is loaded (original behaviour) — #23 polls
+// clicks in the post-credits room-0 state.
 function findObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const dest = readDestRef(slot, vm.vars);
   const x = readVarOrWord(opcode, 1, slot, vm.vars);
@@ -1343,11 +975,9 @@ function findObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
       drawQueue: vm.objectDrawQueue,
       x,
       y,
-      // Untouchable class (32, bit 31) → not hit-testable (SCUMM findObject).
+      // Untouchable class (32, bit 31) → not hit-testable (objects.md §7a).
       isUntouchable: (id) => ((vm.objectClasses.get(id) ?? 0) & (1 << 31)) !== 0,
-      // SO_AT-repositioned objects (room 58's forest tiles) — the hotspot moves
-      // with the drawn object, so the script's findObject(mouseX,mouseY) resolves
-      // where the object actually is, not its design x.
+      // The hotspot follows a SO_AT reposition (objects.md §7).
       getObjectPosition: (id) => vm.objectDrawPositions.get(id),
     });
     if (hit !== null) objId = hit;
@@ -1361,26 +991,16 @@ register(0xb5, findObjectHandler);
 register(0xf5, findObjectHandler);
 
 // ─── 0x34 / 0x74 / 0xb4 / 0xf4  getDist ──────────────────────────────
-// `opcode result objA[p16] objB[p16]`. Result var ← the distance
-// between two objects/actors. Each id resolves actor-or-object the same
-// way `faceActor` does (id within the actor table → actor position,
-// else a room object's CDHD position). Distance is SCUMM's Chebyshev
-// metric `max(|dx|, |dy|)`; an unresolvable id yields 0xFF ("far").
-// MI1's sentence script #2 uses it as a proximity gate (e.g. open the
-// door only once ego is close enough).
+// SCUMM's Chebyshev metric max(|dx|, |dy|); an unresolvable id yields
+// 0xFF ("far").
 function objActPos(vm: Vm, id: number): { x: number; y: number } | null {
   if (id > 0 && id <= vm.actors.capacity) {
     const a = vm.actors.get(id);
     return { x: a.x, y: a.y };
   }
-  // WIO_INVENTORY: a held item has no room position of its own. SCUMM's
-  // getObjectOrActorXY returns the **holder's** position for an inventory
-  // object, so getDist(ego, heldItem) = dist(ego, ego) = 0 — you can always
-  // "reach" what you're carrying, and #2's proximity gate passes so the verb
-  // runs. Without this, a held item falls through to the room-object lookup
-  // below (not a placed object → null → 0xFF "far"), and every verb on an
-  // inventory item aborts with "Non riesco ad arrivarci". Owner codes ≥ the
-  // 13-slot actor table (e.g. OF_OWNER_ROOM = 15) aren't actors → room branch.
+  // A held item resolves to its HOLDER's position (SCUMM WIO_INVENTORY,
+  // objects.md) — getDist(ego, heldItem) must be 0. Owner codes ≥ the
+  // actor table (e.g. OF_OWNER_ROOM 15) aren't actors → room branch.
   const owner = vm.getObjectOwner(id);
   if (owner >= 1 && owner <= vm.actors.capacity) {
     const holder = vm.actors.get(owner);
@@ -1388,17 +1008,9 @@ function objActPos(vm: Vm, id: number): { x: number; y: number } | null {
   }
   const obj = vm.loadedRoom?.objects.get(id);
   if (!obj) return null;
-  // SCUMM's getObjectXYPos returns the object's **walk-to point** — the exact
-  // spot walkActorToObject / loadRoomWithEgo send the ego to (walkX/walkY,
-  // unset = 0,0). getDist's proximity gate MUST use the same reference, or the
-  // ego reaches the walk-to point yet still reads as "too far" (measured to the
-  // distant image top-left). MI1's room-33 SCUMM Bar door has walk-to (715,130)
-  // but its image sits at (696,80) — the gap made every "open the door" abort
-  // with "Non riesco ad arrivarci". Mirroring walkActorToObject (no image-pos
-  // fallback) also keeps the two consistent for walk-to-less objects.
-  //
-  // SO_AT-repositioned objects (room 58's forest tiles) carry their walk-to
-  // point with them: shift by the object's draw displacement `(pos − imhd)`.
+  // The WALK-TO point, not the image top-left, shifted by any SO_AT
+  // displacement — must mirror walkActorToObject (objects.md "Distance
+  // uses the walk-to point").
   const pos = vm.objectDrawPositions.get(id);
   return {
     x: obj.cdhd.walkX + (pos ? pos.x - obj.imhd.x : 0),
@@ -1411,15 +1023,9 @@ function getDistHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const b = readVarOrWord(opcode, 2, slot, vm.vars);
   let pa = objActPos(vm, a);
   let pb = objActPos(vm, b);
-  // SCUMM's getObjActToObjActDist clamps the OBJECT's point into the box the
-  // ACTOR can actually stand in (adjustXYToBeInBox) before measuring. So a
-  // proximity gate to an object parked in a locked/invisible box passes once
-  // the ego has walked as close as the open boxes allow, instead of reading
-  // "too far" forever. MI1 room 36: the guard dogs' walk-to (140,132) sits in
-  // the sleep-gate boxes the ENCD locks; the ego can only reach box 8's edge
-  // (x=191), but the clamp maps the dogs' point there too → dist 0, so "use
-  // meat with dogs" runs instead of aborting "Non riesco ad arrivarci". A
-  // no-op for objects whose walk-to already lies in a visible box.
+  // Mirror getObjActToObjActDist: clamp the OBJECT's point into the boxes
+  // the ACTOR can stand in, so a gate to an object in a locked box passes
+  // once the ego is as close as the open boxes allow (room 36 guard dogs).
   const room = vm.loadedRoom;
   if (room && pa && pb) {
     const eff = effectiveBoxes(vm, room.walkBoxes);
@@ -1436,17 +1042,8 @@ function getDistHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
 for (const op of [0x34, 0x74, 0xb4, 0xf4]) register(op, getDistHandler);
 
 // ─── 0x15 / 0x55 / 0x95 / 0xd5  actorFromPos ─────────────────────────
-// `opcode result x[p16] y[p16]`. Returns the actor under room-space
-// coords `(x, y)`, or 0 when none. (This is 0x15 — NOT findInventory,
-// which is 0x3D; an earlier pass mislabeled it AND read the coords as
-// bytes. Per the opcode reference the params are words, p16, like
-// findObject.) MI1 boot's #23 hits 0xd5 (both-var form) when polling
-// whether a click landed on an actor.
-//
-// Backed by vm.actorFromPos, which hit-tests against each actor's
-// last-drawn bounds (SCUMM's gfx-usage-bit equivalent). Returns 0 when
-// no actor is on screen — the correct answer during the credits/intro
-// cutscenes (no clicks, nothing drawn yet).
+// Hit-tests each actor's last-drawn bounds (vm.actorFromPos — SCUMM's
+// gfx-usage-bit equivalent); 0 when none.
 function actorFromPosHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const dest = readDestRef(slot, vm.vars);
   const x = readVarOrWord(opcode, 1, slot, vm.vars);
@@ -1461,10 +1058,6 @@ register(0x95, actorFromPosHandler);
 register(0xd5, actorFromPosHandler);
 
 // ─── 0x31 / 0xb1  getInventoryCount ──────────────────────────────────
-// `opcode result actor[p8]`. Result var ← how many objects the given
-// actor owns (its inventory size). actor's var-mode is bit 0x80, so the
-// family is just 0x31 / 0xb1. MI1's intro reads this inside an
-// `expression` (nested via the 0x06 subop) on the way into room 33.
 function getInventoryCountHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const dest = readDestRef(slot, vm.vars);
   const actor = readVarOrByte(opcode, 1, slot, vm.vars);
@@ -1476,10 +1069,7 @@ register(0x31, getInventoryCountHandler);
 register(0xb1, getInventoryCountHandler);
 
 // ─── 0x3d / 0x7d / 0xbd / 0xfd  findInventory ────────────────────────
-// `opcode result owner[p8] index[p8]`. Result var ← the `index`-th
-// (1-based) object owned by `owner`, in pickup order; 0 when out of
-// range. owner's mode bit is 0x80, index's is 0x40. Used to walk an
-// actor's inventory (e.g. to lay out the inventory strip).
+// `index` is 1-based, in pickup order; 0 when out of range.
 function findInventoryHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const dest = readDestRef(slot, vm.vars);
   const owner = readVarOrByte(opcode, 1, slot, vm.vars);
@@ -1493,16 +1083,9 @@ register(0x7d, findInventoryHandler);
 register(0xbd, findInventoryHandler);
 register(0xfd, findInventoryHandler);
 
-// ─── 0x06 / 0x86  getActorElevation ──────────────────────────────────
 // ─── getActor* read family ───────────────────────────────────────────
-// `opcode result actor[pN]` — write an actor property to a result var.
-// IMPORTANT: bits 5-6 of the opcode SELECT THE OPERATION (this family
-// is non-orthogonal), bit 7 is the actor's var-mode:
-//   0x03 getActorRoom (p8)   0x23 getActorY (p16)
-//   0x43 getActorX (p16)     0x63 getActorFacing (p8)
-//   0x06 getActorElevation (p8)
-// Invalid actor ids (0 sentinel / out of range) write 0 — the
-// original engine's "no actor" fallback.
+// Bits 5-6 SELECT the operation (non-orthogonal — opcodes.md §1).
+// Invalid actor ids write 0 (the original's "no actor" fallback).
 function makeActorReadOp(
   label: string,
   read: (a: Actor) => number,
@@ -1527,41 +1110,25 @@ register(0x23, makeActorReadOp('getActorY', (a) => a.y, true));
 register(0xa3, makeActorReadOp('getActorY', (a) => a.y, true));
 register(0x43, makeActorReadOp('getActorX', (a) => a.x, true));
 register(0xc3, makeActorReadOp('getActorX', (a) => a.x, true));
-// getActorFacing returns the old-direction integer (0=W 1=E 2=S 3=N —
-// the index into FACING_FROM_OLD), NOT an angle. Scripts feed it straight
-// back into animateActor's direction pseudo-anims: global #35 spawns an
-// effect actor and orients it with `animateActor (getActorFacing(ego)+248)`
-// — only valid because facing+248 lands in the 244-251 "turn to dir" range.
+// getActorFacing returns the old-direction integer (0=W 1=E 2=S 3=N),
+// NOT an angle — scripts feed it into animateActor's 244-251 direction
+// pseudo-anims (e.g. #35's `animateActor (getActorFacing(ego)+248)`).
 register(0x63, makeActorReadOp('getActorFacing', (a) => FACING_FROM_OLD.indexOf(a.facing)));
 register(0xe3, makeActorReadOp('getActorFacing', (a) => FACING_FROM_OLD.indexOf(a.facing)));
-// getActorCostume (0x71/0xF1) — low5=0x11 like animateActor, but bits 5+6
-// set select this op. Returns the actor's costume id; scripts gate on it
-// (global #110: `if getActorCostume(ego) != 1` → "can't pull it out here").
 register(0x71, makeActorReadOp('getActorCostume', (a) => a.costume));
 register(0xf1, makeActorReadOp('getActorCostume', (a) => a.costume));
-// getActorWidth (0x6C/0xEC) — the actor's SCUMM `_width` (set by actorOps
-// SO_ACTOR_WIDTH, default DEFAULT_ACTOR_WIDTH). p8 actor. MI1 reads it only in
-// global #2's interaction-proximity gate (getDist >= width(obj)/2+4+width(a)).
 register(0x6c, makeActorReadOp('getActorWidth', (a) => a.width));
 register(0xec, makeActorReadOp('getActorWidth', (a) => a.width));
-// getActorWalkBox (0x7B/0xFB) — same non-orthogonal low-5-bits family
-// as multiply/getActorScale/divide. Returns the id of the walk box the
-// actor stands in (0 when no room/boxes). Resolved from the actor's
-// position with the nearest-box fallback the scale + z-clip systems use,
-// so MI1's thin/degenerate boxes still yield the box the actor walks on.
-//
-// Must be real, not a stub: room 29's reveal script #200 loops
-// `while (getActorWalkBox(ego) < 5)` before clearing the black entry
-// cover (obj 383). A stub returning 0 looped forever, so the cover never
-// lifted — the voodoo-lady room's centre stayed a black rectangle. p8 actor.
+// getActorWalkBox (0x7B/0xFB) — must be real, not a stub: room 29's
+// reveal (#200) loops `while (getActorWalkBox(ego) < 5)`; a constant 0
+// hangs it and the entry cover never lifts.
 function getActorWalkBoxHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const dest = readDestRef(slot, vm.vars);
   const id = readVarOrByte(opcode, 1, slot, vm.vars);
   const actor = actorOrNull(vm, id);
   const boxes = vm.loadedRoom?.walkBoxes ?? [];
-  // SCUMM's getActorWalkbox returns the stored _walkbox. Prefer it; fall back
-  // to a position lookup only when unassigned (-1) so a never-placed actor
-  // still yields a real box id (the bell-cover script loops on 0).
+  // Prefer the stored _walkbox (SCUMM getActorWalkbox); position lookup
+  // only when unassigned, so a never-placed actor still yields a real box.
   const box =
     actor && actor.walkBox >= 0
       ? (boxes.find((b) => b.id === actor.walkBox) ?? null)
@@ -1575,26 +1142,12 @@ function getActorWalkBoxHandler(vm: Vm, slot: ScriptSlot, opcode: number): void 
 register(0x7b, getActorWalkBoxHandler);
 register(0xfb, getActorWalkBoxHandler);
 
-// getActorMoving (0x56/0xD6) — non-orthogonal low5=0x16 family (shared
-// with getRandomNumber 0x16/0x96 and walkActorToObject 0x36/…; bit 0x40
-// set + 0x20 clear selects this op). SCUMM returns the actor's `_moving`
-// mask; scripts only test it for zero/non-zero (e.g. room-28 #202/#203:
-// `getActorMoving a=6` → `equalZero`), so 1-while-walking / 0-at-rest is
-// faithful. p8 actor (bit 0x80 = var-mode). Right-clicking a seated pirate
-// runs its verb script, which polls getActorMoving — was an unknown-opcode
-// halt (0xD6) until now.
+// getActorMoving (0x56/0xD6) — scripts only test zero/non-zero, so
+// 1-while-walking / 0-at-rest is faithful to SCUMM's _moving mask.
 register(0x56, makeActorReadOp('getActorMoving', (a) => (a.isMoving ? 1 : 0)));
 register(0xd6, makeActorReadOp('getActorMoving', (a) => (a.isMoving ? 1 : 0)));
 
-// ─── walkActorToActor / putActorInRoom (non-orthogonal low5=0x0D) ─────
-// These two opcodes SHARE the low 5 bits — **bit 0x20 selects which**:
-//   bit 0x20 clear → walkActorToActor (0x0D/0x4D/0x8D/0xCD)
-//   bit 0x20 set   → putActorInRoom   (0x2D/0x6D/0xAD/0xED)
-// (We previously registered all 8 as walkActorToActor, which silently
-// turned MI1's `putActorInRoom(ego, 38)` at the end of the boot into a
-// no-op — that's the opcode that puts Guybrush in the lookout room.)
-//
-// walkActorToActor: walker[p8] (bit 0x80) walkee[p8] (bit 0x40) dist[8].
+// ─── walkActorToActor (0x0D/0x4D/0x8D/0xCD) ──────────────────────────
 function walkToActorHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const id = readVarOrByte(opcode, 1, slot, vm.vars);
   const otherId = readVarOrByte(opcode, 2, slot, vm.vars);
@@ -1608,9 +1161,9 @@ function walkToActorHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
 }
 for (const op of [0x0d, 0x4d, 0x8d, 0xcd]) register(op, walkToActorHandler);
 
-// putActorInRoom: actor[p8] (bit 0x80) room[p8] (bit 0x40). Assigns the
-// actor to a room — does NOT load it (that happens when the camera
-// follows the actor, or via loadRoom).
+// ─── putActorInRoom (0x2D/0x6D/0xAD/0xED) ────────────────────────────
+// Assigns the room only — does NOT load it (the load happens when the
+// camera follows the actor, or via loadRoom).
 function putActorInRoomHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const id = readVarOrByte(opcode, 1, slot, vm.vars);
   const room = readVarOrByte(opcode, 2, slot, vm.vars);
@@ -1621,14 +1174,8 @@ function putActorInRoomHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
 for (const op of [0x2d, 0x6d, 0xad, 0xed]) register(op, putActorInRoomHandler);
 
 // ─── putActorAtObject (0x0E / 0x4E / 0x8E / 0xCE) ─────────────────────
-// `actor[p8] (bit 0x80) object[p16] (bit 0x40)`. Snap the actor (no
-// walk) onto the object's walk-to point, keeping its existing room —
-// SCUMM's `o5_putActorAtObject`, which reads the object via
-// getObjectXYPos (walk_x/walk_y in v5, the same point walkActorToObject
-// targets) and falls back to (240,120) when the object isn't found.
-// MI1's room-35 setup script #208 does putActorInRoom(4, 35) then
-// putActorAtObject(4, obj) to position the NPC — without this op the
-// VM halted on 0xCE ("Unknown opcode").
+// Snap (no walk) onto the object's walk-to point, keeping the actor's
+// room; (240,120) is o5_putActorAtObject's object-not-found fallback.
 function putActorAtObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const id = readVarOrByte(opcode, 1, slot, vm.vars);
   const objId = readVarOrWord(opcode, 2, slot, vm.vars);
@@ -1638,8 +1185,8 @@ function putActorAtObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void
     const x = walk ? walk.x : 240;
     const y = walk ? walk.y : 120;
     actorPut(actor, x, y, actor.room);
-    // Rescale for the new position so an idle, just-placed actor renders at
-    // the right floor scale immediately (not one stale frame until it walks).
+    // Rescale now so a just-placed idle actor renders at floor scale
+    // immediately, not one stale frame later.
     rescaleActorForPosition(vm, actor);
   }
   vm.annotate(`putActorAtObject actor=${id} obj=${objId}`);
@@ -1647,8 +1194,6 @@ function putActorAtObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void
 for (const op of [0x0e, 0x4e, 0x8e, 0xce]) register(op, putActorAtObjectHandler);
 
 // ─── 0x1E / 0x3E / 0x5E / 0x7E / 0x9E / 0xBE / 0xDE / 0xFE  walkActorTo ─
-// Walk an actor to (x, y). Records the intent on the actor; the walk
-// step itself lands with pathfinding.
 function walkToHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const id = readVarOrByte(opcode, 1, slot, vm.vars);
   const x = readVarOrWord(opcode, 2, slot, vm.vars);
@@ -1664,10 +1209,6 @@ for (const op of [0x1e, 0x3e, 0x5e, 0x7e, 0x9e, 0xbe, 0xde, 0xfe]) {
 }
 
 // ─── walkActorToObject (0x36/0x76/0xB6/0xF6) ─────────────────────────
-// `actor[p8] (bit 0x80) object[p16] (bit 0x40)`. Walk the actor to the
-// object's CDHD walk-to point. Shares low5=0x16 with getRandomNumber
-// (0x16) and getActorMoving (0x56) — bit 0x20 selects this op. (MI1's
-// lookout dialog #203 uses 0xB6 to walk Guybrush to the lookout NPC.)
 function walkToObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const id = readVarOrByte(opcode, 1, slot, vm.vars);
   const objId = readVarOrWord(opcode, 2, slot, vm.vars);
@@ -1681,10 +1222,7 @@ function walkToObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
 for (const op of [0x36, 0x76, 0xb6, 0xf6]) register(op, walkToObjectHandler);
 
 // ─── faceActor (0x09/0x49/0x89/0xC9) ─────────────────────────────────
-// `actor[p8] (bit 0x80) object[p16] (bit 0x40)`. Turn the actor to face
-// a target (an actor, or a room object). We pick the cardinal facing
-// from the dx/dy to the target — enough for the right costume frame.
-// Shares low5=0x09 with setOwnerOf (0x29); bit 0x20 selects.
+// Low5=0x09 is shared with setOwnerOf (0x29) — bit 0x20 selects.
 function faceActorHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const id = readVarOrByte(opcode, 1, slot, vm.vars);
   const targetId = readVarOrWord(opcode, 2, slot, vm.vars);
@@ -1710,8 +1248,7 @@ function faceActorHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
       const dy = ty - actor.y;
       actor.facing =
         Math.abs(dx) >= Math.abs(dy) ? (dx >= 0 ? 'E' : 'W') : dy >= 0 ? 'S' : 'N';
-      // Turn in place toward the target: re-point the stand pose so the
-      // body and head face the new direction (only when idle).
+      // Turn in place only when idle — a walking actor's pose is walk-driven.
       if (!actor.isMoving) applyStandPose(vm, actor);
     }
   }
@@ -1720,13 +1257,10 @@ function faceActorHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
 for (const op of [0x09, 0x49, 0x89, 0xc9]) register(op, faceActorHandler);
 
 // ─── setOwnerOf (0x29/0x69/0xA9/0xE9) ────────────────────────────────
-// `object[p16] (bit 0x80) owner[p8] (bit 0x40)`. Records who owns an
-// object (0 = nobody / in the room). Read back by getObjectOwner.
 function setOwnerOfHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const obj = readVarOrWord(opcode, 1, slot, vm.vars);
   const owner = readVarOrByte(opcode, 2, slot, vm.vars);
-  // Taking ownership (owner != 0) puts the object in an inventory; grab
-  // its name now while the room that owns its OBNA is still resolvable.
+  // Grab the name now, while the room owning its OBNA is still resolvable.
   if (owner !== 0) vm.captureInventoryName(obj, 0);
   vm.objectOwners.set(obj, owner);
   vm.annotate(`setOwnerOf obj=${obj} owner=${owner}`);
@@ -1734,14 +1268,8 @@ function setOwnerOfHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
 for (const op of [0x29, 0x69, 0xa9, 0xe9]) register(op, setOwnerOfHandler);
 
 // ─── setObjectName (0x54/0xD4) ───────────────────────────────────────
-// `object[p16] (bit 0x80) name[c]… 0x00`. Renames an object in place:
-// SCUMM overwrites the OBNA buffer so a later `getObjectName` / print
-// `\xff\x08` shows the new label (e.g. MI1 obj 488 verb-91 rewrites
-// "@@@@@ pezzi da otto@@@@" → "500 pezzi da otto"). The trailing operand
-// is a NUL-terminated SCUMM string, so we must consume it via
-// readScummString — otherwise the PC stops mid-string and the next byte
-// decodes as a bogus opcode (this is the "Unknown opcode 0x54" halt:
-// the byte after the printed name was being read as an instruction).
+// The name is a NUL-terminated SCUMM string — must be consumed via
+// readScummString or the next byte decodes as a bogus opcode.
 function setObjectNameHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const obj = readVarOrWord(opcode, 1, slot, vm.vars);
   const name = decodeScummString(readScummString(slot), vm, slot);
@@ -1751,32 +1279,21 @@ function setObjectNameHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
 for (const op of [0x54, 0xd4]) register(op, setObjectNameHandler);
 
 // ─── startObject (0x37/0x77/0xB7/0xF7) ───────────────────────────────
-// `object[p16] (bit 0x80) script[p8] (bit 0x40) args[v16]`. Runs the
-// object's OBCD verb script — exactly what vm.startVerbScript does
-// (resolve the verb bytecode + start a labelled slot). (low5=0x17 is
-// shared with `and`/`or`; bit 0x20 selects startObject.) All four
-// param-mode variants exist — the script id is var-mode in 0x77/0xf7.
+// Runs the object's OBCD verb script NESTED, like startScript
+// (opcodes.md §6) — the inventory icons rely on the ordering.
 function startObjectHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const objId = readVarOrWord(opcode, 1, slot, vm.vars);
   const verbId = readVarOrByte(opcode, 2, slot, vm.vars);
   const args = readWordVararg(slot, vm.vars);
-  // Like `startScript`, SCUMM's `startObject` runs the object verb script
-  // NESTED (runObjectScript → runScriptNested), to its first breakHere/stop
-  // before the caller's next opcode. The inventory script (#9) relies on this:
-  // per slot it does `startObject item 91; L4 = g376` where the item's verb-91
-  // sets g376 to that item's inventory-icon object. Deferred, every slot reads
-  // the same stale g376 — so all items drew one identical icon.
   const child = vm.startVerbScript(objId, verbId, args);
   if (child) vm.runScriptNested(child);
   vm.annotate(`startObject obj=${objId} script=${verbId} args=[${args.join(',')}]`);
 }
 for (const op of [0x37, 0x77, 0xb7, 0xf7]) register(op, startObjectHandler);
 
-// Ego's *placement* point for loadRoomWithEgo / putActorAtObject: the object's
-// walk-to point ({@link objActPos}, which already follows a SO_AT reposition),
-// clamped into the walk boxes (SCUMM's adjustXYToBeInBox) since placement is
-// instant and must land in a valid box. (walkActorToObject doesn't clamp — its
-// pathfinder handles an off-box target.)
+// Placement point for loadRoomWithEgo / putActorAtObject: the walk-to
+// point clamped into the boxes (adjustXYToBeInBox) — placement is instant.
+// walkActorToObject deliberately doesn't clamp; its pathfinder copes.
 function objectWalkPoint(vm: Vm, objId: number): { x: number; y: number } | null {
   const target = objActPos(vm, objId);
   if (!target) return null;
@@ -1784,48 +1301,33 @@ function objectWalkPoint(vm: Vm, objId: number): { x: number; y: number } | null
 }
 
 // ─── loadRoomWithEgo (0x24/0x64/0xA4/0xE4) ───────────────────────────
-// `object[p16] (bit 0x80) room[p8] (bit 0x40) x[16] y[16]`. Enter `room`,
-// place ego at `object`'s walk-to point there, and — when x != -1 — start
-// ego walking toward (x, y). The intro cutscene uses this to move Guybrush
-// between scenes. (low5=0x04 shared with isGreaterEqual/isLess; bit 0x20
-// selects this op — so all four 0x80/0x40 param-mode combos are
-// loadRoomWithEgo: 0x24/0x64/0xA4/0xE4. Global #121 uses 0xE4 — both
-// operands var-mode — `loadRoomWithEgo obj=L0 room=L1`.)
 function loadRoomWithEgoHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const objId = readVarOrWord(opcode, 1, slot, vm.vars);
   const room = readVarOrByte(opcode, 2, slot, vm.vars);
   const x = readI16(slot);
   const y = readI16(slot);
-  // SCUMM sets VAR_WALKTO_OBJ to the entry object so the new room's ENCD can
-  // branch on which object/edge ego came in through and walk it in. Room 58's
-  // forest maze gates a `walkActorTo ego` on it (`g113 == 687/688`), fired after
-  // the ENCD's first breakHere — so it must stay set across the room change (it
-  // gets overwritten by the next loadRoomWithEgo).
+  // VAR_WALKTO_OBJ = the entry object: the new room's ENCD branches on it
+  // (room 58's maze fires its entry walk off it after the first
+  // breakHere), so it must survive the room change.
   vm.vars.writeGlobal(VAR_WALKTO_OBJ, objId);
   vm.enterRoom(room);
   const ego = actorOrNull(vm, 0);
   if (ego) {
     ego.room = room;
-    // Place ego at the entry object's walk-to point. This runs AFTER the ENCD's
-    // first slice (so SO_AT has repositioned the object — ego lands at the entry
-    // edge, not the design x) but BEFORE the ENCD's post-breakHere entry walk,
-    // which then pulls ego in from that edge.
+    // Runs AFTER the ENCD's first slice (SO_AT has repositioned the entry
+    // object) but BEFORE its post-breakHere entry walk.
     const walk = objectWalkPoint(vm, objId);
     if (walk) {
       ego.x = walk.x;
       ego.y = walk.y;
     }
-    // Rescale for the entry position in the newly-loaded room, so ego renders at
-    // the right floor scale on the first frame — not full size until it walks.
+    // Rescale so ego renders at floor scale on the first frame.
     rescaleActorForPosition(vm, ego);
-    // An explicit walk target (x != -1) overrides the ENCD's entry walk.
+    // x == -1 means no explicit walk — the ENCD's entry walk takes over.
     if (x !== -1) startWalk(vm, ego, { x, y });
-    // SCUMM's o5_loadRoomWithEgo snaps the camera to the ego and re-engages
-    // camera-follow on it (setCameraAt + setCameraFollows) after the room loads.
-    // Without this, a wide room entered straight from a cutscene that detached
-    // the camera (a panCameraTo cleared cameraFollowActor) stays pinned at the
-    // old camera X and never tracks the ego — e.g. returning to the Mêlée
-    // lookout (1008px wide) after the first SCUMM-Bar exit / sheriff cutscene.
+    // o5_loadRoomWithEgo re-snaps and re-engages camera follow — without
+    // it a wide room entered after a detaching panCameraTo stays pinned
+    // at the old camera X.
     vm.cameraFollowActor = ego.id;
     vm.cameraDest = null;
     vm.moveCameraTo(vm.clampCameraX(ego.x));
@@ -1838,12 +1340,9 @@ register(0xa4, loadRoomWithEgoHandler);
 register(0xe4, loadRoomWithEgoHandler);
 
 // ─── 0x01 / 0x21 / 0x41 / 0x61 / 0x81 / 0xA1 / 0xC1 / 0xE1  putActor ─
-// Place actor at (x, y) (no walk, instant). Per SCUMM's `o5_putActor`,
-// the actor KEEPS its existing room (`a->putActor(x, y, a->_room)`) —
-// it does NOT move to the current room. This matters at boot: MI1 does
-// putActorInRoom(ego, 38) then putActor(ego, x, y), and putActor must
-// not clobber room 38 back to the (still-0) current room, or the
-// following actorFollowCamera won't load the lookout.
+// KEEPS the actor's existing room (o5_putActor) — boot does
+// putActorInRoom(ego, 38) then putActor, and clobbering the room here
+// breaks the lookout load.
 function putActorHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const id = readVarOrByte(opcode, 1, slot, vm.vars);
   const x = readVarOrWord(opcode, 2, slot, vm.vars);
@@ -1851,8 +1350,7 @@ function putActorHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const actor = actorOrNull(vm, id);
   if (actor) {
     actorPut(actor, x, y, actor.room);
-    // Rescale for the new position so an idle, just-placed actor renders at
-    // the right floor scale immediately (not one stale frame until it walks).
+    // Rescale now so a just-placed idle actor renders at floor scale.
     rescaleActorForPosition(vm, actor);
   }
   vm.annotate(`putActor actor=${id} (${x},${y}) room=${actor?.room ?? 0}`);
@@ -1862,28 +1360,9 @@ for (const op of [0x01, 0x21, 0x41, 0x61, 0x81, 0xa1, 0xc1, 0xe1]) {
 }
 
 // ─── 0x11 / 0x91  animateActor ───────────────────────────────────────
-// SCUMM v5 `Actor::animateActor(anim)`. The operand is a **chore number**;
-// the chore plays for the actor's current facing, resolving to anim record
-// `chore*4 + dir(facing)` (so chore 1 = init → records 4-7, chore 2 = walk
-// → 8-11, chore 3 = stand → 12-15, …; see pages/docs/scumm/costume-anim.md).
-//
-// The values **244-255 are pseudo-anims** — they carry no frame data, just
-// a direction in the low 2 bits (`dir = anim & 3`):
-//
-//   244-247  turn to direction      (we snap; no turn animation)
-//   248-251  set direction now
-//   252-255  stop walking (+ stand)
-//
-// Pseudo-anims that change facing re-point the *currently playing* chore to
-// the new direction (SCUMM re-decodes the active animation for the new
-// facing) — they do NOT switch chores. This is how `animateActor 3 250`
-// (set-dir-S) keeps the pirates' init chore (started at setCostume) running
-// while facing south, i.e. the drink loop (record 6).
-//
-// NB: 244-255 are the game's most-used direction commands; the previous
-// `cmd = anim/4` reading mis-placed the specials at 8-19 and silently
-// no-opped 244-255. The Mêlée clouds (`animateActor 4` → chore 4 → record
-// 18) are unaffected — 4 is a chore in both readings.
+// Operand is a CHORE number; 244-255 are direction pseudo-anims that
+// re-point the playing chore rather than switch it — see
+// pages/docs/scumm/costume-anim.md.
 function animateActorHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const id = readVarOrByte(opcode, 1, slot, vm.vars);
   const anim = readVarOrByte(opcode, 2, slot, vm.vars);
@@ -1901,33 +1380,24 @@ function animateActorHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
       actor.walkTarget = null;
       applyStandPose(vm, actor);
     } else if (!actor.isMoving) {
-      // 244-251: (turn to / set) direction. Re-point the chore that's
-      // already playing to the new facing — don't switch chores. A walking
-      // actor's chore is driven by the walk loop, so leave it be.
+      // 244-251: re-point the playing chore to the new facing — don't
+      // switch chores; a walking actor's chore is walk-loop-driven.
       reapplyChoreForFacing(vm, actor);
     }
   } else {
-    // Play chore `anim` for the current facing (record = anim*4 + dir).
     // startActorChore no-ops without a loaded costume.
     startActorChore(vm, actor, anim);
   }
   vm.annotate(`animateActor actor=${id} anim=${anim}`);
 }
-// actor = bit 0x80, anim = bit 0x40 → variants 0x11/0x51/0x91/0xD1.
-// (0x31 getInventoryCount and 0x71/0xF1 getActorCostume share low5=0x11
-// but are different opcodes — getActorCostume is registered with the
-// actor-read family above; getInventoryCount elsewhere.)
+// Low5=0x11 is shared: 0x31 getInventoryCount and 0x71/0xF1
+// getActorCostume are different ops — animateActor owns 0x11/0x51/0x91/0xD1.
 register(0x11, animateActorHandler);
 register(0x51, animateActorHandler);
 register(0x91, animateActorHandler);
 register(0xd1, animateActorHandler);
 
 // ─── 0x13 / 0x53 / 0x93 / 0xD3  actorOps ─────────────────────────────
-// Configure an actor's costume, walk speed, animation frames, talk
-// color, scale, etc. Layout: actor id (var-or-byte via opcode bit 7),
-// then a loop of subops terminated by 0xFF. v5 has up to ~24 subop
-// actions; most are init-and-forget parameter sets that don't need a
-// real actor table connection yet.
 function actorOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const id = readVarOrByte(opcode, 1, slot, vm.vars);
   const actor = actorOrNull(vm, id);
@@ -1946,14 +1416,9 @@ function actorOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
         const c = readVarOrByte(sub, 1, slot, vm.vars);
         if (actor) {
           actorSetCostume(actor, c);
-          // SCUMM initialises a costumed actor to its init chore (chore 1,
-          // records 4-7) for the current facing — that's the actor's default
-          // animation until a script plays another chore. For most costumes
-          // the init chore is a single-frame stand (visually identical to the
-          // old frame-0 fallback); for the few with a multi-frame init (e.g.
-          // the SCUMM-Bar pirates, cost24) it's an idle loop. Without this a
-          // placed actor that only ever gets a direction pseudo-anim stays
-          // frozen. No-op for costume 0 / no loaded costume.
+          // SCUMM starts the init chore on costume set — the default idle
+          // until a script plays another chore; some inits are multi-frame
+          // loops (SCUMM-Bar pirates), so skipping this freezes them.
           if (c > 0) startActorChore(vm, actor, actor.initFrame);
         }
         ops.push(`setCostume(${c})`);
@@ -1970,11 +1435,8 @@ function actorOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
         break;
       }
       case 0x03: {
-        // setSound — Phase 9 audio. ONE var-or-byte arg, not two: room 64's
-        // dig script (local #200) encodes it as `03 3b ff` (sound=59 then the
-        // actorOps terminator). Reading a second arg here swallows the 0xFF,
-        // then decodes the rest of the script as bogus subops until a data
-        // byte trips the param decoder. Consume the single arg for now.
+        // setSound takes ONE var-or-byte arg, not two — room 64's #200
+        // encodes `03 3b ff`; a second read swallows the 0xFF terminator.
         readVarOrByte(sub, 1, slot, vm.vars);
         ops.push('setSound');
         break;
@@ -2009,19 +1471,10 @@ function actorOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
         break;
       }
       case 0x08:
-        // SO_DEFAULT — initActor: clear state but keep id. We zero
-        // costume, anim, position; the script will set what it cares
-        // about in subsequent subops.
-        //
-        // Facing is deliberately NOT reset: SCUMM's `o5_actorOps` SO_DEFAULT
-        // calls `initActor(0)`, and only the full game-start `initActor(1)`
-        // (and mode 2) touch `_facing` — mode 0 leaves it alone. Room 60's
-        // teaching-machine setup relies on this: it sets the machine facing
-        // East (`animateActor 249`) *before* the init, then `setCostume(107)`
-        // + stand chore. Cost107 only carries full art for the side views
-        // (W/E); its S/N records are stubs (init-S names just the cart/wheel
-        // limb, stand-S is undefined). Clobbering facing to S here collapsed
-        // the whole contraption down to the wheel.
+        // SO_DEFAULT = initActor(0): clear state but keep id. Facing is
+        // deliberately NOT reset — only the game-start initActor(1)
+        // touches _facing; room 60's teaching machine sets facing E
+        // before init and its costume only has side-view art.
         if (actor) {
           actor.costume = 0;
           actor.elevation = 0;
@@ -2030,40 +1483,25 @@ function actorOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
           actor.walkPath = [];
           actor.walkPathIdx = 0;
           actor.isMoving = false;
-          // initActor resets the box-following + perspective scale to their
-          // defaults (SCUMM: `_ignoreBoxes = 0`, `_scalex = _scaley = 0xFF`).
-          // Critical for recovery: a cutscene that set `ignoreBoxes` (the
-          // credits montage repurposes the actors as free-moving puppets) and
-          // was then ESC-skipped never runs its own `followBoxes`; the actor's
-          // game-start `init` is what clears the otherwise-stuck flag, which
-          // had frozen perspective scaling across every room (rescale bails on
-          // ignoreBoxes). A later `ignoreBoxes`/`scale` subop in the same
-          // actorOps still wins (e.g. the room-51 cannon flight actor).
+          // initActor resets ignoreBoxes — this is what un-sticks the flag
+          // after an ESC-skipped cutscene that never ran its own
+          // followBoxes (a stuck flag freezes perspective scaling).
           actor.ignoreBoxes = false;
-          // initActor clears _walkbox to the unassigned sentinel, so a reused
-          // slot doesn't carry a stale box into the next scene. Matters for an
-          // actor init'd then immediately set `ignoreBoxes` before any placement
-          // (room-51 cannon actor 11): walkBox stays -1 through the flight →
-          // drawn in front, instead of inheriting a prior room's box.
+          // _walkbox → unassigned, so a reused slot doesn't carry a stale
+          // box into the next scene (room-51 cannon actor).
           actor.walkBox = -1;
           actor.scale = DEFAULT_SCALE;
-          // initActor clears the forced z-clip (forceClip 0 = "not forced",
-          // depth then comes from the NeverClip class or the walk-box mask).
-          // Without this, an actor reusing a slot left at `alwaysZclip k` by an
-          // earlier scene stays masked by ZP0k even after a plain `init`. Room
-          // 51 inits the Fettucini brothers (costume 27) with no zclip op, so
-          // they reset to box-derived depth (box 4, mask 0 → in front);
-          // otherwise the left brother, inheriting forceClip=1, draws behind the
-          // haystack crate in ZP01.
+          // forceClip 0 = "not forced" — depth falls back to the NeverClip
+          // class / box mask; a stale alwaysZclip would otherwise survive a
+          // plain init (room-51 Fettucini brothers).
           actor.forceClip = 0;
-          // Reset chore frames to SCUMM's initActor defaults.
+          // SCUMM initActor chore-frame defaults.
           actor.walkFrame = DEFAULT_WALK_FRAME;
           actor.standFrame = DEFAULT_STAND_FRAME;
           actor.initFrame = DEFAULT_INIT_FRAME;
           actor.talkStartFrame = DEFAULT_TALK_START_FRAME;
           actor.talkStopFrame = DEFAULT_TALK_STOP_FRAME;
-          // setActorCostume resets anim via the same EMPTY_ANIM_STATE
-          // sentinel we use everywhere else; let it do the work.
+          // setActorCostume(0) resets anim state via the shared sentinel.
           actorSetCostume(actor, 0);
         }
         ops.push('init');
@@ -2075,7 +1513,7 @@ function actorOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
         break;
       }
       case 0x0a:
-        // setDefaultAnim — costume-anim integration deferred.
+        // setDefaultAnim — no args; not modelled.
         ops.push('setDefaultAnim');
         break;
       case 0x0b: {
@@ -2091,11 +1529,8 @@ function actorOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
         break;
       }
       case 0x0d: {
-        // setActorName — NUL-terminated SCUMM string. Decode through the
-        // same path as setObjectName ($54) so `0xFF NN` escapes are
-        // consumed (not mistaken for the terminator) and control codes are
-        // stripped. Stored on the actor so the look-at / sentence line can
-        // resolve it (`getObjOrActorName`); persists across rooms + saves.
+        // NUL-terminated SCUMM string — decode like setObjectName so 0xFF
+        // escapes aren't mistaken for the terminator.
         const name = decodeScummString(readScummString(slot), vm, slot);
         if (actor) actor.name = name;
         ops.push(`setName(${JSON.stringify(name)})`);
@@ -2108,9 +1543,7 @@ function actorOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
         break;
       }
       case 0x0f:
-        // SO_ACTOR_VARIABLE-adjacent no-arg subop, seen in MI1 boot after
-        // setCostume. Confirmed a genuine no-op (no args, no state) — accept
-        // and continue.
+        // No-arg no-op subop, seen in MI1 boot after setCostume.
         ops.push('subop0F');
         break;
       case 0x10: {
@@ -2127,28 +1560,21 @@ function actorOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
         break;
       }
       case 0x12:
-        // neverZclip — CLEARS the forced clip (sets _forceClip = 0, SCUMM's
-        // "not forced" sentinel). The actor's depth then falls through to the
-        // NeverClip class / walk-box mask (see resolveActorZ); it is NOT an
-        // unconditional "always in front". The ego is left like this in most
-        // rooms, so its occlusion is box-driven.
+        // neverZclip CLEARS the forced clip (_forceClip = 0) — depth then
+        // comes from the NeverClip class / box mask, NOT "always in front".
         if (actor) actor.forceClip = 0;
         ops.push('setNeverZClip');
         break;
       case 0x13: {
-        // alwaysZclip k — actor is clipped behind z-plane k (and above).
+        // alwaysZclip k — clipped behind z-plane k (and above).
         const plane = readVarOrByte(sub, 1, slot, vm.vars);
         if (actor) actor.forceClip = plane;
         ops.push(`setAlwaysZClip(${plane})`);
         break;
       }
       case 0x14:
-        // ignoreBoxes — like followBoxes, SCUMM resets _forceClip to the
-        // "not forced" sentinel here (the depth then follows the NeverClip
-        // class / compositor's ignoreBoxes→front rule). In MI1 every use pairs
-        // this with an explicit neverZclip/alwaysZclip in the same actorOps
-        // call (which then wins), so this only matters for a bare {ignoreBoxes}
-        // that would otherwise inherit a stale alwaysZclip.
+        // SCUMM also resets _forceClip here — matters for a bare
+        // {ignoreBoxes} that would otherwise inherit a stale alwaysZclip.
         if (actor) {
           actor.ignoreBoxes = true;
           actor.forceClip = 0;
@@ -2156,12 +1582,9 @@ function actorOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
         ops.push('setIgnoreBoxes');
         break;
       case 0x15:
-        // followBoxes — return to box-driven walking AND box-driven depth:
-        // SCUMM resets _forceClip to the "not forced" sentinel here, so an
-        // earlier alwaysZclip no longer pins the actor's z-plane. MI1's cook
-        // patrol (room 28 local #216) relies on this — it restores the cook
-        // with followBoxes and never issues neverZclip, so without the reset
-        // the cook keeps the ENCD's alwaysZclip=1 and renders behind the table.
+        // followBoxes resets _forceClip too: room 28's cook patrol restores
+        // with followBoxes and no zclip op — without the reset the cook
+        // keeps the ENCD's alwaysZclip and hides behind the table.
         if (actor) {
           actor.ignoreBoxes = false;
           actor.forceClip = 0;
@@ -2179,11 +1602,8 @@ function actorOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
         break;
       }
       case 0x18: {
-        // SO_TEXT_OFFSET — talk-text anchor offset (_talkPosX/_talkPosY).
-        // Two WORD args, not bytes (getVarOrDirectWord) — reading them as
-        // bytes would desync the script stream. MI1 room 64 sets this for
-        // ego's treasure-dig line. No talk-offset consumer in the renderer
-        // (actor speech anchors above the actor), so consume and move on.
+        // SO_TEXT_OFFSET (talk-text anchor) — two WORD args, not bytes;
+        // consumed only (no renderer consumer).
         readVarOrWord(sub, 1, slot, vm.vars); // talk pos x
         readVarOrWord(sub, 2, slot, vm.vars); // talk pos y
         ops.push('setTalkPos');
@@ -2203,16 +1623,6 @@ register(0x93, actorOpsHandler);
 register(0xd3, actorOpsHandler);
 
 // ─── 0x7A / 0xFA  verbOps ────────────────────────────────────────────
-// Configure a verb slot — visibility, position, image, name, color,
-// shortcut key. Layout: verb id (var-or-byte via opcode bit 7), then
-// a loop of subops terminated by 0xFF. Verb subops use the same
-// "bits 0..4 select action, bits 7/6/5 select per-arg mode" pattern.
-//
-// Subops mutate `vm.verbs` — the verb-bar renderer iterates that map
-// each frame. Both image-based verb sprites (subop 0x01 setImage → stores the
-// object binding the verb bar composites) and string-resource names (subop
-// 0x14 setNameStr → copies a stringOps buffer into the verb name, e.g. the
-// insult-duel menus) are wired; most MI1 verbs are plain inline text names.
 function verbOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const verbId = readVarOrByte(opcode, 1, slot, vm.vars);
   const subops: string[] = [];
@@ -2223,31 +1633,21 @@ function verbOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
     switch (action) {
       case 0x01: {
         const obj = readVarOrWord(sub, 1, slot, vm.vars);
-        // setImage: the verb shows object `obj`'s sprite (from the
-        // current room) instead of text. Stored on the slot; the verb
-        // bar composites the object image.
         getOrCreateVerb(vm, verbId).image = { obj, room: vm.currentRoom };
         subops.push(`setImage(${obj})`);
         break;
       }
       case 0x02: {
-        // setVerbName: NUL-terminated string. May contain `0xFF NN`
-        // SCUMM control sequences (color shifts, var/object/verb-name
-        // substitutions) whose 2-byte arguments can themselves contain a
-        // 0x00 — so we must use the escape-aware reader, not a naive scan
-        // for the next 0x00 (which would stop on an argument byte and
-        // misalign the PC). MI1's sentence-line verb (#100) builds its
-        // name entirely from these substitution codes.
+        // Escape-aware read: 0xFF-code arguments can contain 0x00, so a
+        // naive scan-to-NUL misaligns the PC (the sentence-line verb #100
+        // builds its name entirely from substitution codes).
         const nameBytes = readScummString(slot);
         const v = getOrCreateVerb(vm, verbId);
         v.name = decodeScummString(nameBytes, vm, slot);
         v.image = null; // text verb — drop any prior image binding
-        // NB: do NOT re-capture the charset here. SCUMM fixes a verb's
-        // charset at `new` (definition); setName only changes the text.
-        // MI1 defines verb #100 (the sentence line) under charset 1 (a
-        // small font) then re-names it every frame via setName under the
-        // dialogue charset — capturing on setName would wrongly enlarge
-        // the sentence to the dialogue/verb font and clip the panel band.
+        // Do NOT re-capture the charset: SCUMM fixes it at SO_VERB_NEW.
+        // Verb #100 is renamed every frame under the dialogue charset and
+        // would wrongly enlarge to it.
         subops.push(`setName("${v.name}")`);
         break;
       }
@@ -2281,24 +1681,14 @@ function verbOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
         subops.push('off');
         break;
       case 0x08:
-        // `delete` removes the slot entirely — distinct from `off`,
-        // which preserves it for later `on`. (The active verb lives in a
-        // game global now — g107 — managed by the verb-input script, so
-        // there's no engine-side selection to clear here.)
+        // delete removes the slot; off preserves it for a later on.
         vm.verbs.delete(verbId);
         subops.push('delete');
         break;
       case 0x09: {
-        // SO_VERB_NEW. Two things we're sure of from the v5 engine:
-        //   - the new verb is **off** (curmode 0), NOT on — a script turns it
-        //     on later with an explicit SO_VERB_ON. Creating it `on` made the
-        //     dialog reply verbs flicker on (blank) during setup.
-        //   - the NAME and POSITION are NOT reset (the engine rewrites verbid,
-        //     colours, key, center, image — not name/x/y).
-        // It also resets the colours to specific CLUT indices, but those values
-        // aren't understood here and the reply verbs set their own colour right
-        // after `new`, so we leave colours at our 0 = "use default" sentinel
-        // rather than hardcode magic numbers. An existing slot is reused.
+        // SO_VERB_NEW: the verb starts OFF (curmode 0) — creating it on
+        // made the dialog reply verbs flicker during setup. NAME and
+        // POSITION are NOT reset; colours stay at our 0 = default sentinel.
         const existing = vm.verbs.get(verbId);
         vm.verbs.set(verbId, {
           id: verbId,
@@ -2339,16 +1729,9 @@ function verbOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
         subops.push('setCenter');
         break;
       case 0x14: {
-        // setVerbNameStr: name comes from string buffer `s` (a stringOps
-        // buffer), not an inline literal. The insult-swordfight menus build
-        // their options this way — #75 (insults) / #89 (comebacks) do
-        // `startScript 85/86 [id]` (which loadStrings the line into buffer
-        // 32/33) then `verbOps … nameStr=32/33`. Because startScript runs
-        // NESTED here (see startScriptHandler), that buffer already holds the
-        // line by the time we read it, so copy it into the verb name now —
-        // same as the inline-name path (0x02), just sourced from the buffer.
-        // (Previously a no-op: the menus showed whatever stale name the slot
-        // last had, so the duel listed the wrong/leftover lines.)
+        // Name from a stringOps buffer. The insult-duel menus loadString
+        // it via a nested startScript right before this, so the buffer is
+        // already populated — copy it now, like the inline-name path.
         const s = readVarOrWord(sub, 1, slot, vm.vars);
         const v = getOrCreateVerb(vm, verbId);
         const buf = vm.strings.get(s);
@@ -2360,10 +1743,8 @@ function verbOpsHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
         break;
       }
       case 0x16: {
-        // setImageInRoom: the verb shows object `a`'s sprite, loaded
-        // from room `b` (which may not be the current room — MI1's
-        // inventory slots draw from the UI room 99). Stored for the
-        // verb bar to composite.
+        // setImageInRoom — the sprite may come from a non-current room
+        // (MI1's inventory slots draw from UI room 99).
         const a = readVarOrWord(sub, 1, slot, vm.vars);
         const b = readVarOrByte(sub, 2, slot, vm.vars);
         getOrCreateVerb(vm, verbId).image = { obj: a, room: b };
@@ -2411,26 +1792,9 @@ function getOrCreateVerb(vm: Vm, id: number): VerbSlot {
 }
 
 /**
- * Decode a SCUMM v5 NUL-terminated string into a plain display string.
- * Control sequences `0xFF NN [args]` are mostly stripped, except:
- *   - `0xFF 0x01` (newline) → ASCII `\n` so the text renderer wraps
- *     to a new line. Credits + verb names rely on this for multi-line
- *     layout.
- *   - `0xFF 0x02` (keep-text) — currently stripped; we don't yet
- *     accumulate text across prints. Carries through visually because
- *     each `print` overwrites the previous dialog.
- *
- * Layout per the SCUMM v5 wiki:
- *   0xFF 0x01 — newline (2-byte)
- *   0xFF 0x02 — keep-text (2-byte)
- *   0xFF 0x03 — wait (2-byte)
- *   0xFF 0x04 NN NN — insert int-var
- *   0xFF 0x06 NN NN — var-name
- *   0xFF 0x07 NN NN — string-resource
- *   0xFF 0x08 NN NN — object/verb name
- *   0xFF 0x09 NN NN — sound
- *   0xFF 0x0A NN NN — actor name
- *   0xFF 0x0E NN NN — colour change
+ * Decode a SCUMM v5 string to display text: `0xFF 0x01` → newline,
+ * codes >= 0x04 expand via expandSubstitution, the rest are stripped.
+ * Codes 0x01-0x03 are 2-byte sequences, >= 0x04 are 4-byte.
  */
 function decodeScummString(payload: Uint8Array, vm?: Vm, slot?: ScriptSlot): string {
   const out: number[] = [];
@@ -2441,17 +1805,12 @@ function decodeScummString(payload: Uint8Array, vm?: Vm, slot?: ScriptSlot): str
       const code = payload[i + 1] ?? 0;
       if (code === 0x01) out.push(0x0a); // newline
       else if (code >= 0x04) expandSubstitution(code, payload, i, vm, slot, out);
-      // 0x01–0x03 are 2-byte sequences (FF + code); the rest are 4-byte.
       i += code >= 0x04 ? 4 : 2;
       continue;
     }
-    // `FE 01` is a newline too — 0xFE is a second escape introducer (like 0xFF).
-    // The verb-panel scroll arrows (verb 109/110) stack their 8x8 glyph tiles
-    // into rows with `FE 01` separators, e.g. up-arrow #109 `01 02 FE 01 05 06
-    // FE 01 07 08` → rows [01 02][05 06][07 08]. A BARE 0x01 is a literal glyph
-    // (the arrow head is glyphs 01+02 side by side = "^"), so it must NOT be
-    // treated as a newline — doing so ate the head's left half and the arrow
-    // head rendered shifted left.
+    // 0xFE is a second escape introducer: `FE 01` is a newline, while a
+    // BARE 0x01 is a literal glyph (pages/docs/scumm/char.md) — the
+    // verb-panel arrows break if either is mishandled.
     if (b === 0xfe && (payload[i + 1] ?? 0) === 0x01) {
       out.push(0x0a);
       i += 2;
@@ -2468,25 +1827,11 @@ function pushAscii(out: number[], s: string): void {
 }
 
 /**
- * Append the expansion of a `0xFF NN` string substitution control code
- * (NN >= 0x04) to `out`. The 2-byte little-endian argument at
- * `payload[i+2..i+3]` is a var reference (SCUMM `readVar`), so resolving
- * it needs the executing slot + vm; when either is absent (e.g. decoding
- * a static verb name) the code is dropped, matching the prior behaviour.
- *
- * Implemented substitutions, per the SCUMM v5 string-code layout
- * (`convertMessageToString` — each code's 2-byte argument is a *var
- * reference*, read with `derefRead`, holding the id to look up):
- *   0x04 int    → the variable's value, in decimal
- *   0x05 verb   → the display name of the verb whose id is in the var
- *   0x06 name   → the display name of the object/actor whose id is in the var
- *   0x07 string → the contents of string resource `id`
- * MI1's sentence line (#100) is `verb[g107] str[g49] name[g108] " "
- * verb[g110] " " name[g109]` — the preposition (g110) is itself a verb id
- * whose name is "con"/"a", so it expands through the 0x05 verb path.
- * Deferred (argument consumed, nothing emitted): 0x09 sound, 0x0E
- * mid-string colour (needs rich text — the dialog renderer paints one
- * colour per message today).
+ * Expand a `0xFF NN` (NN >= 0x04) substitution into `out`. Codes 0x04
+ * int / 0x05 verb-name / 0x06 obj-or-actor-name read their id from a
+ * VAR (the 2-byte arg is a var ref); 0x07 string takes the LITERAL
+ * string id (SCUMM convertMessageToString). 0x09/0x0E are consumed but
+ * emit nothing; without vm/slot the code is dropped.
  */
 function expandSubstitution(
   code: number,
@@ -2498,12 +1843,6 @@ function expandSubstitution(
 ): void {
   if (!vm || !slot) return;
   const word = (payload[i + 2] ?? 0) | ((payload[i + 3] ?? 0) << 8);
-  // SCUMM `convertMessageToString`: int/verb/name take their id from a var
-  // (`readVar(num)`), but string takes `num` directly as the string-var index
-  // (`addStringToStack(num)`). MI1's sentence line proves both: `0x05 g107` →
-  // verb name via the var, `0x07 49` → string resource 49 (a literal " "
-  // separator) by direct id. Reading 0x07 through the var instead would read
-  // g49 (= 0) and drop the space ("Usail pezzo…").
   if (code === 0x07) {
     const buf = vm.strings.get(word);
     if (buf) pushAscii(out, decodeScummString(buf, vm, slot));
@@ -2527,13 +1866,8 @@ function expandSubstitution(
 }
 
 /**
- * Decode a SCUMM string into **sentence pages**, split at the `\xff\x03`
- * "wait" control code. The original engine shows the text up to a
- * `\xff\x03`, waits out its talk delay, then displays the next chunk —
- * MI1's dialog is full of these (e.g. "Yikes!\xff\x03Non dovresti…").
- * Each page is decoded like {@link decodeScummString} (`\xff\x01` →
- * newline; other control codes stripped). Empty pages are dropped.
- * A string with no `\xff\x03` yields a single page == decodeScummString.
+ * Split a SCUMM string into talk pages at `\xff\x03` (wait) and flag
+ * keepText (`\xff\x02`). Empty pages are dropped.
  */
 function decodeScummStringPages(
   payload: Uint8Array,
@@ -2564,21 +1898,8 @@ function decodeScummStringPages(
 }
 
 // ─── 0xCC  pseudoRoom ────────────────────────────────────────────────
-// Register "pseudo-room" mappings — high-numbered alias rooms that share
-// a real room's resources. MI1's forest maze is the live case: VAR_ROOM
-// cycles through 201–220 (one logical "screen" each) and all of them
-// alias onto room 58's single shared background; 130–132 alias onto 1.
-// Layout: byte `id` (the real room), then a 0x00-terminated sequence of
-// alias bytes, each with the high bit set (pseudo rooms are always ≥ 128,
-// which is how they stay distinct from real rooms 1–127).
-//
-// The alias key is the **raw byte** (e.g. 218), NOT `j & 0x7F`: the game
-// keeps the high bit live everywhere — room 58's ENCD branches on
-// `VAR_ROOM == 201..220` and scripts call `loadRoom 130` directly — so
-// `VAR_ROOM`/`currentRoom` legitimately hold 218 and the mapper must
-// resolve that literal. (Masking to 73–92 both misses every raw request
-// AND collides with the real dialog-close-up rooms 73–90.) `applyRoomResources`
-// tries the literal room first, then falls back to this alias.
+// Alias key is the RAW byte, high bit kept (opcode-reference.md);
+// applyRoomResources tries the literal room first, then this alias.
 register(0xcc, (vm, slot) => {
   const id = readU8(slot);
   const mapped: number[] = [];
@@ -2593,14 +1914,10 @@ register(0xcc, (vm, slot) => {
   vm.annotate(`pseudoRoom realRoom=${id} aliases=[${mapped.join(',')}]`);
 });
 
-// Scale palette entries [start..end] per channel against the room's BASE
-// CLUT (vm.basePalette), writing the live palette the compositor reads. This
-// is SCUMM's darkenPalette/colorIntensityRange: each channel of entry i becomes
-// `base * scale / 255`, CLAMPED to 255 — scales > 255 BRIGHTEN (the Voodoo
-// Lady's reveal pulses room 29's ranges with scales of 500/900 = ×2/×3.5 to
-// flash blue/green/red/white). Scaling from the base (not the live palette)
-// makes a fade-out→fade-in restore exactly. Shared by roomIntensity (one scale
-// for all three channels) and setRGBRoomIntensity (per-channel).
+// SCUMM's darkenPalette/colorIntensityRange: each channel of [start..end]
+// becomes base*scale/255, clamped at 255 — scales > 255 BRIGHTEN (room
+// 29's reveal uses 500/900). Scaling from the BASE palette, not the live
+// one, is what makes a fade-out → fade-in restore exactly.
 function scalePaletteRange(
   vm: Vm,
   rScale: number,
@@ -2621,20 +1938,12 @@ function scalePaletteRange(
 }
 
 // ─── 0x33 / 0x73 / 0xB3 / 0xF3  roomOps ──────────────────────────────
-// Multi-subop opcode for room-level effects: scrolling, screen
-// transitions, palette manipulation, shake, save/load string. For
-// Phase 6 every subop is a silent stub — we honour the parameter
-// shapes (so PC advances correctly) but don't mutate engine state.
-// Most subops are visual-only and only matter once we have a frame
-// compositor; the boot script issues them but doesn't depend on their
-// observable effects to proceed.
 function roomOpsHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
   const subop = readU8(slot);
   const action = subop & 0x1f;
   switch (action) {
     case 0x01: {
-      // roomScroll: minX, maxX (both var-or-word) — the camera-centre
-      // scroll bounds for this room. Each is floored at half-screen
+      // roomScroll: camera-centre bounds, each floored at half-screen
       // (160) so the viewport never shows past a room edge.
       const a = readVarOrWord(subop, 1, slot, vm.vars);
       const b = readVarOrWord(subop, 2, slot, vm.vars);
@@ -2645,11 +1954,8 @@ function roomOpsHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
       return;
     }
     case 0x03: {
-      // setScreen: top, bottom — the playable viewport vertical
-      // bounds. Rows [top, bottom) host the camera view; the
-      // remainder is verb / inventory UI. The inspector reads this to
-      // draw the viewport-indicator rectangle so the user can see
-      // exactly what the player would see on a real screen.
+      // setScreen: playable viewport rows [top, bottom); the rest is
+      // verb/inventory UI.
       const a = readVarOrWord(subop, 1, slot, vm.vars);
       const b = readVarOrWord(subop, 2, slot, vm.vars);
       vm.screen.top = a;
@@ -2658,11 +1964,8 @@ function roomOpsHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
       return;
     }
     case 0x04: {
-      // setPalColor: red, green, blue, slot. v5 reads a second subop
-      // byte for the slot arg (param mode for `d`). Writes directly
-      // into the live room CLUT so the compositor picks it up next
-      // frame; a no-op when no room is loaded. The CLUT is re-decoded
-      // on the next room load, so this mutation is correctly transient.
+      // setPalColor: r, g, b, then a SECOND subop byte carrying the slot
+      // arg's param mode.
       const r = readVarOrWord(subop, 1, slot, vm.vars);
       const g = readVarOrWord(subop, 2, slot, vm.vars);
       const b = readVarOrWord(subop, 3, slot, vm.vars);
@@ -2674,10 +1977,8 @@ function roomOpsHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
         pal[idx * 3 + 1] = g & 0xff;
         pal[idx * 3 + 2] = b & 0xff;
       } else if (!pal && idx >= 0 && idx < 256) {
-        // No room loaded — MI1's boot UI/credit palette scripts run before
-        // the first room. Record as a persistent override so each room
-        // load re-applies it (see Vm.uiPaletteOverrides); otherwise these
-        // colours (verb ink #6, credit/sentence #1–3) are lost.
+        // Boot UI/credit palette scripts run before any room — persist as
+        // an override re-applied on each room load (Vm.uiPaletteOverrides).
         vm.uiPaletteOverrides.set(idx, [r & 0xff, g & 0xff, b & 0xff]);
       }
       vm.annotate(`roomOps setPalColor (${r},${g},${b}) → slot ${idx}`);
@@ -2692,14 +1993,8 @@ function roomOpsHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
       vm.annotate('roomOps shakeOff');
       return;
     case 0x08: {
-      // roomIntensity (SO_ROOM_INTENSITY → darkenPalette): scale, start, end
-      // (all var-or-byte). Scales the live palette entries [start..end] to
-      // `scale`/255 of the room's base CLUT (vm.basePalette) — the same scale
-      // on all three channels. Room 63 (the treasure-map close-up) blacks the
-      // whole palette with setPalColor, prints the dance steps, then loops
-      // `roomIntensity 255,i,i` over every entry to fade the text back in;
-      // scaling from the base (not the now-black live palette) is what makes
-      // the restore actually restore.
+      // roomIntensity: scale, start, end (all var-or-byte) — one scale for
+      // all three channels; base-palette semantics in scalePaletteRange.
       const scale = readVarOrByte(subop, 1, slot, vm.vars);
       const start = readVarOrByte(subop, 2, slot, vm.vars);
       const end = readVarOrByte(subop, 3, slot, vm.vars);
@@ -2708,19 +2003,11 @@ function roomOpsHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
       return;
     }
     case 0x09:
-      // saveLoad screen trigger — never used by MI1, not modelled. Halt loudly
-      // so a hit is caught immediately.
       throw new Error('roomOps: saveLoad (subop 0x09) not implemented (no MI1 use)');
     case 0x0a: {
-      // screenEffect (SO_ROOM_FADE): a single var-or-word operand. v5
-      // splits it into two effect numbers — low byte = switchRoomEffect
-      // (the fade-IN effect when the next room is revealed), high byte =
-      // switchRoomEffect2 (the fade-OUT effect when leaving). Operand 0
-      // is the special "fade the current room in NOW" trigger (no room
-      // change, effect numbers unchanged). We record the effect numbers;
-      // the transition animations are deferred — MI1's intro path is all
-      // effect 129 (instant), so there's nothing to animate against yet.
-      // See Vm.screenEffect / pages/docs/scumm/screen-effect.md.
+      // screenEffect: low byte = fade-in effect, high byte = fade-out;
+      // operand 0 = "fade the current room in NOW" trigger. See
+      // pages/docs/scumm/screen-effect.md.
       const e = readVarOrWord(subop, 1, slot, vm.vars);
       if (e === 0) {
         vm.screenEffect.requestFadeIn = true;
@@ -2733,12 +2020,8 @@ function roomOpsHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
       return;
     }
     case 0x0b: {
-      // setRGBRoomIntensity (colorIntensityRange): rs, gs, bs (3 words) then a
-      // second subop byte carrying the range args lo, hi (var-or-byte). Scales
-      // entries [lo..hi] per channel against the base CLUT. MI1 room 29's
-      // Voodoo-Lady reveal pulses this with scales like (50,50,500) /
-      // (500,50,50) / (900,900,900) — dim two channels, boost one → blue/red/
-      // white flashes across the two palette halves (17..207, 208..255).
+      // setRGBRoomIntensity: rs, gs, bs (3 words), then a SECOND subop
+      // byte carrying the range args lo, hi (var-or-byte).
       const rs = readVarOrWord(subop, 1, slot, vm.vars);
       const gs = readVarOrWord(subop, 2, slot, vm.vars);
       const bs = readVarOrWord(subop, 3, slot, vm.vars);
@@ -2750,9 +2033,6 @@ function roomOpsHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
       return;
     }
     case 0x0d:
-      // saveString / loadString — disk-I/O strings (save filenames etc.),
-      // never used by MI1 and not modelled. Halt loudly so a hit is caught
-      // immediately rather than silently dropping the I/O.
       throw new Error('roomOps: saveString (subop 0x0D) not implemented (no MI1 use)');
     case 0x0e:
       throw new Error('roomOps: loadString (subop 0x0E) not implemented (no MI1 use)');
@@ -2768,13 +2048,6 @@ register(0xb3, roomOpsHandler);
 register(0xf3, roomOpsHandler);
 
 // ─── 0x0A  startScript ───────────────────────────────────────────────
-// Spawn a global script in a free slot. Layout: scriptId (var-or-byte
-// via bit 0x80) then a word-vararg list of locals (terminated 0xFF).
-// Bit 0x20 flags the new slot as freeze-resistant; bit 0x40 flags it
-// as recursive (allowing re-entry while another instance runs).
-//
-// All eight opcode variants (0x0A/0x2A/0x4A/0x6A/0x8A/0xAA/0xCA/0xEA)
-// share the family; the high bits select param mode + flags.
 register(0x0a, startScriptHandler);
 register(0x2a, startScriptHandler);
 register(0x4a, startScriptHandler);
@@ -2787,51 +2060,33 @@ function startScriptHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const scriptId = readVarOrByte(opcode, 1, slot, vm.vars);
   const args = readWordVararg(slot, vm.vars);
 
-  // Bit 0x20 = freeze-resistant (skipped by a normal freezeScripts).
-  // Bit 0x40 = recursive (re-entry allowed) — not honoured yet.
-  // Resolution (global DSCR vs room-local LSCR) lives in startScriptById.
+  // Bit 0x20 = freeze-resistant; bit 0x40 (recursive) is not honoured.
   const freezeResistant = (opcode & 0x20) !== 0;
   const child = vm.startScriptById(scriptId, { args, freezeResistant });
-  // startScript 0 is a no-op (see startScriptById) — it returns null and
-  // there is nothing to nest.
+  // startScript 0 is a no-op (opcodes.md §6).
   if (!child) {
     vm.annotate(`startScript #${scriptId} (no-op: script 0)`);
     return;
   }
-  // SCUMM's `startScript` runs the new script NESTED: `runScript` →
-  // `runScriptNested`, executing it to its first breakHere/stop before the
-  // caller's next opcode — it is NOT queued behind the caller. Scripts rely on
-  // this ordering: the pirate dialog (#220) does `startScript 32; <fill menu>`
-  // expecting the menu-reset (#32: clear reply slots, set the reply-Y base)
-  // to run *before* it fills the replies. Queuing #32 let #220 fill first and
-  // #32 then wiped it — the intermittent black/empty answer bar. (We already
-  // ran #18/#19 nested for the same reason; this generalises it.)
+  // Runs the child NESTED, to its first breakHere/stop, before the
+  // caller's next opcode (opcodes.md §6) — scripts rely on the ordering.
   vm.runScriptNested(child);
   vm.annotate(`startScript #${scriptId} slot=${child.slotIndex} args=[${args.join(',')}]`);
 }
 
 // ─── 0x42 / 0xC2  chainScript ────────────────────────────────────────
-// Stop the current script and start another *in its place*, passing a
-// word-vararg local list. SCUMM's o5_chainScript: read scriptId
-// (var-or-byte via bit 0x80) + args, kill the running slot, then
-// runScript the new one carrying over the dying slot's freeze-resistant
-// (and recursive) flags. Killing first frees the slot, so the new script
-// typically reuses it (lowest-index dead). The current slot is now dead,
-// so dispatch falls through to the freshly started one. Common in MI1's
-// background/room loops (e.g. a walk-driven loop chaining itself).
+// Kill first, then start — the chained script reuses the freed slot and
+// dispatch falls through to it (opcodes.md §6).
 register(0x42, chainScriptHandler);
 register(0xc2, chainScriptHandler);
 function chainScriptHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const scriptId = readVarOrByte(opcode, 1, slot, vm.vars);
   const args = readWordVararg(slot, vm.vars);
 
-  // Carry the dying slot's freeze-resistance to the chained script
-  // (SCUMM passes vm.slot[cur].freezeResistant / recursive).
+  // Carry the dying slot's freeze-resistance (SCUMM passes it through).
   const freezeResistant = slot.freezeResistant;
   slot.kill();
   const child = vm.startScriptById(scriptId, { args, freezeResistant });
-  // chainScript 0 → the current slot is stopped and no script replaces it
-  // (id 0 is a no-op — see startScriptById).
   vm.annotate(
     child
       ? `chainScript #${scriptId} slot=${child.slotIndex} args=[${args.join(',')}]`
@@ -2840,12 +2095,8 @@ function chainScriptHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
 }
 
 // ─── 0x19  doSentence ────────────────────────────────────────────────
-// Enqueue a (verb, objectA, objectB) sentence for the sentence-script
-// driver, OR clear the queue when verb == 0xFE. Layout: verb (var-or-
-// byte via bit 0x80), then — only when not clearing — objectA and
-// objectB (each var-or-word via bits 0x40 / 0x20). The clear form
-// carries no object operands, matching the original engine's early
-// return. The eight family variants share param-mode bits.
+// The 0xFE clear form carries NO object operands (the original's early
+// return). See pages/docs/scumm/input.md for the sentence machinery.
 function doSentenceHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const verb = readVarOrByte(opcode, 1, slot, vm.vars);
   if (verb === SENTENCE_CLEAR_VERB) {
@@ -2868,16 +2119,8 @@ register(0xd9, doSentenceHandler);
 register(0xf9, doSentenceHandler);
 
 // ─── 0xAE  wait ──────────────────────────────────────────────────────
-// Yield until a condition is satisfied. The subop byte selects the
-// condition (low 5 bits) and — for SO_WAIT_FOR_ACTOR — its 0x80 bit
-// selects var-vs-direct for the actor operand. Confirmed empirically:
-// MI1's sentence script (#2) emits `AE 81 <varref>` = wait-for-actor
-// on a var-supplied actor id (e.g. `01 00` = VAR_EGO — wait for
-// Guybrush to finish walking). See scratch/scan-wait.ts.
-//
-// Mechanism: if the condition isn't met we rewind PC to the 0xAE byte
-// and yield, so the next tick re-runs the opcode and re-checks — the
-// original engine's `_scriptPointer = _scriptOrgPointer; breakHere()`.
+// Unmet condition → rewind PC to the 0xAE byte and yield, re-checking
+// next tick (the original's `_scriptPointer = _scriptOrgPointer`).
 const SO_WAIT_FOR_ACTOR = 0x01;
 const SO_WAIT_FOR_MESSAGE = 0x02;
 const SO_WAIT_FOR_CAMERA = 0x03;
@@ -2898,15 +2141,11 @@ function waitHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
       break;
     }
     case SO_WAIT_FOR_MESSAGE:
-      // Waits while a message is on screen. VAR_HAVE_MSG isn't driven
-      // by the dialog renderer yet (per-char reveal / talk timing), so
-      // this reads 0 and never blocks until that lands.
       shouldWait = vm.vars.readGlobal(VAR_HAVE_MSG) !== 0;
       detail = 'message';
       break;
     case SO_WAIT_FOR_CAMERA:
-      // Block while a panCameraTo smooth scroll is still in flight (cameraDest
-      // set); a snapped/at-rest camera has arrived and falls straight through.
+      // Blocks only while a scripted pan is in flight (cameraDest set).
       shouldWait = vm.cameraDest !== null;
       detail = 'camera';
       break;
@@ -2929,17 +2168,11 @@ function waitHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
 register(0xae, waitHandler);
 
 // ─── 0x0C  resourceRoutines ──────────────────────────────────────────
-// Load / nuke / lock / unlock a resource (script, sound, costume,
-// room, charset). All resource data lives in the .000/.001 files,
-// which we map into memory once at boot — there's nothing to load on
-// demand. We honour the parameter shapes (so the PC advances right)
-// and otherwise no-op.
+// All resources are mapped at boot — nothing to load on demand; consume
+// the operand shapes and no-op.
 register(0x0c, (vm, slot) => {
   const subop = readU8(slot);
   const action = subop & 0x1f;
-  // Most subops take exactly one var-or-byte arg (a resource id).
-  // The two exceptions: subop 0x11 (clearHeap) takes none, and
-  // subop 0x14 (loadFlObject) takes two args (object id + room).
   const single = (label: string) => {
     const id = readVarOrByte(subop, 1, slot, vm.vars);
     vm.annotate(`resourceRoutines ${label} id=${id} (stub)`);
@@ -2980,29 +2213,14 @@ register(0x0c, (vm, slot) => {
 });
 
 // ─── 0x27  stringOps ─────────────────────────────────────────────────
-// Multi-subop opcode that manages SCUMM's engine-owned string table:
-// load a literal, copy one string into another, get/set a single
-// character, allocate an empty buffer. Subop high bits select per-arg
-// modes (same convention as cursorCommand).
-//
-// We store strings on `vm.strings`, a Map<number, Uint8Array>. Text-
-// output opcodes (which display these) land later; for the boot
-// script we just need correct mutation semantics and clean PC advance.
 register(0x27, (vm, slot) => {
   const subop = readU8(slot);
   const action = subop & 0x1f;
   switch (action) {
     case 0x01: {
-      // loadString: resId (var-or-byte), then a SCUMM string. The string can
-      // embed 0xFF escape sequences whose control codes (>= 4) carry a 2-byte
-      // argument — a raw scan-to-NUL would stop at the first 0x00 even when
-      // it's an inner argument byte, truncating the string and desyncing the
-      // PC. readScummString skips escape args to find the true terminator.
-      // The copy-protection quiz (#154) is the case: its question string
-      // embeds `\xFF\x07` (string-var substitution) whose 2-byte arg's second
-      // byte is 0x00, so a raw scan ended the string 2 bytes early and then
-      // mis-decoded the following bytes (a phantom drawBox / putActor) instead
-      // of the answer-option loadStrings (Antigua, Barbados, …).
+      // loadString: the literal can embed 0xFF escapes whose 2-byte args
+      // may contain 0x00 — readScummString finds the true terminator (a
+      // naive scan broke the copy-protection quiz #154).
       const id = readVarOrByte(subop, 1, slot, vm.vars);
       const text = readScummString(slot);
       vm.strings.set(id, text);
@@ -3010,7 +2228,6 @@ register(0x27, (vm, slot) => {
       return;
     }
     case 0x02: {
-      // copyString: destId, srcId — duplicate the buffer.
       const dest = readVarOrByte(subop, 1, slot, vm.vars);
       const src = readVarOrByte(subop, 2, slot, vm.vars);
       const srcBuf = vm.strings.get(src);
@@ -3019,7 +2236,6 @@ register(0x27, (vm, slot) => {
       return;
     }
     case 0x03: {
-      // setStringChar: id, index, char
       const id = readVarOrByte(subop, 1, slot, vm.vars);
       const idx = readVarOrByte(subop, 2, slot, vm.vars);
       const ch = readVarOrByte(subop, 3, slot, vm.vars);
@@ -3029,13 +2245,8 @@ register(0x27, (vm, slot) => {
       return;
     }
     case 0x04: {
-      // getStringChar: dest var = string[id][index]. The result-pos consumes no
-      // var/direct mask, so the two operands take the FIRST two mask bits
-      // (0x80=id, 0x40=index) — paramIndex 1 and 2, not 2 and 3. (MI1's insult
-      // matcher #87 reads `string[37][insult*3+slot]`: id is a direct byte 37,
-      // index is the var L2. Reading them off-by-one made it read string[g549=
-      // 0][64] — an absent table — so no comeback ever matched and the Sword
-      // Master's duel was unwinnable. See scratch/dump87.ts.)
+      // getStringChar: the result consumes no mask bit — id takes 0x80,
+      // index 0x40 (opcodes.md §5; off-by-one broke the insult matcher).
       const destRef = readDestRef(slot, vm.vars);
       const id = readVarOrByte(subop, 1, slot, vm.vars);
       const idx = readVarOrByte(subop, 2, slot, vm.vars);
@@ -3046,7 +2257,6 @@ register(0x27, (vm, slot) => {
       return;
     }
     case 0x05: {
-      // createString: allocate an empty buffer of `size` bytes for id.
       const id = readVarOrByte(subop, 1, slot, vm.vars);
       const size = readVarOrByte(subop, 2, slot, vm.vars);
       vm.strings.set(id, new Uint8Array(size));
@@ -3061,20 +2271,12 @@ register(0x27, (vm, slot) => {
 });
 
 // ─── 0xAC  expression ────────────────────────────────────────────────
-// Stack-based mini-VM embedded in the bytecode stream. The full subop
-// grammar (push imm / push var / + - * / and the 0xFF terminator)
-// lives in `expression.ts`; we just hand control off here.
 register(0xac, (vm, slot) => {
   evalExpression(slot, vm.vars, vm);
   vm.annotate('expression');
 });
 
 // ─── 0x2E  delay ─────────────────────────────────────────────────────
-// 3-byte immediate (24-bit LE tick count). Holds the slot yielded
-// for `ticks` ticks — the tick driver decrements `slot.delayRemaining`
-// each tick and only resumes when it reaches 0. Critical for cutscene
-// pacing: MI1's credits emit `print "Card text"; delay 120` so each
-// card holds for ~2 sec at 60Hz before the next print overwrites it.
 register(0x2e, (vm, slot) => {
   const a = readU8(slot);
   const b = readU8(slot);
@@ -3086,10 +2288,6 @@ register(0x2e, (vm, slot) => {
 });
 
 // ─── 0x2B  delayVariable ─────────────────────────────────────────────
-// Like delay (0x2E) but the tick count comes from a variable reference,
-// not a 3-byte immediate. SCUMM's o5_delayVariable. Room 28's ambient
-// loop (#210) uses it: drawObject a random fixture, `delayVariable` a
-// randomized hold, repeat — so a closed bar still has flickering life.
 register(0x2b, (vm, slot) => {
   const ticks = readVarRef(slot, vm.vars);
   slot.delayRemaining = ticks;

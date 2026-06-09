@@ -1,11 +1,7 @@
 /**
- * Render the VM's currently-loaded room to an indexed framebuffer, then to a
- * PNG — the dynamic companion to {@link bootScummV5}/{@link restoreSave}.
- *
- * Extracted from ~34 scratch render scripts that each re-assembled the same
- * `composeFrame` wiring (the seven `vm.*` closures below) before encoding.
- * The closures are the canonical mappings documented on `ComposeFrameInput`;
- * keep them in sync if the compositor's contract changes.
+ * Render the VM's loaded room to an indexed framebuffer / a PNG. The closures
+ * below are the canonical `ComposeFrameInput` mappings — keep them in sync if
+ * the compositor's contract changes.
  */
 import { composeFrame } from '../engine/render/compositor';
 import type { Vm } from '../engine/vm/vm';

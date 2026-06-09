@@ -1,66 +1,9 @@
-/**
- * SCUMM v5 index file parser (MONKEY.000 / MONKEY2.000).
- *
- * The index lists every resource the engine can name — variables and
- * bit-vars in `MAXS`, then per-type directories (`DROO`, `DSCR`,
- * `DSOU`, `DCOS`, `DCHR`) mapping a resource id to its owning room
- * (or disk, for `DROO`) and its offset inside the matching `.001`.
- * `DOBJ` tracks object state and is deferred until objects are needed.
- *
- * # Lane encoding
- *
- * Every per-resource directory in v5 stores its rows column-wise, not
- * row-wise:
- *
- *   u16 LE  count
- *   u8     × count       (lane 1)
- *   u32 LE × count       (lane 2)
- *
- * Total payload = `2 + count + 4 * count = 2 + 5 * count`. We verified
- * this empirically against MI1: the row-wise alternative produces
- * gibberish; the column-wise read produces sensible values across all
- * four resource families.
- *
- * # Lane-1 semantics (this surprised us)
- *
- *   - **`DROO`** — lane 1 is the **disk number**. Single-disk MI1 has
- *     `disk = 1` on every present room and `0` on unused slots.
- *   - **`DSCR` / `DSOU` / `DCOS` / `DCHR`** — lane 1 is the **owning
- *     room number**. The script (or sound, costume, charset) lives
- *     inside that room's LFLF. Use LOFF (see `loff.ts`) to turn the
- *     room number into a file offset, then add the lane-2 offset.
- *
- *   `room = 0` is the SCUMM "unused" sentinel — most directories
- *   have a sprinkling of these (e.g. MI1's script #0 and #15).
- *
- * # Lane-2 semantics
- *
- *   - **`DROO`** — typically `0` (single-disk releases); the real
- *     ROOM-block offsets live in LOFF.
- *   - **`DSCR` / `DSOU` / `DCOS` / `DCHR`** — byte offset relative to
- *     the owning room's ROOM-block file offset. To resolve the
- *     absolute file position of script N's SCRP header:
- *     `LOFF[scripts[N].room] + scripts[N].offset`.
- *
- * # MAXS
- *
- * 9 × u16 LE on MI1. The fields that matter for the VM right now:
- *
- *   [0] numVariables        — globals 0..numVariables-1
- *   [2] numBitVariables     — bit vars 0..numBitVariables-1
- *   [3] numLocalObjects     — upper bound on objects per room
- *   [5] numCharsets         — number of CHAR resources
- *   [6] numVerbs            — number of verb slots
- *
- * The remaining slots vary by reverse-engineering source. We expose
- * the raw u16 array so any later consumer can read positions we don't
- * yet name.
- */
+/** Index file (.000) parser. Format and lane semantics: pages/docs/scumm/index-file.md. */
 
 import { payloadOf, type ResourceFile } from './tree';
 
 export interface Maxs {
-  /** Raw u16 LE array, as read from the MAXS block payload. */
+  /** Raw u16 LE array — unnamed positions stay readable. */
   readonly raw: ReadonlyArray<number>;
   readonly numVariables: number;
   readonly numBitVariables: number;
@@ -71,33 +14,21 @@ export interface Maxs {
 
 /** One row of `DROO`. */
 export interface RoomDirectoryEntry {
-  /** `0` means "not present in this release", any non-zero means disk N. */
+  /** Disk number; `0` = not present in this release. */
   readonly disk: number;
-  /** Typically `0` for single-disk v5 — real offset is in LOFF. */
+  /** Typically `0` for single-disk v5 — real offsets live in LOFF. */
   readonly offset: number;
 }
 
 /** One row of `DSCR` / `DSOU` / `DCOS` / `DCHR`. */
 export interface ResourceDirectoryEntry {
-  /** Room id that owns this resource. `0` means the slot is unused. */
+  /** Owning room id — NOT a disk number (index-file.md §4). `0` = unused slot. */
   readonly room: number;
-  /**
-   * Byte offset relative to the owning room's ROOM-block file
-   * offset. Combined with LOFF this gives the absolute file position
-   * of the resource's block header.
-   */
+  /** Relative to the owning room's ROOM-block file offset: absolute = LOFF[room] + offset. */
   readonly offset: number;
 }
 
-/**
- * Initial per-object owner / state / class, from the index `DOBJ`
- * directory (one row per global object id). SCUMM seeds these before any
- * script runs — crucially the **class** bits, which include
- * `Untouchable` (32 → bit 31): roughly half of MI1's objects start
- * Untouchable and only become interactive when a script clears the flag
- * (e.g. the ship that docks in room 33 later). Without seeding them every
- * such object is wrongly hoverable.
- */
+/** Initial per-object owner/state/class from `DOBJ` — seeded before any script runs. */
 export interface ObjectInit {
   /** 0..15. 15 = `OF_OWNER_ROOM` (in the room); an actor id = inventory; 0 = removed. */
   readonly owner: number;
@@ -114,7 +45,7 @@ export interface IndexFile {
   readonly sounds: ReadonlyArray<ResourceDirectoryEntry>;
   readonly costumes: ReadonlyArray<ResourceDirectoryEntry>;
   readonly charsets: ReadonlyArray<ResourceDirectoryEntry>;
-  /** Initial object owner/state/class, indexed by global object id (`DOBJ`). */
+  /** Indexed by global object id. */
   readonly objects: ReadonlyArray<ObjectInit>;
 }
 
@@ -143,11 +74,7 @@ export function parseIndexFile(file: ResourceFile): IndexFile {
   };
 }
 
-/**
- * Parse `DOBJ` (v5): a u16 count, then one owner/state byte per object
- * (`owner = b & 0x0F`, `state = b >> 4`), then one u32 LE class mask per
- * object. Indexed by global object id.
- */
+/** DOBJ: u16 count, then packed owner/state bytes, then u32 LE class masks. */
 export function parseDobj(payload: Uint8Array): ObjectInit[] {
   const num = payload.length >= 2 ? readU16LE(payload, 0) : 0;
   const classOff = 2 + num;

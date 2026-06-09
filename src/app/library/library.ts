@@ -4,9 +4,8 @@ import { listGames, removeGame, type StoredGame } from '../../platform/storage/g
 import { deleteAllSaves } from '../../platform/storage/savegames';
 import { playHref, exploreHref } from '../../platform/routing/routing';
 
-// The page chrome — title, intro, the "Your installed games" heading — is prose
-// authored in pages/library.md; this island renders only the interactive widget
-// (the game list + Install button) into the page's #app mount.
+// Page chrome is prose in pages/library.md; this island renders only the
+// interactive widget (game list + Install button).
 export function renderLibrary(app: App, flash?: string): HTMLElement {
   const container = document.createElement('div');
   container.className = 'library';
@@ -62,9 +61,8 @@ function renderGameList(app: App, games: StoredGame[]): HTMLElement {
 function renderGameRow(app: App, game: StoredGame): HTMLElement {
   const li = document.createElement('li');
   li.className = 'game-row';
-  // Play / Explore are real links to the /play/ and /explore/ pages (the game
-  // id rides in ?game=). The folder permission re-grant happens on the
-  // destination page (it needs a user gesture there) — see pages/shared.ts.
+  // The folder-permission re-grant happens on the destination page, where the
+  // user gesture is available — see ../shared.ts.
   li.innerHTML = `
     <span class="name"></span>
     <span class="game-id"></span>
@@ -78,9 +76,6 @@ function renderGameRow(app: App, game: StoredGame): HTMLElement {
   li.querySelector<HTMLAnchorElement>('.explore')!.href = exploreHref(game.id);
 
   li.querySelector('.remove')!.addEventListener('click', () => {
-    // Removing forgets the install (IndexedDB record + folder handle) and clears
-    // its in-browser saves — but never touches the files on disk. Spell that out
-    // so the prompt is clear about what's lost and what isn't.
     const ok = window.confirm(
       `Remove "${game.displayName}" (${game.variant}) from your library?\n\n` +
         `This also deletes its saved games in this browser. Your game files on ` +

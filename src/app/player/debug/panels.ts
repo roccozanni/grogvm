@@ -1,10 +1,6 @@
 /**
- * Debug-panel renderers — the pure read-out panels extracted from the
- * legacy inspector (Phase 10 task 7). These build the live
- * inspection subtree (slot table, globals / bits grids, trace, actor
- * table, input panel, halt) and the saves panel. They are stateless
- * apart from the `InspectorState` they read; the EngineSession owns the
- * loop / frame / lifecycle that the old god-object used to carry.
+ * Debug-panel renderers: pure read-out panels (slots, globals/bits, trace,
+ * actors, input, halt) plus the saves panel, driven by `InspectorState`.
  */
 
 import { type SaveState } from '../../../engine/vm/savestate';
@@ -13,11 +9,7 @@ import type { HaltInfo, TraceEntry, Vm } from '../../../engine/vm/vm';
 import { deleteSave, listSaves, readSave, SaveStoreError, writeSave } from '../../../platform/storage/savegames';
 import { type ClickEvent } from '../input';
 
-/**
- * Click captured by the inspector's input layer, with the engine tick
- * count at the moment it landed — handy for correlating a click with
- * trace entries / state changes that follow.
- */
+/** A click plus the engine tick count when it landed, for correlating with trace entries. */
 export interface RecentClick extends ClickEvent {
   readonly tickCount: number;
   /** Object id under the click, or null if the click hit empty room. */
@@ -26,69 +18,39 @@ export interface RecentClick extends ClickEvent {
 
 export interface InspectorState {
   vm: Vm | null;
-  /** How many globals to render — start small, expand on demand. */
   globalsShown: number;
   bitsShown: number;
-  /** Auto-tick loop. `playing` = the rAF loop is armed. */
   playing: boolean;
   rafId: number | null;
-  /** Cumulative ticks since this Vm was booted. Reset on Reset/Boot. */
+  /** Cumulative ticks since this Vm was booted. */
   tickCount: number;
-  /**
-   * Fingerprint of "live slots at yield boundary" from the previous
-   * tick. Stable for N consecutive ticks → the engine is in an idle
-   * wait loop (the boot finished, only periodic-tick scripts left),
-   * we auto-pause so the user isn't watching the trace ring spin
-   * with nothing changing.
-   */
+  /** Idle detection: a stable live-slot fingerprint across N ticks → auto-pause. */
   lastIdleFingerprint: string | null;
   idleStreak: number;
   /** Set when auto-pause fired — surfaced to the user. */
   idleReason: string | null;
-  /** Show walk-box / walkable-mask / actor-walkPath overlay on the VM frame. */
   showWalkOverlay: boolean;
-  /** Room id for the debug "Warp to room" control. */
   warpRoomId: number;
-  /**
-   * Target ticks per second when Play is running. 60 = full rAF
-   * speed; slower values let the user inspect frame-by-frame
-   * progress. Stored in Hz; the loop converts to a ms interval.
-   */
+  /** Target ticks per second when playing; 60 = full rAF speed. */
   tickRateHz: number;
-  /** Last wall-clock time (performance.now()) we actually ticked. */
+  /** Last wall-clock time (`performance.now()`) we actually ticked. */
   lastTickAt: number;
-  /**
-   * Most recent left/right clicks on the VM frame canvas, newest
-   * first. Capped at {@link RECENT_CLICKS_CAP} so the panel stays
-   * compact. Verb / object hit-testing wires onto the same input
-   * pipeline in later Phase 7 tasks.
-   */
+  /** Most recent clicks, newest first, capped so the panel stays compact. */
   recentClicks: RecentClick[];
   /**
-   * Most recent fully-decoded room palette. MI1's boot unloads to
-   * "no room" between the credits and the title menu, so the play
-   * area (cursor + verb bar + sentence line) would vanish during
-   * that interval if we relied on `vm.loadedRoom.palette`. We cache
-   * the last seen palette here so the verb-bar text keeps its colours
-   * through the unload. `null` until the first `loadRoom` succeeds.
+   * Last fully-decoded room palette. MI1's boot unloads to "no room" between
+   * the credits and the title menu — relying on `vm.loadedRoom.palette` would
+   * blank the play-area colours through that interval.
    */
   lastPalette: Uint8Array | null;
   lastTransparentIndex: number | null;
-  /**
-   * The frame area's stable DOM + cached renderer / play-area
-   * handles. Re-mounted only when the room dimensions change (or on
-   * Boot / Reset). Per-tick refreshes update pixels in place — keeps
-   * clickable canvases (verb bar, room canvas) stable across rAF
-   * boundaries so clicks don't drop.
-   */
+  /** Stubbed — the session owns the frame mount now. */
   mountedFrame: null;
 }
 
 /**
- * Build the live-state subtree (tables / trace / panels — things
- * that update per tick but have NO clickable canvases). The
- * controls bar and the frame area are built separately and reused
- * across tick repaints so their click targets stay stable.
+ * Build the live-state subtree — per-tick tables/trace with no clickable
+ * canvases, so it's safe to rebuild wholesale.
  */
 export function renderLive(state: InspectorState, repaint: () => void): DocumentFragment {
   const frag = document.createDocumentFragment();
@@ -100,9 +62,6 @@ export function renderLive(state: InspectorState, repaint: () => void): Document
     frag.appendChild(empty);
     return frag;
   }
-
-  // (The tick counter lives in the Debug controls bar, next to the room
-  // readout — see shell/player/debug. No separate live counter here.)
 
   if (state.vm.haltInfo) {
     frag.appendChild(renderHaltPanel(state.vm.haltInfo));
@@ -135,13 +94,9 @@ function modString(m: ClickEvent['modifiers']): string {
 }
 
 /**
- * Save / load panel — named slots in localStorage plus file import/
- * export. Rebuilt only on discrete actions (never per tick) so the
- * slot-name input keeps focus while the engine is running.
- *
- * Save snapshots the live VM; load boots a fresh VM and restores the
- * snapshot into it (see `loadSnapshot` in the closure). Export downloads
- * a slot as JSON; import loads a JSON file straight into the engine.
+ * Save / load panel: named localStorage slots plus file import/export.
+ * Rebuilt only on discrete actions (never per tick) so the slot-name input
+ * keeps focus while the engine is running.
  */
 export function renderSavesPanel(
   state: InspectorState,
@@ -270,7 +225,6 @@ export function renderSavesPanel(
   return panel;
 }
 
-/** A timestamp-based default slot name when the user leaves the field blank. */
 function defaultSaveName(): string {
   const d = new Date();
   const pad = (n: number): string => String(n).padStart(2, '0');
@@ -281,7 +235,6 @@ function formatWhen(ms: number): string {
   return ms ? new Date(ms).toLocaleString() : 'unknown time';
 }
 
-/** Trigger a browser download of `text` as `filename`. */
 function downloadJson(filename: string, text: string): void {
   const blob = new Blob([text], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -295,10 +248,8 @@ function downloadJson(filename: string, text: string): void {
 }
 
 /**
- * Live cursor coords + recent-click ring. Read-only diagnostic — verb
- * routing / sentence building / hit-testing arrive with later Phase 7
- * tasks. Stays visible at all times so we can confirm the input layer
- * is working when scripts ignore clicks (cutscenes, userput off, …).
+ * Live cursor coords + recent-click ring — read-only diagnostic for when
+ * scripts ignore clicks (cutscenes, userput off, …).
  */
 function renderInputPanel(state: InspectorState): HTMLElement {
   const vm = state.vm!;
@@ -311,9 +262,8 @@ function renderInputPanel(state: InspectorState): HTMLElement {
 
   const liveRow = document.createElement('p');
   liveRow.className = 'vm-input-live';
-  // VAR_VIRT_MOUSE_X/Y (room) shown alongside vm.mouseRoomX/Y — they
-  // should always match; surfacing both lets us catch a divergence if
-  // a script writes them directly.
+  // VAR_VIRT_MOUSE should always match vm.mouseRoom*; surfacing both catches
+  // a divergence if a script writes the VARs directly.
   const virtX = vm.vars.readGlobal(20);
   const virtY = vm.vars.readGlobal(21);
   liveRow.textContent =
@@ -322,12 +272,10 @@ function renderInputPanel(state: InspectorState): HTMLElement {
     `VAR_MOUSE=(${vm.vars.readGlobal(44)}, ${vm.vars.readGlobal(45)})`;
   panel.appendChild(liveRow);
 
-  // Engine-truth cursor / verb state. The crosshair always paints in
-  // the inspector for debug — these fields tell you what the game
-  // logic actually sees.
+  // Engine-truth cursor / verb state — what the game logic actually sees.
   const engineRow = document.createElement('p');
   engineRow.className = 'vm-input-live';
-  // Active verb lives in MI1 game global g107 now (set by script #4).
+  // The armed verb lives in MI1 global g107 (set by script #4).
   const activeVerb = vm.vars.readGlobal(107);
   const verbBits = activeVerb > 0
     ? `${activeVerb} (${vm.verbs.get(activeVerb)?.name ?? '?'})`
@@ -340,9 +288,8 @@ function renderInputPanel(state: InspectorState): HTMLElement {
     `verbs=${vm.verbs.size}`;
   panel.appendChild(engineRow);
 
-  // systemOps (0x98) request — a script asked to restart/pause/quit.
-  // We ignore it (the inspector keeps running); surface it only when
-  // set so the row is silent during normal play, when it stays null.
+  // systemOps restart/pause/quit requests are ignored (the inspector keeps
+  // running); surfaced only when set.
   if (vm.systemRequest) {
     const sysRow = document.createElement('p');
     sysRow.className = 'vm-input-live';
@@ -351,10 +298,8 @@ function renderInputPanel(state: InspectorState): HTMLElement {
     panel.appendChild(sysRow);
   }
 
-  // roomOps screenEffect (0x0A) — the room-transition fade effects. We
-  // record but don't yet animate them (the intro path is all instant);
-  // surface them only when a script has set a non-default effect so the
-  // row stays silent during normal play.
+  // roomOps screenEffect transitions are recorded but not animated; surfaced
+  // only when a script set a non-default effect.
   const fx = vm.screenEffect;
   if (fx.switchRoomEffect !== 0 || fx.switchRoomEffect2 !== 0 || fx.requestFadeIn) {
     const fxRow = document.createElement('p');
@@ -442,13 +387,8 @@ function renderHaltPanel(halt: HaltInfo): HTMLElement {
 }
 
 /**
- * Render every populated actor in the VM's table. "Populated" =
- * something has touched the actor at least once (non-default room /
- * costume / position / movement). Dormant default actors are hidden;
- * the count in the heading shows the total so you can tell at a
- * glance whether everything is dormant or just one. Actors in the
- * current room get a highlight so the compositor's "actors drawn"
- * count maps back to specific rows.
+ * Render every populated (touched-at-least-once) actor; dormant defaults are
+ * hidden, and actors in the current room get a highlight.
  */
 function renderActorTable(vm: Vm): HTMLElement {
   const wrap = document.createElement('div');
@@ -495,9 +435,7 @@ function renderActorTable(vm: Vm): HTMLElement {
     if (a.room === vm.currentRoom && a.room !== 0) tr.classList.add('actor-in-current-room');
     if (!a.visible) tr.classList.add('actor-hidden');
     const target = a.walkTarget ? `(${a.walkTarget.x},${a.walkTarget.y})` : '—';
-    // Compact anim summary: id + active-limb count, e.g. "12 (3 limbs)".
-    // The detailed per-limb cursor positions show up in the
-    // expansion below.
+    // Compact anim summary; per-limb detail is in the expansion below.
     let activeCount = 0;
     for (const limb of a.anim.limbs) if (limb.active) activeCount++;
     const animSummary = a.anim.animId === 0
@@ -524,9 +462,7 @@ function renderActorTable(vm: Vm): HTMLElement {
   }
   wrap.appendChild(table);
 
-  // Per-actor anim detail panel — only renders for actors whose anim
-  // state has at least one active limb (so the panel doesn't add
-  // noise for actors with no anim yet). Click to toggle expansion.
+  // Only actors with an active limb, so the panel doesn't add noise.
   const actorsWithAnim = populated.filter(
     (a) => a.anim.limbs.some((l) => l.active),
   );
@@ -639,8 +575,6 @@ function renderSlotRow(
     statusCell.appendChild(badge);
   }
   const isDead = slot.status === 'dead';
-  // Prefer the human label (e.g. "ENCD-10") when set; otherwise the
-  // numeric script id. Dead-but-traced slots fall through to "—".
   const scriptCell = isDead
     ? '—'
     : slot.label !== ''

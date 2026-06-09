@@ -1,35 +1,4 @@
-/**
- * SCUMM v5 walk-box (BOXD) + box-matrix (BOXM) parsers.
- *
- * BOXD lists the room's walkable regions as quadrilaterals — each box
- * has four corner points (UL, UR, LL, LR), a mask byte (the z-plane an
- * actor standing in the box clips against — its default `actorZ`; see
- * pages/docs/scumm/zplane.md §"box-mask"), a flags byte (bit 0x80 =
- * ignore-in-pathfinding "invisible" box), and a scale slot into SCAL.
- *
- * Layout (post 8-byte block header):
- *
- *   u16 LE  count
- *   count × {
- *     i16 LE  ul_x, ul_y      // upper-left
- *     i16 LE  ur_x, ur_y      // upper-right
- *     i16 LE  lr_x, lr_y      // lower-right
- *     i16 LE  ll_x, ll_y      // lower-left
- *     u8      mask            // z-plane clip level (0 = front; N = behind plane N)
- *     u8      flags           // 0x80 = invisible/non-walkable
- *     u8      scaleSlot       // index into SCAL, 0 = no scale
- *     u8      _padding        // typically 0
- *   } = 20 bytes per box
- *
- * Empirically verified against MI1 rooms 10, 30, 32 — all match the
- * `2 + 20 × count` formula.
- *
- * BOXM is a per-box "next hop on the shortest path" lookup table used
- * by the original engine's box-graph pathfinder. Phase 6 uses
- * rasterized A* over the union of all walkable boxes, so BOXM is
- * captured but not consumed (yet). We expose the raw payload so the
- * box-graph pathfinder can decode it on its own schedule.
- */
+/** BOXD walk-box + BOXM box-matrix parsers. Format: pages/docs/scumm/walk-boxes.md. */
 
 export class WalkBoxParseError extends Error {
   constructor(detail: string) {
@@ -38,66 +7,36 @@ export class WalkBoxParseError extends Error {
   }
 }
 
-/** One walk-box quadrilateral plus its meta. */
 export interface WalkBox {
-  /** 0-based index into the BOXD list. Useful for cross-referencing BOXM. */
+  /** 0-based BOXD index; BOXM rows are keyed by it. */
   readonly id: number;
-  /** Upper-left corner. */
   readonly ulx: number;
   readonly uly: number;
-  /** Upper-right corner. */
   readonly urx: number;
   readonly ury: number;
-  /** Lower-right corner. */
   readonly lrx: number;
   readonly lry: number;
-  /** Lower-left corner. */
   readonly llx: number;
   readonly lly: number;
-  /**
-   * Z-plane clip level for an actor standing in this box. `0` = in front
-   * of every plane; `N` (>0) = behind plane `N` and above. The
-   * compositor maps it to `actorZ` (same as `alwaysZclip k`) when the
-   * actor has no explicit `forceClip`. See pages/docs/scumm/zplane.md.
-   */
+  /** Z-plane clip level for an actor in this box (0 = front). See pages/docs/scumm/zplane.md §box-mask. */
   readonly mask: number;
-  /** Flags byte. Bit 0x80 set → invisible box (excluded from pathfinding). */
+  /** Bit 0x80 = invisible box (excluded from pathfinding). */
   readonly flags: number;
   /**
-   * Per-box scale field (u16). `0` = no per-box scaling; bit `0x8000` set =
-   * a `SCAL`-slot reference (slot index = `scale & 0x7FFF`, interpolated by
-   * the actor's y); otherwise a direct fixed scale (1..255). See
-   * `pathfinding/scale.ts` (`resolveScale`).
+   * u16: `0` = no per-box scaling; bit 0x8000 = SCAL-slot reference
+   * (index `scale & 0x7FFF`); otherwise a direct fixed scale 1..255.
+   * See resolveScale in pathfinding/scale.ts.
    */
   readonly scale: number;
 }
 
-/** True when this box should not be considered for walking. */
 export function isInvisibleBox(box: WalkBox): boolean {
   return (box.flags & 0x80) !== 0;
 }
 
 /**
- * Point-in-box test for a convex walk-box quadrilateral.
- *
- * The four corners are listed UL → UR → LR → LL (a closed convex loop;
- * winding may be CW or CCW depending on the room). A point is inside
- * when it lies on the same side of every directed edge — i.e. all four
- * edge cross-products share a sign. Points exactly on an edge (cross =
- * 0) count as inside, so boxes that share a border both claim the seam.
- *
- * Degenerate boxes need care:
- *   - A box collapsed to a single point — notably SCUMM's reserved
- *     invalid "box 0", whose corners are all (-32000, -32000) — must
- *     match *nothing*. A naive sign test reads every cross-product as 0
- *     and would wrongly claim every point.
- *   - A genuine zero-area *line* box (e.g. MI1 room 38 box 1, a
- *     horizontal segment with UL==LL / UR==LR, or room 33's diagonal
- *     staircase boxes) must still match a point that lies on the
- *     segment, since actors do stand on them.
- * Both fall out of the "no edge gave a sign" branch, where we decide by
- * the corners' bounding box: a real on-segment point is inside it, the
- * (-32000) sentinel point is far outside any room coordinate.
+ * Same-side test (all edge cross-products share a sign); on-edge counts as
+ * inside, so adjacent boxes both claim the seam. Either winding works.
  */
 export function pointInBox(box: WalkBox, x: number, y: number): boolean {
   const px = [box.ulx, box.urx, box.lrx, box.llx];
@@ -106,7 +45,6 @@ export function pointInBox(box: WalkBox, x: number, y: number): boolean {
   let sawNeg = false;
   for (let i = 0; i < 4; i++) {
     const j = (i + 1) % 4;
-    // Cross product of the edge (i→j) with the vector (i→point).
     const cross =
       (px[j]! - px[i]!) * (y - py[i]!) - (py[j]! - py[i]!) * (x - px[i]!);
     if (cross > 0) sawPos = true;
@@ -114,10 +52,9 @@ export function pointInBox(box: WalkBox, x: number, y: number): boolean {
     if (sawPos && sawNeg) return false;
   }
   if (!sawPos && !sawNeg) {
-    // Degenerate (point or line) box — collinear with the test point.
-    // Inside iff the point is within the corners' bounding box, which
-    // restricts a line box to its segment and rejects the (-32000)
-    // single-point sentinel for any real room coordinate.
+    // Degenerate (point/line) box: the bbox test keeps a real "line" box
+    // matching its segment (actors stand on MI1's staircase boxes) while the
+    // all-(-32000) box-0 sentinel — every cross = 0 — matches nothing.
     return (
       x >= Math.min(...px) && x <= Math.max(...px) &&
       y >= Math.min(...py) && y <= Math.max(...py)
@@ -126,14 +63,7 @@ export function pointInBox(box: WalkBox, x: number, y: number): boolean {
   return true;
 }
 
-/**
- * Find the visible walk box a room-space point falls in, or `null` if
- * none. Invisible boxes (flags bit 0x80) are skipped — an actor never
- * stands on one. When boxes overlap (rare; they may share a seam) the
- * lowest-index match wins. Used by the compositor to derive an actor's
- * default z-clip from the box's `mask` when no explicit `forceClip` is
- * set. See pages/docs/scumm/zplane.md §"box-mask".
- */
+/** Lowest-index visible box containing the point, or `null`. Invisible boxes skipped. */
 export function findBoxAt(
   boxes: ReadonlyArray<WalkBox>,
   x: number,
@@ -147,13 +77,9 @@ export function findBoxAt(
 }
 
 /**
- * Clamp a point into the walkable area: if it already sits in a box, return it
- * unchanged; otherwise return the closest point on the nearest visible box's
- * bounding rect. SCUMM's `adjustXYToBeInBox` does this when placing an actor
- * at an object's walk-to point — MI1's forest path objects (room 58) put their
- * walk points just past the box edges (e.g. SO_AT-shifted x=338 against a box
- * that ends at 322), and unclamped that lands the actor a few pixels
- * off-screen. Returns the point unchanged when there are no usable boxes.
+ * SCUMM `adjustXYToBeInBox` for placement: a point already in a box is
+ * unchanged, else clamp to the nearest visible box's bounding rect — MI1
+ * object walk-to points sit just past box edges. Unchanged when no boxes.
  */
 export function clampPointToBoxes(
   boxes: ReadonlyArray<WalkBox>,
@@ -181,13 +107,9 @@ export function clampPointToBoxes(
 }
 
 /**
- * Like {@link findBoxAt}, but when no box strictly contains the point, return
- * the *nearest* visible box (by distance to its bounding rect) instead of
- * `null`. The walkable mask is rasterised leniently and MI1's cliff boxes are
- * thin/degenerate, so an actor on a valid floor pixel often sits in no box
- * strictly — which would otherwise leave its perspective scale stale. Used for
- * actor scaling (a stale box there means a stuck scale); kept separate from
- * `findBoxAt` so z-clip behaviour is unchanged.
+ * {@link findBoxAt}, falling back to the nearest visible box — MI1's thin
+ * cliff boxes leave a standing actor strictly inside no box, which would stick
+ * its perspective scale. Kept separate so findBoxAt's z-clip use is unchanged.
  */
 export function findBoxAtOrNearest(
   boxes: ReadonlyArray<WalkBox>,
@@ -215,38 +137,20 @@ export function findBoxAtOrNearest(
   return best;
 }
 
-/**
- * One BOXM row: the routing triples for a single source box. Each triple
- * `{from, to, next}` says "to reach any destination box in `[from, to]`,
- * step into box `next`". A `next === sourceId` triple means the destination
- * is the source box itself (you're already there).
- */
+/** Triple `{from, to, next}`: to reach any box in `[from, to]`, step into `next`. */
 export type BoxMatrixRow = ReadonlyArray<{ readonly from: number; readonly to: number; readonly next: number }>;
 
-/**
- * The decoded BOXM box-matrix: one {@link BoxMatrixRow} per box, indexed by
- * source box id. This is SCUMM's shortest-path lookup — `getNextBox(from, to)`
- * reads it to walk the box graph one hop at a time.
- */
+/** One row per box, indexed by source box id. */
 export type BoxMatrix = ReadonlyArray<BoxMatrixRow>;
 
-/**
- * Parse a BOXM payload into the per-box routing table.
- *
- * Layout: `numBoxes` rows stored back to back in box-id order. Each row is a
- * run of 3-byte `(from, to, next)` triples terminated by a `0xFF` byte; the
- * whole block is padded to even length with a trailing `0x00` (SCUMM block
- * alignment). Verified against MI1 rooms 28/33/38/52 — the per-box triple
- * ranges cover every destination box reachable from that source.
- */
+/** BOXM layout: pages/docs/scumm/walk-boxes.md §4. */
 export function parseBoxMatrix(payload: Uint8Array, numBoxes: number): BoxMatrix {
   const rows: BoxMatrixRow[] = [];
   let off = 0;
   for (let b = 0; b < numBoxes; b++) {
     const row: { from: number; to: number; next: number }[] = [];
     while (off < payload.length && payload[off] !== 0xff) {
-      // A truncated final triple (row ran off the end) is dropped rather than
-      // read past the buffer — degrades to "no hop", not a crash.
+      // A truncated final triple is dropped — degrades to "no hop", not a crash.
       if (off + 2 >= payload.length) { off = payload.length; break; }
       row.push({ from: payload[off]!, to: payload[off + 1]!, next: payload[off + 2]! });
       off += 3;
@@ -257,11 +161,7 @@ export function parseBoxMatrix(payload: Uint8Array, numBoxes: number): BoxMatrix
   return rows;
 }
 
-/**
- * The next box to step into when routing from box `from` toward box `to`,
- * or `-1` when `to` is unreachable from `from`. Scans `from`'s BOXM row for
- * the triple whose destination range covers `to` and returns its `next`.
- */
+/** Next box to step into from `from` toward `to`, or `-1` when unreachable. */
 export function getNextBox(matrix: BoxMatrix, from: number, to: number): number {
   const row = matrix[from];
   if (!row) return -1;

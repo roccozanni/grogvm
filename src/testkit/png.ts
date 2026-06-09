@@ -1,13 +1,6 @@
 /**
- * Minimal PNG writer for the dev/test harness — turns an indexed
- * framebuffer + palette into a truecolour PNG on disk. Node-only (uses
- * `Buffer` + `zlib`), which is why it lives in testkit rather than the
- * DOM/Node-free engine core.
- *
- * Extracted from ~37 scratch render scripts that each carried a byte-for-byte
- * copy of the same crc32 / chunk / IHDR+IDAT assembly. Emits 8-bit RGB
- * (colour type 2) with nearest-neighbour integer upscaling — the shape every
- * one of those scripts wanted (small SCUMM rooms blown up 3× to be legible).
+ * Minimal Node-only PNG writer — indexed framebuffer + palette → truecolour
+ * PNG (8-bit RGB, nearest-neighbour integer upscale).
  */
 import { writeFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';

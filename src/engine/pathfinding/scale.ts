@@ -1,17 +1,6 @@
 /**
- * Actor perspective scaling from the room's `SCAL` block + per-box scale field.
- *
- * SCUMM scales actors by floor depth so they shrink walking away. The `SCAL`
- * block holds up to 4 slots, each a linear gradient `(scale1@y1 → scale2@y2)`.
- * A walk box's `scale` field (u16, see boxes.ts) selects how an actor standing
- * in it is scaled:
- *   - `0`                  → no per-box scaling (leave the actor's scale).
- *   - `& 0x8000` set       → SCAL slot reference; slot index = `scale & 0x7FFF`
- *                            (0-based), interpolated by the actor's y.
- *   - otherwise            → a direct fixed scale (1..255).
- *
- * Derived empirically from MI1 room 33 (the Mêlée cliff/dock): boxes 1–7 use
- * slot 0 = `32@y76 → 210@y131` (small at the clifftop, full at the dock).
+ * Actor perspective scaling: SCAL slots (linear gradients scale1@y1 → scale2@y2)
+ * selected by the per-box scale field. See pages/docs/scumm/walk-boxes.md.
  */
 
 export interface ScaleSlot {
@@ -43,10 +32,9 @@ function interpolate(slot: ScaleSlot, y: number): number {
 }
 
 /**
- * Resolve the scale (1..255) for an actor at row `y` standing in a box with
- * the given `boxScale` field, against the room's SCAL `slots`. Returns `null`
- * when the box specifies no scaling (so the caller leaves the actor's scale
- * untouched — e.g. a script-pinned static actor).
+ * Scale (1..255) for an actor at row `y`. `boxScale` is the u16 box field:
+ * 0x8000 = SCAL-slot reference, else direct fixed scale. Returns `null` when
+ * the box specifies no scaling, so the caller leaves the actor's scale alone.
  */
 export function resolveScale(
   boxScale: number,

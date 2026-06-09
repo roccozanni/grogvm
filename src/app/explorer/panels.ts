@@ -1,9 +1,6 @@
 /**
- * Dossier panels for the room-first Explorer. Each panel is a plain function
- * that renders one slice of a {@link RoomDossier} (a {@link Section}, so it
- * shows a decode error inline instead of throwing). Panels are rebuilt
- * wholesale when the selected room changes — the reactivity lives in the shell
- * (`explorer.ts`), so panels stay simple presentational functions.
+ * Dossier panels for the Explorer. Each renders one slice of a
+ * {@link RoomDossier}, showing a decode error inline instead of throwing.
  */
 import { signal, effect, el, append, clear, bindClass, bindText, type Child } from '../reactive';
 import type { Signal } from '../reactive';
@@ -24,8 +21,7 @@ import type { DecodedZPlane } from '../../engine/graphics/zplane';
 
 const BG_SCALE = 2;
 
-/** A collapsible dossier section. `count` shows a badge after the title (a
- * number, or a short string like room dims); `collapsed` starts shut. */
+/** Collapsible dossier section; `count` renders as a badge after the title. */
 export function panel(
   title: string,
   body: Child,
@@ -73,9 +69,8 @@ export function backgroundPanel(
   renderer.setTransparentIndex(transparentIndex);
   renderer.present(indexed);
 
-  // Object hit boxes + walk-to points draw on a transparent overlay stacked
-  // over the room (same trick the player's debug overlay uses). pointer-events
-  // pass through to the room canvas, which hit-tests clicks against the boxes.
+  // Transparent overlay stacked over the room; pointer-events pass through to
+  // the room canvas, which hit-tests clicks against the boxes.
   const overlay = el('canvas', { class: 'object-overlay' });
   overlay.width = width;
   overlay.height = height;
@@ -89,8 +84,8 @@ export function backgroundPanel(
     const ctx = overlay.getContext('2d');
     if (!ctx) return;
     ctx.clearRect(0, 0, width, height);
-    // Z-plane fills go down first via putImageData (which replaces, not blends),
-    // so the vector box overlays must be stroked after.
+    // putImageData replaces rather than blends, so the z-plane fill must go
+    // down before the stroked box overlays.
     if (showZplanes()) drawZPlanes(ctx, zPlanes, width, height);
     if (showWalk()) for (const box of walkBoxes) drawWalkBox(ctx, box);
     if (showObjects()) {
@@ -111,8 +106,7 @@ export function backgroundPanel(
   stack.style.width = `${width * BG_SCALE}px`;
   stack.style.height = `${height * BG_SCALE}px`;
 
-  // Wide rooms (e.g. 1008px) exceed the dossier column; scroll the strip +
-  // canvas together in place instead of widening the page.
+  // Wide rooms exceed the dossier column; scroll strip + canvas together.
   const scroll = el('div', { class: 'room-scroll' }, stripBar(stripMethods, width), stack);
   const body = el('div', { class: 'background-panel' }, scroll);
   const toggles = el('div', { class: 'overlay-toggles' });
@@ -141,14 +135,14 @@ function drawObjectBox(ctx: CanvasRenderingContext2D, obj: LoadedObject, isSelec
     ctx.strokeStyle = isSelected ? BOX_SELECTED : BOX_COLOR;
     ctx.strokeRect(box.left + 0.5, box.top + 0.5, w - 1, h - 1);
   }
-  // Walk-to point (where an actor stands to use the object), pixel coords.
+  // Walk-to point is in pixel coords (unlike the /8 hit-box fields).
   if (obj.cdhd.walkX > 0 || obj.cdhd.walkY > 0) {
     ctx.fillStyle = isSelected ? BOX_SELECTED : WALK_COLOR;
     ctx.fillRect(obj.cdhd.walkX - 1, obj.cdhd.walkY - 1, 3, 3);
   }
 }
 
-// Cycled per-box colours — matches the player's walk-box debug overlay.
+// Matches the player's walk-box debug overlay palette.
 const WALK_BOX_COLORS = ['#3ec1c1', '#c1973e', '#a13ec1', '#3e5dc1', '#c13e6a', '#7ec13e'];
 
 function drawWalkBox(ctx: CanvasRenderingContext2D, box: WalkBox): void {
@@ -165,8 +159,7 @@ function drawWalkBox(ctx: CanvasRenderingContext2D, box: WalkBox): void {
   ctx.fillText(String(box.id), box.ulx + 1, box.uly + 7);
 }
 
-// Distinct per-plane tint (rgb); each masked pixel is filled semi-transparent so
-// the art shows through and overlapping planes read as a brighter max-blend.
+// Semi-transparent fills; overlapping planes max-blend brighter.
 const ZPLANE_TINTS: readonly [number, number, number][] = [
   [255, 80, 80],
   [80, 255, 80],
@@ -212,8 +205,6 @@ function pickObjectAt(objects: readonly LoadedObject[], x: number, y: number): n
   return best;
 }
 
-// Overlay visibility persists across reloads (not game-specific), mirroring the
-// player's debug toggles.
 const OBJECT_BOXES_KEY = 'grogvm:explorer:object-boxes';
 const WALK_BOXES_KEY = 'grogvm:explorer:walk-boxes';
 const ZPLANES_KEY = 'grogvm:explorer:zplanes';
@@ -235,8 +226,7 @@ function writeFlag(key: string, on: boolean): void {
   }
 }
 
-// Inline box glyph for the overlay toggle (no emoji — see code conventions),
-// stroked in currentColor so it inherits the button text colour.
+// Inline SVG rather than an emoji glyph (code conventions ban emoji).
 const BOX_ICON_SVG = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
   <rect x="3.5" y="6" width="17" height="12" /><circle cx="8" cy="15" r="1.3" fill="currentColor" stroke="none" />
 </svg>`;
@@ -247,7 +237,6 @@ function iconSpan(svg: string): HTMLElement {
   return span;
 }
 
-/** A play-style toggle button (icon + label, yellow when on), persisted under `key`. */
 function overlayToggle(show: Signal<boolean>, key: string, label: string): HTMLElement {
   const btn = el('button', { class: 'secondary overlay-toggle-btn', type: 'button' }, iconSpan(BOX_ICON_SVG), label);
   btn.classList.toggle('is-on', show.peek());
@@ -304,9 +293,8 @@ export function objectsPanel(
   const list = [...objects.value.values()];
   if (list.length === 0) return null;
 
-  // One object on screen at a time; `selected` is the shared cursor (also the
-  // highlighted box on the canvas). Default to the first object so the panel
-  // and the overlay always agree on a current object.
+  // `selected` is shared with the canvas overlay; default to the first object
+  // so panel and overlay always agree on a current object.
   if (!list.some((o) => o.objId === selected.peek())) selected.set(list[0]!.objId);
 
   const indexOf = (): number => list.findIndex((o) => o.objId === selected.peek());
@@ -352,7 +340,7 @@ function renderObject(obj: LoadedObject, roomPalette: Uint8Array | null, transpa
     }),
   );
 
-  // State images (IM01, IM02, …). Object pixels are room CLUT indices directly.
+  // Object image pixels are room CLUT indices directly (no costume palette).
   const images = [...obj.images.values()];
   if (images.length > 0) {
     const strip = el('div', { class: 'object-images' });
@@ -378,11 +366,6 @@ function renderObject(obj: LoadedObject, roomPalette: Uint8Array | null, transpa
   return card;
 }
 
-/**
- * A tab per item with a single pane below showing the active item fully
- * disassembled (no click-to-expand — the script IS the content). Shared by the
- * object verbs and the room scripts list.
- */
 function tabbedDisasm(items: readonly { label: string; bytecode: Uint8Array }[]): HTMLElement {
   const active = signal(0);
   const tabs = el('div', { class: 'disasm-tabs' });
@@ -402,7 +385,7 @@ function tabbedDisasm(items: readonly { label: string; bytecode: Uint8Array }[])
   return el('div', { class: 'tabbed-disasm' }, tabs, code);
 }
 
-/** The object's verbs as a tab strip (255 = the default verb), or null if none. */
+// Verb entry id 255 is the object's default verb.
 function verbsPane(verbs: ReadonlyMap<number, Uint8Array>): HTMLElement | null {
   if (verbs.size === 0) return null;
   const items = [...verbs].map(([id, bytecode]) => ({ label: id === 255 ? 'default' : `verb ${id}`, bytecode }));
@@ -461,8 +444,6 @@ export function scriptsPanel(
   type Item = { label: string; bytecode: Uint8Array };
   const pick = (kind: RoomScript['kind']): Item[] =>
     roomScripts.filter((s) => s.kind === kind).map((s) => ({ label: s.label, bytecode: s.bytecode }));
-  // ENCD, then EXCD, then every numbered script (room locals + referenced
-  // globals) interleaved by id.
   const numbered: (Item & { id: number })[] = [
     ...roomScripts.filter((s) => s.kind === 'local').map((s) => ({ id: s.id!, label: s.label, bytecode: s.bytecode })),
     ...globalList.map((g) => ({ id: g.id, label: `global #${g.id}`, bytecode: g.bytecode })),

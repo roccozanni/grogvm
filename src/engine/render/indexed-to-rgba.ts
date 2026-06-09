@@ -1,11 +1,6 @@
 /**
- * Convert an indexed-color framebuffer + 256-color RGB palette into the
- * RGBA bytes expected by `ImageData`. Pixels matching `transparentIndex`
- * (if given) are emitted as fully transparent (alpha = 0). All other
- * pixels are opaque (alpha = 255).
- *
- * Pure function — the load-bearing piece of any renderer. Canvas2D and
- * a hypothetical WebGL impl both consume the output of this directly.
+ * Convert an indexed framebuffer + 768-byte RGB palette to `ImageData`
+ * RGBA bytes; pixels matching `transparentIndex` get alpha 0, all others 255.
  */
 export function indexedToRgba(
   indexed: Uint8Array,

@@ -1,42 +1,14 @@
 /**
- * SCUMM v5 system-variable index table — the **single source of truth**.
+ * SCUMM v5 system-variable index table — the single source of truth for
+ * engine-reserved global indices. A constant existing here does NOT mean
+ * the engine acts on it yet.
  *
- * These are the engine-reserved global variable indices for SCUMM v5
- * (Monkey Island 1 / 2). Scripts read and write them by index; the
- * engine gives several of them special meaning (timers, input state,
- * the per-frame driver script ids, …).
- *
- * This table is the *complete authoritative list* — provided so we
- * stop guessing indices empirically. **Not all are wired into the
- * engine yet.** A constant existing here only means "this index has
- * this meaning"; search for its use to see whether the engine acts on
- * it. Wire each one when a script actually needs it.
- *
- * ## Reconciliation notes (earlier empirical guesses vs. this table)
- *
- * A few indices the engine already touches were named by reverse-
- * engineering before this table existed. The truth:
- *
- *   - **52 is `VAR_CURSORSTATE`** (engine-managed cursor state), not a
- *     "left button down" var. An earlier hack pulsed index 52 on
- *     left-press believing MI1 boot #23 polled it to enter the title
- *     menu — but #23 idle-spins regardless and the menu actually
- *     appears from the music-timer gate (g14 > 5700). The pulse drove
- *     nothing and clobbered the var, so it was removed; the VM no
- *     longer writes 52. Clicks route through vm.handleSceneClick /
- *     handleVerbClick instead.
- *   - **14 is `VAR_MUSIC_TIMER`.** The credits cutscene waits on it,
- *     which is why auto-incrementing index 14 each tick is correct.
- *   - **15 / 16 are `VAR_ACTOR_RANGE_MIN` / `_MAX`**, NOT timers.
- *     They must not auto-increment (the old code did; fixed).
- *   - The real general-purpose timers are **`VAR_TMR_1..3` = 11..13**
- *     plus `VAR_TIMER` = 46, `VAR_TIMER_NEXT` = 19, `VAR_TIMER_TOTAL`
- *     = 47.
- *   - `bootGame` seeds indices 17/18/19/21 as "screen w/h / game id /
- *     charset" — those names are wrong (17/18 = camera min/max X,
- *     19 = `VAR_TIMER_NEXT`, 21 = `VAR_VIRT_MOUSE_Y`). The seeds are
- *     load-bearing scaffolding against uninitialised reads; a proper
- *     pass to seed the *right* indices is deferred (see boot.ts).
+ * Corrections to earlier empirical names: 52 is VAR_CURSORSTATE (never a
+ * mouse-button var — don't pulse it on clicks); 14 is VAR_MUSIC_TIMER
+ * (auto-incremented per tick); 15/16 are VAR_ACTOR_RANGE_MIN/MAX, NOT
+ * timers — they must not auto-increment. The general timers are 11–13,
+ * 46/47, and 19 (VAR_TIMER_NEXT). boot.ts still seeds 17/18/19/21 under
+ * wrong names as anti-uninitialised-read scaffolding.
  */
 
 export const VAR_KEYPRESS = 0;
@@ -78,11 +50,9 @@ export const VAR_CUTSCENE_START_SCRIPT = 35;
 export const VAR_CUTSCENE_END_SCRIPT = 36;
 export const VAR_CHARINC = 37;
 /**
- * Object the ego is entering through — `loadRoomWithEgo` sets it across the
- * room change so the new room's ENCD can branch on which object/edge ego came
- * in via (room 58's forest gates a `walkActorTo ego` on it: `g113 == 687/688`).
- * MI1's slot is **113** (verified from that gate); the generic SCUMM tables
- * list 38, but MI1 reassigns it.
+ * Object the ego is entering through — set by `loadRoomWithEgo` across the
+ * room change for the new room's ENCD to branch on. MI1's slot is 113
+ * (verified from the room-58 forest gate); the generic SCUMM tables list 38.
  */
 export const VAR_WALKTO_OBJ = 113;
 export const VAR_DEBUGMODE = 39;

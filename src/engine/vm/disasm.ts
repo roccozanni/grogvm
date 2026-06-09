@@ -1,32 +1,10 @@
 /**
- * SCUMM v5 linear disassembler.
- *
- * Decodes a script's bytecode into human-readable instructions, with
- * accurate operand lengths for every opcode (per
- * pages/docs/scumm/opcode-reference.md) so it stays in sync walking a
- * stream. This is a *static* decoder — it does not execute anything; it
- * is the read-only companion to the executing opcode table in
- * `opcodes/index.ts`.
- *
- * # Reentrancy
- *
- * Each {@link disassemble} call owns its own cursor (the decoder is a
- * throwaway instance), so it is safe to run over many scripts
- * concurrently and to call from the UI / a worker.
- *
- * # Alignment
- *
- * Linear sweep can lose sync on data the table doesn't model (rare
- * opcodes, embedded blobs). When the decoder meets a byte it can't
- * decode it emits an instruction with `aligned: false` and stops —
- * misalignment is surfaced loudly rather than silently producing
- * garbage. Callers should treat a run that ends with `aligned: false`
- * as "decoded up to here, then gave up".
- *
- * Known gaps (documented, not yet fixed): a handful of non-orthogonal
- * families are decoded by the most common variant and may mis-slice an
- * unusual mode — when a SCAN-style sweep flags something surprising,
- * confirm against the executing engine before trusting it.
+ * SCUMM v5 linear disassembler — the static, read-only companion to the
+ * executing opcode table. Operand encodings per
+ * pages/docs/scumm/opcode-reference.md. An undecodable byte yields
+ * `aligned: false` and stops the sweep — misalignment is loud, never
+ * silent garbage. A few non-orthogonal families decode only their most
+ * common variant; confirm surprises against the executing engine.
  */
 
 /** One decoded instruction. */
@@ -45,10 +23,8 @@ export interface DisasmInstruction {
 }
 
 /**
- * Decode a var-reference word the way the runtime does (see
- * `params.ts`): `0x8000` → bit-var, `0x4000` → local, `0x2000` →
- * indexed (carries an extra offset word, consumed via `next`), else
- * global. `next` supplies the indexed offset word when needed.
+ * Decode a var-reference word the way the runtime does (see params.ts);
+ * `next` supplies the extra word for the indexed (0x2000) form.
  */
 export function formatVarRef(word: number, next?: () => number): string {
   let suffix = '';
@@ -105,25 +81,17 @@ class Decoder {
     return formatVarRef(this.u16(), () => this.u16());
   }
   /**
-   * Match an opcode against a base + its param-mode variants. SCUMM
-   * encodes each value param's mode (immediate vs var-ref) in a high
-   * bit of the opcode byte — bit 0x80 for param 1, 0x40 for 2, 0x20 for
-   * 3 — so an opcode with `n` value params occupies 2^n byte values.
-   * `is(op, base, n)` returns true for any of them. For non-orthogonal
-   * families (where a high bit is an opcode *selector*, not a param
-   * mode) the selector bit sits outside this mask, so distinct bases
-   * stay distinguishable.
+   * Match `op` against `base` plus its param-mode variants — an opcode with
+   * `n` value params occupies 2^n byte values (mode bits 0x80/0x40/0x20).
    */
   private is(op: number, base: number, paramCount: number): boolean {
     const mask = [0, 0x80, 0xc0, 0xe0][paramCount]!;
     return (op & ~mask) === base;
   }
 
-  // NB on param indices: a raw `result`/`var` operand (read via vref())
-  // does NOT consume a param-mode slot. So the first *value* operand
-  // after a result is mode-index 1 (bit 0x80), the second is index 2
-  // (0x40) — e.g. `getInventoryCount result actor[p8]` reads the actor
-  // at index 1, matching the executing handlers in opcodes/index.ts.
+  // A raw result/var operand (read via vref()) does NOT consume a
+  // param-mode slot: the first *value* operand after a result is
+  // mode-index 1 (bit 0x80), the second index 2 (0x40).
 
   /** p8 value: word var-ref when the param bit is set, else a byte. */
   private p8(op: number, idx: number): string {
@@ -144,13 +112,9 @@ class Decoder {
     return `[${out.join(',')}]`;
   }
   /**
-   * Message string up to `term`, rendering SCUMM escape codes as \xNN.
-   * Mirrors the engine's `readScummString` length rule (opcodes/index.ts):
-   * a `0xFF`/`0xFE` escape with code ≥ 4 carries a 2-byte argument (var /
-   * string / object / verb id), codes 1–3 do not. (The old `code <= 9`
-   * bound under-read by 2 on the colour/name codes 0x0A/0x0E.) Used for
-   * the *display* strings (print, object/actor/verb names) that the engine
-   * expands at print time.
+   * Display string up to `term`, rendering escapes as \xNN. Length rule
+   * matches the engine's `readScummString`: a 0xFF/0xFE escape with code
+   * ≥ 4 carries a 2-byte argument; codes 1–3 do not.
    */
   private cstr(term: number): string {
     const bytes: number[] = [];
@@ -170,12 +134,9 @@ class Decoder {
   }
 
   /**
-   * Raw string up to `term`, with NO escape-code expansion — mirrors the
-   * engine's `stringOps`/`roomOps` load/save readers, which copy bytes
-   * verbatim to the NUL terminator (a stored string's escapes are expanded
-   * only later, at print time, by {@link cstr}). Decoding these with the
-   * escape-aware reader over-reads: code 0x07 in MI1 #154's `loadString`
-   * swallowed the '?' and the NUL terminator as a phantom 2-byte argument.
+   * Raw string up to `term`, NO escape expansion — mirrors the engine's
+   * stringOps/roomOps readers, which copy bytes verbatim to the NUL;
+   * escape-aware reading over-reads a stored string.
    */
   private rawstr(term: number): string {
     const bytes: number[] = [];
@@ -477,11 +438,9 @@ class Decoder {
         case 0x06: out.push('left'); break;
         case 0x07: out.push('overhead'); break;
         case 0x08: out.push('PlayCDtrack'); break;
-        // SO_TEXTSTRING ends the print and is NUL-terminated; 0xFF/0xFE
-        // are escape-code prefixes WITHIN the string (cstr handles them),
-        // not the terminator. Stopping at 0xFF over-reads past the string
-        // into the following opcodes (it hid script 200's startSound +
-        // isSoundRunning wait loop behind the "Parte Uno" text).
+        // SO_TEXTSTRING is NUL-terminated; 0xFF/0xFE inside it are escape
+        // prefixes, NOT the terminator — stopping at 0xFF over-reads into
+        // the following opcodes.
         case 0x0f: out.push(`text="${this.cstr(0)}"`); return out.join(' ');
         default: out.push(`<<printSub 0x${s.toString(16)}>>`); return out.join(' ');
       }
@@ -495,10 +454,8 @@ class Decoder {
       case 0x01: return `scroll ${this.p16(s, 1)},${this.p16(s, 2)}`;
       case 0x02: return 'colorScale';
       case 0x03: return `screen ${this.p16(s, 1)},${this.p16(s, 2)}`;
-      // setPalColor: r,g,b (3 words) then a SECOND subop byte carrying the
-      // index's param mode, then the index (var-ref when its bit 0x80 is set,
-      // else a byte). Reading only two operands here is what desynced room
-      // 63's blackout loop (`setPalColor (0,0,0) → var`).
+      // setPalColor: r,g,b (3 words), then a SECOND subop byte carrying the
+      // index's param mode, then the index — fewer operands desyncs the stream.
       case 0x04: {
         const r = this.p16(s, 1), g = this.p16(s, 2), b = this.p16(s, 3);
         const s2 = this.u8();
@@ -581,11 +538,8 @@ class Decoder {
   private resourceSub(): string {
     const s = this.u8();
     const lo = s & 0x1f;
-    // Mirror the executing handler (opcodes/index.ts 0x0C): subop 0x11
-    // (clearHeap) takes NO arg, 0x14 (loadFlObject) takes TWO var-or-byte
-    // args, every other subop takes exactly ONE. The old `lo <= 0x12` rule
-    // wrongly gave 0x11 an arg (over-read by 1) and denied 0x13 (nukeCharset)
-    // one (under-read by 1), and read 0x14's object as a word.
+    // Subop 0x11 (clearHeap) takes NO arg, 0x14 (loadFlObject) takes TWO
+    // var-or-byte args, every other subop exactly ONE.
     if (lo === 0x11) return 'clearHeap';
     if (lo === 0x14) return `loadFlObject obj=${this.p8(s, 1)} room=${this.p8(s, 2)}`;
     return `sub=0x${lo.toString(16)} ${this.p8(s, 1)}`;

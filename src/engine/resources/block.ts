@@ -1,30 +1,13 @@
-/**
- * SCUMM v5 block format
- * ---------------------
- *
- *   ┌────────────┬──────────────┬───────────────┐
- *   │ tag (4 B)  │ size (4 B)   │ payload (...) │
- *   │  ASCII     │  big-endian  │               │
- *   └────────────┴──────────────┴───────────────┘
- *
- * `size` is the **total block size including the 8-byte header**.
- *
- * Some tags identify *containers* whose payload is itself a sequence of
- * child blocks (e.g. LECF, LFLF, ROOM, RMIM, OBIM, OBCD, IM00…IM0F).
- * All other tags are treated as leaves with opaque payload bytes.
- */
+/** SCUMM v5 block parser: 4-byte ASCII tag + u32 BE size, then payload. */
 
 export interface Block {
   /** 4-char ASCII block tag. */
   readonly tag: string;
   /** Absolute byte offset of the block header in the source buffer. */
   readonly offset: number;
-  /** Total block size in bytes, including the 8-byte header. */
+  /** Total size INCLUDING the 8-byte header. */
   readonly size: number;
-  /**
-   * Present iff this is a container block. May be an empty array for
-   * containers with no children.
-   */
+  /** Present iff this is a container tag (may be empty). */
   readonly children?: readonly Block[];
 }
 

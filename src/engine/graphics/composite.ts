@@ -1,29 +1,7 @@
 /**
- * Actor compositor: draw a decoded costume frame onto a room's indexed
- * framebuffer at a given position, honouring transparency and z-plane
- * occlusion.
- *
- * The framebuffer is mutated in place — pass a copy of the room's
- * `decoded.indexed` if you want to preserve the original.
- *
- * Coordinate convention: `actorX` / `actorY` is the actor's anchor
- * point in room pixels (conventionally the feet). The frame's
- * top-left in room space is `(actorX + frame.redirX, actorY +
- * frame.redirY)` — `redirX/Y` are typically negative so the frame
- * extends to the left of and above the anchor.
- *
- * Z-plane rule: an actor has a 1-based `clipPlane` (its SCUMM `_zbuf`
- * level) and is hidden at (x, y) iff **that one z-plane** has its bit
- * set at (x, y). `clipPlane` 1 = `ZP01` (= `zPlanes[0]`), 2 = `ZP02`,
- * and so on; `clipPlane` 0 (the default) means "in front of every
- * plane" — never occluded. This mirrors SCUMM exactly: the costume
- * renderer masks an actor against the *single* mask buffer for its
- * z-level, not a cumulative stack. Rooms whose planes nest the other
- * way (MI1 room 30: `ZP02 ⊇ ZP01`, where `ZP01` is just the foreground
- * barrels and `ZP02` adds the loft railing/stairs) only render right
- * under this single-plane rule — a floor actor at clipPlane 1 must be
- * masked by `ZP01` alone, so it walks *in front* of the stairs in
- * `ZP02`. See pages/docs/scumm/zplane.md §"the drawing rule".
+ * Actor compositor: blit a decoded costume frame into an indexed
+ * framebuffer (mutated in place), honouring transparency, mirroring,
+ * scale, and z-plane occlusion. Z-plane rule: pages/docs/scumm/zplane.md §6.
  */
 
 import { COSTUME_FRAME_TRANSPARENT, decodeCostumeFrame, type DecodedCostumeFrame } from './costume-frame';
@@ -44,26 +22,15 @@ export interface CompositeActorOptions {
   readonly actorX: number;
   readonly actorY: number;
   /**
-   * Actor clip level — the 1-based z-plane (SCUMM `_zbuf`) that masks
-   * this actor. 0 (default) = in front of every plane (never occluded);
-   * `k` = masked by `zPlanes[k-1]` only. See the file header.
+   * 1-based z-plane (SCUMM `_zbuf`) that masks this actor: `k` = masked
+   * by `zPlanes[k-1]` alone; 0 (default) = in front of every plane.
    */
   readonly clipPlane?: number;
   /** Z-planes in source order — `zPlanes[0]` corresponds to `ZP01`. */
   readonly zPlanes?: readonly DecodedZPlane[];
-  /**
-   * Draw the frame horizontally mirrored (reflected about the actor's
-   * anchor X). SCUMM costumes store side-view frames facing one way and
-   * flip them for the opposite facing.
-   */
+  /** Draw horizontally mirrored, reflected about the actor's anchor X. */
   readonly mirror?: boolean;
-  /**
-   * Actor scale, 0..255 where 255 = 100% (the default). The frame is
-   * nearest-neighbour scaled around the anchor — the feet stay at
-   * (actorX, actorY) and the sprite shrinks toward them — so a distant
-   * actor draws smaller. SCUMM scales actors by position; 255 is exactly
-   * the un-scaled blit.
-   */
+  /** Actor scale, 0..255 where 255 = 100%; the sprite shrinks toward the anchor. */
   readonly scale?: number;
   /** Running `_xmove`/`_ymove` for this limb (from {@link PreparedLimb}),
    *  added to the frame's own offset. Default 0. */
@@ -93,13 +60,10 @@ export function actorFramePlacement(
   const s = Math.max(0, Math.min(255, scale));
   const width = Math.max(1, Math.round((frame.width * s) / 255));
   const height = Math.max(1, Math.round((frame.height * s) / 255));
-  // Each limb's draw offset is the running `_xmove`/`_ymove` (the sum of the
-  // earlier-drawn limbs' xinc/yinc, see prepareActorDraw) plus this frame's own
-  // offset, scaled together.
   const redirX = Math.round(((frame.redirX + accX) * s) / 255);
   const redirY = Math.round(((frame.redirY + accY) * s) / 255);
-  // Anchor (feet) stays at (actorX, actorY); the offset scales with the frame
-  // so the sprite shrinks toward it. Mirror reflects the span about actorX.
+  // Anchor (feet) stays put; the offset scales with the frame so the sprite
+  // shrinks toward it. Mirror reflects the span about actorX.
   const left = mirror ? actorX - redirX - width : actorX + redirX;
   const top = actorY + redirY;
   return { left, top, width, height };
@@ -115,13 +79,8 @@ export interface PreparedLimb {
   readonly accY: number;
 }
 
-/**
- * Everything needed to draw (and hit-test) an actor for the current frame —
- * the decoded limbs, the shared mirror/scale, and the unioned sprite box.
- * {@link prepareActorDraw} resolves it from actor + costume state alone, so
- * the compositor (which blits the limbs) and a headless hit-test (which only
- * needs `bounds`) share one source of truth and can never disagree.
- */
+/** Everything needed to draw (and hit-test) an actor this frame; resolved by
+ *  {@link prepareActorDraw}. */
 export interface ActorDrawPrep {
   readonly mirror: boolean;
   readonly scale: number;
@@ -137,25 +96,14 @@ export interface ActorDrawPrep {
 }
 
 /**
- * Resolve an actor's drawable limbs and on-screen extent from its current
- * costume + anim + position — the geometry the compositor blits and that
- * `actorFromPos` hit-tests against, with no framebuffer required.
- *
- * Mirrors SCUMM's per-frame limb walk: pick the anim-driven picture for each
- * active limb (or frame 0 in the init-pose fallback when no anim is running),
- * decode it, and union the scaled placements. Limbs parked on a sentinel /
- * out-of-range frame pointer are silently bypassed (costumes share a dummy
- * table for unused limbs); a decode failure on an *active* limb is recorded.
+ * Resolve an actor's drawable limbs and on-screen extent from costume +
+ * anim + position alone (no framebuffer) — the one geometry source for
+ * both the compositor blit and `actorFromPos` hit-testing.
  */
 export function prepareActorDraw(actor: Actor, costume: LoadedCostume): ActorDrawPrep {
-  // East-facing side art is always drawn native; the engine mirrors it for the
-  // WEST facing — UNLESS the costume's format bit-7 "mirror flag" is set, which
-  // means "this costume has dedicated per-direction art, do NOT mirror West."
-  // Cost107 (room 60's teaching machine) is one of only two MI1 costumes with
-  // the flag set: it carries distinct full art on BOTH its W (records 4/12) and
-  // E (records 5/13) chores, so neither facing flips — its East-authored setup
-  // pose aims at the student, and its West entry pose (pushed in) stays native
-  // too. Only West is ever a mirror candidate, so East is never flipped.
+  // Only West ever mirrors; the format bit-7 flag means "dedicated
+  // per-direction art, do NOT mirror West" — it never makes East flip.
+  // See pages/docs/scumm/costume-anim.md §Mirroring (cost107 is the case).
   const facing = actor.facing;
   const mirror = facing === 'W' && !costume.header.mirrorFlag;
 
@@ -176,13 +124,9 @@ export function prepareActorDraw(actor: Actor, costume: LoadedCostume): ActorDra
     bRight = -Infinity,
     bBottom = -Infinity;
 
-  // SCUMM's per-render `_xmove`/`_ymove`: drawing each limb in order adds that
-  // limb's frame xinc/yinc to a running offset that shifts every *subsequent*
-  // limb. This is what keeps a multi-limb sprite assembled — e.g. cost44's
-  // fencing torso rides on the legs limb's xinc, and cost107's contraption
-  // stacks across its cart/spring/dummy limbs. Limbs that don't draw (unused /
-  // inactive / stopped / sentinel) never read a picture, so they don't
-  // accumulate — exactly like ScummVM's early-out before the xmove add.
+  // Running `_xmove`/`_ymove`: each drawn limb's xinc/yinc shifts every
+  // SUBSEQUENT limb; limbs that don't draw must not accumulate.
+  // See pages/docs/scumm/costume-anim.md §"Limbs assemble".
   let accX = 0,
     accY = 0;
 
@@ -222,7 +166,6 @@ export function prepareActorDraw(actor: Actor, costume: LoadedCostume): ActorDra
       if (place.top < bTop) bTop = place.top;
       if (place.left + place.width > bRight) bRight = place.left + place.width;
       if (place.top + place.height > bBottom) bBottom = place.top + place.height;
-      // Advance the running offset by this drawn limb's post-draw increment.
       accX += frame.xinc;
       accY += frame.yinc;
     } catch (err) {
@@ -241,9 +184,8 @@ export function compositeActor(opts: CompositeActorOptions): void {
   const { framebuffer, fbWidth, fbHeight, frame, costPalette, actorX, actorY } = opts;
   const clipPlane = opts.clipPlane ?? 0;
   const zPlanes = opts.zPlanes ?? [];
-  // The single z-plane (if any) that masks this actor. SCUMM masks an
-  // actor against exactly its `_zbuf` level's plane — never a cumulative
-  // stack — so clipPlane 0 (or a level past the last plane) = unmasked.
+  // An actor is masked by its clipPlane's plane ALONE — never the OR of
+  // planes 0..k (MI1 room 30 breaks otherwise; pages/docs/scumm/zplane.md §6).
   const maskPlane =
     clipPlane > 0 && clipPlane <= zPlanes.length ? zPlanes[clipPlane - 1]! : null;
   const mirror = opts.mirror ?? false;
@@ -266,9 +208,6 @@ export function compositeActor(opts: CompositeActorOptions): void {
 
   if (scale === 0) return; // scaled to nothing
 
-  // Scaled placement (nearest-neighbour). At scale 255 this is the native
-  // extent and every map below is the identity, so the path is an exact no-op
-  // for un-scaled actors.
   const { left, top, width: drawW, height: drawH } = actorFramePlacement(
     frame,
     actorX,
@@ -279,8 +218,6 @@ export function compositeActor(opts: CompositeActorOptions): void {
     accY,
   );
 
-  // Clip the iteration range to the on-screen portion of the (scaled) frame so
-  // we never index out of bounds and avoid touching off-screen pixels.
   const startX = Math.max(0, -left);
   const endX = Math.min(drawW, fbWidth - left);
   const startY = Math.max(0, -top);
@@ -288,25 +225,19 @@ export function compositeActor(opts: CompositeActorOptions): void {
 
   for (let py = startY; py < endY; py++) {
     const ry = top + py;
-    // Map this scaled destination row back to a source row. CENTERED
-    // nearest-neighbour — sample the middle of each destination cell's source
-    // span (`(py + 0.5) · h / drawH`) rather than its top edge. Centering
-    // distributes the dropped rows/columns evenly instead of biasing toward
-    // one edge, so thin features (Guybrush's eyes) survive downscaling far
-    // better. At scale 255 (drawH == h) this is still exactly `py`.
+    // The +0.5 is CENTERED nearest-neighbour: sampling each destination
+    // cell's middle drops rows/columns evenly, so thin features (Guybrush's
+    // eyes) survive downscaling. At scale 255 it's still exactly `py`.
     const sy = Math.min(frame.height - 1, Math.floor(((py + 0.5) * frame.height) / drawH));
     const frameRowBase = sy * frame.width;
     const fbRowBase = ry * fbWidth;
     for (let px = startX; px < endX; px++) {
       const sx = Math.min(frame.width - 1, Math.floor(((px + 0.5) * frame.width) / drawW));
-      // Mirror: sample the column from the opposite edge of the frame.
       const srcPx = mirror ? frame.width - 1 - sx : sx;
       const idx = frame.pixels[frameRowBase + srcPx]!;
       if (idx === COSTUME_FRAME_TRANSPARENT) continue;
       const rx = left + px;
 
-      // Z-plane occlusion: hidden iff this actor's single clip plane has
-      // its bit set here (SCUMM masks against one mask buffer per actor).
       if (maskPlane && maskPlane.mask[ry * fbWidth + rx]) continue;
 
       framebuffer[fbRowBase + rx] = costPalette[idx]!;

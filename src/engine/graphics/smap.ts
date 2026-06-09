@@ -1,19 +1,7 @@
 /**
  * SMAP — strip-encoded room background bitmap (SCUMM v5).
- *
- * Payload layout:
- *
- *   ┌──────────────────────────────┬──────────────────┐
- *   │ stripCount × uint32 LE offset│ strip bodies     │
- *   └──────────────────────────────┴──────────────────┘
- *
- * Strips are 8 pixels wide and `roomHeight` pixels tall. Each strip has
- * its own compression code and bit stream and decodes independently. The
- * offset table entries are relative to the SMAP **block** start (header
- * inclusive), not the payload; see `readStripOffsets`.
- *
- * Full format reference (with the gotchas and corrections that took us
- * a while to figure out): pages/docs/scumm/smap.md.
+ * Format reference (including the corrections to circulating notes):
+ * pages/docs/scumm/smap.md.
  */
 
 export function decodeSmap(
@@ -44,10 +32,8 @@ export function decodeSmap(
 }
 
 /**
- * Read each strip's encoding code byte without running the decoder.
- * Used by the player's diagnostic UI to show which compression method
- * each strip uses. Returns the code, or -1 for any strip whose offset
- * lands outside the payload (malformed file).
+ * Each strip's compression-code byte without running the decoder (for the
+ * diagnostic UI); -1 for a strip whose offset lands outside the payload.
  */
 export function getSmapStripMethods(payload: Uint8Array, roomWidth: number): number[] {
   if (roomWidth % 8 !== 0) {
@@ -72,9 +58,8 @@ function readStripOffsets(payload: Uint8Array, stripCount: number): number[] {
   const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
   const offsets: number[] = new Array<number>(stripCount);
   for (let i = 0; i < stripCount; i++) {
-    // SCUMM v5 SMAP offsets are stored relative to the **start of the
-    // SMAP block** (header inclusive). We're handed the post-header
-    // payload, so subtract 8 to convert to payload-relative.
+    // Stored offsets are header-INCLUSIVE (relative to the block start, not
+    // the payload), so subtract 8 — pages/docs/scumm/smap.md §3.
     const raw = view.getUint32(i * 4, true);
     if (raw < 8) {
       throw new Error(
@@ -98,22 +83,7 @@ function decodeStrip(
   }
   const code = data[0]!;
 
-  // SCUMM v5 SMAP method dispatch:
-  //
-  //   0x01           uncompressed · horizontal
-  //   0x0E..0x12     method 1 · vertical   · opaque       paletteBits = code − 0x0A
-  //   0x18..0x1C     method 1 · horizontal · opaque       paletteBits = code − 0x14
-  //   0x22..0x26     method 1 · vertical   · transparent  paletteBits = code − 0x1E
-  //   0x2C..0x30     method 1 · horizontal · transparent  paletteBits = code − 0x28
-  //   0x40..0x44     method 2 · horizontal · opaque       paletteBits = code − 0x3C
-  //   0x54..0x58     method 2 · horizontal · transparent  paletteBits = code − 0x50
-  //   0x68..0x6C     method 2 · horizontal · transparent  paletteBits = code − 0x64  (alias of 0x54..0x58)
-  //   0x7C..0x80     method 2 · horizontal · opaque       paletteBits = code − 0x78  (alias of 0x40..0x44)
-  //
-  // Method 2 only exists in the horizontal direction. "Transparent" variants
-  // decode pixels identically to their opaque counterparts for backgrounds;
-  // transparency only matters when compositing over other things.
-
+  // Dispatch table: pages/docs/scumm/smap.md §6.
   if (code === 0x01) {
     decodeUncompressed(data, stripIndex, roomWidth, roomHeight, out);
     return;
@@ -139,6 +109,8 @@ function decodeStrip(
     return;
   }
   if (code >= 0x54 && code <= 0x58) {
+    // Subtract 0x50, NOT the 0x51 in circulating notes — paletteBits must be
+    // 4..8 like every other Method 2 range. See pages/docs/scumm/smap.md §6.
     decodeStripMethod2H(data, stripIndex, roomWidth, roomHeight, code - 0x50, out);
     return;
   }
@@ -158,7 +130,7 @@ function decodeStrip(
   );
 }
 
-/** Method 1: 8 × roomHeight raw palette indices, row-major within the strip. */
+/** Code 0x01: 8 × roomHeight raw palette indices, row-major within the strip. */
 function decodeUncompressed(
   data: Uint8Array,
   stripIndex: number,
@@ -185,17 +157,9 @@ function decodeUncompressed(
 }
 
 /**
- * LSB-first bit reader for SMAP strips.
- *
- * Within each byte, bit 0 (LSB) is read first, then bit 1, …, then bit 7.
- * `readBits(n)` assembles the integer LSB-first: the first bit read becomes
- * the integer's bit 0. So 7 bits read in order `0,1,1,1,1,1,1` yield 126
- * (= 0x7E).
- *
- * The same convention applies to Method 2's 3-bit selector and 8-bit RLE
- * count. Some long-circulating notes label Method 2's branches in a way
- * that looks like read order ("100 (4)" etc.); ignore those — the
- * parenthesised integer is the truth, read LSB-first.
+ * LSB-first bit reader: bit 0 of each byte is read first, and `readBits`
+ * assembles the integer LSB-first (pages/docs/scumm/smap.md §5). Applies
+ * to Method 2's 3-bit selector and RLE count too.
  */
 class BitReader {
   private byteIdx = 0;
@@ -226,17 +190,8 @@ class BitReader {
 }
 
 /**
- * Method 1 (horizontal or vertical). Bit grammar:
- *
- *   0     keep — draw next pixel with current color
- *   10    read paletteBits → new color; reset `sub` to 1
- *   110   color -= sub
- *   111   sub = -sub; color -= sub
- *
- * `sub` (the "subtraction variable") starts at 1 for each strip and is
- * reset to 1 every time the 10-branch loads a new absolute color. Method 1
- * has no run-length encoding — solid color regions are encoded as runs of
- * `0` bits, one per pixel. See pages/docs/scumm/smap.md for details.
+ * Method 1 palette walk — bit grammar in pages/docs/scumm/smap.md §8.
+ * No RLE branch: solid regions are runs of `0` bits, one per pixel.
  */
 function decodeStripMethod1(
   data: Uint8Array,
@@ -285,20 +240,9 @@ function decodeStripMethod1(
 }
 
 /**
- * Method 2 (horizontal only). Bit grammar:
- *
- *   0     keep — draw next pixel with current color
- *   10    read paletteBits → new color
- *   11    read 3 more bits as LSB-first unsigned `d`:
- *           d == 4 → RLE: read 8 bits as `reps`; emit `reps` additional pixels
- *           else   → color -= (4 - d)
- *                    (d=0 → -4, d=1 → -3, …, d=3 → -1, d=5 → +1, d=6 → +2, d=7 → +3)
- *
- * Sign of the delta is inverted relative to most circulating reverse-
- * engineering notes (which label d=0 as "Increase by 4"). Empirically —
- * verified by decoding real MI1 / MI2 room strips — the encoded data does
- * the opposite: d=0 *decreases* by 4. See pages/docs/scumm/smap.md for the
- * discovery story and worked examples.
+ * Method 2 palette walk + RLE — bit grammar in pages/docs/scumm/smap.md §9.
+ * The delta sign is INVERTED from circulating notes: real game data decodes
+ * as `color -= (4 - d)` (d=0 decreases by 4), verified on MI1/MI2 strips.
  */
 function decodeStripMethod2H(
   data: Uint8Array,
@@ -335,8 +279,8 @@ function decodeStripMethod2H(
     // 11 → 3-bit selector
     const d = bits.readBits(3);
     if (d === 4) {
-      // RLE: the auto-write at the top of the next iter accounts for one
-      // pixel; this loop emits `reps` additional pixels of the same color.
+      // RLE emits `reps` ADDITIONAL pixels — the next iteration's auto-write
+      // supplies one more, so the op contributes 1 + reps in total.
       const reps = bits.readBits(8);
       for (let r = 0; r < reps && i < pixelCount; r++) {
         writeAt(i, color);

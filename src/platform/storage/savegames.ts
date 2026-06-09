@@ -1,25 +1,16 @@
 /**
- * Save-game storage — named slots persisted in browser localStorage,
- * scoped per game so MI1 and MI2 saves never collide.
- *
- * Layout:
- *   - `grogvm:save:<gameId>:<name>` → the full {@link SaveState} JSON.
- *   - `grogvm:saves:<gameId>`       → a lightweight index (slot metadata)
- *     so the UI can list slots without parsing every full blob.
- *
- * Every entry point is defensive: localStorage can throw (private-mode,
- * quota, disabled storage). Reads degrade to empty/null; writes surface a
- * typed {@link SaveStoreError} the UI can show.
+ * Save-game storage: named localStorage slots scoped per install, plus a
+ * lightweight index so the UI can list slots without parsing every blob.
+ * Reads degrade to empty/null; writes surface a typed {@link SaveStoreError}.
  */
 
 import type { SaveState } from '../../engine/vm/savestate';
 
-/** Lightweight per-slot metadata held in the index (no heavy payload). */
 export interface SaveSlotMeta {
   readonly name: string;
   /** Epoch ms the slot was written. */
   readonly savedAt: number;
-  /** Room id at save time — handy as a "where" hint in the list. */
+  /** Room id at save time. */
   readonly room: number;
 }
 
@@ -77,10 +68,7 @@ export function readSave(gameId: string, name: string): SaveState | null {
   }
 }
 
-/**
- * Write (or overwrite) a named slot and update the index. Throws
- * {@link SaveStoreError} when storage is unavailable or the quota is hit.
- */
+/** Throws {@link SaveStoreError} when storage is unavailable or the quota is hit. */
 export function writeSave(gameId: string, name: string, state: SaveState): void {
   const ls = store();
   if (!ls) throw new SaveStoreError('localStorage is unavailable');
@@ -100,9 +88,8 @@ export function writeSave(gameId: string, name: string, state: SaveState): void 
 }
 
 /**
- * Remove every slot for `gameId` and its index — used when a game is
- * uninstalled. Saves are keyed by the (random) install id, so once the install
- * is gone they're unreachable; clearing them here avoids leaking dead storage.
+ * Used on uninstall: saves are keyed by the random install id, so once the
+ * install is gone they'd leak as unreachable storage.
  */
 export function deleteAllSaves(gameId: string): void {
   const ls = store();
@@ -121,7 +108,6 @@ export function deleteAllSaves(gameId: string): void {
   }
 }
 
-/** Remove a slot and its index entry. No-op if it doesn't exist. */
 export function deleteSave(gameId: string, name: string): void {
   const ls = store();
   if (!ls) return;

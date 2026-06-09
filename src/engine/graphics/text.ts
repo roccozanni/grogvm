@@ -1,18 +1,7 @@
 /**
- * Text layout + rendering against a decoded SCUMM v5 CHAR (charset).
- *
- * Single-line semantics with explicit `\n` newline handling: each
- * glyph is stamped at the cursor with its `(xOffset, yOffset)` applied,
- * then the cursor advances by the glyph's `width`. A newline resets
- * the cursor X to 0 and advances Y by `fontHeight`. No word wrap, no
- * alignment, no kerning beyond what the per-glyph `xOffset` encodes —
- * those are downstream concerns (text boxes, dialog UI) that Phase 4
- * doesn't aim to solve.
- *
- * Output pixels are a `width × height` `Uint8Array` of CLUT indices.
- * Transparent pixels are emitted as `CHARSET_TRANSPARENT` (`0xFF`) —
- * same sentinel costume frames use, so the room compositor (and any
- * future text-bubble compositor) can treat them uniformly.
+ * Text layout + rendering against a decoded SCUMM v5 CHAR charset.
+ * Layout semantics: pages/docs/scumm/char.md §6. Transparent pixels use
+ * the same 0xFF sentinel as costume frames so compositors treat them uniformly.
  */
 
 import {
@@ -23,14 +12,9 @@ import {
 } from './charset';
 
 /**
- * `@` (0x40) is SCUMM's name-padding filler, not a printable character.
- * Object names live in fixed-size OBNA buffers padded with `@` so a later
- * `setObjectName` can overwrite them in place with a longer string (e.g. obj
- * 488's verb-91 rewrites "@@@@@ pezzi da otto@@@@" → "500 pezzi da otto").
- * The original's charset printer skips `@` outright — and it must, because the
- * sentence/dialogue fonts (charset id 1 and 2) *do* carry a visible `@` glyph,
- * yet the game never shows padding clutter. So we skip it here rather than
- * relying on a font happening to lack the glyph.
+ * `@` (0x40) is OBNA name-padding, skipped unconditionally — the fonts DO
+ * carry a visible `@` glyph, so skipping can't be left to the font.
+ * See pages/docs/scumm/char.md §"`@` is name padding".
  */
 const SCUMM_NAME_PAD = 0x40;
 
@@ -49,11 +33,7 @@ export interface RenderedText extends MeasuredText {
   readonly pixels: Uint8Array;
 }
 
-/**
- * Compute the bounding box a `renderText` call would produce, without
- * actually emitting pixels. Useful for upstream layout (e.g. dialog
- * bubble sizing) and as the size of the buffer `renderText` allocates.
- */
+/** The bounding box a `renderText` call would produce, without emitting pixels. */
 export function measureText(
   payload: Uint8Array,
   header: CharsetHeader,
@@ -74,14 +54,12 @@ export function measureText(
       continue;
     }
     const code = ch.charCodeAt(0);
-    if (code === SCUMM_NAME_PAD) continue; // padding char — not printed (see below)
+    if (code === SCUMM_NAME_PAD) continue;
     const off = glyphPayloadOffset(header, code);
     if (off === null) continue; // unknown character — silently skipped
     const g = decodeGlyph(payload, off, header.bpp, header.reversedBits);
-    // The glyph extends from `curX + xOffset` to `curX + xOffset +
-    // width` horizontally and similarly in Y from `curY + yOffset`.
-    // Track the max so a glyph whose xOffset pushes right past its
-    // declared advance still grows the bounding box.
+    // xOffset/yOffset can push a glyph past its declared advance — track
+    // the stamped extent, not just the cursor.
     if (g.width > 0 && g.height > 0) {
       const right = curX + g.xOffset + g.width;
       if (right > maxRight) maxRight = right;
@@ -89,22 +67,16 @@ export function measureText(
       if (bottom > maxBottom) maxBottom = bottom;
     }
     curX += g.width;
-    // Even a blank glyph advances by its (possibly zero) width, then
-    // tracks the cursor for the next character. The cursor itself sets
-    // a lower bound on `maxRight` so trailing whitespace still counts.
+    // The bare cursor lower-bounds maxRight so trailing whitespace counts.
     if (curX > maxRight) maxRight = curX;
   }
   return { width: maxRight, height: maxBottom };
 }
 
 /**
- * Word-wrap `text` to a maximum pixel `width`, returning the text with
- * `\n` inserted at the chosen break points. Greedy line-packing on
- * space boundaries — the SCUMM v5 convention (CHARSET_1 breaks talk
- * text at spaces against the right margin). Explicit `\n` already in the
- * text is preserved (each pre-split segment wraps independently). A
- * single word wider than `width` is left whole on its own line (overflow
- * rather than mid-word break), matching the original.
+ * Greedy word-wrap on spaces to `maxWidth` pixels (the SCUMM v5
+ * convention). Existing `\n` is preserved; an over-wide word overflows
+ * whole on its own line rather than breaking mid-word, like the original.
  */
 export function wrapText(
   payload: Uint8Array,
@@ -130,14 +102,9 @@ export function wrapText(
 }
 
 /**
- * Render `text` to an indexed pixel buffer.
- *
- * `colorMap` maps glyph bit-pattern values to CLUT indices: index 0 is
- * always transparent (regardless of what `colorMap[0]` contains), and
- * indices 1..N (where N = 2^bpp − 1) get whatever CLUT index the
- * caller wants. For a 1-bpp charset, `colorMap[1]` is the "ink"; for
- * 2-bpp, indices 1..3 typically correspond to outline / fill / shadow
- * tones and you'd usually pass `header.colorMap` straight through.
+ * Render `text` to an indexed pixel buffer. `colorMap` maps glyph
+ * bit-patterns 1..2^bpp−1 to CLUT indices; pattern 0 is always
+ * transparent regardless of `colorMap[0]` (char.md §5).
  */
 export function renderText(
   payload: Uint8Array,

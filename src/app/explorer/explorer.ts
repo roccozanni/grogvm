@@ -1,14 +1,6 @@
 /**
- * The resource Explorer (ARCHITECTURE.md §7): a session-free, room-first
- * browser of a game's resources. Pick a room from the rail; the dossier shows
- * everything that room contains — background, objects, scripts, raw blocks —
- * decoded by the same primitives the VM uses (`extractRoom`), but gracefully
- * (a malformed section shows its error, never blanks the rest). No VM, no
- * EngineSession: it parses the opened files and renders static views, so it
- * works even when the game can't boot.
- *
- * Built on the app reactive core: a `currentRoomId` signal drives both the
- * rail highlight and an `effect` that re-extracts + re-renders the dossier.
+ * Session-free resource Explorer: parses the opened files directly (no VM, no
+ * EngineSession), so it works even when the game can't boot.
  */
 import type { StoredGame } from '../../platform/storage/games';
 import type { GameId } from '../../platform/detect';
@@ -53,7 +45,7 @@ async function loadAndRender(game: StoredGame, target: HTMLElement): Promise<voi
     if (!resourcesFile) throw new Error(`Could not find ${resourcesName} in "${game.directoryHandle.name}".`);
 
     const [indexBytes, resourceBytes] = await Promise.all([readBytes(indexFile), readBytes(resourcesFile)]);
-    // The index (DSCR directory) resolves the global scripts a room references.
+    // The index's DSCR directory resolves the global scripts a room references.
     const index = parseIndexFile(parseResourceFile(indexBytes, SCUMM_V5_XOR_KEY));
     const resourceBundle = parseResourceFile(resourceBytes, SCUMM_V5_XOR_KEY);
 
@@ -64,13 +56,10 @@ async function loadAndRender(game: StoredGame, target: HTMLElement): Promise<voi
       return;
     }
 
-    // Costumes + charsets live in the room's LFLF — bucket the flat lists once
-    // so each room change is an O(1) lookup.
+    // Costumes + charsets ship in the room's LFLF; bucket once up front.
     const costumesByLflf = byLflf(walkCostumes(resourceBundle));
     const charsetsByLflf = byLflf(walkCharsets(resourceBundle));
 
-    // Start on the room named in `?room=` (so reload / deep-link sticks),
-    // falling back to the first room when absent or not a real room here.
     const requested = currentRoomParam();
     const startRoom = requested != null && rooms.some((r) => r.roomId === requested) ? requested : rooms[0]!.roomId;
 
@@ -85,14 +74,12 @@ async function loadAndRender(game: StoredGame, target: HTMLElement): Promise<voi
         const d = extractRoom(resourceBundle, ref);
         const roomPalette = d.background.ok ? d.background.value.palette : null;
         const transparentIndex = d.background.ok ? d.background.value.transparentIndex : null;
-        // Shared object selection (per room): the Objects picker and the canvas
-        // box highlight track the same id. Created inside the effect so it
-        // resets each room.
+        // Shared by the Objects picker and the canvas highlight; created
+        // inside the effect so selection resets on room change.
         const selected = signal<number | null>(null);
         const objectList = d.objects.ok ? [...d.objects.value.values()] : [];
         const walkBoxes = d.walkBoxes.ok ? d.walkBoxes.value : [];
         const zPlanes = d.zPlanes.ok ? d.zPlanes.value : [];
-        // Panels that have nothing to show return null and are omitted entirely.
         const panels = [
           backgroundPanel(d.background, objectList, walkBoxes, zPlanes, selected),
           objectsPanel(d.objects, selected, roomPalette, transparentIndex),
@@ -111,7 +98,6 @@ async function loadAndRender(game: StoredGame, target: HTMLElement): Promise<voi
   }
 }
 
-/** Bucket resources (costumes, charsets, …) by the LFLF they ship in. */
 function byLflf<T extends { lflfIndex: number }>(items: readonly T[]): Map<number, T[]> {
   const map = new Map<number, T[]>();
   for (const item of items) {

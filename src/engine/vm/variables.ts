@@ -1,31 +1,7 @@
 /**
- * SCUMM v5 variable bank — globals, bit-vars, room-vars.
- *
- * Locals live on each script slot (see `slot.ts`), not here, because
- * they're owned by the running script's invocation context.
- *
- * # Scope summary
- *
- * SCUMM v5 has four variable scopes, encoded by the top bits of the
- * 16-bit reference word that the bytecode carries:
- *
- *   - **globals** — the big shared int bank (800 entries on MI1).
- *     Used for game state, system flags, current room id, scores,
- *     timers, …
- *   - **bit-vars** — packed booleans (2048 bits on MI1). Used for
- *     "have I seen this cutscene?", per-object flags, etc.
- *   - **room-vars** — small int bank scoped to the currently loaded
- *     room (16 entries on MI1). Hardly used by MI1 scripts in
- *     practice but cheap to model.
- *   - **locals** — per-script-invocation, 25 entries on v5. Stored on
- *     the slot, not here.
- *
- * # Sizing
- *
- * Sizes come from `MAXS` at load time and are passed in to the
- * constructor. We use `Int32Array` so we can hold the full signed
- * range without surprises (variables can hold negative values; the
- * VM does signed arithmetic).
+ * SCUMM v5 variable bank — globals, bit-vars, room-vars, sized from MAXS
+ * (locals live on each script slot). See pages/docs/scumm/opcodes.md for
+ * the scope encoding.
  */
 
 export class VariableError extends Error {
@@ -49,12 +25,9 @@ export class Variables {
   private readonly bitBuffer: Uint8Array;
   readonly numBits: number;
   /**
-   * Out-of-range accesses, grouped by (scope, index, kind). The original
-   * SCUMM engine had no bounds checks — shipped scripts frequently
-   * touch indices past MAXS in dead-code branches that real play
-   * never reaches (script #12 in MI1 is an example). We silently
-   * absorb these so the boot can progress, but keep a record so the
-   * inspector can surface them — never silently hide.
+   * Out-of-range accesses, grouped by (scope, index, kind). Shipped scripts
+   * go past MAXS in dead branches (the original had no bounds checks), so
+   * OOB is absorbed — but recorded for the inspector, never hidden.
    */
   readonly oobAccesses = new Map<string, OobAccess>();
 
@@ -111,19 +84,14 @@ export class Variables {
     else this.bitBuffer[byte] = this.bitBuffer[byte]! & ~mask;
   }
 
-  /**
-   * Raw packed bit buffer, as a copy — for save-state serialization.
-   * (The buffer is private so the bit-packing layout stays encapsulated;
-   * save/restore round-trips the bytes verbatim.)
-   */
+  /** Copy of the packed bit buffer, for save-state serialization. */
   snapshotBits(): Uint8Array {
     return this.bitBuffer.slice();
   }
 
   /**
-   * Overwrite the packed bit buffer from a save-state snapshot. Copies up
-   * to the current buffer length (same game ⇒ same size); a shorter input
-   * leaves the tail zeroed, a longer one is truncated.
+   * Overwrite the packed bit buffer from a snapshot; a shorter input leaves
+   * the tail zeroed, a longer one is truncated.
    */
   restoreBits(bytes: Uint8Array): void {
     this.bitBuffer.fill(0);

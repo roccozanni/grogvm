@@ -1,40 +1,6 @@
 /**
- * SCUMM v5 z-plane decoder.
- *
- * Z-planes mark room regions actors should be drawn *behind*. A room
- * has up to ~4 of them in v5, named `ZP01`, `ZP02`, … and stored
- * alongside the background `SMAP` under `RMIM > IM00`. The plane count
- * for the room lives in the 2-byte `RMIH`.
- *
- * Layout of one `ZP##` block payload:
- *
- *   ┌─────────────────────────────────┬─────────────────┐
- *   │ stripCount × u16 LE offsets     │ strip bodies    │
- *   └─────────────────────────────────┴─────────────────┘
- *
- * The offsets share SMAP's "header-inclusive" convention: each one is
- * measured from the start of the `ZP##` block (i.e. including the
- * 8-byte block header), so the decoder must subtract 8 to get a
- * payload-relative position. The value **`0` is a sentinel** meaning
- * "this strip is entirely zero" — no body is stored for it, the strip
- * is left as-pass-through. (The original engine reportedly does
- * something funny on these strips; for our purposes, a zero mask is
- * the correct semantics.)
- *
- * Each strip body decodes to `roomHeight` bytes — one byte per row of
- * the 8-pixel-wide strip — using a packbits-style RLE:
- *
- *   read byte `op`:
- *     op & 0x80 set  →  run of (op & 0x7F) copies of the next byte
- *     op & 0x80 clr  →  `op` literal bytes follow
- *
- * Each emitted byte covers the 8 pixels of one row; bit 7 (MSB) is the
- * leftmost pixel of the strip, bit 0 the rightmost.
- *
- * For the compositor: a non-zero mask bit at (x, y) means an actor with
- * z-level *less than this plane's index* should be hidden at that
- * pixel. Plane indices run 1..N (ZP01 → index 1, ZP02 → index 2, …);
- * `actorZ` of 0 means "always occluded by any plane bit".
+ * SCUMM v5 z-plane (ZP##) decoder — strip-table + packbits RLE masks.
+ * Format and compositor semantics: pages/docs/scumm/zplane.md.
  */
 
 import { findChild, payloadOf, type ResourceFile } from '../resources/tree';
@@ -43,11 +9,7 @@ import type { Block } from '../resources/block';
 export interface DecodedZPlane {
   readonly width: number;
   readonly height: number;
-  /**
-   * `width × height` bytes, one per pixel. `1` means the plane's bit is
-   * set at this pixel (an actor below this plane's level is hidden
-   * here); `0` means the plane passes through.
-   */
+  /** `width × height` bytes, one per pixel: 1 = bit set (occludes a clip-k actor), 0 = pass-through. */
   readonly mask: Uint8Array;
 }
 
@@ -69,10 +31,9 @@ export function parseRmihPlaneCount(payload: Uint8Array): number {
 }
 
 /**
- * Decode every z-plane present under `roomBlock`'s `RMIM > IM00`. The
- * declared count from RMIH is reported alongside the actual decoded
- * planes; they should match in well-formed rooms but a room with
- * RMIH=0 and no ZP## blocks is perfectly normal.
+ * Decode every z-plane under `roomBlock`'s `RMIM > IM00`. The RMIH count
+ * is reported alongside the decoded planes — they can legitimately diverge
+ * (pages/docs/scumm/zplane.md §2).
  */
 export function decodeZPlanes(
   file: ResourceFile,
@@ -117,9 +78,8 @@ export function decodeZPlane(payload: Uint8Array, width: number, height: number)
 
   const mask = new Uint8Array(width * height);
 
-  // First pass: read every raw offset. A raw value of 0 is the
-  // "implicit all-zero strip" sentinel — we keep the corresponding
-  // entry as `null` and the strip's mask region just stays zero.
+  // Offsets are header-inclusive (subtract 8, like SMAP); a raw 0 is the
+  // "implicit all-zero strip" sentinel with no body stored anywhere.
   const stripStarts: (number | null)[] = [];
   for (let s = 0; s < stripCount; s++) {
     const raw = payload[s * 2]! | (payload[s * 2 + 1]! << 8);

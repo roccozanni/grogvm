@@ -1,10 +1,6 @@
-// Vite plugin for the content pages (§9 Phase 12). Content pages (pages/*.md
-// without a `script:`) are static HTML wrapped in the site layout: served by
-// middleware in dev, emitted into dist/ in build. App pages (with `script:`)
-// are bundled by Vite from the staging root (see app-pages.ts) — this plugin
-// only re-stages them on dev edits. The two producers write disjoint routes.
-// This plugin also owns the site-wide static files: /site.css, /favicon.svg,
-// /robots.txt, /sitemap.xml, and the build-time 404.html.
+// Vite plugin for the content pages (pages/*.md without a `script:`): static
+// HTML served by middleware in dev, emitted into dist/ on build. Also owns the
+// site-wide statics (/site.css, favicon, robots, sitemap, 404.html).
 import type { Plugin } from 'vite';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -112,7 +108,7 @@ Sitemap: ${SITE_URL}/sitemap.xml
       server.watcher.on('unlink', onChange);
     },
 
-    // Runs after Vite has written the app build — append the static content
+    // Runs after Vite has written the app build — appends the static content
     // pages and the site-wide files.
     closeBundle() {
       if (!isBuild) return;

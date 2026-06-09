@@ -1,10 +1,8 @@
 import type { Clock } from '../../engine/session';
 
 /**
- * Browser clock for the EngineSession: drives `onTick` once per
- * `requestAnimationFrame` with a `performance.now()` timestamp. This is the
- * shell-side `Clock` the engine never reaches for itself (ARCHITECTURE.md
- * §5.9, §11 Q10) — keeping `requestAnimationFrame` out of the engine.
+ * Shell-side Clock for the EngineSession (pages/docs/engine/session.md §1):
+ * one `onTick` per animation frame, stamped with `performance.now()`.
  */
 export class RafClock implements Clock {
   private rafId: number | null = null;

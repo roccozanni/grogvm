@@ -3,8 +3,8 @@ import { fileURLToPath } from 'node:url';
 import { contentPlugin } from './src/build/content-plugin';
 import { writeAppPages, appPageInputs } from './src/build/app-pages';
 
-// One page model (ARCHITECTURE.md §8, §11 Q13): every page is markdown under
-// `pages/`, and its file path is its URL (`pages/index.md` → `/`,
+// One page model (pages/docs/engine/architecture.md §3): every page is
+// markdown under `pages/`, and its file path is its URL (`pages/index.md` → `/`,
 // `pages/docs/scumm/room.md` → `/docs/scumm/room/`). Pages with a
 // `script:` are *app* pages — the generator stages a real HTML entry + entry.ts
 // under `.generated/` (gitignored) so Vite bundles the island; pages without one

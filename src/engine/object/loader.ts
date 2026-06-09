@@ -1,34 +1,4 @@
-/**
- * SCUMM v5 room-object loader. Objects in a room are split across two
- * sibling blocks that share an `obj_id`:
- *
- *   ROOM
- *   ├── OBIM (object image — header + per-state image variants)
- *   │   ├── IMHD
- *   │   ├── IM01 (state 1 image)  ←─ SMAP + ZP##
- *   │   ├── IM02 (state 2 image)
- *   │   └── …
- *   ├── OBCD (object code — header, verb scripts, name)
- *   │   ├── CDHD
- *   │   ├── VERB (verb-id → script-offset table)  *(Phase 7)*
- *   │   └── OBNA (NUL-terminated object name)
- *   └── …
- *
- * The state determines which IMxx is drawn. State 0 = invisible /
- * not drawn. State N = draw IMnn (1-indexed, so state 1 → IM01).
- *
- * # Phase 6 scope
- *
- * - Parse CDHD (position + dimensions in 8-pixel units, parent, flags)
- * - Parse IMHD (pixel-precise x/y/w/h, image-variant count)
- * - Decode each IMxx's SMAP into an indexed bitmap sized by IMHD
- * - Pair OBCD and OBIM by `obj_id`
- * - Capture OBNA for trace-friendly labels
- *
- * Deferred: VERB script payloads (Phase 7), z-planes per object state
- * (compositor uses room z-planes for occlusion; per-object planes can
- * follow when the verb UI lands).
- */
+/** Room-object loader (OBCD + OBIM pairing). Format: pages/docs/scumm/objects.md. */
 
 import { decodeSmap } from '../graphics/smap';
 import { decodeZPlane, type DecodedZPlane } from '../graphics/zplane';
@@ -43,25 +13,23 @@ export class ObjectParseError extends Error {
   }
 }
 
-/** Object code header (CDHD), 13 bytes. */
+/** Object code header (CDHD), 13 bytes. Layout: pages/docs/scumm/objects.md §2. */
 export interface CDHD {
-  /** Object id — used by setState, drawObject, getObjectState, … */
   readonly objId: number;
-  /** Room x in **8-pixel units** (i.e. multiply by 8 for px). */
+  /** Room x in **8-pixel units** (multiply by 8 for px). */
   readonly x: number;
-  /** Room y in 8-pixel units. */
+  /** 8-pixel units. */
   readonly y: number;
-  /** Bounding-box width in 8-pixel units. */
+  /** 8-pixel units. */
   readonly width: number;
-  /** Bounding-box height in 8-pixel units. */
+  /** 8-pixel units. */
   readonly height: number;
   readonly flags: number;
   /** Parent object id (0 = no parent). */
   readonly parent: number;
-  /** Walk-to point (where an actor stands to interact). Pixel coords. */
+  /** Walk-to point, in pixels (unlike x/y). */
   readonly walkX: number;
   readonly walkY: number;
-  /** Suggested actor facing on use (N/S/E/W mapped through engine convention). */
   readonly actorDir: number;
 }
 
@@ -71,71 +39,47 @@ export interface IMHD {
   /** Number of IMxx children present (state 1 → IM01, etc.). */
   readonly numImages: number;
   readonly flags: number;
-  /** Pixel-precise position + size for the image. */
+  /** Pixel-precise position + size (unlike CDHD's 8-px units). */
   readonly x: number;
   readonly y: number;
   readonly width: number;
   readonly height: number;
 }
 
-/** One per-state image: decoded SMAP at the object's dimensions. */
 export interface ObjectImage {
   /** 1-based state index — matches the IMxx tag's number. */
   readonly state: number;
   /** `width × height` palette indices, decoded from the IMxx's SMAP. */
   readonly indexed: Uint8Array;
   /**
-   * The object's own z-planes, one per `ZP##` block, indexed by plane
-   * ordinal: `zPlanes[0]` = `ZP01` (clip level 1), `zPlanes[1]` = `ZP02`
-   * (clip level 2), … — the SAME `ZP0k → plane k` mapping the room planes
-   * use. A slot is `null` when that plane is absent or is a solid-fill
-   * placeholder (see the drop in {@link decodeObjectZPlane}); the array is
-   * `[]` when the image has no z-plane at all. When the object is drawn,
-   * each `zPlanes[k-1]` makes the object a foreground that occludes actors
-   * at clip level `k` **alone** (so the title logo's `ZP01` occludes the
-   * clip-1 clouds, and the general-store sword's `ZP02` occludes only the
-   * clip-2 shopkeeper — not the clip-1 ego standing at the shelf).
-   * Positioned at the object's runtime position. Width is a multiple of 8.
+   * Per-plane: `zPlanes[k-1]` = `ZP0k`, occluding actors at clip level `k`
+   * ALONE — same mapping as room planes (pages/docs/scumm/zplane.md). `null`
+   * slot = absent/undecodable plane; `[]` = no z-planes.
    */
   readonly zPlanes: ReadonlyArray<DecodedZPlane | null>;
 }
 
-/** A room-object — the OBIM image data paired with its OBCD metadata. */
 export interface LoadedObject {
   readonly objId: number;
-  /** CDHD-derived position + size. */
   readonly cdhd: CDHD;
-  /**
-   * IMHD-derived position + size in pixels. The compositor uses this
-   * (not CDHD's 8-pixel-unit values) because some objects have
-   * sub-cell offsets that CDHD can't express.
-   */
+  /** The compositor draws at IMHD's pixel position — CDHD can't express sub-cell offsets. */
   readonly imhd: IMHD;
   /** Decoded image per state — keyed by state index (1, 2, …). */
   readonly images: ReadonlyMap<number, ObjectImage>;
-  /** Object name from OBNA (NUL-terminated), or empty if absent. */
+  /** Object name from OBNA, or empty if absent. */
   readonly name: string;
-  /**
-   * Verb scripts from the OBCD's VERB block, keyed by verb id. Each
-   * value is the bytecode for that verb (a view into the file bytes),
-   * runnable as a synthetic slot via `vm.startVerbScript`. Empty when
-   * the object has no VERB block. See {@link parseVerbScripts}.
-   */
+  /** Verb bytecode by verb id (views into the file bytes). Empty when no VERB block. */
   readonly verbs: ReadonlyMap<number, Uint8Array>;
 }
 
 /**
- * Parse every object in a ROOM block. Returns a Map keyed by obj_id
- * so callers (the compositor) can look up by the id they have in
- * hand. OBCD and OBIM are paired by obj_id; orphans (OBCD without a
- * matching OBIM, or vice-versa) are silently dropped — they don't
- * help the compositor.
+ * Parse every object in a ROOM block, pairing OBCD and OBIM by obj_id.
+ * Orphans (either block without its sibling) are silently dropped.
  */
 export function parseRoomObjects(
   file: ResourceFile,
   roomBlock: Block,
 ): ReadonlyMap<number, LoadedObject> {
-  // Index OBIM blocks by obj_id from their IMHD.
   const obims = new Map<number, Block>();
   const imhds = new Map<number, IMHD>();
   for (const child of roomBlock.children ?? []) {
@@ -156,13 +100,10 @@ export function parseRoomObjects(
 
     const obim = obims.get(cdhd.objId);
     const imhd = imhds.get(cdhd.objId);
-    // OBCD without OBIM = object with no image (script-only sentinel).
-    // Skip — the compositor has nothing to draw.
     if (!obim || !imhd) continue;
 
     const images = decodeImages(file, obim, imhd);
 
-    // OBNA is optional — when present, a NUL-terminated string.
     const obnaBlock = findChild(child, 'OBNA');
     let name = '';
     if (obnaBlock) {
@@ -172,8 +113,6 @@ export function parseRoomObjects(
       name = String.fromCharCode(...p.subarray(0, end));
     }
 
-    // VERB is optional — objects with no interactions (pure scenery)
-    // omit it, yielding an empty verb map.
     const verbBlock = findChild(child, 'VERB');
     const verbs = verbBlock
       ? parseVerbScripts(payloadOf(file, verbBlock))
@@ -184,11 +123,6 @@ export function parseRoomObjects(
   return out;
 }
 
-/**
- * Parse a CDHD payload. Throws on short payload — every MI1/MI2 CDHD
- * is exactly 13 bytes; anything shorter is malformed.
- */
-/** Assemble a signed 16-bit LE value from two bytes. */
 function i16(lo: number, hi: number): number {
   const v = lo | (hi << 8);
   return v >= 0x8000 ? v - 0x10000 : v;
@@ -209,23 +143,14 @@ export function parseCDHD(payload: Uint8Array): CDHD {
     height: payload[5]!,
     flags: payload[6]!,
     parent: payload[7]!,
-    // walk_x / walk_y are SIGNED 16-bit — an object's walk-to point can sit
-    // just off the room's left edge (negative x). MI1 room 78's left exit
-    // (obj 857) walks to x=-25; read unsigned it became 65511, so the ego
-    // marched off-screen right and never reached the exit (the "can't leave
-    // room 78" bug). Walk boxes are already parsed signed; match them here.
+    // SIGNED — an edge exit's walk-to x can be negative (objects.md §2).
     walkX: i16(payload[8]!, payload[9]!),
     walkY: i16(payload[10]!, payload[11]!),
     actorDir: payload[12]!,
   };
 }
 
-/**
- * Parse an IMHD payload. v5 layout is fixed-size 16 bytes when there
- * are no hotspots; hotspots add 4 bytes each. We don't care about
- * hotspots for rendering (they're verb/interaction concerns), so we
- * just read the first 16.
- */
+/** Reads the fixed first 16 bytes; trailing hotspot entries (4 B each) are ignored. */
 export function parseIMHD(payload: Uint8Array): IMHD {
   if (payload.length < 16) {
     throw new ObjectParseError(
@@ -246,12 +171,7 @@ export function parseIMHD(payload: Uint8Array): IMHD {
   };
 }
 
-/**
- * Decode every IMxx child of an OBIM block into an indexed bitmap.
- * Each IMxx is structured like the room's IM00: an SMAP child holds
- * the bitmap data. We use the IMHD's width / height as the canvas
- * size for `decodeSmap`.
- */
+/** Decode every IMxx child of an OBIM, sized by IMHD (SMAP doesn't carry dimensions). */
 function decodeImages(
   file: ResourceFile,
   obim: Block,
@@ -278,18 +198,9 @@ function decodeImages(
 }
 
 /**
- * Decode an IMxx's `ZP##` z-planes into a per-plane array, sized to the
- * object's dimensions. Each `ZP0k` lands at index `k-1` (so `ZP01`→`[0]`,
- * `ZP02`→`[1]`) — the same `ZP0k → plane k` mapping the room planes use, so a
- * drawn object occludes actors at clip level `k` via its `ZP0k` **alone**
- * (matching the single-plane rule). Collapsing every chunk into one mask was
- * the bug: MI1's general-store sword (#388) carries its mask only in `ZP02`,
- * so merging it into plane 1 wrongly clipped the clip-1 ego standing at the
- * shelf, while never occluding the clip-2 shopkeeper it should.
- *
- * Returns `[]` when the width isn't a multiple of 8 (the strip-based RLE
- * requires it) or there are no `ZP##` blocks. A per-plane slot is `null` only
- * when that plane fails to decode (swallowed — the object still draws).
+ * `ZP0k` → index `k-1`, preserving the per-plane mapping — do NOT collapse the
+ * chunks into one mask (single-plane rule, pages/docs/scumm/zplane.md). `[]`
+ * when width isn't a multiple of 8 (strip RLE requires it) or no ZP## blocks.
  */
 function decodeObjectZPlanes(
   file: ResourceFile,

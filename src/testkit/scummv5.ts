@@ -1,23 +1,7 @@
 /**
- * SCUMM-v5 load/boot/save glue — the disk-facing half of the dev/test
- * harness, parameterised by game directory so it serves any v5 build (MI1
- * IT/EN, MI2, …). It reads real game files (Node only — `node:fs`), so it
- * lives in `src/testkit/` — a sibling of `engine`/`shell`, NOT inside
- * `engine/`, which stays a portable browser-bundled core free of `node:fs`.
- * Never imported by app code.
- *
- * The *game-agnostic* drivers (`setMouse`/`hover`/`driveTicks`/`driveUntil`/
- * `driveToRoom`) live in `drive.ts` and are re-exported here so a caller gets
- * the whole harness from one import:
- *
- *   import { bootScummV5, restoreSave, driveToRoom } from '../../src/testkit/scummv5.ts';
- *   const vm = bootScummV5('games/MI1-IT-CD-DOS-VGA');
- *   driveToRoom(vm, 33);
- *
- * Everything that touches game data is **data-gated**: callers guard with
- * {@link hasData} so a fresh checkout / CI (no copyrighted bytes) stays green.
- * Per-game specifics (which directory, which object/verb ids) live with the
- * playthrough that uses them under `integration/<game>/`, not here.
+ * SCUMM-v5 load/boot/save glue — the disk-facing (Node-only) half of the
+ * harness; re-exports the rest so callers import everything from here.
+ * See pages/docs/engine/harness.md.
  */
 import { closeSync, existsSync, fstatSync, openSync, readdirSync, readFileSync, readSync } from 'node:fs';
 import { parseResourceFile } from '../engine/resources/file';
@@ -29,8 +13,6 @@ import { bootGame, type GameId } from '../engine/vm/boot';
 import { restoreVm } from '../engine/vm/savestate';
 import type { Vm } from '../engine/vm/vm';
 
-// The game-agnostic drivers are part of the harness API — re-export so
-// callers import everything from here.
 export * from './drive';
 export * from './random';
 export * from './actions';
@@ -64,9 +46,7 @@ export function loadScummV5(dir: string): LoadedGame {
 
 /**
  * Load + boot the game in `dir`, returning the booted {@link Vm} (at the
- * title). Pass `random` (e.g. {@link makeSeededRandom}) to make the run
- * reproducible — the playthrough seeds it so a regression run is
- * deterministic; omit it for live randomness.
+ * title). Pass `random` (e.g. {@link makeSeededRandom}) for a reproducible run.
  */
 export function bootScummV5(
   dir: string,
@@ -81,13 +61,8 @@ const CD_TRACK_RE = /^Track(\d+)\.(fla|mp3)$/i;
 const CD_TRACK_HEADER_BYTES = 2048;
 
 /**
- * Read every `TrackN.{fla,mp3}` CD-audio track's duration (jiffies) from its
- * header, up front, so CD-trigger sounds can be timed. Only the header is
- * read (a small partial read — {@link audioDurationJiffies} needs the FLAC
- * STREAMINFO or the MP3 Xing/Info frame), not the multi-MB body; the file
- * size (for the MP3 CBR fallback) comes from `fstat`. Tracks are discovered
- * from the folder; a folder with no track files yields an empty map (those
- * gates then fall through).
+ * Read every `TrackN.{fla,mp3}` CD track's duration (jiffies) from its header
+ * only — never the multi-MB body. See pages/docs/engine/audio.md §3.
  */
 export function readCdTrackDurations(dir: string): Map<number, number> {
   const durations = new Map<number, number>();
@@ -117,10 +92,8 @@ export function readCdTrackDurations(dir: string): Map<number, number> {
 }
 
 /**
- * Restore a websave into `vm`. `nameOrPath` may be a full path, or a bare
- * slot name resolved under `saves/` (`.websave.json` appended if missing) —
- * `restoreSave(vm, 'MI1-bug-map-labels')` → `saves/MI1-bug-map-labels.websave.json`.
- * Returns `vm` for chaining.
+ * Restore a websave into `vm` (returned for chaining). `nameOrPath` may be a
+ * full path or a bare slot name → `saves/<name>.websave.json`.
  */
 export function restoreSave(vm: Vm, nameOrPath: string): Vm {
   let path = nameOrPath;

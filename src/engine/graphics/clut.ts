@@ -1,14 +1,7 @@
 /**
- * CLUT — Color lookup table for a room.
- *
- * Payload: 256 × (R, G, B) = 768 bytes.
- *
- * Public docs disagree on whether SCUMM v5 stores values in the VGA DAC
- * 0–63 range or already in 0–255. For MI1 CD VGA and MI2 DOS VGA we use
- * the bytes as-is (0–255 range). If room images come out radically dark
- * in the player, the fix is a 6→8 bit upscale here.
- *
- * Returns an own buffer (not a view) so callers can mutate freely.
+ * CLUT — room palette, 256 × (R, G, B) = 768 bytes. Values are used as-is
+ * (0–255): public docs disagree on a VGA DAC 0–63 range, but MI1 CD /
+ * MI2 DOS VGA data is full-range. Returns an own buffer so callers can mutate.
  */
 export function parseClut(payload: Uint8Array): Uint8Array {
   if (payload.length < 768) {

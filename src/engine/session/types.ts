@@ -13,21 +13,15 @@ export interface SessionGame {
   readonly loff: RoomOffsetTable;
   readonly gameId: GameId;
   /**
-   * CD-audio track durations (jiffies) by track number, read from the
-   * `TrackN.fla` FLAC headers at load time (like the other resources) so the
-   * VM can time CD-trigger sounds. Optional: absent, or for a release without
-   * CD tracks, CD-gated waits fall through.
+   * CD-track durations (jiffies) by track number, read at load time —
+   * pages/docs/engine/audio.md §3. Absent ⇒ CD-gated waits fall through.
    */
   readonly cdTrackDurations?: ReadonlyMap<number, number>;
 }
 
 /**
- * Engine-level input. The shell translates browser events into these and
- * calls {@link EngineSession.sendInput}. NOTE: verb/sentence click dispatch
- * (running input-script #4 against the hovered object) is NOT handled here —
- * that's the Play surface's job (Phase 10, task 5). This covers only the
- * engine-level surface: cursor position, button holds, and keys — Escape
- * (abort-cutscene) and `.` (skip the current line of speech).
+ * Engine-level input only (cursor, button holds, Escape / `.` keys). Verb and
+ * sentence click dispatch is deliberately NOT here — that's the Play surface's job.
  */
 export type InputEvent =
   | { readonly type: 'move'; readonly roomX: number; readonly roomY: number }
@@ -71,15 +65,11 @@ export interface SessionStatus {
 }
 
 /**
- * The single object the shell holds to run a game (ARCHITECTURE.md §5.9).
+ * The single object the shell holds to run a game (pages/docs/engine/session.md).
  * Wires VM + compositor + renderer + loop; the clock is injected.
  */
 export interface EngineSession {
-  /**
-   * The live VM. Swapped by {@link restore} / {@link reboot}, so always
-   * read it through this getter rather than caching it. The Debug surface
-   * reads it directly (privileged); Play uses only the high-level API.
-   */
+  /** Swapped by {@link restore} / {@link reboot} — never cache it; read through the getter. */
   readonly vm: Vm;
 
   // ── clock control (arms/disarms the injected clock; never calls rAF) ──

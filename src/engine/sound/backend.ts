@@ -1,14 +1,4 @@
-/**
- * The audio seam. The VM talks to an {@link AudioBackend} for everything
- * sound-related; the backend owns the active-sound map and is the single
- * authority on whether a sound is still playing — which is what the
- * `isSoundRunning` opcode polls to pace cutscenes and transitions.
- *
- * {@link SilentTimingBackend} is the one backend for now: it models timing
- * faithfully (counting down each sound's real {@link SoundResource}
- * duration) but produces no audio. A real-output backend
- * (`WebAudioBackend`) will implement the same interface in a later phase.
- */
+/** The audio seam — single authority on "is this sound playing". See pages/docs/engine/audio.md. */
 
 import type { SoundResource } from './resource';
 
@@ -41,8 +31,7 @@ interface ActiveSound {
 }
 
 /**
- * Timing-faithful, silent backend. Tracks each playing sound's remaining
- * jiffies; `advance` drains non-looping sounds and drops them at zero, so
+ * Timing-faithful, silent: counts down each sound's real duration so
  * `isRunning` flips false exactly when the real sound would have ended.
  */
 export class SilentTimingBackend implements AudioBackend {

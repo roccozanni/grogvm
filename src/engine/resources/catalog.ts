@@ -1,11 +1,6 @@
 /**
- * Human-readable descriptions of every SCUMM v5 block tag GrogVM knows
- * about. Single source of truth — the UI uses this to annotate the
- * resource tree.
- *
- * Source: long-circulating SCUMM reverse-engineering notes and
- * Aric Wilmunder's published design docs. Descriptions are summarized
- * in our own words; no copying.
+ * Human-readable descriptions of every known block tag, for the resource-tree
+ * UI. Summarized in our own words from circulating SCUMM notes — no copying.
  */
 
 export interface BlockInfo {
@@ -19,8 +14,6 @@ export interface BlockInfo {
 const CATALOG: Record<string, BlockInfo> = {
   // -------------------------------------------------------------------
   // Index file — MONKEY.000 / MONKEY2.000
-  // The top-level blocks here are directories that say "resource N of
-  // type T lives in MONKEY.001 at file F, offset O".
   // -------------------------------------------------------------------
 
   RNAM: {
@@ -235,11 +228,7 @@ const CATALOG: Record<string, BlockInfo> = {
   },
 };
 
-/**
- * Look up a block description by tag. Handles the IM00..IM0F pattern
- * (image-data sub-blocks of RMIM or OBIM) by synthesizing a BlockInfo
- * with the same explanation for the whole family.
- */
+/** Look up by tag; the IMxx / ZPxx families synthesize one shared BlockInfo. */
 export function describeBlock(tag: string): BlockInfo | undefined {
   const direct = CATALOG[tag];
   if (direct) return direct;

@@ -1,18 +1,4 @@
-/**
- * A format-agnostic descriptor of a SOUN resource's playback timing — the
- * only thing the silent timing backend needs to report `isSoundRunning`
- * truthfully. {@link parseSound} reads it once from the raw SOUN payload;
- * the (later) real-audio backend will parse the same payload for samples.
- *
- * MI1's SOUN payloads come in two timing-relevant shapes:
- *   - A `SOU ` container holding device renditions (`SBL ` digitized PCM,
- *     `ROL `/`ADL `/`SPK ` standard MIDI). The first listed rendition is the
- *     primary one; its length is read from the data (see `duration.ts`).
- *   - A 24-byte CD-audio trigger (`0x18 …`) naming a redbook track at byte
- *     16 and a loop flag at byte 17 (`0x01` one-shot, `0xff` looping). The
- *     track length lives in a separate FLAC file, so the caller supplies a
- *     `cdTrackJiffies` lookup (the VM reads the FLAC header live, cached).
- */
+/** SOUN payload → playback-timing descriptor. Formats: pages/docs/scumm/sound.md §2. */
 
 import { midiDurationJiffies, sblDurationJiffies } from './duration';
 
@@ -36,14 +22,9 @@ const be32 = (b: Uint8Array, o: number): number =>
   ((b[o]! << 24) | (b[o + 1]! << 16) | (b[o + 2]! << 8) | b[o + 3]!) >>> 0;
 
 /**
- * Parse a SOUN block's payload (everything after the 8-byte SOUN header, as
- * {@link loadSound} returns) into a {@link SoundResource}. A null/empty
- * payload — or an unrecognized format — yields a non-gating 0-jiffy resource
- * so a busy-wait can never hang on it.
- *
- * `cdTrackJiffies` resolves a CD track number to its playback length (the VM
- * reads the FLAC header live and caches it); it's only consulted for one-shot
- * CD-trigger sounds, and a missing/0 result leaves the sound non-gating.
+ * Anything null/empty/unrecognized yields a non-gating 0-jiffy resource so a
+ * busy-wait can never hang. `cdTrackJiffies` resolves a CD track's length
+ * (consulted only for one-shot CD triggers; missing/0 stays non-gating).
  */
 export function parseSound(
   soundPayload: Uint8Array | null,

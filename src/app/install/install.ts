@@ -2,10 +2,8 @@ import type { App } from '../library/app';
 import { addGame, findGameByHash } from '../../platform/storage/games';
 import { detectGame, identifyVariant, INDEX_FILENAME } from '../../platform/detect';
 
-// The "Install game…" button calls this directly — it opens the OS directory
-// picker (a user gesture, so it must run straight off the click), detects and
-// identifies the game, stores it, and re-renders the library. Any failure
-// re-renders the library with a flash; a cancelled picker is a silent no-op.
+// Must run straight off the click: showDirectoryPicker needs the user gesture.
+// A cancelled picker is a silent no-op; other failures flash on the library.
 export async function installGame(app: App): Promise<void> {
   let handle: FileSystemDirectoryHandle;
   try {

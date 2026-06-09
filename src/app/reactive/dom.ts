@@ -1,14 +1,7 @@
 /**
- * Minimal DOM render helpers built on the reactivity kernel
- * (ARCHITECTURE.md §7). `el` builds elements; the `bind*` helpers tie a
- * piece of DOM to a reactive expression via `effect`, so it updates in
- * place when the signals it reads change — no re-render, no diffing.
- *
- * Kept deliberately un-magic: `el`'s props/children are STATIC. Anything
- * dynamic is wired explicitly with `bindText` / `bindAttr` / `bindClass`
- * (each just an `effect`), which reads clearer than reactive-prop sugar and
- * matches the project's clarity-over-cleverness rule. A component is a plain
- * function that returns an element and (via `createRoot`) a dispose.
+ * DOM helpers on the reactivity kernel. `el` props/children are STATIC by
+ * design — anything dynamic is wired explicitly with the `bind*` helpers
+ * (each just an `effect`). See pages/docs/engine/architecture.md.
  */
 
 import { effect } from './reactivity';
@@ -59,7 +52,6 @@ export function append(parent: Node, child: Child): void {
   );
 }
 
-/** Remove all children of `node`. */
 export function clear(node: Node): void {
   while (node.firstChild) node.removeChild(node.firstChild);
 }

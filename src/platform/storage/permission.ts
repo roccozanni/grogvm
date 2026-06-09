@@ -1,8 +1,5 @@
-/**
- * Browsers do not persist File System Access permissions across sessions,
- * even for a handle that was previously granted. We have to re-query and
- * re-request before reading anything from a stored handle.
- */
+// Browsers don't persist File System Access permissions across sessions, even
+// for a previously granted handle — re-query and re-request before reading.
 export async function ensureReadPermission(
   handle: FileSystemDirectoryHandle,
 ): Promise<boolean> {

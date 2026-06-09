@@ -1,11 +1,4 @@
-/**
- * Costumes dossier panel. Costumes ship inside the room's LFLF, so the shell
- * hands this panel the costumes bucketed for the current room. A prev/next
- * picker keeps one costume on screen at a time (rendering every frame of every
- * costume at once would be a wall of canvases); the selected costume's limb
- * frames are decoded with the same `decodeCostumeFrame` the compositor uses and
- * shown as thumbnails, mapped through the current room's CLUT.
- */
+/** Costumes dossier panel: per-limb frame thumbnails behind a prev/next picker. See pages/docs/scumm/cost.md. */
 import { signal, effect, el, append, clear, bindText } from '../reactive';
 import { payloadOf, type ResourceFile } from '../../engine/resources/tree';
 import {
@@ -28,8 +21,7 @@ export function costumesPanel(
 
   const idx = signal(0);
   const view = el('div', { class: 'costume-view-host' });
-  // Nested inside the shell's room effect → re-rendered on costume change and
-  // disposed when the room (and thus this panel) is rebuilt.
+  // Owned by the shell's room effect; disposed when the room re-renders.
   effect(() => {
     clear(view);
     append(view, renderCostume(costumes[idx()]!, file, roomPalette));
@@ -72,8 +64,8 @@ function renderCostume(entry: CostumeEntry, file: ResourceFile, roomPalette: Uin
   const frames = el('div', { class: 'costume-frames' });
   let drawn = 0;
   for (const table of decodeLimbTables(payload, cost)) {
-    // Frames are valid up to the first "suspicious" entry (trailing junk / the
-    // shared sentinel unused limbs point at).
+    // Frames are valid up to the first "suspicious" entry (trailing junk /
+    // the shared sentinel unused limbs point at).
     let valid = 0;
     while (valid < table.entries.length && !table.suspicious[valid]) valid++;
     if (valid === 0) continue;

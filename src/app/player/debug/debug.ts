@@ -1,14 +1,7 @@
 /**
- * Debug panel (ARCHITECTURE.md §7, Q8) — live VM inspection below the Play
- * canvas, driven off the SAME EngineSession. **Always visible**: GrogVM is a
- * learning tool, so the VM internals are never hidden behind a toggle.
- *
- * Controls (play / pause / step / rate / run-to-idle / warp / reboot) call the
- * session. The inspection panels (slot table, globals / bits grids, trace,
- * actor table, input panel, halt) and the full saves panel are the pure
- * renderers in `./panels.ts`, driven by a session-backed `InspectorState` —
- * the loop fields it once owned are stubbed (the session owns the loop now)
- * and the display fields are refreshed each frame.
+ * Debug panel (pages/docs/engine/architecture.md §5): live VM inspection below
+ * the Play canvas, driven off the same EngineSession. Always visible — GrogVM
+ * is a learning tool, so VM internals are never hidden behind a toggle.
  */
 import { signal, bindText, el, createRoot, onCleanup } from '../../reactive';
 import type { EngineSession } from '../../../engine/session';
@@ -30,17 +23,15 @@ export interface DebugPanel {
   dispose(): void;
 }
 
-// saveKey namespaces this install's save slots (the per-install UUID, so two
-// language variants don't share slots); saveLabel is the human prefix for
-// exported-save filenames.
+// saveKey namespaces this install's save slots (per-install UUID, so two
+// language variants don't share); saveLabel prefixes exported-save filenames.
 export function mountDebugPanel(
   session: EngineSession,
   saveKey: string,
   saveLabel: string,
 ): DebugPanel {
-  // InspectorState backing the reused panels. Loop-internal fields are stubbed
-  // (the session owns the loop); the meaningful display fields are refreshed
-  // from session state each frame.
+  // Loop-internal InspectorState fields are stubbed (the session owns the
+  // loop); the display fields are refreshed from session state each frame.
   const state: InspectorState = {
     vm: session.vm,
     globalsShown: 64,
@@ -69,8 +60,6 @@ export function mountDebugPanel(
     const playingSig = signal(false);
     const roomSig = signal('');
 
-    // Live panels: full rebuild per frame (matches the legacy inspector; the
-    // tables have no critical click targets).
     const live = el('div', { class: 'vm-live' });
     const repaintLive = (): void => {
       state.vm = session.vm;
@@ -95,7 +84,6 @@ export function mountDebugPanel(
       );
     };
 
-    // Controls (wired straight to the session).
     const playBtn = el('button', {
       class: 'secondary',
       onClick: () => {
@@ -145,9 +133,8 @@ export function mountDebugPanel(
       counter,
     );
 
-    // Hang watchdog banner — surfaces "clicks that change nothing" (a script
-    // parked waiting on a var the input never sets, the dialog-stuck class of
-    // bug). Hidden until the watchdog fires; also logged to the console.
+    // Surfaces "clicks that change nothing" (a script parked waiting on a var
+    // the input never sets). Hidden until the watchdog fires.
     const watchdogBanner = el('div', { class: 'vm-watchdog', style: 'display:none' });
     let wiredVm: typeof session.vm | null = null;
     const wireWatchdog = (vm: typeof session.vm): void => {
@@ -173,7 +160,6 @@ export function mountDebugPanel(
       live,
     );
 
-    // Per-frame refresh: live label updates + rebuild the panels.
     const unsub = session.onFrame(() => {
       const st = session.status();
       state.tickCount = st.tickCount;
@@ -183,17 +169,16 @@ export function mountDebugPanel(
       tickSig.set(st.tickCount);
       playingSig.set(st.playing);
       const vm = session.vm;
-      // (Re)attach the watchdog whenever the VM instance changes (reboot/restore).
+      // Re-attach the watchdog when the VM instance changes (reboot/restore).
       if (vm !== wiredVm) {
         wiredVm = vm;
         watchdogBanner.style.display = 'none';
         wireWatchdog(vm);
       }
       roomSig.set(`room ${vm.currentRoom}${vm.loadedRoom ? ` (${vm.loadedRoom.width}×${vm.loadedRoom.height})` : ' — none loaded'}`);
-      // Rebuild the heavy tables (slot/globals/bits/trace, ~350 DOM nodes)
-      // ONLY when paused/stepping — doing it during play janks camera-follow,
-      // and the tables are an unreadable blur at speed anyway. The live tick /
-      // room / play-state labels keep updating every frame (cheap bindText).
+      // Rebuild the heavy tables (~350 DOM nodes) ONLY when paused/stepping —
+      // doing it during play janks camera-follow. The cheap bindText labels
+      // keep updating every frame.
       if (!st.playing) repaintLive();
     });
     onCleanup(unsub);
@@ -205,7 +190,6 @@ export function mountDebugPanel(
       repaintLive();
     };
 
-    // Initial paint.
     repaintSaves();
     repaintLive();
 

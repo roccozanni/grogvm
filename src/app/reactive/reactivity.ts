@@ -1,21 +1,7 @@
 /**
- * A tiny fine-grained reactivity kernel — the one owned primitive the
- * rebuilt shell is allowed (ARCHITECTURE.md §7, Q9). No dependency, fully
- * unit-testable in Node. It exists to kill the old shell's hand-rolled
- * per-tick DOM diffing: bind a piece of DOM with `effect`, and only that
- * binding re-runs when a `signal` it read changes.
- *
- * Model (Solid-like, deliberately small):
- *   - `signal`   — a readable/writable reactive value.
- *   - `effect`   — runs now, re-runs when any signal it READ changes.
- *   - `computed` — a derived read-only value.
- *   - `batch` / `untracked` — coalesce writes / read without subscribing.
- *   - `createRoot` / `onCleanup` — ownership, so a component can dispose
- *     every effect it created in one call.
- *
- * Notification is synchronous (a write re-runs dependents immediately)
- * unless inside `batch`. Dependencies are re-collected on every run, so
- * conditional reads track correctly.
+ * Tiny fine-grained reactivity kernel (Solid-like) — see
+ * pages/docs/engine/architecture.md. Notification is synchronous unless
+ * batched; dependencies are re-collected on every run.
  */
 
 export type Accessor<T> = () => T;
@@ -125,9 +111,8 @@ export function untracked<T>(fn: () => T): T {
 }
 
 /**
- * Run `fn` inside a fresh ownership scope. Every effect created within is
- * owned by it; calling the passed `dispose` tears them all down. The home
- * for a component subtree's lifetime.
+ * Run `fn` in a fresh ownership scope; calling the passed `dispose` tears
+ * down every effect created within.
  */
 export function createRoot<T>(fn: (dispose: () => void) => T): T {
   const owner: Owner = { cleanups: [], children: [] };
@@ -154,8 +139,6 @@ export function createRoot<T>(fn: (dispose: () => void) => T): T {
 export function onCleanup(fn: () => void): void {
   currentOwner?.cleanups.push(fn);
 }
-
-// ── internals ──────────────────────────────────────────────────────────
 
 function runComputation(comp: Computation): void {
   if (comp.disposed) return;

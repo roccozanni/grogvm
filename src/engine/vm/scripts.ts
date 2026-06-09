@@ -1,23 +1,6 @@
 /**
- * Resolve a SCUMM v5 global script (SCRP block) to its bytecode body.
- *
- * Three-way join across the index file, LOFF, and the resource file:
- *
- *   1. `index.scripts[id]` → `{ room, offset }`. `room = 0` means the
- *      slot is unused.
- *   2. `loff.get(room)` → absolute byte offset of the room's ROOM
- *      block in `.001`. LOFF lives at `LECF/LOFF` inside the resource
- *      file (see `loff.ts`).
- *   3. `loff[room] + index.scripts[id].offset` lands on the SCRP
- *      block header in `.001`. We verify the tag, slice off the
- *      8-byte block header, and return the raw bytecode payload.
- *
- * Verified empirically against MI1: 178 / 199 DSCR entries resolve to
- * a valid SCRP via this rule; the other 21 are zero-room "unused"
- * slots, correctly rejected with `ScriptLoadError`.
- *
- * For Phase 5 only `SCRP` (global scripts) is supported. `LSCR`
- * (room-local) and `OBCD` (object verbs) come later.
+ * Resolve SCUMM v5 global scripts (SCRP) and sounds (SOUN) via the
+ * index-directory + LOFF join. See pages/docs/scumm/index-file.md.
  */
 
 import type { IndexFile } from '../resources/index-file';
@@ -97,12 +80,9 @@ export function loadGlobalScript(
 }
 
 /**
- * Resolve a sound id to its `SOUN` block payload (everything after the
- * 8-byte block header), via the same index/LOFF join as
- * {@link loadGlobalScript} but over the `DSOU` directory. Returns null for
- * unused slots or when the resolved bytes aren't a `SOUN` block, so the
- * caller treats a missing sound as silence rather than throwing. The audio
- * timing seam parses this payload with `parseSound`.
+ * Resolve a sound id to its `SOUN` payload via the `DSOU` directory; `null`
+ * for unused slots / non-SOUN bytes, so a missing sound is silence rather
+ * than a throw.
  */
 export function loadSound(
   file: ResourceFile,

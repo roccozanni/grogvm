@@ -1,19 +1,4 @@
-/**
- * EngineSession — the single object the shell holds to run a game
- * (ARCHITECTURE.md §5.9; see pages/docs/engine/session.md).
- *
- * Wires the VM + frame compositor + an injected Renderer + an injected Clock
- * into one control surface: play/pause/step/setRate, sendInput,
- * snapshot/restore, debug warp/skip, and an onFrame stream. The clock is
- * injected so the loop is deterministically testable (no requestAnimationFrame
- * in the engine).
- *
- * The loop semantics (throttle, batch, idle auto-pause, all-dead pause) are
- * ported from the legacy `shell/player/vm-inspector.ts` rAF loop. That
- * inspector is deliberately NOT rewired onto this session — it is slated for
- * deletion in a later Phase-10 task, so the logic lives here as the canonical
- * copy and is duplicated there only until then.
- */
+/** EngineSession — the game loop and runtime control surface. See pages/docs/engine/session.md. */
 
 import { bootGame } from '../vm/boot';
 import type { Vm } from '../vm/vm';
@@ -50,11 +35,8 @@ const MNEMONICS_PER_SLOT_IN_FINGERPRINT = 3;
 /** All-black 256-colour palette for the brief no-room interval. */
 const BLACK_PALETTE = new Uint8Array(768);
 
-// Vertical screen-shake offsets (px) cycled per frame while `roomOps shakeOn`
-// is active — a small oscillation around rest. APPROXIMATION: SCUMM's real
-// shake table is engine-internal (not in the game bytecode), so the exact
-// amplitude/timing is a placeholder to tune in-browser; only the on/off STATE
-// is engine-faithful.
+// Per-frame vertical shake offsets (px). APPROXIMATION: SCUMM's shake table is
+// engine-internal (not in the game bytecode); only the on/off state is faithful.
 const SHAKE_OFFSETS = [0, 2, 4, 2, 0, -2, -4, -2] as const;
 
 export function createSession(
@@ -63,11 +45,8 @@ export function createSession(
   clock: Clock,
   opts?: { bootParam?: number; tickRateHz?: number; autoPauseOnIdle?: boolean },
 ): EngineSession {
-  // Auto-pause when the engine settles into an idle wait loop. The Debug
-  // surface wants this (don't burn frames at a static screen); the Play
-  // surface sets it false so the game runs continuously — there's no resume
-  // button on the clean player, so a self-pause would soft-lock. All-dead and
-  // halt pauses always apply regardless.
+  // Play sets this false (a self-pause would soft-lock the clean player); all-dead
+  // and halt pauses always apply. See session.md §3.
   const autoPauseOnIdle = opts?.autoPauseOnIdle ?? true;
   let vm: Vm = bootGame(
     game.resourceFile,
@@ -104,7 +83,7 @@ export function createSession(
 
   const frameSubs = new Set<(f: FrameInfo) => void>();
 
-  // ── tick + idle detection (ported from vm-inspector) ──────────────────
+  // ── tick + idle detection ─────────────────────────────────────────────
 
   const runTick = () => {
     const result = vm.tick();
@@ -112,10 +91,8 @@ export function createSession(
     return result;
   };
 
-  /** Snapshot of "live slots at yield + moving actors + anim cursors + recent
-   *  trace mnemonics" — stable for N ticks ⇒ engine is in a wait-for-input
-   *  loop. Timer-driven waits keep changing (the annotation value advances),
-   *  so they don't trip it; pure input waits do. */
+  /** Stable for N ticks ⇒ wait-for-input loop. Timer-driven waits keep
+   *  changing (the annotation value advances), so they don't trip it. */
   const yieldFingerprint = (): string => {
     const parts: string[] = [];
     const tailBySlot = new Map<number, string[]>();
@@ -151,10 +128,8 @@ export function createSession(
   };
 
   const checkIdle = (): boolean => {
-    // A running cutscene is intentional scripted progress, not idle — its
-    // background scripts are frozen and the cutscene sits in a timer wait, so
-    // the fingerprint stops changing. Without this guard we'd auto-pause a few
-    // ticks into MI1's credits.
+    // A running cutscene freezes background scripts, so the fingerprint stops
+    // changing — without this guard we'd auto-pause mid-cutscene.
     if (vm.cutsceneStack.length > 0) {
       idleStreak = 0;
       lastIdleFingerprint = null;
@@ -184,11 +159,8 @@ export function createSession(
     const room = vm.loadedRoom;
     const roomW = room?.width ?? 320;
     const height = room?.height ?? 144;
-    // Camera-driven viewport: present a fixed-width window into the room,
-    // scrolled by the camera. Off-camera columns are never drawn.
     const viewportW = Math.min(VIEWPORT_W, roomW);
 
-    // Compose the full room (background + actors + objects, all in room space).
     const roomNeed = roomW * height;
     if (roomScratch.length < roomNeed) roomScratch = new Uint8Array(roomNeed);
     const roomBuf = roomScratch.subarray(0, roomNeed);
@@ -202,15 +174,13 @@ export function createSession(
       getObjectPosition: (id) => vm.objectDrawPositions.get(id),
       // NeverClip class (20, bit 19) → actor always in front of z-planes.
       isNeverClip: (id) => ((vm.objectClasses.get(id) ?? 0) & (1 << 19)) !== 0,
-      // drawBox fills — applied over the bg; screen dims drive the null-room
-      // (credits) case where there's no room to size from.
+      // Screen dims size the null-room (credits) drawBox case.
       drawnBoxes: vm.drawnBoxes,
       screenWidth: roomW,
       screenHeight: height,
     });
 
-    // Extract the camera slice. When the viewport spans the whole room (the
-    // common, non-scrolling case) we present the room buffer directly.
+    // Camera slice; when the viewport spans the whole room, present the room buffer directly.
     const cameraLeft = room ? viewportLeft(vm.camera.x, roomW, viewportW) : 0;
     let fb: Uint8Array;
     if (viewportW === roomW) {
@@ -225,10 +195,8 @@ export function createSession(
       }
     }
 
-    // Screen shake (roomOps shakeOn): jolt the finished frame vertically by a
-    // small per-frame offset. Gated on the flag, so normal frames are byte-for-
-    // byte unchanged. Content shifts up/down with the vacated band cleared to
-    // palette 0 (black). (Waveform is approximate — see SHAKE_OFFSETS.)
+    // Screen shake (roomOps shakeOn): gated on the flag, so normal frames are
+    // byte-for-byte unchanged. Vacated band cleared to palette 0.
     if (vm.shakeEnabled) {
       const off = SHAKE_OFFSETS[shakePhase % SHAKE_OFFSETS.length]!;
       shakePhase++;
@@ -264,9 +232,8 @@ export function createSession(
       renderer.setPalette(room.palette);
       renderer.setTransparentIndex(room.transparentIndex);
     } else {
-      // No room loaded: present a predictable black backdrop. The room
-      // palette is cached separately (lastPalette) so the shell's overlays
-      // keep their colours through the brief no-room interval (task 5).
+      // No room: black backdrop. lastPalette keeps the shell's overlay colours
+      // alive through the brief no-room interval.
       renderer.setPalette(BLACK_PALETTE);
       renderer.setTransparentIndex(null);
     }
@@ -307,9 +274,8 @@ export function createSession(
         composeAndPresent(anyFramed);
         return;
       }
-      // Non-frame jiffies are just time passing toward the next game frame —
-      // always progress. All-dead / idle detection only applies on real
-      // frames, where scripts + actors actually ran.
+      // All-dead / idle detection only applies on real frames; non-frame
+      // jiffies are just time passing.
       if (!r.framed) continue;
       anyFramed = true;
       const anyMoving = [...vm.actors.all()].some((a) => a.isMoving);
@@ -331,8 +297,8 @@ export function createSession(
   const onClockTick = (now: number): void => {
     if (!playing || vm.haltInfo) return;
     if (needsTimeSync) {
-      // First callback after play(): set the time base and run a single tick,
-      // so we don't fast-forward a huge batch on frame 1 (lastTickAt was stale).
+      // First callback after play(): reset the time base so a stale lastTickAt
+      // doesn't fast-forward a huge batch on frame 1.
       needsTimeSync = false;
       lastTickAt = now;
       runBatch(1);
