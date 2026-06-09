@@ -8,26 +8,37 @@ sessions.
 
 ## Read these first, in order
 
-1. **[ARCHITECTURE.md](ARCHITECTURE.md)** — destination design and
-   the load-bearing principles.
-2. **[PROGRESS.md](PROGRESS.md)** — current phase state, what's done,
-   what's queued. Status line at the top says where we are.
+1. **[pages/docs/engine/architecture.md](pages/docs/engine/architecture.md)**
+   — the as-built architecture: layers, seams, and the load-bearing
+   principles.
+2. **[PROGRESS.md](PROGRESS.md)** — current state: what's in flight,
+   what's done, what's next. Status line at the top says where we are.
 
 ## Project intent
 
 GrogVM targets MI1 (CD VGA) + MI2 (DOS). **Primary goal is
 learning**, not shipping a ScummVM alternative. Clarity beats
-performance. Built in phases (0 scaffold → 1 resources → 2 graphics →
-3 costumes → …); each phase ends with something visible and tested.
+performance. Built in small, runnable steps — each lands something
+visible and tested. (The original numbered-phase plan is history; git
+keeps it. PROGRESS.md tracks what's current and what's next.)
 
 ## How the user collaborates
 
-- **Plan first, implement second.** When asked to start a phase or a
-  significant change, write the plan into PROGRESS.md (or propose it
+- **Plan first, implement second.** When asked to start a significant
+  piece of work, write the plan into PROGRESS.md (or propose it
   in chat) and let the user review before touching code.
-- **Detail the active phase, leave future phases as one-liners.** The
-  user explicitly does not want pre-planning of phases beyond the
-  current one — speculative breakdowns rot.
+- **Detail the active work, leave future items as one-liners.** The
+  user explicitly does not want pre-planning beyond the work in
+  flight — speculative breakdowns rot.
+- **Engine-faithful, no shortcuts.** Every change is the final,
+  SCUMM-faithful solution: confirm the real mechanism first
+  (disassemble the original, drive the harness) before editing; when
+  the faithful fix and a quick shell workaround disagree, faithful
+  wins. Verify the actual outcome — render real pixels for visual
+  bugs, reproduce the real flow for behaviour — never just the
+  bookkeeping. Surface any deferral/approximation explicitly in
+  PROGRESS.md; never bury a shortcut. If faithful needs a bigger
+  refactor, raise the tradeoff instead of silently picking a path.
 - **Be transparent about uncertainty.** Saying "my hypothesis is X,
   refresh and tell me what you see" is encouraged. The user is happy
   to iterate empirically when a problem is genuinely hard. They are
@@ -51,16 +62,16 @@ if violated:
   reverse-engineering notes neutrally ("long-circulating notes"), not
   as "amateur" or "wrong".
 - **No emojis in code or commits.** Documentation may use ⚠️ sparingly
-  for warning callouts (see SCUMM-V5-SMAP.md).
+  for warning callouts (see pages/docs/scumm/smap.md).
 - **The user commits manually.** Never `git commit` without an
   explicit instruction. The user always says "commit" first.
 
 ## Code conventions
 
 - **Engine code (`src/engine/**`) is DOM-free.** No `window`, no
-  `document`, no browser globals. The shell at `src/shell/**` adapts
-  `FileSystemDirectoryHandle` → `File` → `Uint8Array` and hands the
-  bytes down to the engine.
+  `document`, no browser globals. The platform layer
+  (`src/platform/storage`) adapts `FileSystemDirectoryHandle` → `File`
+  → `Uint8Array` and hands the bytes down to the engine.
 - **Indexed pixels through the whole pipeline.** Decoders produce
   `Uint8Array` of palette indices. RGBA only ever appears inside the
   renderer (via `indexedToRgba`). Do not pre-multiply palette in
@@ -72,9 +83,58 @@ if violated:
 - **No backwards-compatibility shims, feature flags, or premature
   abstraction.** Three similar lines beat a misfit helper. Trust
   internal callers; validate only at the system boundary.
-- **No comments explaining what the code does.** Comments are for the
-  non-obvious *why*: hidden constraints, surprising invariants,
-  corrections to public-format-notes (see `smap.ts`).
+- **Comments are a last resort.** Default is none — see `## Code
+  comments` for the policy and the few kinds worth keeping.
+
+## Code comments
+
+The knowledge home is `pages/docs/` — not comments. Docs are updated in
+dedicated doc sessions (the wrap flow), **not** while writing code: when
+coding surfaces a fact worth keeping, it goes into PROGRESS.md
+**Current** as a lab note, never into a comment. LLM sessions
+over-comment by default; the bar here is deliberately high.
+
+**Default: no comment.** Before writing one, apply the test: *would a
+competent reader, with the relevant doc open, plausibly break this code
+without it?* If no, don't write it. If the urge is to explain the change
+you just made or why it's correct — that's addressed to the reviewer,
+not the next reader: commit-message content, never a comment.
+
+**Module headers: 1–3 lines.** One sentence on what the module is, plus
+a `pages/docs/...` link when a doc covers it. No design essays, no
+model/lifecycle narration, no API tours — that's the doc's job. A module
+whose filename already says it needs no header at all.
+
+**The four kinds worth keeping** (1–2 lines each, rare):
+
+1. **Traps** — code that looks wrong or arbitrary but is correct: a
+   constant pinned to real game data, an order dependency, behaviour
+   that deliberately mirrors an original-engine quirk. State the
+   constraint, not the story of finding it.
+2. **Corrections at point of use** — where the code deliberately
+   diverges from long-circulating format notes: one line + doc link.
+3. **Why-nots** — the obvious alternative is wrong for a reason the
+   code can't show.
+4. **One-line JSDoc on an export** only when the signature alone is
+   ambiguous (units, coordinate space, jiffies vs. frames, ownership).
+
+**Never:**
+
+- Restating what the code or the name already says.
+- Narrating history ("now also resets…", "fixed by…", "was
+  previously…") — git keeps that.
+- Design or architecture rationale — `pages/docs/engine/`.
+- TODO / FIXME — open items live in PROGRESS.md.
+- Section banners (`// ── input ──`) except as pure navigation in very
+  long files — they carry no knowledge and earn no exception beyond
+  that.
+
+**Trimming an existing comment that carries a real, undocumented fact:**
+don't destroy the fact — move it to PROGRESS.md Current (feed for the
+next doc session), then trim the comment. `integration/<game>/game.ts`
+is the one lenient zone: id labels and mechanic notes there ARE the
+designated knowledge home for game-specific walkthrough facts (see
+PROGRESS.md), so they stay.
 
 ## Documentation
 
@@ -89,6 +149,9 @@ halves, kept separate:
 Because the docs are public and double as the project's memory, hold to these
 rules when writing or editing them:
 
+- **Prose for humans, compact.** The docs are read by people: prose-oriented,
+  woven into the doc's existing sections — not bullet dumps or walls of text.
+  A fact earns the words it needs and no more.
 - **Facts, not theories or journals.** Settled conclusions only — root cause,
   format layout, the *why*. Never the failed hypotheses, dead ends, or
   blow-by-blow of getting there (git keeps that). No "BREAKTHROUGH/REVERTED"
@@ -116,32 +179,55 @@ rules when writing or editing them:
 ## Project structure
 
 ```
-ARCHITECTURE.md           overall design
-PROGRESS.md               phase tracker, current state
+PROGRESS.md               lab notebook + tracker: current state, what's next
 README.md                 human-facing intro
-pages/docs/               public documentation (file path = route); see ## Documentation
-  scumm/                  SCUMM v5 reference — file formats + original-engine behaviour
-  engine/                 how GrogVM itself is built (session, costumes, pathfinding)
-  index.md                docs landing page
+pages/                    THE page source — markdown; file path = route
+  index.md                → /         home (content page)
+  library.md explore.md play.md
+                          → app pages: an island declared via frontmatter
+                          `script:` is hydrated into the rendered page
+  docs/                   public documentation; see ## Documentation
+    scumm/                SCUMM v5 reference — file formats + original-engine behaviour
+    engine/               how GrogVM itself is built (architecture, session,
+                          costumes, pathfinding, audio, harness)
+    index.md              docs landing page
 src/
-  main.ts                 shell entry
-  shell/                  host UI: library, install, player
+  build/                  md→HTML generator + Vite plugin (offline tooling;
+                          nothing imports it)
+  site/                   shared page shell — layout + site.css; no engine
+                          or platform imports
+  styles/                 per-island stylesheets (explorer.css, player.css)
+  platform/               browser adapters, no UI — routing/, storage/
+                          (IndexedDB, FS-Access permission, game files),
+                          detect.ts (game classification),
+                          browser-support.ts (capability gate)
+  app/                    the interactive islands — each exports mount(el):
     library/              installed-games list + flash messages
-    install/              directory picker + game detection
-    player/               room viewer + block-tree dump
-    storage/              IndexedDB wrappers, FS-Access permission
+    install/              directory picker flow
+    explorer/             session-free static resource browser
+    player/               hosts one EngineSession: play/ (game canvas +
+                          overlay) + debug/ (live VM inspector) +
+                          play-area (verb panel / dialog painting) + input
+    reactive/             tiny owned signal/effect core (DOM-only leaf)
   engine/                 (no DOM imports, no node:fs — portable core)
     resources/            .000/.001 parsing — XOR, blocks, tree nav,
                           per-tag description catalog
-    graphics/             rmhd, clut, smap, trns, room composition
-    render/               renderer interface + Canvas2D + Memory +
-                          indexed-to-rgba pure helper
-    vm/                   the script VM — variables, slots, params,
-                          boot, vars.ts (name→index map), lighting.ts;
+    vm/                   the VM + world state — variables, slots, params,
+                          boot, savestate, vars.ts (name→index map);
                           opcodes/index.ts is the EXECUTING opcode table,
                           disasm.ts is the read-only DISASSEMBLER (below)
+    graphics/             decoders: smap, costume, charset, zplane, text,
+                          palette, actor compositing
+    render/               Renderer seam + Canvas2D + Memory + frame
+                          compositor + indexed-to-rgba pure helper
     room/                 room loader + extract.ts: graceful
                           listRooms/extractRoom static-inspection layer
+    object/               OBCD/OBIM loader + verb-script lookup
+    actor/                actor table + walk stepping
+    pathfinding/          walk boxes + box-graph routing
+    sound/                AudioBackend timing seam + SOUN resource parsing
+    session/              EngineSession factory: vm + compositor + loop +
+                          renderer; the clock is injected
   testkit/                dev/test harness — sibling of engine, NOT inside
                           it (see below). drive.ts = game-agnostic VM
                           drivers (pure, synthetic-testable); scummv5.ts =
@@ -225,7 +311,7 @@ bookkeeping) instead of re-deriving the boot boilerplate. Two layers:
     `writeIndexedPng`, 8-bit RGB, nearest-neighbour integer upscale). Reach for
     these instead of re-pasting a crc32/IHDR/IDAT block + `composeFrame` wiring
     in a scratch render script.
-  - Lives in `src/testkit/`, a **sibling of `engine`/`shell`, not inside
+  - Lives in `src/testkit/`, a **sibling of `engine`/`app`, not inside
     `engine/`** — it's the only `node:fs` consumer and the engine stays a
     portable browser-bundled core. Its own tests are synthetic
     (`scummv5.test.ts` exercises `hasData` against a temp dir of empty
@@ -331,28 +417,27 @@ freeze) that otherwise costs hours to localize.
   for the site — the per-site toggle does not cover this. Users need
   `brave://flags/#file-system-access-api` enabled, then a relaunch.
   The unsupported-browser screen has a Brave-specific hint
-  (`src/shell/browser-support.ts`).
+  (`src/platform/browser-support.ts`).
 - **Canvas2DRenderer clears before each `present()`.** Required so
   transparent pixels in the new frame actually expose the canvas
   background (the CSS checkerboard) instead of compositing with the
   previous frame.
 
-## When asked to start a phase
+## When asked to start a significant piece of work
 
-1. Read PROGRESS.md to see the one-line description of the requested
-   phase.
+1. Read PROGRESS.md — the work ahead lives as one-liners under
+   **Next**.
 2. Write a detailed planning section into PROGRESS.md following the
-   shape of the previous phase's plan: **Goal**, **Definition of
-   done**, **Tasks** (broken into subsections), **Design notes**,
-   **Out of scope**.
+   shape of earlier plans: **Goal**, **Definition of done**, **Tasks**
+   (broken into subsections), **Design notes**, **Out of scope**.
 3. Show the plan to the user. Wait for review before implementing.
 4. Implement in order, keeping types green and tests passing after
    each meaningful step.
 5. Verify in the browser with the user (especially for graphics
    work — unit tests can't catch "this image looks wrong").
-6. When the user says "commit", move the phase to **Done** in
-   PROGRESS.md with the full task checklist ticked, plus a notes
-   section documenting design decisions and any new gotchas. Then
+6. When the user says "commit", update PROGRESS.md first — record what
+   shipped, the design decisions, and any new gotchas in **Current**
+   (lab-notebook style; the wrap flow below drains it later). Then
    commit. Do **not** add a `Co-Authored-By` / "Generated with Claude"
    trailer — commit messages carry no assistant attribution.
 
@@ -388,5 +473,7 @@ manual — see Durable preferences; wrapping edits files, it doesn't commit.)
 ```bash
 npm run typecheck     # 0 errors expected
 npm test              # full synthetic suite should pass
-npm run build         # production bundle should land < 30 KB JS
+npm run build         # must be green; the engine lands only in the
+                      # play/explore chunks — library + content pages
+                      # stay engine-free (a few KB of JS each)
 ```
