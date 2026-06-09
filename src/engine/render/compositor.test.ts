@@ -730,4 +730,39 @@ describe('composeFrame — drawn-object z-planes occlude z-clipped actors', () =
     });
     expect([...fb2].some((v) => v === 0x99)).toBe(false); // shopkeeper hidden by ZP02
   });
+
+  it('paints drawBox fills over the background (inclusive, clamped)', () => {
+    const room = makeRoom(8, 4, 0x42);
+    const fb = new Uint8Array(8 * 4);
+    // A box (1,1)-(3,2) color 7, plus one that overflows the right/bottom edge
+    // (6,3)-(99,99) color 9 → clamps to the framebuffer.
+    composeFrame({
+      room,
+      framebuffer: fb,
+      drawnBoxes: [
+        { left: 1, top: 1, right: 3, bottom: 2, color: 7 },
+        { left: 6, top: 3, right: 99, bottom: 99, color: 9 },
+      ],
+    });
+    const at = (x: number, y: number) => fb[y * 8 + x];
+    expect(at(0, 0)).toBe(0x42); // untouched background
+    expect(at(1, 1)).toBe(7);
+    expect(at(3, 2)).toBe(7); // inclusive of right/bottom
+    expect(at(4, 1)).toBe(0x42); // outside the box
+    expect(at(6, 3)).toBe(9);
+    expect(at(7, 3)).toBe(9); // clamped to width-1
+  });
+
+  it('paints drawBox fills on a null room when screen dims are given (credits)', () => {
+    const fb = new Uint8Array(320 * 144);
+    composeFrame({
+      room: null,
+      framebuffer: fb,
+      drawnBoxes: [{ left: 0, top: 0, right: 319, bottom: 199, color: 0 }],
+      screenWidth: 320,
+      screenHeight: 144,
+    });
+    // Full-screen clear-to-0 (clamped to 144 rows) — every pixel is 0.
+    expect([...fb].every((v) => v === 0)).toBe(true);
+  });
 });

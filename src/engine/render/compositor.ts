@@ -115,6 +115,25 @@ export interface ComposeFrameInput {
    * Defaults to "no actor is NeverClip".
    */
   readonly isNeverClip?: (actorId: number) => boolean;
+  /**
+   * Rectangles painted by the `drawBox` opcode (vm.drawnBoxes), applied over
+   * the background before objects/actors, in order. Coords are inclusive
+   * screen pixels; `color` is a CLUT index. Clamped to the framebuffer.
+   */
+  readonly drawnBoxes?: ReadonlyArray<{
+    readonly left: number;
+    readonly top: number;
+    readonly right: number;
+    readonly bottom: number;
+    readonly color: number;
+  }>;
+  /**
+   * Framebuffer dimensions for the box fill when `room` is null (no room
+   * loaded — e.g. the credits screen). Ignored when a room is present (its
+   * width/height are used). Without these, boxes are skipped on a null room.
+   */
+  readonly screenWidth?: number;
+  readonly screenHeight?: number;
 }
 
 /** Reason an entire actor didn't draw — surfaced for diagnostics. */
@@ -142,8 +161,25 @@ export interface ComposeFrameResult {
   readonly skippedObjects: ReadonlyArray<SkippedObject>;
 }
 
+/** Fill an inclusive rectangle in the framebuffer with `color`, clamped to
+ *  the [0,w) × [0,h) bounds. SCUMM's drawBox fills x..x2 / y..y2 inclusive. */
+function fillBox(
+  framebuffer: Uint8Array,
+  w: number,
+  h: number,
+  box: { left: number; top: number; right: number; bottom: number; color: number },
+): void {
+  const x0 = Math.max(0, Math.min(box.left, box.right));
+  const x1 = Math.min(w - 1, Math.max(box.left, box.right));
+  const y0 = Math.max(0, Math.min(box.top, box.bottom));
+  const y1 = Math.min(h - 1, Math.max(box.top, box.bottom));
+  for (let y = y0; y <= y1; y++) {
+    framebuffer.fill(box.color & 0xff, y * w + x0, y * w + x1 + 1);
+  }
+}
+
 export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
-  const { room, framebuffer, actors, getCostume, objectDrawQueue, getObjectState, getObjectPosition, isNeverClip } = input;
+  const { room, framebuffer, actors, getCostume, objectDrawQueue, getObjectState, getObjectPosition, isNeverClip, drawnBoxes, screenWidth, screenHeight } = input;
   const skippedActors: SkippedActor[] = [];
   const skippedLimbs: SkippedLimb[] = [];
   const skippedObjects: SkippedObject[] = [];
@@ -152,6 +188,11 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
 
   if (!room) {
     framebuffer.fill(0);
+    // No room → the credits/win screen. drawBox fills land on the blank
+    // screen at the dims the caller supplies (boxes skipped without them).
+    if (drawnBoxes?.length && screenWidth && screenHeight) {
+      for (const box of drawnBoxes) fillBox(framebuffer, screenWidth, screenHeight, box);
+    }
     return {
       actorsDrawn: 0,
       skippedActors,
@@ -173,6 +214,12 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
   }
   // Background.
   framebuffer.set(room.indexed);
+
+  // drawBox fills — painted over the background, before objects/actors
+  // (SCUMM writes them to the virtual screen behind everything drawn after).
+  if (drawnBoxes?.length) {
+    for (const box of drawnBoxes) fillBox(framebuffer, room.width, room.height, box);
+  }
 
   // Objects — drawn between bg and actors. SCUMM uses TRNS-indexed
   // transparency on object SMAPs (same convention as the room bg).

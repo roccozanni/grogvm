@@ -176,6 +176,16 @@ export interface ActiveDialog {
  * paints each slot at `(x, y)` in screen coords with `name` through
  * `color`/`hiColor`/`dimColor` depending on `state` and hover.
  */
+/** A rectangle painted by `drawBox` (0x3F). Coords are inclusive screen
+ *  pixels; `color` is a CLUT index. See {@link Vm.drawnBoxes}. */
+export interface DrawnBox {
+  readonly left: number;
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+  readonly color: number;
+}
+
 export interface VerbSlot {
   readonly id: number;
   /** Display name from `setName` (subop 0x02), printable ASCII; control sequences stripped. */
@@ -414,6 +424,17 @@ export class Vm {
    * screen renders mostly black. Cleared on room change with the draw queue.
    */
   readonly objectDrawPositions = new Map<number, { x: number; y: number }>();
+  /**
+   * Rectangles painted by `drawBox` (0x3F) onto the screen, in draw order.
+   * SCUMM writes drawBox straight into the virtual-screen surface (it
+   * persists until the background is redrawn); we rebuild the framebuffer
+   * from `room.indexed` each frame, so the compositor re-applies this list
+   * over the background instead. Cleared on room change (the redraw that
+   * erases them in SCUMM), like the object draw queue and system text. The
+   * win/credits sequence (global #130) uses full-screen `drawBox …color=0`
+   * to clear between credit cards.
+   */
+  readonly drawnBoxes: DrawnBox[] = [];
   /**
    * Currently-loaded room id (per the VM's view). Set by `loadRoom`
    * (0x72/0xF2) and related opcodes; consumed by the room-render path
@@ -965,6 +986,9 @@ export class Vm {
     // ENCD repopulates it for objects that should be visible.
     this.objectDrawQueue.clear();
     this.objectDrawPositions.clear();
+    // drawBox writes persist on the screen until the next room redraw (same
+    // lifetime as the draw queue / system text below).
+    this.drawnBoxes.length = 0;
     // Redrawing the screen for a new room erases any blasted system text
     // (signs / part-titles / credits) from the old one — they live on the
     // framebuffer, not in a persistent layer. Cleared here, before the
@@ -2244,6 +2268,7 @@ export class Vm {
     this.boxFlagOverrides.clear();
     this.objectDrawQueue.clear();
     this.objectDrawPositions.clear();
+    this.drawnBoxes.length = 0;
     this.currentRoom = 0;
     this.frameAccumulator = 0;
     this.loadedRoom = null;

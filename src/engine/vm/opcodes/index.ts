@@ -45,6 +45,7 @@ import {
   readDestRef,
   readI16,
   readU8,
+  readU16,
   readValue,
   readVarOrByte,
   readVarOrWord,
@@ -196,6 +197,35 @@ register(0x1b, makeMulDiv('mul', 'multiply'));
 register(0x9b, makeMulDiv('mul', 'multiply'));
 register(0x5b, makeMulDiv('div', 'divide'));
 register(0xdb, makeMulDiv('div', 'divide'));
+
+// ─── 0x3F / 0x7F / 0xBF / 0xFF  drawBox ──────────────────────────────
+// Paint a filled rectangle in a CLUT colour onto the screen. Operand
+// layout (left, top, then a SECOND param-mode byte, then right, bottom,
+// colour) is the one the disassembler decodes — validated by linear
+// alignment on real MI1 bytecode: global #130's drawBox at offset 65 is
+// followed by the next opcode exactly 11 bytes on, and the whole credits
+// script (#130, 2666 B, 18 drawBoxes) decodes clean through to the end.
+// The second byte carries the colour's var/direct mode (bit 0x80). MI1
+// only emits the 0x3F form (all-immediate); the box coords are read as
+// plain words to match the disassembler byte-for-byte. The fill itself
+// lives in vm.drawnBoxes, re-applied by the compositor each frame and
+// cleared on room change (SCUMM writes straight to the virtual screen,
+// which persists until the next room redraw). Used by the win/credits
+// sequence (#130) to clear to black between cards and by #155.
+function drawBoxHandler(vm: Vm, slot: ScriptSlot): void {
+  const left = readU16(slot);
+  const top = readU16(slot);
+  const modeByte = readU8(slot);
+  const right = readU16(slot);
+  const bottom = readU16(slot);
+  const color = readVarOrByte(modeByte, 1, slot, vm.vars);
+  vm.drawnBoxes.push({ left, top, right, bottom, color });
+  vm.annotate(`drawBox (${left},${top})-(${right},${bottom}) color=${color}`);
+}
+register(0x3f, drawBoxHandler);
+register(0x7f, drawBoxHandler);
+register(0xbf, drawBoxHandler);
+register(0xff, drawBoxHandler);
 
 // ─── Conditional branches ───────────────────────────────────────────
 // All comparison opcodes follow the wiki's `unless (value OP var)

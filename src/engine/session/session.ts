@@ -191,6 +191,11 @@ export function createSession(
       getObjectPosition: (id) => vm.objectDrawPositions.get(id),
       // NeverClip class (20, bit 19) → actor always in front of z-planes.
       isNeverClip: (id) => ((vm.objectClasses.get(id) ?? 0) & (1 << 19)) !== 0,
+      // drawBox fills — applied over the bg; screen dims drive the null-room
+      // (credits) case where there's no room to size from.
+      drawnBoxes: vm.drawnBoxes,
+      screenWidth: roomW,
+      screenHeight: height,
     });
 
     // Extract the camera slice. When the viewport spans the whole room (the

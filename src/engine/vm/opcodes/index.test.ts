@@ -318,6 +318,25 @@ describe('seed opcodes — arithmetic', () => {
   });
 });
 
+describe('seed opcodes — drawBox (0x3F)', () => {
+  it('records a box and consumes the 11-byte immediate form (MI1 #130 credits clear)', () => {
+    const vm = makeVm();
+    // drawBox 0,0,319,199 color=0 then stopObjectCode. Layout: op, left(u16),
+    // top(u16), modeByte(u8), right(u16), bottom(u16), color(var-or-byte).
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(
+        0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3f, 0x01, 0xc7, 0x00, 0x00, // drawBox …
+        0x00, // stopObjectCode
+      ),
+    });
+    vm.step();
+    expect(vm.drawnBoxes).toEqual([{ left: 0, top: 0, right: 319, bottom: 199, color: 0 }]);
+    while (!vm.isHalted && vm.step()) {}
+    expect(vm.isHalted).toBe(false); // 11-byte size landed on the stop, no halt
+  });
+});
+
 describe('seed opcodes — branches', () => {
   it('0x48 isEqual branch: equal continues, not-equal jumps', () => {
     const vm = makeVm();
