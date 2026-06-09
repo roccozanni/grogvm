@@ -61,6 +61,7 @@ from real game data.
 - [Cutscenes, Freezing & Override](scumm/cutscenes.md)
 - [Screen Effects](scumm/screen-effect.md)
 - [Timing — Jiffy vs. Frame](scumm/timing.md)
+- [Sound (`SOUN`) & Sound-Gated Waits](scumm/sound.md)
 
 ## Engine notes
 
@@ -71,4 +72,5 @@ How GrogVM itself is built on top of the reference above.
 - [Costume Loading & Decoding](engine/costumes.md)
 - [Pathfinding (Box-Graph Routing)](engine/pathfinding.md)
 - [Room Transitions (Entering & Leaving)](engine/room-transitions.md)
+- [Audio Timing (the `AudioBackend` Seam)](engine/audio.md)
 - [Test Harness & Integration Playthroughs](engine/harness.md)

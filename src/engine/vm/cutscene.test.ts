@@ -163,6 +163,21 @@ describe('abortCutscene (Escape / override skip)', () => {
     expect(vm.vars.readGlobal(Vm.VAR_OVERRIDE)).toBe(1);
   });
 
+  it('skips a base-level override armed with NO active cutscene (MI1 "le tre prove")', () => {
+    // g#57 arms beginOverride after its setup cutscenes have already ended, so
+    // the skippable gate runs with an empty cutscene stack. ESC must still skip.
+    const vm = makeVm();
+    const slot = vm.startScript({ scriptId: 1, bytecode: bytes(0x80, 0x80, 0x80, 0x00) });
+    slot.overridePc = 3; // armed by beginOverride; no beginCutscene around it
+    slot.yield_();
+    expect(vm.cutsceneStack.length).toBe(0);
+    expect(vm.abortCutscene()).toBe(true);
+    expect(slot.pc).toBe(3);
+    expect(slot.overridePc).toBe(null);
+    expect(slot.status).toBe('running');
+    expect(vm.vars.readGlobal(Vm.VAR_OVERRIDE)).toBe(1);
+  });
+
   it('beginOverride opcode (0x58) records the skip target and clears VAR_OVERRIDE', () => {
     const vm = makeVm();
     vm.vars.writeGlobal(Vm.VAR_OVERRIDE, 9);

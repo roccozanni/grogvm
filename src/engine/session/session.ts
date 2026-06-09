@@ -75,6 +75,8 @@ export function createSession(
     game.loff,
     game.gameId,
     opts?.bootParam,
+    undefined,
+    game.cdTrackDurations,
   ).vm;
 
   let tickCount = 0;
@@ -442,7 +444,9 @@ export function createSession(
         playing = false;
         clock.stop();
       }
-      const fresh = bootGame(game.resourceFile, game.index, game.loff, game.gameId).vm;
+      const fresh = bootGame(
+        game.resourceFile, game.index, game.loff, game.gameId, undefined, undefined, game.cdTrackDurations,
+      ).vm;
       restoreVm(fresh, state);
       adopt(fresh);
       composeAndPresent(false);
@@ -459,7 +463,9 @@ export function createSession(
         playing = false;
         clock.stop();
       }
-      adopt(bootGame(game.resourceFile, game.index, game.loff, game.gameId).vm);
+      adopt(bootGame(
+        game.resourceFile, game.index, game.loff, game.gameId, undefined, undefined, game.cdTrackDurations,
+      ).vm);
       composeAndPresent(false);
       if (wasPlaying) this.play();
     },

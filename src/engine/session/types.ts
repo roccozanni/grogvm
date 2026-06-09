@@ -12,6 +12,13 @@ export interface SessionGame {
   readonly index: IndexFile;
   readonly loff: RoomOffsetTable;
   readonly gameId: GameId;
+  /**
+   * CD-audio track durations (jiffies) by track number, read from the
+   * `TrackN.fla` FLAC headers at load time (like the other resources) so the
+   * VM can time CD-trigger sounds. Optional: absent, or for a release without
+   * CD tracks, CD-gated waits fall through.
+   */
+  readonly cdTrackDurations?: ReadonlyMap<number, number>;
 }
 
 /**

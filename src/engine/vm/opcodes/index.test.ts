@@ -1154,11 +1154,56 @@ describe('room-entry opcodes', () => {
     }
   });
 
-  it('isSoundRunning always returns 0 (audio stubbed)', () => {
-    const vm = makeVm();
+  // isSoundRunning g0 = sound #9; each case on a fresh VM (single step).
+  const pollSound9 = (vm: Vm): number => {
     vm.startScript({ scriptId: 1, bytecode: bytes(0x7c, 0x00, 0x00, 0x09) });
     vm.step();
-    expect(vm.vars.readGlobal(0)).toBe(0);
+    return vm.vars.readGlobal(0);
+  };
+
+  it('isSoundRunning reads 0 for a sound that is not playing', () => {
+    expect(pollSound9(makeVm())).toBe(0);
+  });
+
+  it('isSoundRunning reads 1 while a sound plays and 0 once it drains', () => {
+    const playing = makeVm();
+    playing.audio.startSound(9, { durationJiffies: 2, looping: false });
+    expect(pollSound9(playing)).toBe(1);
+
+    const drained = makeVm();
+    drained.audio.startSound(9, { durationJiffies: 2, looping: false });
+    drained.audio.advance(2);
+    expect(pollSound9(drained)).toBe(0);
+  });
+
+  it('startSound resolves a duration via the backend and records VAR_LAST_SOUND (23)', () => {
+    // #9 resolves to a one-shot CD trigger for track 6; its duration comes
+    // from the up-front cdTrackDurations map (read from the FLAC headers).
+    const trigger = new Uint8Array(24);
+    trigger[0] = 0x18;
+    trigger[16] = 6;
+    trigger[17] = 0x01;
+    const vm = new Vm({
+      numVariables: 800,
+      numBitVariables: 2048,
+      handlers: SEED_OPCODES,
+      resolveSound: (id) => (id === 9 ? trigger : null),
+      cdTrackDurations: new Map([[6, 120]]),
+    });
+    // startSound #9 (0x1c, p8=9).
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x1c, 0x09) });
+    vm.step();
+    expect(vm.audio.isRunning(9)).toBe(true);
+    expect(vm.vars.readGlobal(23)).toBe(9);
+  });
+
+  it('stopSound clears the backend entry', () => {
+    const vm = makeVm();
+    vm.audio.startSound(9, { durationJiffies: 100, looping: false });
+    // stopSound #9 (0x3c, p8=9).
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x3c, 0x09) });
+    vm.step();
+    expect(vm.audio.isRunning(9)).toBe(false);
   });
 
   it('stopScript kills slots running the given script id', () => {

@@ -96,6 +96,32 @@ export function loadGlobalScript(
   };
 }
 
+/**
+ * Resolve a sound id to its `SOUN` block payload (everything after the
+ * 8-byte block header), via the same index/LOFF join as
+ * {@link loadGlobalScript} but over the `DSOU` directory. Returns null for
+ * unused slots or when the resolved bytes aren't a `SOUN` block, so the
+ * caller treats a missing sound as silence rather than throwing. The audio
+ * timing seam parses this payload with `parseSound`.
+ */
+export function loadSound(
+  file: ResourceFile,
+  index: IndexFile,
+  loff: RoomOffsetTable,
+  soundId: number,
+): Uint8Array | null {
+  const entry = index.sounds[soundId];
+  if (!entry || entry.room === 0) return null;
+  const roomOffset = loff.get(entry.room);
+  if (roomOffset === undefined) return null;
+  const candidate = roomOffset + entry.offset;
+  if (candidate + 8 > file.bytes.length) return null;
+  if (readTag(file.bytes, candidate) !== 'SOUN') return null;
+  const size = readU32BE(file.bytes, candidate + 4);
+  if (size < 8 || candidate + size > file.bytes.length) return null;
+  return file.bytes.subarray(candidate + 8, candidate + size);
+}
+
 function readTag(b: Uint8Array, off: number): string {
   return String.fromCharCode(b[off]!, b[off + 1]!, b[off + 2]!, b[off + 3]!);
 }

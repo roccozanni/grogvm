@@ -37,7 +37,7 @@ import { clampPointToBoxes, findBoxAtOrNearest } from '../../pathfinding/boxes';
 import { pickObject } from '../../object/hittest';
 import { evalExpression } from '../expression';
 import { SENTENCE_CLEAR_VERB } from '../sentence';
-import { VAR_CURRENT_LIGHTS, VAR_CURSORSTATE, VAR_HAVE_MSG, VAR_OVERRIDE, VAR_USERPUT, VAR_WALKTO_OBJ } from '../vars';
+import { VAR_CURRENT_LIGHTS, VAR_CURSORSTATE, VAR_HAVE_MSG, VAR_LAST_SOUND, VAR_OVERRIDE, VAR_USERPUT, VAR_WALKTO_OBJ } from '../vars';
 import {
   derefRead,
   formatRefLabel,
@@ -514,28 +514,36 @@ register(0xd2, actorFollowCameraHandler);
 // ─── 0x3C / 0xBC  stopSound ──────────────────────────────────────────
 // ─── 0x02 / 0x82  startMusic ─────────────────────────────────────────
 // ─── 0x20         stopMusic  (no params) ─────────────────────────────
-// All audio opcodes are silent stubs for Phase 6 — sound lifts to a
-// real implementation in Phase 9 (iMUSE + AdLib).
-function makeSoundOp(label: string): OpcodeHandler {
-  return (vm, slot, opcode) => {
-    const id = readVarOrByte(opcode, 1, slot, vm.vars);
-    vm.annotate(`${label} id=${id} (stub)`);
-  };
+// Routed through the audio backend (the timing seam). No audio OUTPUT yet
+// — SilentTimingBackend models only playback duration, which is what the
+// isSoundRunning poll-loops below need to pace cutscenes/transitions.
+function startSoundHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
+  const id = readVarOrByte(opcode, 1, slot, vm.vars);
+  vm.audio.startSound(id, vm.getSoundResource(id));
+  vm.vars.writeGlobal(VAR_LAST_SOUND, id);
+  vm.annotate(`startSound ${id}`);
 }
-register(0x1c, makeSoundOp('startSound'));
-register(0x9c, makeSoundOp('startSound'));
-register(0x3c, makeSoundOp('stopSound'));
-register(0xbc, makeSoundOp('stopSound'));
+function stopSoundHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
+  const id = readVarOrByte(opcode, 1, slot, vm.vars);
+  vm.audio.stopSound(id);
+  vm.annotate(`stopSound ${id}`);
+}
+register(0x1c, startSoundHandler);
+register(0x9c, startSoundHandler);
+register(0x3c, stopSoundHandler);
+register(0xbc, stopSoundHandler);
 
 // ─── 0x7C / 0xFC  isSoundRunning ─────────────────────────────────────
-// `opcode result sound[p8]`. Audio is stubbed (Phase 9), so nothing is
-// ever playing — always write 0. Scripts poll this in loops; returning
-// 0 lets them proceed instead of waiting forever.
+// `opcode result sound[p8]`. Reads the backend's timing authority: 1 while
+// the sound is still within its duration (or looping), else 0. Scripts
+// busy-wait on this (breakHere + equalZero loop-back) to hold a transition
+// for a sound's real span; the stub's constant 0 collapsed those holds.
 function isSoundRunningHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
   const dest = readDestRef(slot, vm.vars);
   const sound = readVarOrByte(opcode, 1, slot, vm.vars);
-  writeRef(dest, 0, slot, vm.vars);
-  vm.annotate(`isSoundRunning ${sound} → 0 (stub)`);
+  const running = vm.audio.isRunning(sound) ? 1 : 0;
+  writeRef(dest, running, slot, vm.vars);
+  vm.annotate(`isSoundRunning ${sound} → ${running}`);
 }
 register(0x7c, isSoundRunningHandler);
 register(0xfc, isSoundRunningHandler);
@@ -596,10 +604,17 @@ function matrixOpHandler(vm: Vm, slot: ScriptSlot, _opcode: number): void {
   );
 }
 register(0x30, matrixOpHandler);
-register(0x02, makeSoundOp('startMusic'));
-register(0x82, makeSoundOp('startMusic'));
+function startMusicHandler(vm: Vm, slot: ScriptSlot, opcode: number): void {
+  const id = readVarOrByte(opcode, 1, slot, vm.vars);
+  vm.audio.startMusic(id, vm.getSoundResource(id));
+  vm.vars.writeGlobal(VAR_LAST_SOUND, id);
+  vm.annotate(`startMusic ${id}`);
+}
+register(0x02, startMusicHandler);
+register(0x82, startMusicHandler);
 register(0x20, (vm) => {
-  vm.annotate('stopMusic (stub)');
+  vm.audio.stopMusic();
+  vm.annotate('stopMusic');
 });
 
 // ─── 0x4C  soundKludge ───────────────────────────────────────────────

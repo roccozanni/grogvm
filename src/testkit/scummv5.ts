@@ -19,11 +19,12 @@
  * Per-game specifics (which directory, which object/verb ids) live with the
  * playthrough that uses them under `integration/<game>/`, not here.
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { closeSync, existsSync, fstatSync, openSync, readdirSync, readFileSync, readSync } from 'node:fs';
 import { parseResourceFile } from '../engine/resources/file';
 import { parseIndexFile } from '../engine/resources/index-file';
 import { parseLoff } from '../engine/resources/loff';
 import { SCUMM_V5_XOR_KEY } from '../engine/resources/xor';
+import { audioDurationJiffies } from '../engine/sound/duration';
 import { bootGame, type GameId } from '../engine/vm/boot';
 import { restoreVm } from '../engine/vm/savestate';
 import type { Vm } from '../engine/vm/vm';
@@ -73,7 +74,46 @@ export function bootScummV5(
   random?: () => number,
 ): Vm {
   const { res, index, loff } = loadScummV5(dir);
-  return bootGame(res, index, loff, gameId, undefined, random).vm;
+  return bootGame(res, index, loff, gameId, undefined, random, readCdTrackDurations(dir)).vm;
+}
+
+const CD_TRACK_RE = /^Track(\d+)\.(fla|mp3)$/i;
+const CD_TRACK_HEADER_BYTES = 2048;
+
+/**
+ * Read every `TrackN.{fla,mp3}` CD-audio track's duration (jiffies) from its
+ * header, up front, so CD-trigger sounds can be timed. Only the header is
+ * read (a small partial read — {@link audioDurationJiffies} needs the FLAC
+ * STREAMINFO or the MP3 Xing/Info frame), not the multi-MB body; the file
+ * size (for the MP3 CBR fallback) comes from `fstat`. Tracks are discovered
+ * from the folder; a folder with no track files yields an empty map (those
+ * gates then fall through).
+ */
+export function readCdTrackDurations(dir: string): Map<number, number> {
+  const durations = new Map<number, number>();
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return durations;
+  }
+  for (const name of entries) {
+    const match = CD_TRACK_RE.exec(name);
+    if (!match) continue;
+    let fd: number | undefined;
+    try {
+      fd = openSync(`${dir}/${name}`, 'r');
+      const buf = Buffer.allocUnsafe(CD_TRACK_HEADER_BYTES);
+      const n = readSync(fd, buf, 0, CD_TRACK_HEADER_BYTES, 0);
+      const size = fstatSync(fd).size;
+      durations.set(Number(match[1]), audioDurationJiffies(new Uint8Array(buf.subarray(0, n)), size));
+    } catch {
+      // unreadable track — skip; its gate stays non-blocking
+    } finally {
+      if (fd !== undefined) closeSync(fd);
+    }
+  }
+  return durations;
 }
 
 /**

@@ -39,10 +39,11 @@ import type { Actor, Facing } from '../actor/actor';
 import { DEFAULT_ACTOR_COUNT } from '../actor/actor';
 import type { AnimState, LimbPlayback } from '../graphics/costume-anim';
 import type { Sentence } from './sentence';
+import type { SoundSnapshot } from '../sound/backend';
 import type { ActiveDialog, VerbSlot, Vm } from './vm';
 
 /** Bumped whenever the snapshot shape changes incompatibly. */
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 
 interface SlotSnapshot {
   readonly status: 'dead' | 'running' | 'yielded';
@@ -119,6 +120,8 @@ export interface SaveState {
   readonly objectDrawPositions: ReadonlyArray<[number, { x: number; y: number }]>;
   readonly drawnBoxes: ReadonlyArray<{ left: number; top: number; right: number; bottom: number; color: number }>;
   readonly shakeEnabled: boolean;
+  /** Active-sound timing map, delegated to the audio backend. */
+  readonly sound: SoundSnapshot;
 
   // ── Room / camera ───────────────────────────────────────────────
   readonly currentRoom: number;
@@ -290,6 +293,7 @@ export function snapshotVm(vm: Vm, meta?: { game?: string; label?: string; saved
     objectDrawPositions: [...vm.objectDrawPositions].map(([id, p]) => [id, { ...p }]),
     drawnBoxes: vm.drawnBoxes.map((b) => ({ ...b })),
     shakeEnabled: vm.shakeEnabled,
+    sound: vm.audio.serialize(),
 
     currentRoom: vm.currentRoom,
     boxFlags: [...vm.boxFlagOverrides],
@@ -377,6 +381,7 @@ export function restoreVm(vm: Vm, state: SaveState): void {
   vm.drawnBoxes.length = 0;
   for (const b of state.drawnBoxes) vm.drawnBoxes.push({ ...b });
   vm.shakeEnabled = state.shakeEnabled;
+  vm.audio.restore(state.sound);
 
   // Room / camera. Set currentRoom + pseudoRooms + UI overrides + box flags
   // BEFORE reloading room resources so the CLUT overrides re-apply over the

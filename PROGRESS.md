@@ -367,10 +367,16 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
 
 ### Out of scope (their own phases)
 
-- **Audio** — currently silent stubs (`isSoundRunning → 0` lets sound-waits
-  fall through, collapsing sound-gated cutscenes like "Le tre prove"). **Being
-  addressed next** by the audio timing seam — see the PLAN under "Next" below.
-  Actual audio OUTPUT (`WebAudioBackend`) remains a separate later phase.
+- **Audio timing — DONE (2026-06-09, this session).** The `AudioBackend` seam
+  + `SilentTimingBackend` ship: `isSoundRunning` now reports truthfully for each
+  sound's real duration, so sound-gated cutscenes/transitions hold instead of
+  collapsing. Durations are parsed from the resources (SBL VOC time-constant,
+  MIDI tempo×ticks) and, for the CD-trigger sounds, read live from the
+  `TrackN.fla` FLAC headers at load time (partial, header-only). Writeups:
+  the seam → [engine/audio.md](pages/docs/engine/audio.md); the SOUN formats +
+  gate idiom → [scumm/sound.md](pages/docs/scumm/sound.md). Actual audio
+  **OUTPUT** (`WebAudioBackend`) remains a separate later phase behind the
+  same interface.
 - **Resource-heap management** — `resourceRoutines` stay no-ops (resources load
   lazily; there's no managed heap to model).
 
@@ -382,8 +388,9 @@ Three items ahead, one of which — keep playing MI1 — is the Current section
 above. We no longer track by phase number; ARCHITECTURE §9 keeps the historical
 phase roadmap (and git matches it).
 
-- **Audio timing seam** — the immediate next task. Full ready-to-implement plan
-  below (written 2026-06-09 for a fresh, unpolluted session).
+- **Audio timing seam** — DONE this session (see Out of scope → Audio above and
+  [engine/audio.md](pages/docs/engine/audio.md)). The PLAN that was here is
+  implemented; its findings now live in the docs.
 - **Audio OUTPUT** (`WebAudioBackend`) — a SEPARATE, later phase: actual
   synthesis (AdLib/MT-32 MIDI, SBL samples, CD redbook). NOT part of the seam
   task below.
@@ -394,200 +401,57 @@ phase roadmap (and git matches it).
 
 ---
 
-## PLAN — Audio timing seam (`SilentTimingBackend`)
+## DONE — Audio timing seam (`SilentTimingBackend`)
 
-**Status: not started. Self-contained — implement in a fresh session from this
-section + the cited files; no prior context needed.** Decided with the user
-2026-06-09: build the seam + a timing-faithful, **silent** backend (Option A —
-durations parsed from the real sound resources), wire it **everywhere including
-web play**. Actual audio OUTPUT (`WebAudioBackend`) is a later phase behind the
-same interface — do NOT build it here. No `NullAudioBackend` — `SilentTiming`
-is the one and only backend for now.
+Implemented 2026-06-09 (this session) per the plan that lived here. The
+writeups now live in the docs — the seam in
+[engine/audio.md](pages/docs/engine/audio.md), the SOUN formats + gate idiom
+in [scumm/sound.md](pages/docs/scumm/sound.md); this is just the closure record.
 
-### Why (the problem this fixes)
+What shipped (`src/engine/sound/` + wiring in `vm.ts`/`opcodes/index.ts`/
+`boot.ts`/`scripts.ts`/`savestate.ts`; CD-track header reads in
+`testkit/scummv5.ts` (node) + `platform/storage/game-files.ts` (web)):
+- `AudioBackend` seam + the one `SilentTimingBackend` (timing only, no output),
+  wired through `bootGame` so **every** session including web play uses it.
+- `parseSound` → `SoundResource{durationJiffies, looping}` from the real SOUN
+  data: SBL via its embedded **VOC time-constant** (rate is per-sound, not a
+  fixed guess — MI1 decodes to ~6849 Hz), MIDI via tempo×ticks.
+- `isSoundRunning` now reads the backend; the backend drains a jiffy per
+  `beginTick`. Savestate delegates to `serialize`/`restore` (SAVE_VERSION → 2).
+- Unit-pinned (synthetic + real-MI1 durations) and the from-boot integration net
+  is green + deterministic.
 
-Cutscenes/transitions pace themselves by **busy-waiting on sound completion**.
-The canonical bytecode pattern (found in g#57, g#107, g#108, g#122, g#131,
-g#143, room-1 ENCD, …):
+STEP-0 finding that **corrected the plan's premise**: the plan assumed the
+wait-gated sounds are SBL/MIDI; in fact **5 of 7 are CD-track triggers**
+(24-byte `0x18…` commands; byte 16 = CD track, byte 17 = `01` one-shot / `ff`
+loop). Their durations are the redbook track lengths, which live in the
+`TrackN.fla` files (real FLAC), not `MONKEY.001`. So the boot caller reads each
+track's FLAC **STREAMINFO** up front — a partial, header-only read (~42 bytes,
+never the multi-MB body) — and hands the VM a plain `track → jiffies` map
+(`cdTrackDurations`), same shape as the other resources it loads eagerly: node
+via `fs` (`bootScummV5` → `readCdTrackDurations`), browser via `File.slice`
+(`loadSessionGame`). All gated CD tracks are one-shot, so none can hang; looping
+CD music never gates.
 
-```
-breakHere
-isSoundRunning g0 = sound N
-equalZero g0 -> -10     ; if g0 != 0 (still running) loop back to breakHere; else fall through
-<loadRoom / startSound next / putActorInRoom / …>
-```
+Regression-net side effect (expected, **more** faithful): sound-gated holds now
+advance game-frames — and with them the ambient RNG stream — so the seeded
+insult-duel grind converges in ~38 duels instead of 30. The grind beat's CAP was
+a backstop, not the exact count; bumped to 60 with the cause noted in the test.
 
-`equalZero` jumps when the value is **non-zero** (jump fires when the relation is
-false), so this is "yield each game-frame, re-poll, fall through when the sound
-ends." Our `isSoundRunning → 0` stub makes `g0` 0 immediately → the loop never
-spins → the cutscene runs with no hold (the "Le tre prove" title collapse, and
-every sound-gated scene transition). Returning `1` would hang forever. The only
-faithful fix is to know **how long each sound plays**, in jiffies, and report
-`isRunning` truthfully for that span.
-
-Other coupling points, already handled or irrelevant — DON'T touch:
-- `VAR_MUSIC_TIMER` (14): already faked (auto-incremented per jiffy in
-  `beginTick`); the credits cutscene polls it. Leave as-is.
-- `soundKludge` (0x4C) / `VAR_SOUNDRESULT` (56): iMUSE queries, **0 MI1 uses**
-  (soundKludge now loud-halts). Out of scope.
-- No `wait`-for-sound opcode exists; all sound waits are `isSoundRunning` polls.
-
-### Grounding facts (verified 2026-06-09 — don't re-investigate)
-
-- **Sound resources** live in `MONKEY.001` as `SOUN` blocks (105 of them),
-  indexed by `index.sounds` (the `DSOU` lane: `{room, offset}` per sound id —
-  see `src/engine/resources/index-file.ts`). Locate a SOUN block exactly like
-  `loadGlobalScript(resourceFile, index, loff, id)` does for scripts:
-  `loff.get(entry.room) + entry.offset` → the block. Formats seen:
-  - **`SOU ` → `SBL ` → `AUhd`/`AUdt`** = digitized PCM (Sound Blaster). The
-    bigger SFX. Duration = `AUdt` payload length ÷ sample rate.
-    **OPEN: confirm the sample rate** — the `AUhd` payload is only 3 bytes
-    (`00 00 80` seen); determine whether the rate is encoded there or fixed.
-    Ground it from the bytes + a known-duration sound; do NOT cite ScummVM.
-  - **`SOU ` → `ROL ` → `MDhd`/`MThd`/`MTrk`** = standard MIDI (music + some
-    FX). Duration = Σ `MTrk` delta-ticks to end-of-track ÷ `MThd` division ×
-    tempo (default 500000 µs/quarter unless a Set-Tempo meta `FF 51`).
-    `MThd` seen: format 2, ntrks, division `0x01E0` (480).
-  - **32-byte blocks** (e.g. `18 00 00 00 00 00 04 02 c8 c8 ff 00 …`) =
-    CD-track / simple-trigger; duration NOT in the data file. Fallback (below).
-- **STEP 0 (do first):** dump the SOUN format of the actually-gated sound ids
-  (50, 28, 105, 106, 107, 117, 118, 123, plus any from a fresh
-  `isSoundRunning` scan) to confirm they're finite SBL/MIDI one-shots, not
-  loops. A script that busy-waits on a *looping* sound would hang — verify the
-  gated ids are one-shot before relying on computed durations. (Probe pattern:
-  see the throwaway `scratch/soun-hex.ts` / `scratch/sound-gate-scan.ts` from
-  the 2026-06-09 session if still present, else re-derive — disassemble + walk
-  the resource tree for `SOUN`.)
-- **Timing/clock:** `vm.tick()` (one jiffy, 60 Hz) calls `beginTick()` at the
-  top every jiffy — that's where `VAR_MUSIC_TIMER` increments. **Advance the
-  audio backend there** (`vm.audio.advance(1)` per jiffy). Durations are in
-  jiffies. The poll loop re-checks once per *game frame* (~10 fps via
-  `breakHere`), but the countdown must be per *jiffy* for wall-time accuracy.
-  Deterministic under `ManualClock`, so the integration net can assert
-  sound-gated timing.
-- **Seam precedent:** `Renderer` (`src/engine/render/renderer.ts`) and `Clock`
-  (`src/engine/session/clock.ts`) are the model — engine talks to an interface,
-  `createSession(game, renderer, clock, opts)` injects a concrete impl, tests
-  use a deterministic one. BUT note the key difference: the audio opcodes
-  (`startSound`/`isSoundRunning`) execute **inside the VM**, so unlike the
-  Renderer (which reads VM state after the fact in the session), the backend
-  must be reachable **from the VM** (`vm.audio`). Wire it through `bootGame`
-  (which has `resourceFile/index/loff`), like the resolvers.
-
-### Architecture
-
-Two new pieces + a resolver, mirroring the resolver/seam patterns:
-
-1. **`SoundResource`** (parsed once from a SOUN block) — the format-agnostic
-   descriptor both backends consume:
-   ```
-   interface SoundResource {
-     durationJiffies: number;   // finite playback length; 0 if unknown
-     looping: boolean;          // true → "runs until explicitly stopped"
-     // (later, for WebAudioBackend:) format, raw bytes, sampleRate, …
-   }
-   ```
-   `parseSound(bytes): SoundResource` lives in a new `src/engine/sound/`
-   module. Option A parsing: SBL → bytes÷rate; MIDI → ticks×tempo; unknown/CD
-   → `{durationJiffies: <documented fallback>, looping: false}` (FLAG it).
-
-2. **`AudioBackend`** interface (`src/engine/sound/backend.ts`), the seam:
-   ```
-   interface AudioBackend {
-     startSound(id: number, res: SoundResource): void;
-     stopSound(id: number): void;
-     startMusic(id: number, res: SoundResource): void;  // typically looping
-     stopMusic(): void;
-     stopAll(): void;
-     isRunning(id: number): boolean;   // ← isSoundRunning reads this
-     advance(jiffies: number): void;   // session/vm ticks it each jiffy
-     serialize(): SoundSnapshot;       // for savestate (backend-agnostic)
-     restore(snap: SoundSnapshot): void;
-     dispose(): void;
-   }
-   ```
-   The backend is the **single timing authority** (owns the active-sound map +
-   remaining-jiffies), so savestate delegates to `serialize`/`restore` and stays
-   backend-agnostic.
-
-3. **`SilentTimingBackend implements AudioBackend`** — tracks
-   `Map<id, {remaining: number, looping: boolean}>`. `startSound` sets
-   `remaining = res.durationJiffies` (or `looping`). `advance(n)` decrements
-   non-looping entries, dropping them at ≤ 0. `isRunning(id)` = entry exists and
-   (looping or remaining > 0). No audio output.
-
-4. **`resolveSound: (id) => Uint8Array | null`** resolver on the VM (like
-   `resolveCostume`), wired in `bootGame` via a new
-   `loadSound(resourceFile, index, loff, id)` (template: `loadGlobalScript` in
-   `src/engine/vm/scripts.ts`). Returns the SOUN payload bytes.
-
-### Wiring (files to change)
-
-- **`src/engine/sound/`** (new): `resource.ts` (`SoundResource` + `parseSound`),
-  `backend.ts` (`AudioBackend` + `SilentTimingBackend` + `SoundSnapshot`),
-  `duration.ts` (SBL + MIDI duration readers), plus a `loadSound` (here or in
-  `vm/scripts.ts`).
-- **`vm.ts`**: add `audio: AudioBackend` and `resolveSound` (config like
-  `resolveCostume`); in `beginTick()` call `this.audio.advance(1)` next to the
-  music-timer increment; clear via `this.audio.stopAll()` in `reset()`.
-- **`opcodes/index.ts`**:
-  - `makeSoundOp('startSound')` → parse + `vm.audio.startSound(id, res)` (res
-    from `parseSound(vm.resolveSound(id))`; if no resolver/bytes, treat as a
-    0-jiffy no-op so it can't hang).
-  - `makeSoundOp('stopSound')` → `vm.audio.stopSound(id)`.
-  - `startMusic` (0x02/0x82) → `vm.audio.startMusic(id, res)`.
-  - `stopMusic` (0x20) → `vm.audio.stopMusic()`.
-  - `isSoundRunningHandler` → `writeRef(dest, vm.audio.isRunning(id) ? 1 : 0)`.
-  - (Optional, low priority) set `VAR_LAST_SOUND` (23) on startSound.
-- **`boot.ts`**: construct `new SilentTimingBackend()` + `resolveSound: (id) =>
-  loadSound(resourceFile, index, loff, id)`; attach to the VM.
-- **`session.ts` / `createSession`**: no rAF needed (audio advances inside
-  `vm.tick`). If a backend needs to be swappable later, thread an optional
-  `audio?` param through `createSession`, defaulting to the one `bootGame` made;
-  for now `bootGame` owning it is fine. Wire the SAME `SilentTimingBackend` on
-  **web play** (the shell's session creation) — no separate path.
-- **`savestate.ts`**: add `sound: SoundSnapshot` to the snapshot type;
-  `snapshotVm` → `vm.audio.serialize()`; `restoreVm` → `vm.audio.restore(...)`.
-  Mirror the `drawnBoxes` precedent exactly.
-
-### Implementation order (each step ends green)
-
-1. **STEP 0** — confirm gated sound-id formats (above). If any gated id is a
-   loop or a 32-byte/CD block, decide its handling before coding.
-2. `SoundResource` + `parseSound` + SBL/MIDI duration readers, **unit-pinned**
-   against real MI1 SOUN blocks (assert a known sound's duration in jiffies).
-   Determine the SBL sample rate here.
-3. `AudioBackend` + `SilentTimingBackend`, unit-pinned (start→advance→isRunning
-   countdown, looping = runs-until-stopped, stop clears).
-4. `loadSound` + `resolveSound` wiring in `bootGame`.
-5. Re-point the 5 audio opcodes + `isSoundRunning` to `vm.audio`; advance in
-   `beginTick`. Unit-pin: a script doing the busy-wait pattern now holds for the
-   sound's duration then proceeds (drive N jiffies, assert it releases at the
-   right tick).
-6. Savestate round-trip for the active-sound map.
-7. **Integration**: the walkthrough net should now hold sound-gated beats with
-   real timing — re-run `npm run test:integration`; add/strengthen a beat that
-   proves a sound-gated transition (e.g. one of the `loadRoom`-after-sound
-   gates) waits rather than snapping. Confirm "Le tre prove" holds.
-
-### Decisions / edge cases (resolve as they arise)
-
-- **Looping vs one-shot:** `startSound` SFX → finite duration; `startMusic` →
-  `looping: true` (runs until `stopMusic`/`stopAll`). Scripts only busy-wait on
-  one-shots, so loops never gate. If a SOUN encodes its own loop (iMUSE marker),
-  detecting it is out of scope — default music to looping.
-- **CD / 32-byte sounds:** duration not in the data file. Fallback to a small
-  documented constant (or 0 = instant) and FLAG it; the gated ids are expected
-  to be SBL/MIDI, so this only affects non-gating triggers. Revisit if a CD
-  sound ever gates a wait.
-- **Room change:** do NOT auto-stop sounds on room change (scripts manage
-  start/stop explicitly, and gates span within a scene); only `reset()` clears
-  via `stopAll()`. Verify against a cross-room gate if one surfaces.
-- **No audio output anywhere** — `SilentTimingBackend` is silent by design;
-  web play uses it too until `WebAudioBackend` lands.
-
-### Out of scope (explicitly NOT this task)
-
-Real audio synthesis/output (`WebAudioBackend`): AdLib/MT-32 MIDI synthesis, SBL
-sample playback, CD redbook, iMUSE engine + `soundKludge`/`VAR_SOUNDRESULT`
-queries. All land later behind the same `AudioBackend` interface.
+**Follow-ups (in-browser feedback, 2026-06-09):**
+- **ESC-skip fix for "le tre prove" (g#57).** With the gate now actually holding,
+  ESC didn't skip it. Root cause: `g#57` ends its setup cutscenes, *then* arms
+  `beginOverride` for the trials intro — so the gate runs at the cutscene-stack
+  **base level** (no open `cutScene`). Our `abortCutscene` wrongly required an
+  active cutscene frame. Fixed to skip whichever slot holds an armed `overridePc`
+  (faithful: SCUMM keys the override by stack level, base level included). →
+  [CUTSCENES §4](pages/docs/scumm/cutscenes.md). *(In-browser confirm pending.)*
+- **English CD release (MP3 tracks).** `games/MI1-EN-CD-DOS-VGA` ships the music
+  as `TrackN.mp3`. Added `mp3DurationJiffies` (Xing/Info frame count, CBR
+  fallback) + a content-dispatching `audioDurationJiffies` (FLAC vs MP3 by
+  magic); the track readers now match `Track*.{fla,mp3}`. EN durations match the
+  IT FLAC to within ~2 jiffies. Unit + EN-data-gated tests pin it.
+- **MI2 sanity (`games/MI2`, no external tracks).** Boots and runs 3000+ ticks
+  with no halt; 199 SOUN blocks all `SOU ` containers (no CD triggers) and all
+  parse cleanly — the seam handles MI2 for free via the SBL/MIDI path, CD path
+  unused. (Full MI2 support still its own later task.)

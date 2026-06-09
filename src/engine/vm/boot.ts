@@ -25,9 +25,10 @@ import { loadRoom } from '../room/loader';
 import type { ResourceFile } from '../resources/tree';
 import { LIGHTMODE_DEFAULT } from './lighting';
 import { SEED_OPCODES } from './opcodes';
-import { loadGlobalScript } from './scripts';
+import { loadGlobalScript, loadSound } from './scripts';
 import { VAR_CURRENT_LIGHTS } from './vars';
 import { Vm } from './vm';
+import { SilentTimingBackend } from '../sound/backend';
 
 export type GameId = 'MI1' | 'MI2';
 
@@ -69,6 +70,13 @@ export function bootGame(
    * the run is reproducible.
    */
   random?: () => number,
+  /**
+   * Optional CD-audio track durations ({@link VmInit.cdTrackDurations}) — read
+   * up front from the `TrackN.fla` headers by the boot caller (it knows how to
+   * reach the track files), so CD-trigger sounds can be timed. Absent → CD-gated
+   * waits fall through. See `bootScummV5` (node) / `loadSessionGame` (web).
+   */
+  cdTrackDurations?: ReadonlyMap<number, number>,
 ): BootResult {
   // Lazy object id → home-room index. Object numbers are globally unique
   // (each object's OBCD is defined in exactly one room), so the first room
@@ -107,6 +115,9 @@ export function bootGame(
     resolveCostume: (id) => loadCostume(resourceFile, index, loff, id),
     resolveCharset: (id) => resolveCharsetById(resourceFile, index, loff, id),
     resolveObjectRoom,
+    resolveSound: (id) => loadSound(resourceFile, index, loff, id),
+    cdTrackDurations,
+    audio: new SilentTimingBackend(),
     random,
   });
 

@@ -44,6 +44,8 @@ import type { Sentence } from './sentence';
 import { ScriptSlot } from './slot';
 import { Variables } from './variables';
 import * as VARS from './vars';
+import { type AudioBackend, SilentTimingBackend } from '../sound/backend';
+import { parseSound, type SoundResource } from '../sound/resource';
 
 /**
  * Jiffies per game frame when `VAR_TIMER_NEXT` is unset / out of range.
@@ -292,6 +294,13 @@ export type CharsetResolver = (
  */
 export type ObjectRoomResolver = (objId: number) => number | null;
 
+/**
+ * Resolve a sound id to its `SOUN` block payload, or `null` when the slot
+ * is unused / unresolvable. The VM parses this into a {@link SoundResource}
+ * (cached per id) to drive the audio backend's timing. See `loadSound`.
+ */
+export type SoundResolver = (soundId: number) => Uint8Array | null;
+
 export interface VmInit {
   readonly numVariables: number;
   readonly numBitVariables: number;
@@ -329,6 +338,25 @@ export interface VmInit {
    * have left their pickup room (e.g. MI1's inventory-icon verb 91).
    */
   readonly resolveObjectRoom?: ObjectRoomResolver;
+  /**
+   * Resolver for sound resources, used to compute playback durations for
+   * the audio timing backend. Optional in tests; the real boot path wires
+   * it via {@link bootGame}. See {@link SoundResolver}.
+   */
+  readonly resolveSound?: SoundResolver;
+  /**
+   * CD-audio track durations in jiffies, keyed by track number — read from
+   * the `TrackN.fla` FLAC headers up front by the boot caller (like the
+   * other resources). Used to time CD-trigger sounds. Optional; absent, or a
+   * track not in the map, leaves that CD-gated wait non-blocking.
+   */
+  readonly cdTrackDurations?: ReadonlyMap<number, number>;
+  /**
+   * Audio backend — the timing authority `isSoundRunning` polls. Optional;
+   * defaults to a fresh {@link SilentTimingBackend} so tests and the boot
+   * path that don't inject one still pace sound-gated scripts correctly.
+   */
+  readonly audio?: AudioBackend;
   /**
    * Entropy source for the `getRandomNumber` opcode — a function
    * returning a float in `[0, 1)`. Defaults to {@link Math.random}, so
@@ -823,6 +851,13 @@ export class Vm {
   readonly resolveCostume: CostumeResolver | undefined;
   readonly resolveCharset: CharsetResolver | undefined;
   readonly resolveObjectRoom: ObjectRoomResolver | undefined;
+  readonly resolveSound: SoundResolver | undefined;
+  /** CD-audio track durations (jiffies) by track number; see {@link VmInit.cdTrackDurations}. */
+  readonly cdTrackDurations: ReadonlyMap<number, number> | undefined;
+  /** Audio timing authority — see {@link AudioBackend}. */
+  readonly audio: AudioBackend;
+  /** Parsed sound resources, cached by id (SOUN data is immutable). */
+  private readonly soundResourceCache = new Map<number, SoundResource>();
   /**
    * Resident OBCD cache for carried inventory items — object id → its
    * decoded {@link LoadedObject}, resolved from the object's home room
@@ -911,7 +946,27 @@ export class Vm {
     this.resolveCostume = init.resolveCostume;
     this.resolveCharset = init.resolveCharset;
     this.resolveObjectRoom = init.resolveObjectRoom;
+    this.resolveSound = init.resolveSound;
+    this.cdTrackDurations = init.cdTrackDurations;
+    this.audio = init.audio ?? new SilentTimingBackend();
     this.randomSource = init.random ?? Math.random;
+  }
+
+  /**
+   * The parsed {@link SoundResource} for a sound id — its playback timing,
+   * resolved once and cached (SOUN data is immutable). Returns a non-gating
+   * 0-jiffy resource when no resolver is wired or the id is unresolvable,
+   * so a busy-wait can never hang. The audio opcodes feed this to
+   * {@link audio}.
+   */
+  getSoundResource(id: number): SoundResource {
+    let res = this.soundResourceCache.get(id);
+    if (res === undefined) {
+      const bytes = this.resolveSound ? this.resolveSound(id) : null;
+      res = parseSound(bytes, (track) => this.cdTrackDurations?.get(track) ?? 0);
+      this.soundResourceCache.set(id, res);
+    }
+    return res;
   }
 
   /** Entropy source for {@link randomInt}; see {@link VmInit.random}. */
@@ -1460,22 +1515,34 @@ export class Vm {
 
   /**
    * Abort the active cutscene (the player pressed the cutscene-exit key,
-   * Escape). SCUMM's `abortCutscene`: if the current cutscene armed a
-   * skip target via `beginOverride` (opcode 0x58, recorded on the
-   * cutscene script's slot as `overridePc`), jump that slot to the
-   * target, thaw + run it, and set `VAR_OVERRIDE = 1` so the override
-   * code can tell it was aborted. The override block then fast-forwards
-   * to the cutscene's end state and calls `endCutscene` itself.
+   * Escape). SCUMM's `abortCutscene`: if a skip target was armed via
+   * `beginOverride` (opcode 0x58, recorded on the arming slot as
+   * `overridePc`), jump that slot to the target, thaw + run it, and set
+   * `VAR_OVERRIDE = 1` so the override code can tell it was aborted. The
+   * override block then fast-forwards to the end state and calls
+   * `endCutscene` itself.
    *
-   * No-op (returns false) when no cutscene is active or the current one
-   * isn't skippable (no override armed) — matching the original, where
-   * Escape does nothing until a `beginOverride` runs.
+   * SCUMM keys the override by cutscene-stack *level*, and the **base level
+   * (no open cutscene) is valid** — MI1's "le tre prove" (g#57) arms its
+   * override *after* its setup cutscenes have already ended, so the gate is
+   * escapable with no active cutscene frame. We therefore don't require a
+   * frame: a slot carries `overridePc` exactly during its escapable window
+   * (set by `beginOverride`, cleared by `endOverride` / slot death), so the
+   * armed override is simply the live slot holding one. Prefer the top
+   * cutscene's caller slot when it armed one; otherwise take whichever slot
+   * is in its override window.
+   *
+   * No-op (returns false) when no override is armed — matching the original,
+   * where Escape does nothing until a `beginOverride` runs.
    */
   abortCutscene(): boolean {
     const frame = this.cutsceneStack[this.cutsceneStack.length - 1];
-    if (!frame) return false;
-    const slot = this.slots[frame.callerSlot];
-    if (!slot || slot.status === 'dead' || slot.overridePc === null) return false;
+    const framed = frame ? this.slots[frame.callerSlot] : undefined;
+    const slot =
+      framed && framed.status !== 'dead' && framed.overridePc !== null
+        ? framed
+        : this.slots.find((s) => s.status !== 'dead' && s.overridePc !== null);
+    if (!slot || slot.overridePc === null) return false;
     slot.pc = slot.overridePc;
     slot.overridePc = null;
     slot.delayRemaining = 0;
@@ -1803,6 +1870,10 @@ export class Vm {
       Vm.VAR_MUSIC_TIMER,
       this.vars.readGlobal(Vm.VAR_MUSIC_TIMER) + 1,
     );
+    // Drain sound durations a jiffy at a time so isSoundRunning flips false
+    // exactly when the real sound would end — the clock behind sound-gated
+    // cutscenes/transitions (see AudioBackend).
+    this.audio.advance(1);
     // Tick the talk timer. When it drains, the message is "done":
     // VAR_HAVE_MSG clears (so a wait-for-message releases) and actor
     // speech disappears. System / credit text (no real speaker, id 255)
@@ -2281,6 +2352,7 @@ export class Vm {
     this.objectDrawPositions.clear();
     this.drawnBoxes.length = 0;
     this.shakeEnabled = false;
+    this.audio.stopAll();
     this.currentRoom = 0;
     this.frameAccumulator = 0;
     this.loadedRoom = null;

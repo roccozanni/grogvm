@@ -48,6 +48,44 @@ export const hasGame = (): boolean => hasData(DATA_DIR);
 export const boot = (): Vm => bootScummV5(DATA_DIR, 'MI1', makeSeededRandom(SEED));
 
 /**
+ * Expected sound-playback durations (jiffies, 1/60 s) per release, keyed by
+ * index-file content hash — the variant identity `detect.ts` resolves (its
+ * `KNOWN_VARIANTS` uses the same keys). Almost everything in this file is
+ * build-identical (numeric ids); sound timing is the exception, because the CD
+ * music ships in a different encoding per release (IT FLAC vs EN MP3), so the
+ * CD-track lengths differ by a couple of jiffies of encoder padding. The
+ * in-resource SBL/MIDI sounds (#28, #50) are byte-shared and time identically.
+ * The sound suite autodetects the {@link DATA_DIR} variant and asserts its row.
+ */
+export interface SoundDurations {
+  /** Digitized SBL gate #28. */
+  readonly sbl28: number;
+  /** Standard-MIDI gate #50. */
+  readonly midi50: number;
+  /** CD track 6 (#104–107). */
+  readonly track6: number;
+  /** CD track 7 (#117). */
+  readonly track7: number;
+}
+
+export const KNOWN_SOUND_DURATIONS: Record<string, SoundDurations> = {
+  // English (MP3 CD tracks)
+  '8f40364323a755b1b69fa026a4bb4f351cd3bf330cc005d91fa5d77f55cadefe': {
+    sbl28: 164,
+    midi50: 285,
+    track6: 749,
+    track7: 4199,
+  },
+  // Italiano (FLAC CD tracks)
+  '4dfbd8f4ba61fcf604073c6960d98caa2c5dd43d6be296b82c25bd2ee1acc3f8': {
+    sbl28: 164,
+    midi50: 285,
+    track6: 747,
+    track7: 4196,
+  },
+};
+
+/**
  * Game-global var ids the playthrough asserts on (SCUMM globals — same in
  * every build). Engine-reserved vars (VAR_EGO, …) come from `vm/vars`; this
  * group is for MI1's own story/puzzle flags. Assert these instead of matching

@@ -87,16 +87,26 @@ itself — they are *not* executed inline (doing so would skip the
 cutscene body unconditionally).
 
 When the player presses the cutscene-exit key (Escape), the engine runs
-**`abortCutscene`**: if the current cutscene armed an override, it jumps
-the cutscene script straight to its recorded skip point, thaws it, and
-sets `VAR_OVERRIDE = 1` so the skip code can tell it was aborted. The
-skip code typically fast-forwards to the cutscene's end state and calls
-`endCutscene` itself.
+**`abortCutscene`**: if an override is armed, it jumps the arming script
+straight to its recorded skip point, thaws it, and sets `VAR_OVERRIDE = 1`
+so the skip code can tell it was aborted. The skip code typically
+fast-forwards to the cutscene's end state and calls `endCutscene` itself.
 
-If the current cutscene did **not** run `beginOverride`, Escape does
-nothing — the cutscene is simply not skippable. (Many gameplay
-cutscenes arm an override; some short scripted beats deliberately do
-not.)
+If no `beginOverride` is armed, Escape does nothing — the cutscene is
+simply not skippable. (Many gameplay cutscenes arm an override; some short
+scripted beats deliberately do not.)
+
+**An override is not tied to an *open* cutscene.** SCUMM keys the override
+by cutscene-stack *level*, and the **base level (no open `cutScene`) is
+valid**: MI1's "le tre prove" (`g#57`) ends its setup cutscenes, *then*
+arms `beginOverride` for the long sound-gated trials intro — so the gate is
+escapable with no active cutscene frame. The override lives on the arming
+script's slot (`overridePc`), set by `beginOverride` and cleared by
+`endOverride` / slot death, so a slot carries it exactly during its
+escapable window; `abortCutscene` skips whichever slot holds one (it does
+**not** require an open cutscene). Tying the skip to an active cutscene
+frame is the bug that made "le tre prove" unskippable once the sound gate
+actually held — see [sound.md](sound.md).
 
 ## 5. The variables involved
 

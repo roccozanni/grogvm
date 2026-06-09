@@ -640,11 +640,13 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     // learn a new insult (#83). (Winning every exchange — the old picker — stays
     // on attack and learns almost nothing.) We loop until `enoughForSwordMaster`:
     // the comebacks Carla's seeded duel needs PLUS the gate g282>3. The seed is
-    // fixed so this is deterministic — exactly 30 duels every run. CAP is only a
-    // runaway-loop backstop (a broken gate fails the assertion below instead of
-    // hanging), set a little above 30 — not the exact count — so a benign upstream
-    // RNG nudge that shifts it slightly still passes.
-    const CAP = 36;
+    // fixed so this is deterministic — ~38 duels every run (it was 30 before the
+    // audio timing seam landed: sound-gated holds now advance game-frames, and
+    // with them the ambient RNG stream, so the seeded duel sequence shifts and
+    // the grind takes a few more). CAP is only a runaway-loop backstop (a broken
+    // gate fails the assertion below instead of hanging), set comfortably above
+    // the real count — not the exact count — so a benign RNG nudge still passes.
+    const CAP = 60;
     let fought = 0;
     for (; fought < CAP && !enoughForSwordMaster(vm); fought++) {
       expect(grindOneDuel(vm)).toBe(true);
