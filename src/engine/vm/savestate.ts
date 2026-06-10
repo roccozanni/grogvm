@@ -13,8 +13,11 @@ import type { Sentence } from './sentence';
 import type { SoundSnapshot } from '../sound/backend';
 import type { ActiveDialog, VerbSlot, Vm } from './vm';
 
-/** Bumped whenever the snapshot shape changes incompatibly. */
-export const SAVE_VERSION = 2;
+/**
+ * Held at 1 until MI1 is fully playable — until then the snapshot shape may
+ * break freely and old saves are simply rejected; do not bump per change.
+ */
+export const SAVE_VERSION = 1;
 
 interface SlotSnapshot {
   readonly status: 'dead' | 'running' | 'yielded';
@@ -69,7 +72,7 @@ export interface SaveState {
   /** Free-form caption (room name, location) the shell may show. */
   readonly label?: string;
   /** Epoch ms when saved; stamped by the shell (engine has no clock). */
-  readonly savedAt?: number;
+  readonly savedAt: number;
 
   // ── Variable banks ──────────────────────────────────────────────
   readonly globals: string; // base64 Int32
@@ -85,7 +88,7 @@ export interface SaveState {
   readonly objectOwners: ReadonlyArray<[number, number]>;
   readonly inventoryNames: ReadonlyArray<[number, string]>;
   /** `setObjectName` ($54) renames. */
-  readonly objectNameOverrides?: ReadonlyArray<[number, string]>;
+  readonly objectNameOverrides: ReadonlyArray<[number, string]>;
   readonly objectClasses: ReadonlyArray<[number, number]>;
   readonly objectDrawQueue: ReadonlyArray<number>;
   readonly objectDrawPositions: ReadonlyArray<[number, { x: number; y: number }]>;
@@ -100,7 +103,7 @@ export interface SaveState {
    * Runtime walk-box flag overrides (box id → flags) — saved because a
    * restore does not re-run the entry script that set them.
    */
-  readonly boxFlags?: ReadonlyArray<[number, number]>;
+  readonly boxFlags: ReadonlyArray<[number, number]>;
   readonly pseudoRooms: ReadonlyArray<[number, number]>;
   readonly uiPaletteOverrides: ReadonlyArray<[number, [number, number, number]]>;
   readonly camera: { x: number };
@@ -244,7 +247,7 @@ export function snapshotVm(vm: Vm, meta?: { game?: string; label?: string; saved
     version: SAVE_VERSION,
     game: meta?.game ?? '',
     ...(meta?.label !== undefined ? { label: meta.label } : {}),
-    ...(meta?.savedAt !== undefined ? { savedAt: meta.savedAt } : {}),
+    savedAt: meta?.savedAt ?? 0,
 
     globals: i32ToB64(vm.vars.globals),
     roomVars: i32ToB64(vm.vars.roomVars),
@@ -342,7 +345,7 @@ export function restoreVm(vm: Vm, state: SaveState): void {
   for (const [id, v] of state.objectStates) vm.objectStates.set(id, v);
   for (const [id, v] of state.objectOwners) vm.objectOwners.set(id, v);
   for (const [id, name] of state.inventoryNames) vm.inventoryNames.set(id, name);
-  for (const [id, name] of state.objectNameOverrides ?? [])
+  for (const [id, name] of state.objectNameOverrides)
     vm.objectNameOverrides.set(id, name);
   for (const [id, v] of state.objectClasses) vm.objectClasses.set(id, v);
   for (const id of state.objectDrawQueue) vm.objectDrawQueue.add(id);
@@ -356,7 +359,7 @@ export function restoreVm(vm: Vm, state: SaveState): void {
   // the room-resource reload below, so the CLUT overrides re-apply over the
   // freshly-decoded palette.
   vm.currentRoom = state.currentRoom;
-  for (const [box, flags] of state.boxFlags ?? []) vm.boxFlagOverrides.set(box, flags);
+  for (const [box, flags] of state.boxFlags) vm.boxFlagOverrides.set(box, flags);
   for (const [k, v] of state.pseudoRooms) vm.pseudoRooms.set(k, v);
   for (const [i, rgb] of state.uiPaletteOverrides) vm.uiPaletteOverrides.set(i, [rgb[0], rgb[1], rgb[2]]);
   vm.camera.x = state.camera.x;

@@ -81,7 +81,7 @@ export function writeSave(gameId: string, name: string, state: SaveState): void 
         : `write failed: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
-  const meta: SaveSlotMeta = { name, savedAt: state.savedAt ?? 0, room: state.currentRoom };
+  const meta: SaveSlotMeta = { name, savedAt: state.savedAt, room: state.currentRoom };
   const index = readIndex(gameId).filter((s) => s.name !== name);
   index.push(meta);
   writeIndex(gameId, index);
