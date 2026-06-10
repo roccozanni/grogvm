@@ -903,7 +903,7 @@ code {
 }
 
 /* Object-overlay toggle — same look as the player's debug toggle buttons:
-   a secondary button with an inline icon that turns accent-yellow when on. */
+   a secondary button with an inline icon that turns accent-green when on. */
 .overlay-toggle-btn {
   align-self: flex-start;
   margin: 0;

@@ -63,7 +63,7 @@ ${discovery}    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/site.css" />
   </head>
   <body>
-    <header class="site-nav"><a href="/">GrogVM</a> · <a href="/library/">Library</a> · <a href="/docs/">Docs</a></header>
+    <header class="site-nav"><a href="/">GrogVM</a> · <a href="/why/">Why</a> · <a href="/library/">Library</a> · <a href="/docs/">Docs</a></header>
     <main class="${mainClass}">
 ${opts.bodyHtml ?? ''}
 ${mount}    </main>

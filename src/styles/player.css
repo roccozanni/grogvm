@@ -101,7 +101,7 @@
 }
 
 .vm-actor-anim-head {
-  color: var(--accent, #ffc85a);
+  color: var(--accent, #9be65c);
   margin-bottom: 0.25rem;
   font-variant-numeric: tabular-nums;
 }
