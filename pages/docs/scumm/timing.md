@@ -3,6 +3,18 @@
 The single most important timing fact in SCUMM v5: there are **two
 clocks**, and conflating them makes everything that moves run too fast.
 
+```
+ jiffies (1/60 s):   │ │ │ │ │ │ │ │ │ │ │ │ │ │ │ │ │ │ …
+                     └─────┬─────┘ └─────┬─────┘ └────┬────
+ game frames           one frame      next frame        …
+ (every VAR_TIMER_NEXT = 6 jiffies → ~10 fps)
+
+ counted in JIFFIES:  delay · VAR_MUSIC_TIMER · the talk timer
+                      — wall-time accurate at any frame rate
+ advance per FRAME:   scripts (breakHere) · actor walking ·
+                      costume animation — all at ~10 fps
+```
+
 ## The two clocks
 
 - **Jiffy** — 1/60 s, the hardware tick. `delay`, `VAR_MUSIC_TIMER`,
@@ -47,7 +59,7 @@ tick():                       // one jiffy (1/60 s)
   // ── one game frame ──
   processSentence()
   resume yielded, non-frozen, delay==0 slots
-  runUntilAllYield()          // scripts
+  runScriptsUntilAllYield()   // scripts
   stepAllActorWalks()         // walking
   stepAnim() for each actor   // costume animation
 ```

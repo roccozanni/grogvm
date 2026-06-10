@@ -8,6 +8,31 @@ library that's organised by body part, a tiny bytecode for sequencing
 animations, and a per-frame run-length-encoded bitmap with its own
 displacement metadata.
 
+## At a glance
+
+```
+  a costume = up to 16 parallel "slots" (limbs), each showing one
+  picture; they draw on top of each other in slot order
+
+  anim id ──▶ animOffs[a] ──▶ record: limb mask + per-limb window
+                                          │
+  frame block (frameOffs):  u8 frame-table indices   ◀── the window
+                                          │              plays here
+                            mask & 0x7F  (0x78–0x7C are magic cmds)
+                                          │
+  imageTableOffs[limb] ──▶ image table: u16 picture pointers
+                                          │
+                            ⚠ each pointer lands 6 bytes INTO
+                                          │  the picture header
+                                          ▼
+  picture:  12-byte header (w, h, x, y, xinc, yinc)
+            + column-major RLE pixels, palette → room CLUT
+```
+
+Three indirections — animation → frame block → image table →
+picture — and decoders that try to skip a level work on simple
+costumes, then explode on anything that mixes limbs (§2).
+
 This is a self-contained reference derived from reverse-engineering
 real MI1 and MI2 data, cross-checked against two public sources for
 the format. Where those sources disagree with what real game data

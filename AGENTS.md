@@ -152,6 +152,18 @@ rules when writing or editing them:
 - **Prose for humans, compact.** The docs are read by people: prose-oriented,
   woven into the doc's existing sections — not bullet dumps or walls of text.
   A fact earns the words it needs and no more.
+- **The pyramid template.** A doc over ~150 lines opens with an `## At a
+  glance` block — one ASCII diagram plus a few lines of mental model, placed
+  *before* Sources — and the long format/behaviour docs close with a
+  `## Pitfalls cheat-sheet` (numbered, restating the traps with § pointers).
+  Each section keeps a short narrative spine; MI1-specific or fine-grained
+  detail demotes into a labeled `**Fine print:**` / `**Fine print (MI1):**`
+  bullet block under it. `> ⚠️` blockquotes are reserved for genuine traps
+  and corrections-to-circulating-notes, not emphasis. The ASCII-diagram idiom
+  covers flows, state machines, and screen geometry, not just byte layouts.
+- **New facts land at the right altitude.** Extend the spine or the relevant
+  fine-print block of the section the fact belongs to — never append another
+  bold paragraph at the end of a section in arrival order.
 - **Facts, not theories or journals.** Settled conclusions only — root cause,
   format layout, the *why*. Never the failed hypotheses, dead ends, or
   blow-by-blow of getting there (git keeps that). No "BREAKTHROUGH/REVERTED"

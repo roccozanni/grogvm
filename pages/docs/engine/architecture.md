@@ -14,6 +14,34 @@ and graphics pipeline, so one engine runs both.
 This page is the map: the layers, what each one owns, and the seams between
 them. Subsystem behavior lives in the sibling docs, linked throughout.
 
+## At a glance
+
+```
+        ┌────────────┬───────────────────────────────────────────┐
+        │  pages     │  every page is markdown; path = route     │
+        ├────────────┼───────────────────────────────────────────┤
+        │  site      │  static page shell — nav, theme           │
+        ├────────────┼───────────────────────────────────────────┤
+        │  app       │  islands: Library · Explorer · Player     │
+        ├────────────┼───────────────────────────────────────────┤
+        │  platform  │  browser adapters — files, IndexedDB,     │
+        │            │  routing                                  │
+        ├────────────┼───────────────────────────────────────────┤
+        │  engine    │  headless core — no DOM, no browser       │
+        │            │  globals; same code runs in Node          │
+        │            │  seams: renderer · clock · audio backend  │
+        └────────────┴───────────────────────────────────────────┘
+          imports point only downward
+
+          beside the stack: build — the owned markdown→HTML
+          generator; offline tooling, nothing imports it
+```
+
+The whole site ships as static files — no server, ever. The engine at the
+bottom is fully headless: everything it needs from the outside world (a
+renderer, a clock, an audio backend) is injected, which is what lets the same
+code run a real game in the browser and a scripted playthrough in Node.
+
 ## 1. Scope & non-goals
 
 The non-goals shape the code as much as the goals do:
@@ -49,7 +77,7 @@ The non-goals shape the code as much as the goals do:
 
 ## 3. The layer map
 
-Six layers, with imports allowed only downward:
+What each layer in the stack owns:
 
 - **pages** — every page of the site is markdown; the file path is the route.
   A page becomes interactive purely by declaring an *island* in its
@@ -69,14 +97,42 @@ Six layers, with imports allowed only downward:
 - **engine** — the headless core. No DOM, no browser globals; the same code
   runs in Node under the test harness.
 
-The site is a **multi-page static build**: each page is a real HTML file, so
-refresh and deep links work and the content pages are crawler-indexable with
-no server and no SPA fallback. Per-page bundles mean the engine chunk loads
-only on the screens that run it. Client-only parameters — which *installed*
-game to open — ride the query string, since they are IndexedDB keys local to
-one browser profile and not meaningful to share.
+**Fine print — the static build.** The site is a multi-page static build:
+each page is a real HTML file, so refresh and deep links work and the content
+pages are crawler-indexable with no server and no SPA fallback. Per-page
+bundles mean the engine chunk loads only on the screens that run it.
+Client-only parameters — which *installed* game to open — ride the query
+string, since they are IndexedDB keys local to one browser profile and not
+meaningful to share.
 
 ## 4. The engine core
+
+One picture before the parts — how a tick becomes pixels:
+
+```
+   game files (in memory, decrypted up front, block tree parsed once)
+                        │
+                        │  injected resolvers — the VM asks for
+                        │  "costume 12", never sees bytes or offsets
+                        ▼
+  clock ──jiffy──▶ ┌───────────────────────────────────────────┐
+  (injected)       │  VM — the mainline                        │
+                   │  scripts · sentences · actor walking ·    │
+                   │  costume animation · camera · audio clock │
+                   └────────────────────┬──────────────────────┘
+                                        │  compose (indexed pixels)
+                                        ▼
+                   ┌───────────────────────────────────────────┐
+                   │  frame compositor → screen composer       │
+                   │  room scene → camera slice → verb band +  │
+                   │  dialog text → one 320×200 framebuffer    │
+                   └────────────────────┬──────────────────────┘
+                                        │  present (palette + indices)
+                                        ▼
+                            renderer seam (injected)
+                     Canvas2D in the browser · an in-memory
+                     recorder under the test harness
+```
 
 ### Resources — everything in memory
 
@@ -141,20 +197,20 @@ approach wins.
 The engine composes and presents the **entire visible game image** as one
 indexed framebuffer: the camera's window into the room (objects, actors,
 z-plane occlusion), the verb/inventory panel, the sentence line, and dialog /
-system text. Room-scene assembly lives in the frame compositor
-(`render/compositor.ts`); the screen composer (`render/screen.ts`) layers the
-verb band and text over the camera-sliced scene and is what actually crosses
-the Renderer seam (see [the session](session.md), "Frame production"). The
-whole pipeline stays pure indexed-pixel work — text glyphs and verb sprites
-stamp CLUT indices; RGBA conversion still happens only at present.
+system text. Room-scene assembly lives in the frame compositor; the screen
+composer layers the verb band and text over the camera-sliced scene and is
+what actually crosses the renderer seam (see [the session](session.md),
+"Frame production"). The whole pipeline stays pure indexed-pixel work — text
+glyphs and verb sprites stamp CLUT indices; RGBA conversion still happens
+only at present.
 
 Because the presented framebuffer *is* the complete frame, a renderer
 implementation renders the whole game, and frame-level pixel tests can assert
-dialog and verb pixels through `MemoryRenderer`. The shell paints only
+dialog and verb pixels through the in-memory recorder. The shell paints only
 non-game chrome over the blit: the cursor crosshair and the debug overlays.
-The engine also owns the verb **hit-test** (`verbAt`, same module) — the
-session uses it for the hover highlight and the shell for click routing, so
-painted verbs and clickable verbs can never disagree.
+The engine also owns the verb **hit-test** — the session uses it for the
+hover highlight and the shell for click routing, so painted verbs and
+clickable verbs can never disagree.
 
 ### Sound — a timing seam first
 

@@ -4,9 +4,37 @@ This document covers the SCUMM v5 bytecode interpreter at the
 infrastructure level: opcode encoding, parameter-mode bits,
 variable-reference scope, the expression mini-VM, conditional branch
 semantics, and the assorted gotchas. The per-opcode reference (what
-every byte from `0x00..0xFF` *does*) lives at the source URL below;
-this document focuses on the parts that *aren't* per-opcode — the
-dispatch infrastructure every opcode plugs into.
+every byte from `0x00..0xFF` *does*) lives in
+[opcode-reference.md](opcode-reference.md); this document focuses on
+the parts that *aren't* per-opcode — the dispatch infrastructure every
+opcode plugs into.
+
+## At a glance
+
+One instruction, decoded — most of the conventions in this doc are
+visible in this one example:
+
+```
+  0x1A   32 00   3C 00         setVar g50 = 60
+  ──┬──  ──┬──   ──┬──
+    │      │       └─ value — an immediate u16 LE, because bit 0x80
+    │      │          of the opcode byte is clear
+    │      └─ result var-ref word — raw, always two bytes, and it
+    │         never consumes a parameter-mode bit
+    └─ opcode byte: low 5 bits = family (here setVar),
+       high 3 bits = parameter-mode flags
+
+  0x9A   32 00   35 00         setVar g50 = g53
+  ──┬──          ──┬──
+    │              └─ the same value slot, now a var-ref word
+    └─ same family, bit 0x80 set: parameter 1 is a var-ref
+```
+
+So one logical opcode is several byte values, parameters change width
+with the mode bits, and a *result* operand sits outside the mode-bit
+scheme entirely. Everything that desynchronises a bytecode stream —
+and every halt that looks like "a stray byte" — traces back to one of
+the conventions below.
 
 ## Sources
 
@@ -50,15 +78,16 @@ var-ref word — bit 7 only affects the second parameter's mode. The
 `inc` / `dec` family uses bit 7 to choose *which operation* rather
 than as a param-mode flag (`0x46` = `inc`, `0xC6` = `dec`). Each
 handler reads the mode bits it cares about; the param decoder
-exposes `isVarParam(opcode, paramIndex)` to make the read explicit.
+answers "is this parameter a var-ref?" per opcode and position, so
+the read stays explicit rather than a blanket rule.
 
-**A leading "result" or read-var operand does not consume a
-mode-bit slot.** For opcodes shaped `result value…` (the `getActor*`
-family, `getInventoryCount`, `getDist`, the comparisons, `setVar`,
-…), the result/var is a raw word and the *first value* parameter is
-mode-index 1 (bit `0x80`), the second is index 2 (bit `0x40`). Off-
-by-one here silently misreads a byte parameter as a word (or vice
-versa) and desynchronises the whole stream.
+> ⚠️ **A leading "result" or read-var operand does not consume a
+> mode-bit slot.** For opcodes shaped `result value…` (the `getActor*`
+> family, `getInventoryCount`, `getDist`, the comparisons, `setVar`,
+> …), the result/var is a raw word and the *first value* parameter is
+> mode-index 1 (bit `0x80`), the second is index 2 (bit `0x40`). Off-
+> by-one here silently misreads a byte parameter as a word (or vice
+> versa) and desynchronises the whole stream.
 
 ### Non-orthogonal families — a high bit can pick a *different* opcode
 
@@ -117,13 +146,13 @@ the variable's scope:
 | `0x2000` set      | **Indexed**    | bits 0..12 + extra word |
 | (none set)        | **Global var** | bits 0..12 (0..8191)    |
 
-**Beware**: some outdated reverse-engineering notes have `0x8000`
-and `0x4000` swapped (claiming `0x8000` = local, `0x4000` = bit).
-Implementing the swapped convention causes `actorOps` and similar
-opcodes to write into the wrong scope and silently corrupt slot
-locals — visible in MI1's boot when `actorOps actor=1,
-setName("Guybrush")` writes a local index of 0x80 (= 128) which is
-out of range for the 25-slot local table.
+> ⚠️ Some outdated reverse-engineering notes have `0x8000`
+> and `0x4000` swapped (claiming `0x8000` = local, `0x4000` = bit).
+> Implementing the swapped convention causes `actorOps` and similar
+> opcodes to write into the wrong scope and silently corrupt slot
+> locals — visible in MI1's boot when `actorOps actor=1,
+> setName("Guybrush")` writes a local index of 0x80 (= 128) which is
+> out of range for the 25-slot local table.
 
 ### Indexed (array) references
 
@@ -140,21 +169,22 @@ prefix.
 
 ### Variable-bank sizes
 
-The runtime allocates `Variables` from MAXS at boot. Per MI1's
-MAXS: 800 globals, 16 room-vars (one set per room), 2048 bit-vars.
-Locals are 25 entries *per slot*. Sizes can vary; the engine
-floor-clamps to those values via `Math.max(maxs.numVariables,
-800)` so under-sized MAXS records don't break the boot prefix.
+The runtime allocates the variable banks from MAXS at boot. Per
+MI1's MAXS: 800 globals, 16 room-vars (one set per room), 2048
+bit-vars. Locals are 25 entries *per slot*. Sizes can vary; the
+engine floor-clamps the allocation to those values (800 globals,
+2048 bit-vars) so under-sized MAXS records don't break the boot
+prefix.
 
 ### Out-of-range access — lenient mode
 
 MI1 ships several scripts that **write past MAXS** in dead-code
 paths (script #12 writes to global #1542 in a branch the player
 never reaches). The original SCUMM engine had no bounds checks;
-ScummVM crashes via `checkRange`. Our `Variables` class splits the
+ScummVM crashes via `checkRange`. Our variable store splits the
 difference: OOB reads return 0, OOB writes are silently absorbed,
-and every access is recorded on `vars.oobAccesses` (a per-(scope,
-index, kind) counter) so the inspector can surface them.
+and every access is recorded per (scope, index, kind) so the
+inspector can surface them.
 
 This keeps the engine progressing through unreachable code without
 losing visibility into what was attempted.
@@ -289,79 +319,91 @@ and ticks again. There's no time-sliced preemption — long-running
 opcodes (especially `0xAC` expression evaluation) run to
 completion.
 
-**Synthetic slots.** Some scripts the engine starts internally —
-the room's `ENCD` (entry script) and `EXCD` (exit script) when
-transitioning rooms — don't have a numeric script id. The engine
-attaches a string label (e.g. `ENCD-10`, `EXCD-10`) so they show
-meaningfully in traces.
+**Fine print:**
 
-**Runaway-loop guard.** A step-cap on `runUntilAllYield` (~100k
-opcodes) converts the most common bug class — a tight loop with
-no `breakHere` — into a clean diagnostic halt instead of a hung
-browser tab.
+- **Synthetic slots.** Some scripts the engine starts internally —
+  the room's `ENCD` (entry script) and `EXCD` (exit script) when
+  transitioning rooms — don't have a numeric script id. The engine
+  attaches a string label (e.g. `ENCD-10`, `EXCD-10`) so they show
+  meaningfully in traces.
+- **Runaway-loop guard.** A step-cap on the per-tick dispatch drain
+  (~100k opcodes) converts the most common bug class — a tight loop
+  with no `breakHere` — into a clean diagnostic halt instead of a
+  hung browser tab.
 
-**`chainScript` (`0x42` / `0xC2`)** kills the running slot and starts
+### `startScript` runs the new script *nested*, not deferred
+
+SCUMM runs the started script immediately — to its first
+`breakHere`/stop — **before the caller's next opcode**, then returns
+to the caller (the child's slot stays alive and resumes normally on
+later ticks if it yielded). It is NOT queued behind the caller. This
+is load-bearing: scripts assume a script they start has already run by
+their next statement. E.g. the room-28 pirate dialog (`#220`) does
+`startScript 32; <fill reply menu>` and relies on `#32` (clear the
+reply slots + set the reply-Y base `g229`) running *first*; queuing
+`#32` let `#220` fill the replies first and `#32` then wiped them — an
+intermittent black/empty answer bar whose outcome depended on
+slot-allocation order. The same applies to the cutscene start/end
+hooks (CUTSCENES §2): `#18`'s `freezeScripts 127` and `#19`'s
+`freezeScripts 0` must execute in issue-order. The `startScript`
+handler allocates the slot then runs the child nested.
+
+### `startObject` runs nested too
+
+`startObject` (`0x37`/`0x77`/`0xB7`/`0xF7`) uses the same mechanism,
+so a started object-verb script finishes (to its first
+`breakHere`/stop) before the caller's next opcode. This is
+load-bearing for the **inventory icons**: the inventory script (`#9`)
+loops the owner's items doing `startObject item 91; L4 = g376`, where
+each item's **verb-91** sets `g376` to the object whose sprite that
+slot should draw. Deferred, the loop read a stale `g376` for every
+slot and every item drew one identical icon; nested, each slot reads
+its own freshly-set `g376`.
+
+### `startObject` args map straight onto the verb body's locals
+
+The args land in `L0, L1, …` — there is **no** implicit
+`[verb, object]` prepend. This is visible in the bytecode: the
+sentence script `#2` runs a verb as `startObject obj=L1 script=4 [L2]`
+(give) or the general `startObject obj=L1 script=L0 [L2,L0]`, and the
+verb bodies read those positions directly — object `566` verb-7 tests
+`L0 == 574` (the second object in "Usa carne con pentola"), and the
+money routine object `488` verb-250 does `g195 += L0` (`g195` = pieces
+of eight) then `setOwnerOf(488, ego)`. We briefly prepended
+`[verb, obj]`, which shifted the real args up two slots: the
+Fettucini-cannon reward `startObject 488 250 [478]` then read
+`L0 = 250` instead of `478`, so verb-250 added the wrong amount and
+never re-owned `488` — the player got no money.
+
+### `chainScript` replaces the running slot
+
+`chainScript` (`0x42` / `0xC2`) kills the running slot and starts
 the named script **in its place**, carrying the dying slot's
-freeze-resistance. Implement it as `slot.kill()` then `startScriptById`:
-killing first frees the slot so the chained script reuses it (lowest
-free index), and the now-dead current slot makes dispatch fall through to
-the fresh one. Background-animation loops chain themselves to re-loop
+freeze-resistance. Implement it as kill-then-start: killing first
+frees the slot so the chained script reuses it (lowest free index),
+and the now-dead current slot makes dispatch fall through to the
+fresh one. Background-animation loops chain themselves to re-loop
 (MI1 room-28's pirate fixtures, the move/sentence path), so a missing
 handler doesn't just drop one script — the unknown-opcode halt freezes
 the *whole* VM the instant anything chains.
 
-**`startScript` runs the new script *nested*, not deferred.** SCUMM runs
-the started script immediately — to its first `breakHere`/stop —
-**before the caller's next opcode**, then returns to the caller (the
-child's slot stays alive and resumes normally on later ticks if it
-yielded). It is NOT queued behind the caller. This is
-load-bearing: scripts assume a script they start has already run by their
-next statement. E.g. the room-28 pirate dialog (`#220`) does `startScript
-32; <fill reply menu>` and relies on `#32` (clear the reply slots + set the
-reply-Y base `g229`) running *first*; queuing `#32` let `#220` fill the
-replies first and `#32` then wiped them — an intermittent black/empty answer
-bar whose outcome depended on slot-allocation order. The same applies to the
-cutscene start/end hooks (CUTSCENES §2): `#18`'s `freezeScripts 127` and
-`#19`'s `freezeScripts 0` must execute in issue-order. The `startScript`
-handler allocates the slot then runs the child nested; `chainScript` above
-is the in-place variant.
+### Starting script 0 is a silent no-op
 
-**Starting script 0 is a silent no-op.** `startScript 0` / `chainScript 0` do
-nothing — id 0 must *not* be resolved as a global, since DSCR slot 0 is an
-unused entry (room 0) and resolving it would halt. The proof is in the game's
-own bytecode: this is reachable in normal play. With a "Dai"/"Usa" verb armed
-and an object held, the hover poller `#23`, when the cursor is over an **actor**
-(id < 12), starts a per-actor handler via the indexed table `g396[actorId]`
-(= `VAR(396 + actorId)`) — in `#23`'s bytecode this is a
-`startScript g396[L0]`. An actor with no special give/use script has
-a `0` there, so `#23` issues `startScript 0`; since the game does this on an
-ordinary hover, id 0 has to be a no-op rather than a halt. The guard is
-at the resolution boundary: id resolution returns nothing for id ≤ 0, and
-the `startScript`/`chainScript` handlers then skip the nested run. Repro:
-give the pot to a pirate in room 51 → "Ah, quello sarà perfetto come
-elmetto!". Before the guard this halted with
+`startScript 0` / `chainScript 0` do nothing — id 0 must *not* be
+resolved as a global, since DSCR slot 0 is an unused entry (room 0)
+and resolving it would halt. The proof is in the game's own bytecode:
+this is reachable in normal play. With a "Dai"/"Usa" verb armed and an
+object held, the hover poller `#23`, when the cursor is over an
+**actor** (id < 12), starts a per-actor handler via the indexed table
+`g396[actorId]` (= `VAR(396 + actorId)`) — in `#23`'s bytecode this is
+a `startScript g396[L0]`. An actor with no special give/use script has
+a `0` there, so `#23` issues `startScript 0`; since the game does this
+on an ordinary hover, id 0 has to be a no-op rather than a halt. The
+guard is at the resolution boundary: id resolution returns nothing for
+id ≤ 0, and the `startScript`/`chainScript` handlers then skip the
+nested run. Repro: give the pot to a pirate in room 51 → "Ah, quello
+sarà perfetto come elmetto!". Before the guard this halted with
 `Cannot load global script #0: unused entry (room = 0)`.
-
-**`startObject` (0x37/0x77/0xB7/0xF7) runs nested too** — the same
-mechanism, so a started object-verb script finishes (to its first
-`breakHere`/stop) before the caller's next opcode. This is load-bearing for
-the **inventory icons**: the inventory script (`#9`) loops the owner's items
-doing `startObject item 91; L4 = g376`, where each item's **verb-91** sets
-`g376` to the object whose sprite that slot should draw. Deferred, the loop
-read a stale `g376` for every slot and every item drew one identical icon;
-nested, each slot reads its own freshly-set `g376`.
-
-**`startObject` args map straight onto the verb body's locals** `L0, L1, …` —
-there is **no** implicit `[verb, object]` prepend. This is visible in the
-bytecode: the sentence script `#2` runs a verb as
-`startObject obj=L1 script=4 [L2]` (give) or the general `startObject obj=L1
-script=L0 [L2,L0]`, and the verb bodies read those positions directly — object
-`566` verb-7 tests `L0 == 574` (the second object in "Usa carne con pentola"),
-and the money routine object `488` verb-250 does `g195 += L0` (`g195` = pieces
-of eight) then `setOwnerOf(488, ego)`. We briefly prepended `[verb, obj]`, which
-shifted the real args up two slots: the Fettucini-cannon reward
-`startObject 488 250 [478]` then read `L0 = 250` instead of `478`, so verb-250
-added the wrong amount and never re-owned `488` — the player got no money.
 
 ## 7. Script id ranges
 
@@ -387,11 +429,11 @@ the lowest free one.
 
 When the dispatcher encounters an unknown opcode or a handler
 throws (e.g., divide-by-zero in the expression VM), it converts
-the error into a **`HaltInfo`** snapshot on the VM rather than
+the error into a **halt snapshot** on the VM rather than
 propagating: which slot, which script, the offending opcode's PC,
 the byte itself, 16 bytes of bytecode context centered on the PC,
-and a tail of the trace ring. Subsequent `step()` calls are no-
-ops; `reset()` clears the halt.
+and a tail of the trace ring. Subsequent steps are no-ops; only a
+reset clears the halt.
 
 Treating halts as state rather than exceptions keeps the rest of
 the engine free of try/catch sprawl, and gives debug UIs a
@@ -404,9 +446,9 @@ verified against real data.
 ## 9. The opcode trace ring
 
 Every dispatched opcode appends to a small circular trace buffer
-with `(slotIndex, scriptId, pc, opcode, mnemonic)`. Handlers call
-a per-opcode `annotate("setVar 0x49 = 0")`-style hook to add a
-human-readable mnemonic; without it, trace entries show just the
+with `(slotIndex, scriptId, pc, opcode, mnemonic)`. Handlers add a
+human-readable mnemonic through a per-opcode annotation hook
+(e.g. `setVar 0x49 = 0`); without it, trace entries show just the
 raw opcode byte.
 
 The trace is a debug surface — tail of it goes into the halt
@@ -440,3 +482,35 @@ the diagnostic value of "this global is non-zero, so either a
 script wrote it or the engine seeded it." Seeding only the
 variables the boot prefix actually reads keeps that signal
 intact.
+
+## 11. Pitfalls cheat-sheet
+
+The conventions that desynchronise streams or invert logic, in
+rough order of how early they bite:
+
+1. **A result operand never consumes a mode bit** — the first value
+   parameter is bit `0x80`, even when a raw result word precedes it;
+   same rule inside multi-subop opcodes (§1, §5).
+2. **Don't blanket-register all eight high-bit variants of a
+   family** — several families use a "mode" bit as an opcode
+   selector (§1).
+3. **Direct-word immediates are signed int16** — read them unsigned
+   and `isGreater L0 [−2]` becomes a compare against 65534 (§1).
+4. **`0x8000` = bit-var, `0x4000` = local** — some circulating notes
+   have them swapped (§2).
+5. **Comparisons branch on "unless"** — the jump fires when the
+   named condition is *false*; get it backwards and setup loops never
+   exit (§3).
+6. **Expression push-var is bit 7 of subop `0x01`**, not a separate
+   subop number (§4).
+7. **`drawObject` reads exactly one subop byte**, not a
+   `0xFF`-terminated list (§5).
+8. **`startScript` / `startObject` run the child nested** — queue it
+   instead and reply menus, cutscene hooks, and inventory icons all
+   break intermittently (§6).
+9. **`startObject` args land in `L0, L1, …` directly** — no implicit
+   `[verb, object]` prepend (§6).
+10. **`startScript 0` is a silent no-op**, reachable in normal play —
+    not a halt (§6).
+11. **Ids ≥ 200 resolve through the room's LSCR table**, lower ids
+    through the global DSCR directory (§7).

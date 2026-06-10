@@ -6,9 +6,32 @@ and it is fully **headless** — it touches no DOM and never schedules its own
 animation frames. The browser shell drives it from the outside; the same
 session runs unchanged under a test harness that feeds it time by hand.
 
-This doc describes the durable runtime behavior: how time enters the loop, how
-ticks are throttled and batched, when the game auto-pauses, how a frame is
-produced, and the lifecycle / debug controls the session exposes.
+## At a glance
+
+```
+        the injected clock calls back: "it is now T ms"
+                            │
+                            ▼
+              throttle — elapsed ≥ 1000/rate ?
+                 │ no                │ yes
+                 ▼                   ▼
+          nothing to do      batch: run floor(elapsed/interval)
+          this callback      jiffies, capped at 64 per callback
+                                     │
+                                     │   each tick: idle-settle /
+                                     │   all-dead / halt checks
+                                     │   → may auto-pause
+                                     ▼
+                             produce one frame:
+                             compose room → assemble screen
+                             → palette → present → frame-info
+```
+
+Time enters only through the clock seam, so the entire loop — throttling,
+batching, idle detection, pause logic — is deterministic and runs identically
+in the browser and under the headless harness. The rest of this doc walks the
+funnel top to bottom, then covers lifecycle, debug drivers, the hang
+watchdog, and input.
 
 ## 1. The clock seam
 
@@ -18,24 +41,27 @@ repeatedly calls back with a monotonic millisecond timestamp. Two clocks exist:
 - A **real clock** in the browser, ticking off the display's refresh.
 - A **manual clock** for headless runs, advanced explicitly by the caller.
 
-Because the loop only ever sees "the clock said it is now time T," the entire
-loop — throttling, batching, idle detection, pause logic — is **deterministic**
-and testable without a browser. Nothing inside the engine reads wall-clock time.
+Because the loop only ever sees "the clock said it is now time T," nothing
+inside the engine reads wall-clock time.
 
 ## 2. The tick model
 
-The unit of simulation is the **jiffy**: one VM tick. The loop's job is to turn
-elapsed real time into the right number of jiffies, then produce a frame.
+The unit of simulation is the **jiffy**: one VM tick. The loop's job is to
+turn elapsed real time into the right number of jiffies, then produce a
+frame.
 
-- The loop **throttles to a target rate** (default 60 Hz). The minimum interval
-  between simulated frames is `1000 / rate` milliseconds.
-- When more time has elapsed than one interval (a slow frame, or a target rate
-  above the clock's own cadence), the loop **batches** jiffies to catch up:
-  it runs `floor(elapsed / interval)` ticks, **capped at 64** per callback so a
-  long stall can never trigger an unbounded catch-up spiral.
-- `step` advances **exactly one jiffy** and produces a frame — the primitive the
-  debug surface single-steps with.
-- The rate is adjustable at runtime; lowering it slows the simulation
+The loop **throttles to a target rate** (default 60 Hz): the minimum interval
+between simulated frames is `1000 / rate` milliseconds. When more time has
+elapsed than one interval — a slow frame, or a target rate above the clock's
+own cadence — the loop **batches** jiffies to catch up: it runs
+`floor(elapsed / interval)` ticks, **capped at 64** per callback so a long
+stall can never trigger an unbounded catch-up spiral.
+
+Two control knobs sit on top of the model:
+
+- **`step`** advances exactly one jiffy and produces a frame — the primitive
+  the debug surface single-steps with.
+- **The rate is adjustable at runtime**; lowering it slows the simulation
   uniformly (fewer jiffies per second of real time), it does not drop frames.
 
 ## 3. Auto-pause
@@ -139,7 +165,7 @@ The session handles **engine-level input only**:
 Everything higher-level — deciding that a left click runs a particular verb
 script against the hovered object — is the **shell's** responsibility, built
 on top of the session. The shell's click routing resolves verb-band clicks
-through the engine's own `verbAt` hit-test (the same one the frame composer
+through the engine's own verb hit-test (the same one the frame composer
 uses for the hover highlight, fed by the mouse vars the input layer
 maintains), then dispatches via the VM's verb/scene click handlers. The
 session itself never dispatches clicks; it only *renders* verb state as part

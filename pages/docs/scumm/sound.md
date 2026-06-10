@@ -86,10 +86,10 @@ piece (#50, ~4.8 s), or a **one-shot** CD track (#104–107 = track 6, the
 a looping sound, so none can hang. Looping CD music (byte 17 = `0xff`)
 plays until explicitly stopped and never gates a wait.
 
-## 4. Not yet rendered
+## 4. Beyond timing — the audio payload
 
 Beyond the timing above, a `SOUN` also fully describes its *audio* — the
 SBL samples, the MIDI note stream for each device, the iMUSE control data
-(`soundKludge` / `VAR_SOUNDRESULT`; 0 MI1 uses, loud-halts). GrogVM does
-not synthesize any of it yet; producing actual sound is a later phase. See
+(`soundKludge` / `VAR_SOUNDRESULT`; 0 MI1 uses, loud-halts). Synthesizing
+it is output-backend territory — see
 [engine/audio.md](../engine/audio.md) §4.

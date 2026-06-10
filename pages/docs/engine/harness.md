@@ -10,6 +10,24 @@ that exercises it.
 It comes in two layers: a reusable, game-agnostic harness, and per-game
 playthroughs built on top.
 
+## At a glance
+
+```
+  playthrough (per game)        the game's own solution, beat by
+        │                       beat — one VM, booted once, driven
+        │                       from the start every run
+        ▼
+  action vocabulary             walk to, use X (with Y), talk to,
+        │   thin sugar over     pick a dialog answer, wait-settled —
+        │   the REAL input      no sentence is ever injected
+        ▼   path                directly
+  raw drivers                   tick N · tick-until(predicate, cap) ·
+        │                       move mouse · go to room
+        ▼
+  the VM, headless              the same engine the browser runs,
+                                on injected time and a seeded RNG
+```
+
 ## 1. Two layers
 
 - The **reusable harness** is game-agnostic. It knows how to drive *a* SCUMM v5

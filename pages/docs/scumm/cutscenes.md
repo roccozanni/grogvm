@@ -11,6 +11,23 @@ This document covers the cutscene bracket, the `freezeScripts`
 mechanism it leans on, and the *override* path that lets the player skip
 a cutscene.
 
+## At a glance
+
+```
+ script:    cutscene ………… the scene plays ………… endCutscene
+               │                                    │
+ engine:    push cutscene frame,              pop the frame,
+            clear VAR_OVERRIDE,               clear VAR_OVERRIDE,
+            run start hook #18 nested         run end hook #19 nested
+               │                                    │
+ game:      #18: cursor + userput             #19: soft on, restore
+            soft off, archive verbs,          verbs, freezeScripts 0
+            freezeScripts                     (the mirror image)
+
+ Escape:    if a beginOverride armed a skip point → jump the arming
+            script there, thaw it, VAR_OVERRIDE = 1; else: nothing
+```
+
 ---
 
 ## 1. The bracket: `cutscene` / `endCutscene`

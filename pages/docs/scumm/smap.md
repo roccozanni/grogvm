@@ -5,6 +5,26 @@ The `SMAP` block holds the room background bitmap in SCUMM v5 games
 …). It's the gnarliest single block format in v5: a vertical-strip
 decomposition wrapped around two flavors of palette-walk RLE.
 
+## At a glance
+
+```
+  the background = vertical strips, 8 px wide, decoded independently
+
+  SMAP: ┌──────────────────────────────┬───────────────────────┐
+        │ stripCount × u32 LE offsets  │ strip bodies …        │
+        │ (header-inclusive: −8 to     │                       │
+        │  get a payload position)     │                       │
+        └──────────────────────────────┴───────────────────────┘
+
+  each strip body:  [ code byte ][ initial color ][ bit stream ]
+                         │
+                         └─▶ picks the method:  uncompressed ·
+                             Method 1 (palette walk) ·
+                             Method 2 (richer deltas + RLE)
+                             …plus direction, transparency, and
+                             how many bits a palette index takes
+```
+
 This is a self-contained reference derived from reverse-engineering MI1
 and MI2 data, cross-checked against the two main public sources for
 the format. Where those sources disagree with what real game data

@@ -2,19 +2,33 @@
 
 A SCUMM v5 *object* is anything in a room the player can interact
 with: doors, mugs, keys, sign-posts, the chickens behind the Scumm
-Bar, the inventory items before they're picked up. Each one lives as
-a **pair** of blocks under `ROOM`:
+Bar, the inventory items before they're picked up.
 
-- **`OBCD`** — object *code*: metadata (position, parent, walk-to
-  point) and the verb-script table the engine dispatches on player
-  interaction.
-- **`OBIM`** — object *image*: the per-state sprite variants
-  (image-1, image-2, …) that get blitted onto the room background.
+## At a glance
 
-The two blocks share an `obj_id` field in their respective headers
-and are looked up by that id. The room loader pairs them; orphan
-OBCDs (no matching OBIM) or OBIMs (no matching OBCD) get silently
-dropped — the compositor has nothing to draw for an orphan.
+```
+        one object  =  two blocks  +  three runtime attributes
+
+  OBCD — code                        OBIM — image
+  ┌─────────────────────────┐       ┌─────────────────────────┐
+  │ CDHD  position, walk-to │       │ IMHD  pixel x/y, w/h    │
+  │       point, facing     │       │ IM01  state-1 sprite    │
+  │ VERB  verb → script     │       │ IM02  state-2 sprite    │
+  │ OBNA  display name      │       │ …     each with optional│
+  └────────────┬────────────┘       │       per-state ZP##    │
+               │                    └────────────┬────────────┘
+               └────── paired by shared obj_id ──┘
+
+  runtime:  owner — who holds it (room = 15, or an actor)
+            state — which IMxx is showing (0 = hidden)
+            class — bitmask; Untouchable removes it from hit-tests
+            seeded from the index's DOBJ directory, then script-driven
+```
+
+The pairing is by the `obj_id` field both headers carry. The room
+loader pairs them; orphan OBCDs (no matching OBIM) or OBIMs (no
+matching OBCD) get silently dropped — the compositor has nothing to
+draw for an orphan.
 
 ## Sources
 
@@ -194,40 +208,43 @@ transparency. Skipped objects are surfaced with a reason ("not present in
 room", "state 0 (hidden)", "no image for state N") so a diagnostic can
 explain why an expected object didn't appear.
 
-**`drawObject … at x,y` (SO_AT) repositions the object.** Both operands
-are in **strips**, so the object moves to `(x·8, y·8)` and draws there
-until the next reposition (a bare/`SO_IMAGE` draw keeps the last position).
-This runtime position — not the `IMHD` default — is the single source of
-truth for everything tied to the object: the image blit, its z-plane
-occlusion ([ZPLANE](zplane.md)), the hit-box (`findObject`, §7a), and the
-walk-to point (`getObjectXYPos`, §7a). MI1's forest maze (room 58) leans on
-it hard: each screen is built by repositioning ~10 shared tile objects, and
-the floor bands of one screen are a top tile (height 88) at strip-y 0 plus a
-bottom tile (height 56) at strip-y 11 → 88px, which butt together to fill
-the 144-row room. (Treating the y operand as pixels collapses the screen
-into its top ~99 rows.)
+### `drawObject … at x,y` (SO_AT) repositions the object
 
-**`drawObject` always sets state.** `o5_drawObject`'s whole job is to
-make an object visible, so it sets `state = 1` by default (only
-`SO_IMAGE` overrides the value). A bare or `SO_AT` `drawObject` on a
-state-0 (hidden) object reveals it. Close-up rooms rely on this: ENCD
-hides every scenery object (`drawObject … at x,y` then `setState 0`),
-then reveals a piece later with a *bare* `drawObject` expecting the flip
-to state 1.
+Both operands are in **strips**, so the object moves to `(x·8, y·8)` and
+draws there until the next reposition (a bare/`SO_IMAGE` draw keeps the
+last position). This runtime position — not the `IMHD` default — is the
+single source of truth for everything tied to the object: the image blit,
+its z-plane occlusion ([ZPLANE](zplane.md)), the hit-box (`findObject`,
+§7a), and the walk-to point (`getObjectXYPos`, §7a). MI1's forest maze
+(room 58) leans on it hard: each screen is built by repositioning ~10
+shared tile objects, and the floor bands of one screen are a top tile
+(height 88) at strip-y 0 plus a bottom tile (height 56) at strip-y 11 →
+88px, which butt together to fill the 144-row room. (Treating the y
+operand as pixels collapses the screen into its top ~99 rows.)
 
-**Retained-mode draw queue vs. SCUMM's strip overwrite.** The original
-restores the background strips under an object's box on each redraw, so a
-fresh `drawObject` *erases* the previous frame — only the latest shows.
-Our queue is retained (every queued object redraws each frame), and MI1
-animates background fixtures as **several single-frame objects that share
-one bounding box** (the swinging chandelier pirate, table pirates: ids
-357/358 share `(32,120) 40×24`; 354/355/356 share `(208,96)`), cycled by
-a loop's bare `drawObject`. Without intervention they all accumulate and
-the fixture freezes after one cycle. **Fix:** before (re-)queuing a drawn
-object, evict any already-queued object covering the **exact same box**,
-and append the drawn one last (freshest on top). Exact-box match (not
-overlap) leaves a legitimately distinct object resting over a larger
-fixture untouched.
+### `drawObject` always sets state
+
+`o5_drawObject`'s whole job is to make an object visible, so it sets
+`state = 1` by default (only `SO_IMAGE` overrides the value). A bare or
+`SO_AT` `drawObject` on a state-0 (hidden) object reveals it. Close-up
+rooms rely on this: ENCD hides every scenery object
+(`drawObject … at x,y` then `setState 0`), then reveals a piece later
+with a *bare* `drawObject` expecting the flip to state 1.
+
+### The retained draw queue and same-box eviction
+
+The original engine restores the background strips under an object's box
+on each redraw, so a fresh `drawObject` *erases* the previous frame —
+only the latest shows. Our queue is retained (every queued object redraws
+each frame), and MI1 animates background fixtures as **several
+single-frame objects that share one bounding box** (the swinging
+chandelier pirate, table pirates: ids 357/358 share `(32,120) 40×24`;
+354/355/356 share `(208,96)`), cycled by a loop's bare `drawObject`.
+Without intervention they all accumulate and the fixture freezes after
+one cycle. **Fix:** before (re-)queuing a drawn object, evict any
+already-queued object covering the **exact same box**, and append the
+drawn one last (freshest on top). Exact-box match (not overlap) leaves a
+legitimately distinct object resting over a larger fixture untouched.
 
 The eviction must also **revert the overdrawn object's state to 0** — in
 SCUMM the strip overwrite erases it, and erased means hidden. The prison's
@@ -238,22 +255,26 @@ all three latch at 1 after one pass and the picker spins forever (the VM
 froze on a 100k-step guard). With it, the displaced frame returns to the
 pick pool and the animation cycles like the original.
 
-**`setState` renders too.** Setting an object's state to a non-zero,
-image-backed value marks it dirty in SCUMM → it redraws. So `setState`
-queues a current-room object, and room (re)entry queues every object
-already in a non-zero image-backed state — that keeps an opened door drawn
-open when you leave and return, and across save/restore.
+### `setState` renders too
 
-**`pickupObject` is four steps, not one.** `o5_pickupObject` does *all* of:
-`putOwner(obj, VAR_EGO)` (inventory membership = ownership, INPUT §7),
-`putState(obj, 1)` + mark-dirty, **`putClass(obj, Untouchable, 1)`**, and
-`runInventoryScript`. MI1 bakes pickable items into the room-background
-SMAP, so the state-1 image is the *eraser patch* that paints over the
-baked-in item — pickup must **draw** the object (queue it), not drop it,
-or the item lingers on the table. And the Untouchable class is what makes
-the now-taken item's room hit-box stop responding (§7a / `findObject`);
-omit it and the sprite vanishes yet you can still click the empty spot.
-Doing only the draw leaves that hit-area half open.
+Setting an object's state to a non-zero, image-backed value marks it
+dirty in SCUMM → it redraws. So `setState` queues a current-room object,
+and room (re)entry queues every object already in a non-zero
+image-backed state — that keeps an opened door drawn open when you leave
+and return, and across save/restore.
+
+### `pickupObject` is four steps, not one
+
+`o5_pickupObject` does *all* of: `putOwner(obj, VAR_EGO)` (inventory
+membership = ownership, INPUT §8), `putState(obj, 1)` + mark-dirty,
+**`putClass(obj, Untouchable, 1)`**, and `runInventoryScript`. MI1 bakes
+pickable items into the room-background SMAP, so the state-1 image is the
+*eraser patch* that paints over the baked-in item — pickup must **draw**
+the object (queue it), not drop it, or the item lingers on the table. And
+the Untouchable class is what makes the now-taken item's room hit-box
+stop responding (§7a / `findObject`); omit it and the sprite vanishes yet
+you can still click the empty spot. Doing only the draw leaves that
+hit-area half open.
 
 ## 7a. Object owner, state, and class — the `DOBJ` seed
 
@@ -265,7 +286,7 @@ Three per-object attributes drive interaction, seeded from the index
   walk-to-object approach on `owner == 15`, so a wrong 0 default makes the
   ego never walk over ("can't reach"). Explicit `pickupObject` /
   `setOwnerOf` still win. Inventory membership *is* ownership (see
-  INPUT §7).
+  INPUT §8).
 - **state** — the current image variant (§7; 0 = hidden).
 - **class** — a bitmask. The one that matters early is **Untouchable**
   (class 32, bit `1<<31`): SCUMM's `findObject` skips Untouchable
@@ -309,11 +330,29 @@ room/walk-to branch.
    the *absence* of an image; the first per-state OBIM child is
    `IM01`.
 2. **Reading CDHD's position as pixels instead of 8-pixel units** —
-   produces objects positioned 1/8 of where they should be.
-3. **Trusting RMHD.numObjects** — that count includes objects with
+   produces objects positioned 1/8 of where they should be. Same trap
+   in reverse for `SO_AT`: its operands are strips, not pixels (§7).
+3. **Reading `walkX/walkY` unsigned** — an edge exit's walk-to point
+   can be negative; unsigned it sends the actor marching off-room (§2).
+4. **Trusting RMHD.numObjects** — that count includes objects with
    only OBCD (no image) and orphans a loader would drop. Trust the
    size of the parsed object map.
-4. **Drawing a queued object whose state is 0** — by spec, state 0
+5. **Drawing a queued object whose state is 0** — by spec, state 0
    means hidden. Scripts often explicitly set an object's state to
    0 immediately before a cutscene to remove a piece of scenery
    that's about to be replaced by a sprite.
+6. **Trimming the `@` padding out of OBNA** — skip it at render time
+   instead; `setObjectName` needs the slack and the sentence line
+   needs the stored bytes (§5).
+7. **Skipping the same-box eviction (or its state revert)** — animated
+   fixtures freeze after one cycle, and same-box pickers spin the VM
+   into the step guard (§7).
+8. **Defaulting object owner to 0** — a room object's default owner is
+   15 (`OF_OWNER_ROOM`); the sentence script's approach gate reads it
+   (§7a).
+9. **Ignoring the Untouchable class in hit-tests** — taken items stay
+   clickable as ghosts, and ~510 not-yet-active MI1 objects become
+   hoverable too early (§7a).
+10. **Measuring object distance to the image instead of the walk-to
+    point** — the ego arrives and still reads "too far"; held items
+    measure to their holder (§7a).

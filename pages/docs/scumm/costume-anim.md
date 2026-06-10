@@ -6,6 +6,26 @@ the `animateActor` **chore** model, and the **mirror** convention. This is the
 playback side of the format; the static frame layout and RLE pixel decoding are
 in `cost.md`.
 
+## At a glance
+
+```
+  animateActor actor, chore
+        │
+        │   record = chore × 4 + dir      (W=0  E=1  S=2  N=3)
+        ▼
+  animation record:  mask of limbs  +  per-limb (start, length, loop)
+        │
+        │   each named limb gets a window; unnamed limbs keep doing
+        │   what they were doing (talk drives the head, walk the body)
+        ▼
+  anim-command stream:  [ 12  13  14  0x79  … ]   one byte per tick
+        │
+        │   0x71–0x7C are commands (stop / un-stop / cues),
+        │   everything else is a picture index
+        ▼
+  limb's image table  →  picture  →  pixels  (cost.md)
+```
+
 ## Sources
 
 - *"Costume spec"* (anonymous compilation, archived at
@@ -118,7 +138,7 @@ the new way.)
 
 SCUMM's `o5_actorOps` SO_DEFAULT (subop `0x08`) calls `initActor(0)`, which
 clears the per-actor flags (costume, `forceClip`, `ignoreBoxes`, scale, walk box
-— see [ZPLANE §8](zplane.md)) but **does not touch `_facing`**. Only the full
+— see [ZPLANE §7](zplane.md)) but **does not touch `_facing`**. Only the full
 game-start `initActor(1)` (and mode 2) reset facing. This matters because a
 script can set a direction (`animateActor` set-dir) *before* re-initialising and
 re-costuming an actor and rely on that facing surviving the init. Room 60's

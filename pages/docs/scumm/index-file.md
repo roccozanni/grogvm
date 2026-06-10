@@ -10,6 +10,24 @@ is consistent across all five resource directories in our sample but
 the lane-1 *semantics* differ between `DROO` and the rest — a surprise
 worth flagging up front.
 
+## At a glance
+
+```
+  "give me global script N"            (same path for sounds DSOU,
+                                        costumes DCOS, charsets DCHR)
+   .000 ─ DSCR[N] ──▶ { room, offset }
+                          │
+   .001 ─ LOFF[room] ──▶ absolute file position of the ROOM block
+                          │
+                          ▼
+   block header at  LOFF[room] + offset   →  'SCRP' + size + bytecode
+```
+
+The resource directories name an *owning room*, not a disk; the room
+offsets live in `LOFF` at the top of the `.001` file, not in the
+index. Both facts diverge from the long-circulating notes — details
+in §4 and §5.
+
 ## Sources
 
 - ScummVM Technical Reference — Index file, at

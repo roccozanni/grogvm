@@ -7,12 +7,39 @@ indices. SCUMM v5 games typically ship multiple charsets — different
 fonts for verb UI, dialog, and intro credits — and `LFLF` blocks can
 hold zero or more of them.
 
+## At a glance
+
+```
+        one charset  =  a glyph table  +  a tiny palette map
+
+  charCode ─▶ glyphOffsets[code] ──(+21 anchor)──▶ ┌────────────────┐
+               0 = "no glyph here"                 │ w h xOfs yOfs  │  4-byte header
+                                                   ├────────────────┤
+                                                   │ w×h pixels at  │  1 or 2 bpp,
+                                                   │ bpp bits each, │  MSB-first,
+                                                   │ no row padding │  rows straddle
+                                                   └───────┬────────┘  byte bounds
+                                                           ▼
+        glyph bit value ─▶ colorMap[value] ─▶ room CLUT index
+             value 0 = transparent, always (colorMap[0] is unused)
+```
+
+The palette map is what lets one charset render as black-on-white for
+verbs, brown-on-paper for dialog, or any other inked tone the script
+picks — the glyphs carry bit *patterns*, not colors. Bitmaps are
+packed at either **1 bit per pixel** (binary "ink / no ink") or **2
+bits per pixel** (a 4-level ramp for anti-aliased outlined fonts); the
+choice is per-charset, not per-glyph — MI1's smaller fonts are 1-bpp,
+the larger title/credits font is 2-bpp. As in COST, "off" pixels (bit
+pattern `0`) are universally transparent regardless of what
+`colorMap[0]` contains.
+
 This is a self-contained reference derived from reverse-engineering
 real MI1 data, cross-checked against the long-circulating notes for
 this format. Where those notes disagree with what real game data
 actually decodes to, the data is the source of truth and we document
 the correction (notably the **+21 anchor convention** for glyph
-offsets in §4, which the notes miss).
+offsets in §2, which the notes miss).
 
 ## Sources
 
@@ -62,29 +89,7 @@ which have no directory entry to resolve.
 
 ---
 
-## 2. The mental model
-
-A charset is **a glyph table + a small palette mapping**. The glyph
-table gives one indexed bitmap per character code; the palette
-mapping (the "color map" in our terminology) re-routes glyph bit
-values to CLUT indices so the same charset can render as black-on-
-white for verbs, brown-on-paper for dialog, or any other inked tone
-the script picks.
-
-Glyph bitmaps are packed at either **1 bit per pixel** (binary
-"ink / no ink") or **2 bits per pixel** (a 4-level ramp suitable for
-anti-aliased outlined fonts). The choice is per-charset, not per-
-glyph. MI1's smaller fonts are 1-bpp; the larger title/credits font
-is 2-bpp.
-
-The format mirrors COST in one specific way: glyph bitmap "off"
-pixels (bit pattern `0`) are universally transparent, regardless of
-what `colorMap[0]` contains. So `colorMap[0]` is effectively unused
-storage; only `colorMap[1..2^bpp - 1]` carries real CLUT indices.
-
----
-
-## 3. Block payload layout
+## 2. Block payload layout
 
 After the standard 8-byte block header (`'CHAR' + size BE`), the
 payload begins:
@@ -93,7 +98,7 @@ payload begins:
 off  size   field
  0    u32   size       — redundant; equals (block_size − 23). Informational.
  4    u16   magic      — observed 0x0363 across every MI1/MI2 charset.
- 6    15B   colorMap   — bit-pattern → CLUT index table (see §5).
+ 6    15B   colorMap   — bit-pattern → CLUT index table (see §4).
 21    u8    bpp        — 1 or 2 bits per glyph pixel.
 22    u8    fontHeight — declared font height in pixels.
 23    u16   numChars   — number of entries in the offset table below.
@@ -144,7 +149,7 @@ slot count, since the divergence is large.
 
 ---
 
-## 4. Per-glyph header + bitmap
+## 3. Per-glyph header + bitmap
 
 At `21 + glyphOffsets[c]`, each non-sentinel glyph begins with a
 4-byte header followed by its bitmap stream:
@@ -208,7 +213,7 @@ naturally.
 
 ---
 
-## 5. The 15-byte color map
+## 4. The 15-byte color map
 
 Bytes 6..20 of the payload are a 15-entry palette mapping table
 indexed by glyph bit pattern. For a charset with `bpp = b`, the
@@ -254,7 +259,7 @@ colour from a helper script started *after* the `print` — a frame later
 
 ---
 
-## 6. Text layout semantics
+## 5. Text layout semantics
 
 The simplest plausible single-line layout is:
 
@@ -336,7 +341,7 @@ Two real scenes pin down both halves of this rule:
   hovered location's name **near the cursor every frame**, and a bare
   `print " " at 0,0` on hover-out. Because the cursor drifts a pixel or
   two per frame, a naïve "stack distinct positions" model smeared a trail
-  of stale labels that never cleared (`bug-map-labels`). The per-cycle
+  of stale labels that never cleared. The per-cycle
   restore is what collapses each frame's label onto one and lets the
   hover-out space erase it — exactly the original's behaviour.
 
@@ -419,7 +424,7 @@ string decoder must surface the keepText flag.
 
 ---
 
-## 7. End-to-end — rendering "GUYBRUSH"
+## 6. End-to-end — rendering "GUYBRUSH"
 
 What the decoder does to go from "raw payload" to "letters
 on a canvas":
@@ -451,7 +456,7 @@ is a 48 × 8 pixel buffer in a single CLUT colour.
 
 ---
 
-## 8. Pitfalls cheat-sheet
+## 7. Pitfalls cheat-sheet
 
 In rough order of "what hits you first":
 
@@ -487,4 +492,4 @@ In rough order of "what hits you first":
    bitstream is stored 180°-rotated with no header flag (Italian MI1,
    charset 2). Detect empirically — the densest row of `L`/`J` glyphs
    must land in the lower half — and mirror the grid through its
-   centre (§4).
+   centre (§3).

@@ -9,6 +9,19 @@ resource file — Monkey Island's title-screen room is around 50 kB —
 and it's also the unit of work the engine swaps in and out as the
 player moves between locations.
 
+## At a glance
+
+```
+ROOM
+├─ geometry     RMHD  width × height      BOXD + BOXM  walk boxes
+│               SCAL  per-y actor scale (boxes point into it)
+├─ appearance   CLUT  256-color palette   TRNS  transparent index
+│               CYCL  palette-cycle ranges
+│               RMIM > IM00 > SMAP  background  + ZP##  occlusion masks
+├─ objects      OBIM + OBCD  one image/code pair per object
+└─ code         ENCD  on enter   EXCD  on leave   LSCR × n  locals (id ≥ 200)
+```
+
 This document is the top-level reference for how those pieces fit
 together. Each interesting sub-block has its own deep dive:
 
@@ -65,7 +78,7 @@ A real MI1 game room (id 10, the title screen) contains:
 | `BOXD` | 50    | Walk-box geometry. See [`walk-boxes.md`](walk-boxes.md). |
 | `BOXM` | 16    | Walk-box adjacency matrix (next-hop routing). See [`walk-boxes.md`](walk-boxes.md). |
 | `CLUT` | 776   | Room palette — 256 RGB triples + 8-byte block header. See §4b.           |
-| `SCAL` | 40    | Per-y actor scaling slots. Not yet consumed by the compositor.           |
+| `SCAL` | 40    | Per-y actor scaling slots — referenced by walk boxes. See §8.             |
 | `RMIM` | big   | Room image container (SMAP + z-planes). See §5.                          |
 | `OBIM` | each  | Object image — one block per object. See [`objects.md`](objects.md). |
 | `OBCD` | each  | Object code — one block per object, paired with OBIM by id.              |
@@ -225,13 +238,16 @@ consults the alias map only when N is absent. Pseudo ids are always ≥ 128,
 so they never collide with a real room (1–127) — the direct-first order is
 belt-and-braces, and a real room always loads its own art.
 
-## 8. CYCL, SCAL — not yet consumed
+## 8. CYCL, SCAL — palette cycles and perspective scale
 
 - **CYCL** lists palette-index ranges that cycle on a timer (water,
-  flames, animated mouths). A renderer honouring it would mutate the
+  flames, animated mouths). A renderer honouring it mutates the
   palette's RGB triplets in place at the cycle rate.
 - **SCAL** holds 4 perspective-scale slots, each `(scale1, y1,
   scale2, y2)`, defining a per-y interpolation that scales actors as
   they walk toward / away from the camera. Walk boxes reference one
-  of these slots via `box.scaleSlot`. Without it, actors render at
+  of these slots via their scale word (or carry a direct fixed
+  scale instead); the runtime resolves an actor's scale from its
+  assigned box — see [`walk-boxes.md`](walk-boxes.md) for when the
+  rescale runs and its exemptions. Without SCAL, actors render at
   100% scale regardless of room depth.

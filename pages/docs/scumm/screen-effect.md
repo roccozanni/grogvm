@@ -38,8 +38,7 @@ roomOps screenEffect 0x8181
 
 ## 3. The effect vocabulary MI1 uses
 
-Across all global scripts (`SCAN grep="fade effect"`), only three
-operand values ever appear:
+Surveying every global script, only three operand values ever appear:
 
 | operand  | hex     | in (low) | out (high) | count |
 |----------|---------|----------|------------|-------|

@@ -13,6 +13,23 @@ A room has two blocks for this:
   original engine uses to plan walks across the box graph. The router
   follows it box-to-box; see [`pathfinding.md`](../engine/pathfinding.md).
 
+## At a glance
+
+```
+        UL ─────────────── UR
+       /                     \      one BOXD record: a convex quad,
+      /      walkable         \     corners stored UL → UR → LR → LL
+     LL ─────────────────────── LR  (signed i16 pixel coords)
+
+   + mask   u8   z-plane clip level for actors standing here
+                 (0 = in front of every plane, k = masked by ZP0k)
+   + flags  u8   bit 0x80 = invisible — excluded from paths
+   + scale  u16  bit 0x8000 set: SCAL slot ref · clear: fixed 1..255
+
+   BOXM, per box: "to reach box D from S, step into box N next" —
+   the precomputed next-hop table the router follows
+```
+
 ## Sources
 
 The per-box record layout here was derived empirically from MI1
@@ -207,6 +224,6 @@ the room change then kills #203 — leaving Guybrush stuck `ignoreBoxes`, render
 full-size from the cliff onward. SCUMM's `initActor` resets `_ignoreBoxes = 0`
 and `_scalex/y = 0xFF`, so the ego's game-start `init` is what clears the
 otherwise-stuck flag; a later `ignoreBoxes`/`scale` subop in the *same*
-`actorOps` still wins (the cannon flight actor). We omitted both resets
-originally — verified by ESC-skipping the intro (ego reached the cliff at scale
-255 instead of 210) and fixed in the `init` handler.
+`actorOps` still wins (the cannon flight actor). The witness is ESC-skipping
+the intro: without the resets the ego reaches the cliff at scale 255 instead
+of 210.

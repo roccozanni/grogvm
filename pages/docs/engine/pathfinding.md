@@ -6,6 +6,28 @@ search over a rasterized floor mask. The two approaches pick *different
 routes* through the same geometry (see §8), and only the box graph matches
 the original.
 
+## At a glance
+
+```
+  ● start (in box A)
+  │
+  │    each straight segment lies inside ONE convex box,
+  │    so the walker can interpolate it directly
+  ▼
+ ─┼─  gate: the crossing point on the shared A|B edge,
+  │         placed as close to the target as the edge allows
+  ▼
+ ─┼─  gate (B|C)
+  │
+  ▼
+  ✕ target (in box C — clamped into the box when the click
+            landed off the floor)
+
+  the box sequence A → B → C comes straight out of BOXM:
+  "to reach C from A, step into B next" — a chain of lookups,
+  no search at routing time
+```
+
 The thing that walks is the actor's **walk path**, an array of pixel
 waypoints. Pathfinding's job is to populate it given a start point, a
 target point, and the room's walk-box geometry + matrix. The walker doesn't
@@ -66,12 +88,24 @@ straight through the locked region.
 ## 4. Gate points
 
 The gate between two adjacent boxes `a` and `b` is where an actor crosses
-from one into the other. SCUMM transitions at the shared boundary; we find it as a
-**collinear, overlapping edge pair** — `a`'s edge and `b`'s edge on the same
-vertical (shared x) or horizontal (shared y) line, with an overlapping
-span. The gate is the point on that overlap closest to the target (clamped
-to the span), so the actor heads toward its goal as it crosses; the widest
-shared edge wins when several qualify.
+from one into the other. SCUMM transitions at the shared boundary; we find
+it as a **collinear, overlapping edge pair** — `a`'s edge and `b`'s edge on
+the same vertical (shared x) or horizontal (shared y) line, with an
+overlapping span:
+
+```
+   ┌────────────────────┐
+   │       box a        │      a's bottom edge and b's top edge
+   └────┬───────────┬───┘      sit on the same line and overlap
+        │  overlap  │
+   ┌────┴───────────┴─────────┐
+   │       box b              │
+   └──────────────────────────┘
+
+   the gate is the point on the overlap closest to the target
+   (clamped to the span) — the actor heads toward its goal as
+   it crosses; the widest shared edge wins when several qualify
+```
 
 Diagonal / corner-touching boxes (the staircase and cliff "line" boxes
 share an *endpoint*, not an axis-aligned edge) have no collinear edge —
@@ -128,15 +162,15 @@ horizontal / vertical walk speed (SCUMM's defaults are 8 / 2 —
 horizontal-biased), bumps the waypoint index on arrival, and stops on the
 final waypoint.
 
-Facing while walking derives from a point **16 px ahead along the path**,
-not from the final target. Aimed at the final target, ego faces the
+**Facing while walking** derives from a point **16 px ahead along the
+path**, not from the final target. Aimed at the final target, ego faces the
 far-east dock for the entire room-33 cliff descent; the look-ahead reads
 south down the cliff first, then east along the dock. The distance is
 tuned both ways: large enough to smooth the ±1 px jitter of pixel
 stepping, small enough that the facing still turns at corners.
 
-Perspective scale during the walk comes from the box **assigned** at each
-movement step — the same assignment that feeds z-clip (see
+**Perspective scale during the walk** comes from the box **assigned** at
+each movement step — the same assignment that feeds z-clip (see
 [ZPLANE](../scumm/zplane.md)), so the two always agree. The assignment uses
 a **nearest-box** fallback rather than strict containment: MI1's thin and
 degenerate boxes (the room-33 cliff again) mean a walking actor often sits
@@ -158,9 +192,9 @@ walk in short hops exactly as a player clicks their way down.
 ## 8. Why box graph, not grid A*
 
 The grid-A*-over-a-rasterized-mask approach flattened the union of all
-visible boxes into a binary mask and ran A* over it. It worked on every room and
-was easy to visualize, but it **ignored BOXM** — A* hugged whatever pixels
-were shortest. Two confirmed divergences it caused:
+visible boxes into a binary mask and ran A* over it. It worked on every
+room and was easy to visualize, but it **ignored BOXM** — A* hugged
+whatever pixels were shortest. Two confirmed divergences it caused:
 
 - **Room 28 cook.** Between x≈367–466 the only walk box is box 6, a
   degenerate line at y=140. The mask had walkable pixels only there, so A*
@@ -177,26 +211,26 @@ the middle of boxes (one edge crossing per transition) rather than hugging
 walls — which reads as "the actor walks through the room," matching the
 original.
 
-## 9. Known limitation — independent-axis stepping vs. line-following
+## 9. The stepping model — independent axes vs. line-following
 
 The walker advances X and Y by the horizontal / vertical walk speed
 **independently** (each clamped to the remaining distance). SCUMM instead
 moves the actor *along the line* toward the waypoint (`calcMovementFactor`:
-dominant axis at full speed, the other proportional). On a near-horizontal
-diagonal connector box, independent stepping exhausts the small Y delta in
-one tick and then drifts straight along the wrong Y, leaving the thin box;
-the box **assigned** from that off-line position (each movement step) is then
-wrong.
+dominant axis at full speed, the other proportional, with sub-pixel
+accumulation) — which keeps the actor *on* the box line through thin
+connectors.
 
-This is why a *single* click can't cross room 52's bridge (§7) and why thin
-diagonal connectors are fragile in general. The walk-box-as-state half of the
-fix is **done**: the actor stores its assigned box (`actor.walkBox`, SCUMM's
-`_walkbox`) and the compositor / `getActorWalkBox` read it rather than
-re-deriving the box at draw time (see [ZPLANE §8](../scumm/zplane.md)). What
-remains is the **line-following walker** (`calcMovementFactor`-style stepping
-with sub-pixel accumulation): it keeps the actor *on* the box line, so the
-per-step box assignment is correct — and, ideally, maintaining `_walkbox` at
-gate crossings instead of re-assigning it from pixel position each step.
+The divergence bites on near-horizontal diagonal connector boxes:
+independent stepping exhausts the small Y delta in one tick and then
+drifts straight along the wrong Y, leaving the thin box; the box
+**assigned** from that off-line position (each movement step) is then
+wrong. This is why a *single* click can't cross room 52's bridge (§7) and
+why thin diagonal connectors are fragile in general.
+
+The walk box itself is **actor state, not a per-draw derivation**: the
+actor stores its assigned box (SCUMM's `_walkbox`), and the compositor and
+`getActorWalkBox` read the stored value rather than re-deriving the box at
+draw time (see [ZPLANE §7](../scumm/zplane.md)).
 
 ## 10. Distance queries clamp into reachable boxes (`getDist`)
 

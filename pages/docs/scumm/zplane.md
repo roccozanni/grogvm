@@ -2,14 +2,32 @@
 
 The `ZP##` blocks hold the room's foreground occlusion masks: 1-bit-
 per-pixel bitmaps that tell the compositor when an actor pixel should
-be hidden behind room geometry. A room has zero or more z-planes,
-named `ZP01`, `ZP02`, `ZP03`, … in source order, and they're stored
-alongside the room's background image under `RMIM > IM00`.
+be hidden behind room geometry.
 
-The encoding is close cousin to SMAP — same strip decomposition, same
-header-inclusive offset convention — but the per-strip compression is
-much simpler: a single byte-level packbits-style RLE instead of SMAP's
-two-flavor palette-walk bit grammar.
+## At a glance
+
+```
+     ZP01         ZP02         ZP03 …       one 1-bit mask per plane,
+   ┌────────┐   ┌────────┐                  stored like SMAP: vertical
+   │ ▒▒     │   │ ▒▒▒▒   │                  8-px strips, simple RLE
+   └────────┘   └────────┘
+
+   an actor carries ONE clip level k, and is masked by ZP0k ALONE:
+
+      clip 0 → in front of every plane
+      clip 1 → hidden where ZP01 is set — ZP02 is never consulted
+      clip 2 → hidden where ZP02 is set — ZP01 is never consulted
+
+   it is NOT a cumulative "every plane above me hides me" stack (§6)
+```
+
+A room has zero or more z-planes, named `ZP01`, `ZP02`, `ZP03`, … in
+source order, stored alongside the room's background image under
+`RMIM > IM00`. The encoding is close cousin to SMAP — same strip
+decomposition, same header-inclusive offset convention — but the
+per-strip compression is much simpler: a single byte-level
+packbits-style RLE instead of SMAP's two-flavor palette-walk bit
+grammar.
 
 This is a self-contained reference derived from reverse-engineering
 real MI1 data, cross-checked against the format spec. Where it
@@ -22,7 +40,7 @@ the source of truth and we document the correction.
   <https://wiki.scummvm.org/index.php?title=SCUMM/Technical_Reference/Image_resources>.
   Same wiki page that documents SMAP; the z-plane section describes
   the packbits-RLE shape, the per-strip offset table, and the
-  "any plane above actorZ hides" composite rule.
+  composite rule.
 
 ---
 
@@ -247,15 +265,6 @@ masked by `ZP01` only and walks *in front* of the stairs — exactly
 right. The cumulative rule masks it by `ZP01 ∪ ZP02` and draws
 Guybrush behind the staircase banister.
 
-### How an actor gets its clip level
-
-`clipLevel = forceClip > 0 ? forceClip : (NeverClip class ? 0 :
-walkBoxMask)`. `alwaysZclip k` sets `forceClip = k`; `neverZclip`
-(and `followBoxes` / `ignoreBoxes`) clear it to 0 (an *unset* sentinel,
-**not** "in front" — it falls through to the box mask); the actor's
-assigned walk box (`_walkbox`) supplies the default (`mask 0` = in front,
-`mask k` = `ZP0k`).
-
 ### Actor over actor — paint order, not planes
 
 Z-planes settle actor-vs-*room* depth only. Actor-vs-actor depth is
@@ -289,65 +298,11 @@ set, and moves on.
 
 ---
 
-## 7. Pitfalls cheat-sheet
+## 7. Actor z-depth — `forceClip` (actorOps neverZclip / alwaysZclip)
 
-In rough order of "what hits you first":
-
-1. **Strip offsets look way too big / way too small** → header-
-   inclusive convention. Subtract 8 from every raw u16 in the offset
-   table to get a payload-relative position.
-2. **Decoder crashes on a strip with offset = 0** → `0` is the
-   "implicit all-zero strip" sentinel. Skip it; that 8-column region
-   of the mask stays zeroed. The body for that strip doesn't exist
-   anywhere in the payload.
-3. **Strip body decoded byte count ≠ roomHeight** → either the offset
-   handling is wrong (#1) or the RLE dispatch is reversed (high bit =
-   literal instead of run, or vice versa). High bit set = run.
-4. **Overlay is mirrored within each 8-pixel column** → bit order
-   inside the emitted byte is wrong. MSB (bit 7) = leftmost pixel of
-   the strip.
-5. **Overlay is shifted vertically** → strip body packing is wrong.
-   Each emitted byte is one *row* of the strip; the byte's 8 bits are
-   the 8 *columns* within that row. Not the other way around.
-6. **A declared plane shows up empty in the overlay** → that's
-   correct. Real MI1 rooms have it. The RMIH count is what the engine
-   allocates for, not a guarantee that every plane carries pixels.
-7. **The same pixel is marked in multiple planes** → also correct.
-   Masking is single-plane, so a feature occluding actors at several
-   clip levels is marked in each of those planes (deeper planes are
-   often supersets). The compositor only reads the actor's own plane.
-8. **The compositor draws the actor over geometry it should hide
-   behind (or behind geometry it should be in front of)** → wrong
-   clip level, or the cumulative "any plane above" rule crept back in.
-   The rule is single-plane: an actor at clip level `k` is masked by
-   `ZP0k` **alone** — never by `ZP0(k+1)` and up. A floor actor at
-   level 1 in a room where `ZP02 ⊇ ZP01` must stay in front of the
-   `ZP02`-only geometry (MI1 room 30 stairs).
-9. **A drawn object occludes the actor in the wrong place** → its
-   z-plane was applied at the object's design `imhd.x/y` instead of its
-   current (SO_AT) position. Object z-planes move with the object (see
-   "Per-object z-planes").
-10. **A drawn object buries the actor everywhere it overlaps** → a solid
-    (all-1s) object mask survived that a later opaque draw should have
-    erased. Masks are written in draw order — an opaque strip *replaces*
-    the surface, zeros included — so check stamp order and the per-strip
-    opacity test. Room 58's path tiles, parked under the dressing tiles,
-    are the case (see "The mask surface is written in draw order").
-11. **A drawn object hides a floor (clip-1) actor it shouldn't** → the
-    object's mask lives in `ZP02` (plane 2) but was OR'd into plane 1 (the
-    old single-plane collapse). An object `ZP0k` targets plane `k` alone, so
-    only a clip-`k` actor is masked by it. The general-store wall items
-    (room 30) are the case — `ZP01` empty, mask in `ZP02`. See "Each ZP##
-    targets its own plane".
-
----
-
-## 8. Actor z-depth — `forceClip` (actorOps neverZclip / alwaysZclip)
-
-The compositor's rule is "any plane whose 1-based index > `actorZ` hides
-the pixel." The per-actor `actorZ` comes from the actor's **`forceClip`**
-combined with the **NeverClip class** and the **walk-box mask**. SCUMM's
-resolution order is:
+The per-actor clip level the single-plane rule (§6) reads comes from
+the actor's **`forceClip`** combined with the **NeverClip class** and
+the **walk-box mask**. SCUMM's resolution order is:
 
 ```
 zbuf = _forceClip != 0 ? _forceClip
@@ -355,11 +310,17 @@ zbuf = _forceClip != 0 ? _forceClip
      :                   maskFromBox(_walkbox)
 ```
 
-| condition                              | `actorZ`         | effect                              |
+| condition                              | clip level       | effect                              |
 |----------------------------------------|------------------|-------------------------------------|
-| `alwaysZclip k` (0x13) → `forceClip k` | `k − 1`          | behind plane `k` and above          |
-| NeverClip class, `forceClip ≤ 0`       | `planeCount`     | always in front (no plane occludes) |
+| `alwaysZclip k` (0x13) → `forceClip k` | `k`              | masked by `ZP0k` alone              |
+| NeverClip class, `forceClip ≤ 0`       | front            | always in front (no plane occludes) |
 | else (`forceClip ≤ 0`)                 | box-mask derived | see "Box-mask" below                |
+
+The **Mêlée-island clouds** (room 10, costume 59) set `alwaysZclip 1`
+(explicit, `forceClip = 1`), so the single mountain z-plane (ZP01)
+draws over them — the clouds pass *behind* the mountain. The
+LucasArts sparkles stay in front via the NeverClip **class** (their
+`neverZclip` opcode only clears the clip).
 
 > ⚠️ **`forceClip == 0` is NOT "always in front".** The `neverZclip`
 > (0x12) opcode sets `forceClip = 0`, which is SCUMM's *not-forced*
@@ -371,39 +332,34 @@ zbuf = _forceClip != 0 ? _forceClip
 > actually keeps a decorative actor unconditionally in front is the
 > **NeverClip class**, not `forceClip`.
 
-> ⚠️ **`initActor` (actorOps SO_DEFAULT, 0x08) clears `forceClip`.**
-> SCUMM's `initActor` resets the forced clip, so an actor reusing a slot that an
-> earlier scene left at `alwaysZclip k` comes back to box-derived depth on a
-> plain `init`. Room 51 pins it: the Fettucini brothers (costume 27) are init'd
-> with no zclip op — without the reset they inherit `forceClip = 1` from a prior
-> occupant and the left brother draws **behind the haystack crate** in ZP01.
-> (`initActor` likewise resets `ignoreBoxes = false`, scale to `0xFF`, and the
-> actor's `_walkbox` to the unassigned `-1` — the same "clear stale per-actor
-> flags" rule; a stuck `ignoreBoxes` freezes perspective scaling across rooms,
-> see [WALK-BOXES](walk-boxes.md). The `_walkbox` reset matters for the room-51
-> cannon actor — init'd then immediately `ignoreBoxes`, it must not fly with a
-> prior scene's box; see "Box-mask" below.)
+**Fine print — two more opcodes reset `forceClip`:**
 
-> ⚠️ **`followBoxes` / `ignoreBoxes` (actorOps 0x15 / 0x14) also reset
-> `forceClip = 0`.** Both opcodes return the actor to box-driven *everything*,
-> depth included — not just box-following. The **room-28 cook** (actor 6) is the
-> case: its patrol (local #216) restores it with `{followBoxes}` and *never*
-> issues `neverZclip`, but ENCD had left it at `alwaysZclip = 1`. Without the
-> reset, `forceClip` stays pinned at 1 and the cook is masked by ZP01 (the
-> bar table) for its whole wander — drawn *behind* the table. With the reset it
-> runs `forceClip = 0` (box-driven) across the wander, snapping back to 1 only
-> at the kitchen-doorway entry/exit where the script explicitly sets
-> `{ignoreBoxes; alwaysZclip = 1}`. Every MI1 `ignoreBoxes` pairs with a
-> trailing explicit clip op in the same call (which wins), so the reset is
-> observable only on a bare `{ignoreBoxes}` / `{followBoxes}`.
-
-`alwaysZclip k` → `actorZ = k − 1` so that "plane index > actorZ" makes
-plane `k` (and higher) occlude the actor while planes below `k` don't.
-The **Mêlée-island clouds** (room 10, costume 59) set `alwaysZclip 1`
-(explicit, `forceClip = 1`), so `actorZ = 0` and the single mountain
-z-plane (ZP01) draws over them — the clouds pass *behind* the mountain.
-The LucasArts sparkles stay in front via the NeverClip **class** (their
-`neverZclip` opcode only clears the clip).
+- **`initActor` (actorOps SO_DEFAULT, 0x08) clears `forceClip`.**
+  SCUMM's `initActor` resets the forced clip, so an actor reusing a slot
+  that an earlier scene left at `alwaysZclip k` comes back to box-derived
+  depth on a plain `init`. Room 51 pins it: the Fettucini brothers
+  (costume 27) are init'd with no zclip op — without the reset they
+  inherit `forceClip = 1` from a prior occupant and the left brother
+  draws **behind the haystack crate** in ZP01. (`initActor` likewise
+  resets `ignoreBoxes = false`, scale to `0xFF`, and the actor's
+  `_walkbox` to the unassigned `-1` — the same "clear stale per-actor
+  flags" rule; a stuck `ignoreBoxes` freezes perspective scaling across
+  rooms, see [WALK-BOXES](walk-boxes.md). The `_walkbox` reset matters
+  for the room-51 cannon actor — init'd then immediately `ignoreBoxes`,
+  it must not fly with a prior scene's box; see "Box-mask" below.)
+- **`followBoxes` / `ignoreBoxes` (actorOps 0x15 / 0x14) also reset
+  `forceClip = 0`.** Both opcodes return the actor to box-driven
+  *everything*, depth included — not just box-following. The **room-28
+  cook** (actor 6) is the case: its patrol (local #216) restores it with
+  `{followBoxes}` and *never* issues `neverZclip`, but ENCD had left it
+  at `alwaysZclip = 1`. Without the reset, `forceClip` stays pinned at 1
+  and the cook is masked by ZP01 (the bar table) for its whole wander —
+  drawn *behind* the table. With the reset it runs `forceClip = 0`
+  (box-driven) across the wander, snapping back to 1 only at the
+  kitchen-doorway entry/exit where the script explicitly sets
+  `{ignoreBoxes; alwaysZclip = 1}`. Every MI1 `ignoreBoxes` pairs with a
+  trailing explicit clip op in the same call (which wins), so the reset
+  is observable only on a bare `{ignoreBoxes}` / `{followBoxes}`.
 
 ### Box-mask — the position-derived default clip
 
@@ -412,10 +368,10 @@ default *or* `forceClip == 0` from `neverZclip`) and is **not in the
 NeverClip class** derives its clip band from the **`mask` byte of its
 assigned walk box** (`_walkbox`, see below):
 
-| box `mask` | `actorZ`         | effect                              |
-|------------|------------------|-------------------------------------|
-| `0`        | `planeCount`     | in front of every plane             |
-| `N` (>0)   | `N − 1`          | behind plane `N` and above          |
+| box `mask` | clip level | effect                              |
+|------------|------------|-------------------------------------|
+| `0`        | front      | in front of every plane             |
+| `N` (>0)   | `N`        | masked by `ZP0N` alone              |
 
 i.e. the *same* mapping as `alwaysZclip k`. An explicit `alwaysZclip`
 (`forceClip > 0`) always wins — room 38's behind-wall sentries pin the
@@ -429,7 +385,7 @@ in MI1: `0`/`1`/`2` (rooms 10/38/33).
 
 **`_walkbox` is walk state, not a draw-time lookup.** The actor stores
 the box it is *assigned to* and maintains it as it moves; the compositor
-reads that stored box and maps its `mask` → `actorZ`. The assignment
+reads that stored box and maps its `mask` → clip level. The assignment
 happens at movement/placement (SCUMM's `adjustXYToBeInBox` snaps to the
 **nearest** box, not a strict point-in-box hit), and it is the same
 assignment perspective scale reads — scale and z-clip always agree. A
@@ -451,7 +407,7 @@ resolves to front and arcs over the pole correctly — a draw-time box lookup
 would snap it to box 7 (mask 1) and let ZP01 (the pole) mask it, making
 Guybrush *vanish* mid-flight. An explicit `alwaysZclip` still wins above.
 
-## Per-object z-planes — drawn objects occlude actors
+## 8. Per-object z-planes — drawn objects occlude actors
 
 Objects carry their own z-planes too: ~half of MI1's `OBIM` blocks
 contain a `ZP##` inside their `IMxx` image. When a script `drawObject`s
@@ -459,7 +415,7 @@ such an object, that z-plane can make the object a **foreground** that
 occludes z-clipped actors — exactly how the **MI1 title logo** (room 10,
 object #109, a 224×120 image with an 8739-bit z-plane, ~33% set) sits in *front*
 of the drifting cloud actors (room 10's costume-59 clouds at
-`forceClip = 1` → `actorZ = 0`, hidden where the logo's mask is set).
+`forceClip = 1`, hidden where the logo's mask is set).
 
 - An object's `IMxx` can carry several `ZP0k` chunks; each is its own
   plane, indexed by ordinal (`ZP01` → plane 1, `ZP02` → plane 2, …) — the
@@ -472,7 +428,7 @@ of the drifting cloud actors (room 10's costume-59 clouds at
   single-plane rule applies: a clip-`k` actor is masked by plane `k` alone.
   So a `forceClip = 1` / box-mask-1 actor is hidden behind an object's
   `ZP01` but **not** its `ZP02`; an in-front actor (`neverZclip` class /
-  `actorZ = effective plane count`) by neither. (GrogVM extends the merged
+  front clip level) by neither. (GrogVM extends the merged
   stack when an object targets a plane the room lacks, so a clip-`k` actor
   always has a plane `k` to test — an engine choice; no MI1 room has
   forced the question.)
@@ -556,3 +512,54 @@ Two related non-bugs, same room: the hard vertical seams at the tile
 boundaries (x = 104/208) are the authored art, present in the original; and
 the room's nearly-empty `ZP01` (2.5%) is fine — the dressing tiles rewrite
 virtually the whole surface every screen anyway.
+
+---
+
+## 9. Pitfalls cheat-sheet
+
+In rough order of "what hits you first":
+
+1. **Strip offsets look way too big / way too small** → header-
+   inclusive convention. Subtract 8 from every raw u16 in the offset
+   table to get a payload-relative position.
+2. **Decoder crashes on a strip with offset = 0** → `0` is the
+   "implicit all-zero strip" sentinel. Skip it; that 8-column region
+   of the mask stays zeroed. The body for that strip doesn't exist
+   anywhere in the payload.
+3. **Strip body decoded byte count ≠ roomHeight** → either the offset
+   handling is wrong (#1) or the RLE dispatch is reversed (high bit =
+   literal instead of run, or vice versa). High bit set = run.
+4. **Overlay is mirrored within each 8-pixel column** → bit order
+   inside the emitted byte is wrong. MSB (bit 7) = leftmost pixel of
+   the strip.
+5. **Overlay is shifted vertically** → strip body packing is wrong.
+   Each emitted byte is one *row* of the strip; the byte's 8 bits are
+   the 8 *columns* within that row. Not the other way around.
+6. **A declared plane shows up empty in the overlay** → that's
+   correct. Real MI1 rooms have it. The RMIH count is what the engine
+   allocates for, not a guarantee that every plane carries pixels.
+7. **The same pixel is marked in multiple planes** → also correct.
+   Masking is single-plane, so a feature occluding actors at several
+   clip levels is marked in each of those planes (deeper planes are
+   often supersets). The compositor only reads the actor's own plane.
+8. **The compositor draws the actor over geometry it should hide
+   behind (or behind geometry it should be in front of)** → wrong
+   clip level, or the cumulative "any plane above" rule crept back in.
+   The rule is single-plane: an actor at clip level `k` is masked by
+   `ZP0k` **alone** — never by `ZP0(k+1)` and up. A floor actor at
+   level 1 in a room where `ZP02 ⊇ ZP01` must stay in front of the
+   `ZP02`-only geometry (MI1 room 30 stairs).
+9. **A drawn object occludes the actor in the wrong place** → its
+   z-plane was applied at the object's design `imhd.x/y` instead of its
+   current (SO_AT) position. Object z-planes move with the object (§8).
+10. **A drawn object buries the actor everywhere it overlaps** → a solid
+    (all-1s) object mask survived that a later opaque draw should have
+    erased. Masks are written in draw order — an opaque strip *replaces*
+    the surface, zeros included — so check stamp order and the per-strip
+    opacity test. Room 58's path tiles, parked under the dressing tiles,
+    are the case (§8).
+11. **A drawn object hides a floor (clip-1) actor it shouldn't** → the
+    object's mask lives in `ZP02` (plane 2) but was OR'd into plane 1 (the
+    old single-plane collapse). An object `ZP0k` targets plane `k` alone, so
+    only a clip-`k` actor is masked by it. The general-store wall items
+    (room 30) are the case — `ZP01` empty, mask in `ZP02` (§8).
