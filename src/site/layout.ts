@@ -74,8 +74,6 @@ ${mount}    </main>
     <footer class="site-footer">
       Free software under <a href="https://www.gnu.org/licenses/gpl-3.0.html">GPL-3.0-or-later</a> ·
       <a href="https://github.com/roccozanni/grogvm">source</a> ·
-      engine logic derived in part from <a href="https://www.scummvm.org/">ScummVM</a>
-      (<a href="/docs/scummvm-cpp-exposure-audit/">provenance</a>) ·
       bring your own MI1 / MI2 — no game assets bundled ·
       <a href="/privacy/">privacy &amp; terms</a>
     </footer>

@@ -81,12 +81,6 @@ GrogVM is free software, licensed under the **GNU General Public
 License, version 3 or later** — see [LICENSE](LICENSE). It comes with
 no warranty, to the extent permitted by law.
 
-Portions of the engine logic were derived from
-[ScummVM](https://www.scummvm.org/) (GPLv3); GrogVM is correspondingly
-released under GPL-3.0-or-later, and the
-[ScummVM source-exposure audit](pages/docs/scummvm-cpp-exposure-audit.md)
-documents that provenance in full.
-
 GrogVM bundles and distributes no LucasArts assets — you must obtain
 MI1 / MI2 legally yourself. This is a personal learning project with no
 intent to ship a competing product.

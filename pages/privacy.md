@@ -35,5 +35,12 @@ data leaving your machine: [github.com/roccozanni/grogvm](https://github.com/roc
 - It bundles and distributes **no game assets**. You must obtain *The Secret of
   Monkey Island* / *Monkey Island 2* **legally yourself**, and use GrogVM only
   with copies you are entitled to.
-- Engine logic is derived in part from ScummVM; the
-  [provenance notes](/docs/scummvm-cpp-exposure-audit/) document that in full.
+- GrogVM is an **independent, from-scratch implementation** of the SCUMM format,
+  reconstructed from public reverse-engineering resources and verified against
+  real game data — built alongside [ScummVM](https://www.scummvm.org/), not
+  derived from it; it is released under a compatible copyleft license in
+  the same spirit.
+- *Monkey Island*, *SCUMM*, and *LucasArts* are **trademarks of their respective
+  owners**. GrogVM is an **unofficial, non-commercial fan project** — not
+  affiliated with, endorsed by, or sponsored by Disney, LucasArts, or any rights
+  holder.

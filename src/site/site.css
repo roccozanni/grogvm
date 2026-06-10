@@ -54,7 +54,7 @@ body {
   padding: 2rem 1.5rem 5rem;
 }
 
-/* Site footer: license + provenance attribution on every page. */
+/* Site footer: license + legality line on every page. */
 .site-footer {
   border-top: 1px solid var(--border);
   padding: 1.25rem 1.5rem;
