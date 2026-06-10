@@ -185,8 +185,8 @@ describe('mountScreenInput — pointermove', () => {
     canvas.dispatch('pointermove', makeEvent({ clientX: 30, clientY: 40 }));
 
     expect(moves).toEqual([
-      { x: 5, y: 10, roomX: 5, roomY: 10, inVerbBand: false },
-      { x: 15, y: 20, roomX: 15, roomY: 20, inVerbBand: false },
+      { x: 5, y: 10, screenY: 10, roomX: 5, roomY: 10, inVerbBand: false },
+      { x: 15, y: 20, screenY: 20, roomX: 15, roomY: 20, inVerbBand: false },
     ]);
   });
 });

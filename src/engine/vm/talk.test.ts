@@ -222,3 +222,53 @@ describe('sticky system-print state (SCUMM _string[0])', () => {
     expect(d.overhead).toBe(true);
   });
 });
+
+describe('narrator text lifetime (print a=255 vs a=254)', () => {
+  // print a=255 "Hi" — narrator channel, no keepText.
+  const narrator = bytes(0x14, 0xff, 0x0f, 0x48, 0x69, 0x00, 0xa0);
+  // print a=255 "Hi\xff\x02" — keepText.
+  const narratorKeep = bytes(0x14, 0xff, 0x0f, 0x48, 0x69, 0xff, 0x02, 0x00, 0xa0);
+  // print a=254 "Hi" — the blast channel (dance steps, room-36 disclaimer).
+  const blast = bytes(0x14, 0xfe, 0x0f, 0x48, 0x69, 0x00, 0xa0);
+
+  const drain = (vm: Vm): void => {
+    while (vm.talkDelay > 0) vm.beginTick();
+  };
+
+  it('a narrator line erases when its talk delay drains, like actor speech', () => {
+    const vm = makeVm();
+    vm.startScript({ scriptId: 1, bytecode: narrator });
+    vm.step();
+    expect(vm.systemTexts).toHaveLength(1);
+    drain(vm);
+    expect(vm.vars.readGlobal(Vm.VAR_HAVE_MSG)).toBe(0);
+    expect(vm.systemTexts).toHaveLength(0);
+  });
+
+  it('a keepText narrator line survives the drain (credits, interlude banners)', () => {
+    const vm = makeVm();
+    vm.startScript({ scriptId: 1, bytecode: narratorKeep });
+    vm.step();
+    drain(vm);
+    expect(vm.vars.readGlobal(Vm.VAR_HAVE_MSG)).toBe(0);
+    expect(vm.systemTexts).toHaveLength(1);
+    expect(vm.systemTexts[0]!.text).toBe('Hi');
+  });
+
+  it('an a=254 blast line survives the drain (persists until a real redraw)', () => {
+    const vm = makeVm();
+    vm.startScript({ scriptId: 1, bytecode: blast });
+    vm.step();
+    drain(vm);
+    expect(vm.systemTexts).toHaveLength(1);
+  });
+
+  it('skipText (the dot key) erases a narrator line too', () => {
+    const vm = makeVm();
+    vm.startScript({ scriptId: 1, bytecode: narrator });
+    vm.step();
+    expect(vm.systemTexts).toHaveLength(1);
+    expect(vm.skipText()).toBe(true);
+    expect(vm.systemTexts).toHaveLength(0);
+  });
+});

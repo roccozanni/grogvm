@@ -5,12 +5,11 @@
  */
 import { Canvas2DRenderer } from '../../../engine/render/canvas2d';
 import { createSession, type FrameInfo } from '../../../engine/session';
-import { VIEWPORT_W } from '../../../engine/graphics/viewport';
 import { el } from '../../reactive';
 import type { StoredGame } from '../../../platform/storage/games';
 import { loadSessionGame } from '../../../platform/storage/game-files';
 import { readSave, writeSave } from '../../../platform/storage/savegames';
-import { mountPlayArea, SCREEN_HEIGHT, type PlayAreaHandles } from '../play-area';
+import { mountPlayArea, type PlayAreaHandles } from '../play-area';
 import { mountScreenInput } from '../input';
 import { mountDebugPanel } from '../debug/debug';
 import { RafClock } from '../raf-clock';
@@ -119,14 +118,12 @@ async function mountGame(game: StoredGame, main: HTMLElement, onBack: () => void
 
   const remount = (frame: FrameInfo): void => {
     mounted?.disposeInput();
-    // frame.width is the room camera-window (slice) width; the verb panel is
-    // a 320-wide screen strip, so the screen is at least that wide.
-    const viewportW = frame.width;
-    const roomH = frame.height;
-    screenW = Math.max(viewportW, VIEWPORT_W);
-    // max() only grows past the fixed 320×200 screen for the pathological
-    // room-taller-than-screen case, to avoid clipping.
-    screenH = Math.max(roomH, SCREEN_HEIGHT);
+    // The engine presents the full assembled screen; the shell canvas just
+    // mirrors its dimensions. viewportWidth/roomHeight drive input mapping.
+    const viewportW = frame.viewportWidth;
+    const roomH = frame.roomHeight;
+    screenW = frame.width;
+    screenH = frame.height;
     screenCanvas.width = screenW;
     screenCanvas.height = screenH;
     screenCanvas.style.width = `${screenW * SCALE}px`;
@@ -134,7 +131,6 @@ async function mountGame(game: StoredGame, main: HTMLElement, onBack: () => void
     // Resizing the canvas resets context state — re-apply the pixel-art flag.
     screenCtx.imageSmoothingEnabled = false;
     const play = mountPlayArea({
-      resourceFile: sessionGame.resourceFile,
       vm: session.vm,
       ctx: screenCtx,
       roomWidth: viewportW,
@@ -142,7 +138,6 @@ async function mountGame(game: StoredGame, main: HTMLElement, onBack: () => void
       screenWidth: screenW,
       screenHeight: screenH,
       palette: frame.palette,
-      transparentIndex: frame.transparentIndex,
       debug: overlayFlags,
       onCommit: () => {},
     });
@@ -155,14 +150,19 @@ async function mountGame(game: StoredGame, main: HTMLElement, onBack: () => void
       screenHeight: screenH,
       onMove: (p) => {
         play.onPointerMove(p);
+        // Paused: re-present so the engine-painted hover highlight tracks the
+        // pointer. While playing the next frame picks the mouse VARs up anyway.
+        if (!session.status().playing) session.present();
         refresh();
       },
       onLeftClick: (e) => {
         debug.recordClick(e, play.onScreenClick(e, 'left').objId);
+        if (!session.status().playing) session.present();
         refresh();
       },
       onRightClick: (e) => {
         debug.recordClick(e, play.onScreenClick(e, 'right').objId);
+        if (!session.status().playing) session.present();
         refresh();
       },
       onEscape: () => session.sendInput({ type: 'key', key: 'Escape' }),
@@ -182,10 +182,12 @@ async function mountGame(game: StoredGame, main: HTMLElement, onBack: () => void
   };
 
   session.onFrame((frame) => {
+    // Key on the BAND geometry, not screen dims: the screen is ~always
+    // 320×200, but a 144→200 room-height change moves the input band split.
     if (
       !mounted ||
-      mounted.width !== frame.width ||
-      mounted.height !== frame.height ||
+      mounted.width !== frame.viewportWidth ||
+      mounted.height !== frame.roomHeight ||
       mounted.vm !== session.vm
     ) {
       remount(frame);

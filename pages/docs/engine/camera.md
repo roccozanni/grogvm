@@ -40,8 +40,17 @@ bitmap is stored in 8-px-wide strips (room 64's dig scene is the first to pan
 this way). Because a pan detaches follow, the two modes never fight over the
 camera within a frame.
 
-`wait forCamera` blocks the calling script while a pan target is pending, so
-scripts can pan, hold until arrival, then continue the scene.
+`wait forCamera` blocks the calling script until the camera **reaches** its
+pan destination — *not* merely while a pan target is armed. The distinction
+is load-bearing: the SCUMM bar (room 28) runs a camera-controller script
+(`#201`) that re-issues `panCameraTo` **every frame** to whichever of the
+room's two fixed positions matches ego's side — including when the camera is
+already there. Scripts that wait on the camera in that room (the
+three-pirates conversation `#220`, the ambient chatter `#207`/`#210`) run
+*later in slot order* than `#201`, so an "armed-pan" check deadlocks them
+forever once they yield at the wait even once: the controller re-arms the
+target before every re-check, and the pan stepper only clears it at the end
+of the frame. A reached (or same-spot) destination must read as settled.
 
 The pan target is **transient** state: a save taken mid-pan resumes with the
 camera at its saved position and no pending pan. Only the camera position

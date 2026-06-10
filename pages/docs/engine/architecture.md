@@ -136,17 +136,25 @@ objects, then actors sorted by depth with z-plane occlusion. No dirty-rect
 tracking: a 320×200-class indexed buffer is cheap enough that the simple
 approach wins.
 
-### Frame ownership — scene vs. overlays
+### Frame ownership — the engine emits the complete screen
 
-The engine composes and presents the **scene**: the camera's window into the
-room with objects and actors. The interface layers — verb bar, sentence
-line, dialog text, cursor — are painted by the shell *over* the presented
-scene on its one screen canvas, using the engine's own charset decoders and
-reading dialog/verb state from the VM (see
-[the session](session.md), "Frame production" and "Input"). The split keeps
-the engine's frame pipeline pure indexed-pixel work, at the cost that the
-presented framebuffer alone is not the complete visible game — a renderer
-implementation renders the scene; the shell owns the rest.
+The engine composes and presents the **entire visible game image** as one
+indexed framebuffer: the camera's window into the room (objects, actors,
+z-plane occlusion), the verb/inventory panel, the sentence line, and dialog /
+system text. Room-scene assembly lives in the frame compositor
+(`render/compositor.ts`); the screen composer (`render/screen.ts`) layers the
+verb band and text over the camera-sliced scene and is what actually crosses
+the Renderer seam (see [the session](session.md), "Frame production"). The
+whole pipeline stays pure indexed-pixel work — text glyphs and verb sprites
+stamp CLUT indices; RGBA conversion still happens only at present.
+
+Because the presented framebuffer *is* the complete frame, a renderer
+implementation renders the whole game, and frame-level pixel tests can assert
+dialog and verb pixels through `MemoryRenderer`. The shell paints only
+non-game chrome over the blit: the cursor crosshair and the debug overlays.
+The engine also owns the verb **hit-test** (`verbAt`, same module) — the
+session uses it for the hover highlight and the shell for click routing, so
+painted verbs and clickable verbs can never disagree.
 
 ### Sound — a timing seam first
 

@@ -101,8 +101,31 @@ describe('wait opcode — other conditions', () => {
     expect(slot.pc).toBe(2);
   });
 
-  it('SO_WAIT_FOR_CAMERA always falls through (camera is snap-only)', () => {
+  it('SO_WAIT_FOR_CAMERA falls through when no pan is armed', () => {
     const vm = makeVm();
+    const slot = vm.startScript({ scriptId: 1, bytecode: bytes(0xae, 0x03, 0x00) });
+    vm.step();
+    expect(slot.status).toBe('running');
+    expect(slot.pc).toBe(2);
+  });
+
+  it('SO_WAIT_FOR_CAMERA yields while a pan is in flight', () => {
+    const vm = makeVm();
+    vm.camera.x = 160;
+    vm.cameraDest = 480;
+    const slot = vm.startScript({ scriptId: 1, bytecode: bytes(0xae, 0x03, 0x00) });
+    vm.step();
+    expect(slot.status).toBe('yielded');
+    expect(slot.pc).toBe(0); // rewound for the per-frame re-check
+  });
+
+  it('SO_WAIT_FOR_CAMERA falls through when the pan target IS the current position', () => {
+    // Room 28's camera script re-issues panCameraTo to the camera's current
+    // x every frame; a reached destination must read as settled or every
+    // waiter behind it (the trio conversation #220) deadlocks.
+    const vm = makeVm();
+    vm.camera.x = 480;
+    vm.cameraDest = 480;
     const slot = vm.startScript({ scriptId: 1, bytecode: bytes(0xae, 0x03, 0x00) });
     vm.step();
     expect(slot.status).toBe('running');

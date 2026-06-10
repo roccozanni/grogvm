@@ -10,7 +10,7 @@ import { stepAnim } from '../graphics/costume-anim';
 import { prepareActorDraw } from '../graphics/composite';
 import { findVerbScript } from '../object/verbs';
 import type { LoadedCostume } from '../graphics/costume-loader';
-import type { CharsetHeader } from '../graphics/charset';
+import type { LoadedCharset } from '../graphics/charset';
 import type { LoadedRoom } from '../room/loader';
 import type { LoadedObject } from '../object/loader';
 import type { Sentence } from './sentence';
@@ -174,6 +174,16 @@ const TRACE_CAPACITY = 64;
 
 /** Talk-timer floor so even a 1-char line lingers (~0.5 s at 60 Hz). */
 const MIN_TALK_TICKS = 30;
+/**
+ * `print` actor id for narrator text. Rides the talk lifecycle like actor
+ * speech — erased when the talk delay drains unless keepText (`\xff\x02`) —
+ * unlike the a=254 channel, which persists until a real redraw. Grounded in
+ * MI1: every persistent 255 print carries keepText (credits #152, interludes
+ * #108/#120-122, copy protection #154/155); conversation replies (#93…) don't
+ * and rely on the drain erase. The persistent NON-keepText texts (room-63
+ * dance steps, room-36 disclaimer) are all a=254.
+ */
+const NARRATOR_PRINT_ACTOR = 255;
 /** Global #4 = current-room id per the SCUMM v5 wiki. */
 const VAR_ROOM_INDEX = 4;
 /**
@@ -196,11 +206,9 @@ export type CostumeResolver = (costumeId: number) => LoadedCostume;
 
 /**
  * Resolve a SCUMM charset id to its parsed header + payload, or `null` when
- * unresolvable / built-in.
+ * unresolvable / built-in. Results are cached by {@link Vm.getCharset}.
  */
-export type CharsetResolver = (
-  charsetId: number,
-) => { header: CharsetHeader; payload: Uint8Array } | null;
+export type CharsetResolver = (charsetId: number) => LoadedCharset | null;
 
 /**
  * Resolve a global object id to the room whose OBCD defines it (`null` when
@@ -220,7 +228,6 @@ export interface VmInit {
   readonly resolveGlobalScript?: GlobalScriptResolver;
   readonly resolveRoom?: RoomResolver;
   readonly resolveCostume?: CostumeResolver;
-  /** Held for the shell's text renderer — the VM itself doesn't render. */
   readonly resolveCharset?: CharsetResolver;
   readonly resolveObjectRoom?: ObjectRoomResolver;
   readonly resolveSound?: SoundResolver;
@@ -325,6 +332,18 @@ export class Vm {
   readonly actors = new ActorTable(DEFAULT_ACTOR_COUNT);
   /** Costumes decoded on demand by {@link Vm.getCostume}, keyed by id. */
   readonly costumes = new Map<number, LoadedCostume>();
+  /**
+   * Charsets resolved on demand by {@link Vm.getCharset}. Nulls are cached
+   * too — `resolveCharsetById` walks the LECF on every call, and the frame
+   * composer asks per frame.
+   */
+  readonly charsets = new Map<number, LoadedCharset | null>();
+  /**
+   * Rooms loaded on demand by {@link Vm.getRoom} — image verbs draw object
+   * sprites from rooms other than the loaded one (MI1's UI room 99). Room
+   * data is immutable, so entries never invalidate. Nulls cached as above.
+   */
+  readonly roomsById = new Map<number, LoadedRoom | null>();
   /**
    * Mouse position in native ROOM coordinates (pre-2× scale, adjusted for
    * camera scroll), written by the shell; mirrored into VAR_MOUSE_X/Y.
@@ -798,6 +817,31 @@ export class Vm {
       // Undecodable costume — skip the actor rather than halt.
       return null;
     }
+  }
+
+  /** Resolve a charset id via the cache; `null` when unresolvable (cached). */
+  getCharset(id: number): LoadedCharset | null {
+    const cached = this.charsets.get(id);
+    if (cached !== undefined) return cached;
+    const loaded = this.resolveCharset?.(id) ?? null;
+    this.charsets.set(id, loaded);
+    return loaded;
+  }
+
+  /** Resolve any room id via the cache; `null` on decode failure (cached). */
+  getRoom(id: number): LoadedRoom | null {
+    const cached = this.roomsById.get(id);
+    if (cached !== undefined) return cached;
+    let loaded: LoadedRoom | null = null;
+    if (this.resolveRoom) {
+      try {
+        loaded = this.resolveRoom(id);
+      } catch {
+        loaded = null;
+      }
+    }
+    this.roomsById.set(id, loaded);
+    return loaded;
   }
 
   get haltInfo(): HaltInfo | null {
@@ -1313,9 +1357,16 @@ export class Vm {
       if (d && d.actorId >= 1 && d.actorId <= this.actors.capacity && !d.keepText) {
         this.activeDialog = null;
       }
-      // System text is NOT dropped here — the talk timer governs only actor
-      // speech and VAR_HAVE_MSG; blasted text clears via restoreCharsetBg
-      // (see pages/docs/scumm/char.md).
+      // Narrator prints (a=255) are talk-flow text: the drain erases them
+      // like actor speech unless keepText — without this, a close-up
+      // conversation's last reply lingers over the dialog choices. The a=254
+      // channel is NOT swept: it persists until a real redraw
+      // (restoreCharsetBg approximations; see pages/docs/scumm/char.md).
+      if (this.systemTexts.some((s) => s.actorId === NARRATOR_PRINT_ACTOR && !s.keepText)) {
+        this.systemTexts = this.systemTexts.filter(
+          (s) => s.actorId !== NARRATOR_PRINT_ACTOR || s.keepText,
+        );
+      }
     }
   }
 
@@ -1663,6 +1714,8 @@ export class Vm {
     this.systemRequest = null;
     this.actors.reset();
     this.costumes.clear();
+    this.charsets.clear();
+    this.roomsById.clear();
     this.mouseRoomX = 0;
     this.mouseRoomY = 0;
     this.cursor.state = 0;

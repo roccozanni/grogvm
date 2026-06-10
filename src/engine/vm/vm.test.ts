@@ -191,19 +191,19 @@ describe('Vm — talk timer + dialog clearing', () => {
     expect(vm.systemText).not.toBeNull(); // keepText — never auto-cleared
   });
 
-  it('keeps a non-keepText systemText past the talk timer; clears it on endCutscene (the cook shout)', () => {
+  it('keeps a=254 blast text past the talk timer; clears it on endCutscene', () => {
     const vm = makeVm();
-    vm.systemText = dialog(255, false); // one-shot system line, no keepText
+    vm.systemText = dialog(254, false); // blast channel, no keepText
     vm.beginTalk('hi');
     for (let i = 0; i < 200; i++) vm.beginTick();
-    // The talk timer only governs VAR_HAVE_MSG (so `wait forMessage` releases);
-    // the printed text persists on screen — SCUMM's restoreCharsetBg, not the
-    // timer, removes it. The treasure-map close-up depends on this (it prints
-    // then waits for a click). VAR_HAVE_MSG has cleared so the cook's
-    // `wait forMessage` releases, but the line stays up...
+    // The timer only governs VAR_HAVE_MSG here — the a=254 channel outlives
+    // the talk lifecycle (the room-63 dance steps print then wait for a
+    // CLICK, so the text must survive the drain)...
     expect(vm.vars.readGlobal(Vm.VAR_HAVE_MSG)).toBe(0);
     expect(vm.systemText).not.toBeNull();
-    // ...until its `endCutScene` restores the screen.
+    // ...until a restoreCharsetBg approximation (endCutScene) clears it.
+    // Narrator a=255 text instead erases AT the drain, like actor speech —
+    // pinned in talk.test.ts (the close-up conversation replies).
     vm.endCutscene();
     expect(vm.systemText).toBeNull();
   });
@@ -1000,5 +1000,43 @@ describe('tick() — jiffy/frame split', () => {
     // Next frame boundary resumes it.
     for (let j = 0; j < 5; j++) vm.tick();
     expect(vm.vars.readGlobal(0)).toBeGreaterThan(g0);
+  });
+});
+
+describe('cached resource accessors (frame-path lookups)', () => {
+  it('getCharset caches nulls — the resolver is never asked twice for one id', () => {
+    let calls = 0;
+    const vm = new Vm({
+      numVariables: 32,
+      numBitVariables: 64,
+      handlers: new Map(),
+      resolveCharset: () => {
+        calls++;
+        return null;
+      },
+    });
+    expect(vm.getCharset(4)).toBeNull();
+    expect(vm.getCharset(4)).toBeNull();
+    expect(calls).toBe(1);
+  });
+
+  it('getRoom caches results AND decode failures', () => {
+    let calls = 0;
+    const room = roomWithObjects(99, []);
+    const vm = new Vm({
+      numVariables: 32,
+      numBitVariables: 64,
+      handlers: new Map(),
+      resolveRoom: (id) => {
+        calls++;
+        if (id !== 99) throw new Error('no such room');
+        return room;
+      },
+    });
+    expect(vm.getRoom(99)).toBe(room);
+    expect(vm.getRoom(99)).toBe(room);
+    expect(vm.getRoom(7)).toBeNull();
+    expect(vm.getRoom(7)).toBeNull();
+    expect(calls).toBe(2);
   });
 });

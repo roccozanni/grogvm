@@ -282,28 +282,39 @@ Newlines reset the cursor to column 0 and advance Y by the declared
 Word wrap, alignment (centered / right-justified), and dialog text-
 box geometry are downstream concerns.
 
-### Two message channels + the blast model
+### The message channels + the blast model
 
-A `print` opcode targets one of two channels by its actor id, and they
-coexist on screen:
+A `print` opcode targets a channel by its actor id, and the channels coexist
+on screen:
 
 - **Actor speech** (a real actor id) — transient, positioned above the
   speaker, auto-cleared when the talk timer drains.
-- **System text** (reserved ids 252–255: signs, narrator, credits,
-  part-titles) — SCUMM *blasts* it onto a single
-  charset region. The narrator proper is **id 255**; **id 253 is a
-  developer/debug channel** — in MI1's Italian build every `print a=253`
-  is a leftover English dev string (mostly gated behind `bit#482`), so
-  it is suppressed rather than drawn. Routing 253 to the screen leaks
-  untranslated debug lines over real text. Its lifetime is SCUMM's **`restoreCharsetBg`**: a
-  *transient* (non-keepText) print draws over a region that is restored
-  (erased) exactly **once per display cycle**, lazily, just before the
-  first transient draw of that cycle. So transient prints **within one
-  frame accumulate**, but the first transient print of a *new* frame
-  erases the previous frame's transient text first. keepText prints
-  (`\xff\x02`) neither trigger nor suffer the restore — they accumulate
-  and persist until an explicit clear, room change, or reset. A print at
-  an already-occupied anchor replaces it.
+- **Narrator text (id 255)** — screen-positioned rather than
+  speaker-anchored, but otherwise **talk-flow**: it pages on `\xff\x03`,
+  gates `wait forMessage`, and is auto-cleared at the same timer drain that
+  releases the wait — unless it carries keepText. The MI1 data pins this
+  split cleanly: every a=255 print that must outlive its delay carries
+  `\xff\x02` (the credits `#152`, the "Nel frattempo" interludes
+  `#120-122`, "Passano giorni" `#108`, the layered "Le tre prove!" title,
+  copy protection `#154/155`), while the close-up conversation replies
+  (`#93`…) carry none and rely on the drain erase — without it, a pirate's
+  last reply lingers over the dialog choices.
+- **Blast text (id 254: signs, part-titles, the dance steps)** — SCUMM
+  *blasts* it onto the charset region outside the talk lifetime. Its
+  lifetime is **`restoreCharsetBg`**: a *transient* (non-keepText) print
+  draws over a region that is restored (erased) exactly **once per display
+  cycle**, lazily, just before the first transient draw of that cycle. So
+  transient prints **within one frame accumulate**, but the first transient
+  print of a *new* frame erases the previous frame's transient text first.
+  A print at an already-occupied anchor replaces it.
+- **id 253 is a developer/debug channel** — in MI1's Italian build every
+  `print a=253` is a leftover English dev string (mostly gated behind
+  `bit#482`), so it is suppressed rather than drawn. Routing 253 to the
+  screen leaks untranslated debug lines over real text.
+
+keepText prints (`\xff\x02`) neither trigger nor suffer any of the erases —
+they accumulate and persist until an explicit clear, overwrite, room change,
+or reset.
 
 **System-print state is sticky.** The position, centering, and colour
 one system print establishes (`SO_AT`, `SO_CENTER`, `SO_COLOR`) carry
@@ -372,28 +383,32 @@ carne@@@@…" in the sentence line.
 
 When the talk timer (`VAR_HAVE_MSG`/`talkDelay`, paced by `VAR_CHARINC` ×
 length, with a floor of ~30 jiffies — about half a second — so even a
-one-character line lingers readably) drains, **only actor speech** is
-removed; `VAR_HAVE_MSG` clears so a `wait forMessage` releases. A long
-message split with `\xff\x03` is presented one sentence page at a time;
-each page runs its own timer, and `VAR_HAVE_MSG` stays set until the
-last page is dismissed. **System text is not removed by the timer** — its
-on-screen lifetime is SCUMM's `restoreCharsetBg` (a screen redraw), which we
-approximate with three triggers: the next transient print's per-cycle restore,
-a **room change** (`enterRoom`), and a **cutscene end** (`endCutscene`). An
-explicit empty/space `print` and reset also clear it.
+one-character line lingers readably) drains, `VAR_HAVE_MSG` clears so a
+`wait forMessage` releases, and the **talk-flow text** — actor speech *and*
+narrator a=255 lines without keepText — is removed. A long message split with
+`\xff\x03` is presented one sentence page at a time; each page runs its own
+timer, and `VAR_HAVE_MSG` stays set until the last page is dismissed.
+**Blast text (a=254) is not removed by the timer** — its on-screen lifetime
+is SCUMM's `restoreCharsetBg` (a screen redraw), which we approximate with
+three triggers: the next transient print's per-cycle restore, a **room
+change** (`enterRoom`), and a **cutscene end** (`endCutscene`). An explicit
+empty/space `print` and reset also clear it.
 
-Two scenes pin this down — both are `print a=25x` system lines with no keepText,
-yet they want opposite lifetimes, and the timer can't tell them apart:
+Two scenes pin the channel split — both are non-keepText system lines, and
+the **actor id** is what tells their lifetimes apart:
 
 - The room-28 **cook's** `print a=255 "Non puoi venire di qui!"` runs
-  `print → wait forMessage → endCutScene`. The timer drains, `wait forMessage`
-  releases, the script ends the cutscene — and `endCutscene` is what erases the
-  line. (Dropping it on the timer instead was wrong but happened to look right
-  here, because the `endCutScene` follows immediately.)
-- The **treasure-map close-up** (`global #123` → room 63) prints its dance-step
-  lines, then sits in a wait-for-**click** loop (no `wait forMessage`). Clearing
-  on the timer erased the map after ~1.15s; it must persist until the click ends
-  the cutscene. This is the case that fixed the rule.
+  `print → wait forMessage → endCutScene`. The line erases at the drain —
+  the same instant the wait releases, one opcode before the cutscene end, so
+  the two triggers are visually indistinguishable here. The case that
+  *requires* the drain erase is the close-up conversations (`#93`…): the
+  reply's `wait forMessage` releases straight into the choice menu with no
+  cutscene end or room change in sight.
+- The **treasure-map close-up** (`global #123` → room 63) prints its
+  dance-step lines as **a=254** blast text, then sits in a wait-for-**click**
+  loop (no `wait forMessage`). The lines must persist until the click ends
+  the cutscene — which they do, because 254 lives outside the talk lifetime
+  entirely.
 
 **keepText** (`\xff\x02`) is a stronger persistence: it survives even the
 per-cycle restore, clearing only on an explicit empty/space `print` at the same

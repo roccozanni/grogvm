@@ -15,6 +15,13 @@ import {
 
 const RECENT_CLICKS_CAP = 12;
 const RATE_STEPS = [1, 2, 5, 10, 15, 30, 60, 120];
+/**
+ * Live-table rebuild cadence during play. Per-frame rebuilds (~350 DOM
+ * nodes) jank camera-follow, but rebuilding only on pause left the
+ * inspector showing stale state — this keeps it live at a cost the frame
+ * loop doesn't feel.
+ */
+const LIVE_REPAINT_MS = 250;
 
 export interface DebugPanel {
   readonly element: HTMLElement;
@@ -61,7 +68,9 @@ export function mountDebugPanel(
     const roomSig = signal('');
 
     const live = el('div', { class: 'vm-live' });
+    let lastLiveRepaintAt = 0;
     const repaintLive = (): void => {
+      lastLiveRepaintAt = performance.now();
       state.vm = session.vm;
       live.replaceChildren(renderLive(state, repaintLive));
     };
@@ -87,10 +96,15 @@ export function mountDebugPanel(
     const playBtn = el('button', {
       class: 'secondary',
       onClick: () => {
-        // Pausing stops the clock, so no onFrame follows to refresh the label
-        // — sync the signal here too.
-        if (session.status().playing) session.pause();
-        else session.play();
+        // Pausing stops the clock, so no onFrame follows — sync the label
+        // AND rebuild the tables here, or the inspector freezes on the
+        // last throttled repaint instead of the paused-at state.
+        if (session.status().playing) {
+          session.pause();
+          repaintLive();
+        } else {
+          session.play();
+        }
         playingSig.set(session.status().playing);
       },
     });
@@ -176,10 +190,16 @@ export function mountDebugPanel(
         wireWatchdog(vm);
       }
       roomSig.set(`room ${vm.currentRoom}${vm.loadedRoom ? ` (${vm.loadedRoom.width}×${vm.loadedRoom.height})` : ' — none loaded'}`);
-      // Rebuild the heavy tables (~350 DOM nodes) ONLY when paused/stepping —
-      // doing it during play janks camera-follow. The cheap bindText labels
-      // keep updating every frame.
-      if (!st.playing) repaintLive();
+      // The cheap bindText labels update every frame; the heavy tables
+      // (~350 DOM nodes) rebuild at full rate when paused/stepping but only
+      // every LIVE_REPAINT_MS during play — per-frame rebuilds jank
+      // camera-follow, while a throttled rebuild keeps the inspector live.
+      if (!st.playing) {
+        repaintLive();
+      } else {
+        const now = performance.now();
+        if (now - lastLiveRepaintAt >= LIVE_REPAINT_MS) repaintLive();
+      }
     });
     onCleanup(unsub);
 

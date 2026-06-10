@@ -207,7 +207,8 @@ src/
     explorer/             session-free static resource browser
     player/               hosts one EngineSession: play/ (game canvas +
                           overlay) + debug/ (live VM inspector) +
-                          play-area (verb panel / dialog painting) + input
+                          play-area (crosshair / debug overlays / click
+                          routing — game pixels are engine-composed) + input
     reactive/             tiny owned signal/effect core (DOM-only leaf)
   engine/                 (no DOM imports, no node:fs — portable core)
     resources/            .000/.001 parsing — XOR, blocks, tree nav,
@@ -220,14 +221,16 @@ src/
     graphics/             decoders: smap, costume, charset, zplane, text,
                           palette, actor compositing
     render/               Renderer seam + Canvas2D + Memory + frame
-                          compositor + indexed-to-rgba pure helper
+                          compositor (room scene) + screen composer
+                          (verb band + dialog + verb hit-test; emits the
+                          full 320×200) + indexed-to-rgba pure helper
     room/                 room loader + extract.ts: graceful
                           listRooms/extractRoom static-inspection layer
     object/               OBCD/OBIM loader + verb-script lookup
     actor/                actor table + walk stepping
     pathfinding/          walk boxes + box-graph routing
     sound/                AudioBackend timing seam + SOUN resource parsing
-    session/              EngineSession factory: vm + compositor + loop +
+    session/              EngineSession factory: vm + compositors + loop +
                           renderer; the clock is injected
   testkit/                dev/test harness — sibling of engine, NOT inside
                           it (see below). drive.ts = game-agnostic VM
@@ -423,8 +426,10 @@ freeze) that otherwise costs hours to localize.
   `brave://flags/#file-system-access-api` enabled, then a relaunch.
   The unsupported-browser screen has a Brave-specific hint
   (`src/platform/browser-support.ts`).
-- **Canvas2DRenderer clears before each `present()`.** Required so
-  transparent pixels in the new frame actually expose the canvas
+- **Canvas2DRenderer clears before each `present()`.** The session now
+  presents the assembled screen opaque (no transparent index), but the
+  explorer and any direct renderer user can still present with
+  transparency — the clear keeps transparent pixels exposing the canvas
   background (the CSS checkerboard) instead of compositing with the
   previous frame.
 

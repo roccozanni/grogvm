@@ -6,6 +6,7 @@ import {
   glyphPayloadOffset,
   decodeGlyph,
   resolveCharsetById,
+  charsetByWalkOrder,
 } from './charset';
 import type { ResourceFile } from '../resources/tree';
 import type { IndexFile } from '../resources/index-file';
@@ -326,5 +327,23 @@ describe('resolveCharsetById', () => {
     expect(resolveCharsetById(file, index, loff, 99)).toBeNull();
     const badRoom = { charsets: [{ room: 0, offset: 0 }, { room: 77, offset: 16 }] } as unknown as IndexFile;
     expect(resolveCharsetById(file, badRoom, loff, 1)).toBeNull();
+  });
+});
+
+describe('charsetByWalkOrder', () => {
+  const charA = (h: number) =>
+    makeCharPayload({ bpp: 1, fontHeight: h, glyphs: [{ width: 1, height: 1, xOffset: 0, yOffset: 0, bitmap: [0x80] }] });
+
+  it('looks up by walk order, falling back to the first for out-of-range ids', () => {
+    const file = makeFile(
+      block('LECF', block('LFLF', concat(block('CHAR', charA(8)), block('CHAR', charA(14))))),
+    );
+    expect(charsetByWalkOrder(file, 0)!.header.fontHeight).toBe(8);
+    expect(charsetByWalkOrder(file, 1)!.header.fontHeight).toBe(14);
+    expect(charsetByWalkOrder(file, 99)!.header.fontHeight).toBe(8);
+  });
+
+  it('returns null when the file has no charsets', () => {
+    expect(charsetByWalkOrder(makeFile(block('RNAM')), 0)).toBeNull();
   });
 });

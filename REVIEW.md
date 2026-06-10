@@ -12,21 +12,24 @@ commit it was written against and will rot.
 
 **TL;DR:** The engine code is in considerably better shape than the iterative
 history would suggest — the layering contract actually holds, the
-indexed-pixel invariant is real, and the test harness is principled. Two
-genuine architectural problems remain:
+indexed-pixel invariant is real, and the test harness is principled. One
+genuine architectural problem remains:
 
 1. The `Vm` class has become the de-facto engine god-object.
-2. The engine's frame output is incomplete — dialog text and the verb bar are
-   painted by the app layer, outside the Renderer seam.
 
-(Two further findings were fixed since and their sections removed from this
+(Three further findings were fixed since and their sections removed from this
 document: ARCHITECTURE.md and stale module headers describing an engine that
 was never built — the live design doc is pages/docs/engine/architecture.md
-and the false headers are gone; and the disassembler and the executing opcode
+and the false headers are gone; the disassembler and the executing opcode
 table being two parallel bytecode decoders with no shared source of truth —
 both now read one opcode registry, each opcode's operand layout defined
-exactly once, with a corpus test pinning zero misalignments. The divergence
-audit and resolution record live in PROGRESS.md.)
+exactly once, with a corpus test pinning zero misalignments; and the engine's
+frame output being incomplete — dialog text and the verb bar were painted by
+the app layer outside the Renderer seam; the engine now emits the complete
+320×200 screen through one screen composer, the duplicate shell caches and
+hit-test are gone, and frame-level pixel tests can see text
+(pages/docs/engine/architecture.md "Frame ownership"). The audits and
+resolution records live in PROGRESS.md.)
 
 ---
 
@@ -64,43 +67,7 @@ least navigable — in a codebase whose stated goal is learning/clarity.
 
 ---
 
-## 2. The engine's frame is incomplete — text and verbs bypass the Renderer seam
-
-Verified directly: `src/engine/render/compositor.ts` contains zero text/verb
-code. `src/app/player/play-area.ts` imports `renderText` from engine graphics
-and paints dialog (`drawDialog`, play-area.ts:271-281, reading
-`vm.activeDialog` and `vm.systemTexts`) and the entire verb bar
-(`paintVerbBar`, play-area.ts:444) directly onto the 2D canvas context,
-*after* the engine presents.
-
-Consequences:
-
-- **The swappable-renderer story is broken in practice.** A `WebGLRenderer`
-  implementing the documented interface would render a game with no text and
-  no verbs — the rest of the visible image is painted via
-  `CanvasRenderingContext2D` calls in the app layer. The seam exists, but the
-  product crossing it is only part of the frame.
-- **The frame is untestable as a whole.** `MemoryRenderer` tests can assert
-  room/actor/object pixels but can never see dialog or verb pixels — despite
-  the project's "render actual pixels" debugging rule.
-- **The Worker migration story (ARCHITECTURE §11 Q5)** — "the boundary is
-  message-shaped, frames out" — is no longer true: the app reads
-  `vm.activeDialog`, `vm.systemTexts`, charset resources, and verb state every
-  frame to build the visible image.
-- The app layer grew its own charset/room caches (play-area.ts `charsetCache`
-  / `roomCache`) — duplicate resource plumbing that exists only because
-  composition leaked upward.
-
-The engine owns all the *state* (dialog, verb table, charsets) and the app
-owns only the rasterization — neither layer is self-sufficient. The split is
-now documented as the chosen design (pages/docs/engine/architecture.md,
-"Frame ownership"), so the remaining question is whether to eventually move
-text/verb composition into the engine compositor — which is what a WebGL
-renderer or frame-level pixel tests would require.
-
----
-
-## 3. Secondary findings (real, lower stakes)
+## 2. Secondary findings (real, lower stakes)
 
 - **Savestate reaches directly into Vm private fields**
   (`src/engine/vm/savestate.ts:224-439` reads/writes `vars.globals`,
@@ -128,7 +95,7 @@ renderer or frame-level pixel tests would require.
 
 ---
 
-## 4. Claims checked and rejected (so they don't come back)
+## 3. Claims checked and rejected (so they don't come back)
 
 - **"Restore-while-playing causes a timing burst."** Wrong. `restore()` goes
   through `play()`, which sets `needsTimeSync`; the first clock tick resets
@@ -146,7 +113,7 @@ renderer or frame-level pixel tests would require.
 
 ---
 
-## 5. What's genuinely good (verified, not vibes)
+## 4. What's genuinely good (verified, not vibes)
 
 - The indexed-pixel invariant holds end-to-end, with `indexedToRgba` as a pure
   function used identically by both renderers.
@@ -165,10 +132,7 @@ renderer or frame-level pixel tests would require.
 
 ---
 
-## 6. Ranked action items
+## 5. Ranked action items
 
-1. **Frame ownership** — the engine/shell split is now documented design;
-   move text/verb composition into the engine compositor if/when a second
-   renderer or frame-level pixel tests are wanted.
-2. The Vm god-object is real, but is the kind of thing to chip at with a
+1. The Vm god-object is real, but is the kind of thing to chip at with a
    stated boundary rather than refactor wholesale.

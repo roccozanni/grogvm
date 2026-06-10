@@ -40,13 +40,17 @@ export interface FrameInfo {
   readonly tickCount: number;
   /** True if a game frame actually ran this present (not just a timing jiffy). */
   readonly framed: boolean;
+  /** Full assembled SCREEN dimensions (room band + verb panel), as presented. */
   readonly width: number;
   readonly height: number;
+  /** Camera-window (room slice) width — ≤ {@link width}. */
+  readonly viewportWidth: number;
+  /** Screen row where the verb band starts; a 200-tall room leaves no band. */
+  readonly roomHeight: number;
   /** `loadedRoom.id`, or `null` during the brief no-room interval. */
   readonly roomId: number | null;
   /** 768-byte RGB palette: the room's, else the last-seen / default. */
   readonly palette: Uint8Array;
-  readonly transparentIndex: number | null;
   /** A COPY of the indexed framebuffer that was presented (width*height). */
   readonly framebuffer: Uint8Array;
   /** Compositor diagnostics (actors/objects drawn + per-limb skip reasons). */
@@ -77,6 +81,12 @@ export interface EngineSession {
   pause(): void;
   /** Advance exactly one jiffy, compose, present, emit. Ignores throttle. */
   step(): FrameInfo;
+  /**
+   * Compose + present the current VM state WITHOUT ticking. For paused-state
+   * refreshes (e.g. the hover highlight under a moving pointer); while
+   * playing, the next frame picks up the same state anyway.
+   */
+  present(): FrameInfo;
   setRate(hz: number): void;
 
   sendInput(ev: InputEvent): void;

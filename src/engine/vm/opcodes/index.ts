@@ -2554,8 +2554,13 @@ defineOp({
         detail = 'message';
         break;
       case SO_WAIT_FOR_CAMERA:
-        // Blocks only while a scripted pan is in flight (cameraDest set).
-        shouldWait = vm.cameraDest !== null;
+        // Waits until the camera REACHES its destination — not merely "a pan
+        // is armed". Room 28's camera script (#201) re-issues panCameraTo to
+        // the camera's CURRENT position every frame, so an armed-pan check
+        // deadlocks every waiter behind it (#220/#207/#210, the trio
+        // conversation) whenever they once yield here; a reached-dest pan
+        // must read as settled.
+        shouldWait = vm.cameraDest !== null && vm.cameraDest !== vm.camera.x;
         detail = 'camera';
         break;
       default:

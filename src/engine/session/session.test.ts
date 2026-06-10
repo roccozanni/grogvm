@@ -136,9 +136,12 @@ describe('EngineSession — synthetic game', () => {
     const frame = session.step();
 
     expect(frame.roomId).toBe(ROOM_ID);
-    // Non-scrolling room: the presented viewport equals min(320, roomWidth).
-    expect(frame.width).toBe(Math.min(320, ROOM_W));
-    expect(frame.height).toBe(ROOM_H);
+    // The presented frame is the full assembled screen (room band + verb
+    // band); the room slice geometry rides alongside.
+    expect(frame.width).toBe(320);
+    expect(frame.height).toBe(200);
+    expect(frame.viewportWidth).toBe(Math.min(320, ROOM_W));
+    expect(frame.roomHeight).toBe(ROOM_H);
     expect(frame.framebuffer.length).toBe(frame.width * frame.height);
     expect(frame.halted).toBe(false);
     // It reached the renderer at the right size, with the room's real palette.
@@ -147,6 +150,10 @@ describe('EngineSession — synthetic game', () => {
     expect(renderer.height).toBe(frame.height);
     expect(renderer.framebuffer.length).toBe(frame.width * frame.height);
     expect(renderer.palette.some((b) => b !== 0)).toBe(true);
+    // Rows below the room band are the verb panel (band fill, CLUT 0 here).
+    for (let y = ROOM_H; y < 200; y += 13) {
+      expect(frame.framebuffer[y * 320 + 7]).toBe(0);
+    }
   });
 
   it('enterRoom warps into a room, loads it, and reports the warp', () => {

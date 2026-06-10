@@ -62,21 +62,34 @@ picks up where it left off.
 
 Each produced frame, the session:
 
-1. Reads the current room to size the framebuffer (defaulting to a
-   320×144-class indexed buffer when no room is loaded).
-2. **Composes** the VM state — room background, actors currently in the room,
-   and the queued drawn objects — into that indexed framebuffer.
-3. Applies the room's **palette** and **transparent index**; between rooms,
-   while none is loaded, it presents on black so the backdrop is predictable.
-4. **Presents** the framebuffer to the injected renderer, resizing the renderer
-   first if the room dimensions changed.
-5. Emits a **frame-info** record to subscribers: the tick count, frame
-   dimensions, current room id, the palette, a copy of the presented
-   framebuffer, and compositor diagnostics (how many actors were drawn or
-   skipped). Overlays — cursor, verb bar, sentence line, talk text — are *not*
-   part of this framebuffer; the shell blits the presented room slice onto its
-   single screen canvas and paints the overlays on top (the verb panel below the
-   room, the cursor over both — one continuous surface).
+1. **Composes the room scene** — background, actors currently in the room,
+   and the queued drawn objects — into a room-sized indexed buffer, then
+   slices the camera's viewport out of it and applies the screen shake, if
+   any.
+2. **Assembles the full screen** around that room band with the engine's
+   screen composer: the verb/inventory panel (text verbs in their own
+   charsets, image verbs from their home rooms, hover/armed highlight from
+   the mouse vars and the armed-verb global) and dialog / system text,
+   clipped to the room band. The result is the complete visible game as one
+   indexed framebuffer — typically 320×200.
+3. Applies the **palette** — the room's, or the *last-seen* palette while no
+   room is loaded, so text baked into the frame stays visible over the black
+   band between rooms. The frame presents **opaque** (no transparent index):
+   transparency is a compositing concern inside the frame, not a property of
+   the finished screen.
+4. **Presents** the framebuffer to the injected renderer, resizing the
+   renderer first if the screen dimensions changed.
+5. Emits a **frame-info** record to subscribers: the tick count, the screen
+   dimensions plus the room-band geometry (`viewportWidth`, `roomHeight` —
+   the shell's input mapping needs the band split), current room id, the
+   palette, a copy of the presented framebuffer, and compositor diagnostics.
+   The shell blits the presented frame onto its screen canvas and paints only
+   non-game chrome on top — the cursor crosshair and debug overlays.
+
+The session also exposes **present()** — compose and present the current VM
+state *without* ticking. The shell calls it on pointer moves while paused so
+the engine-painted hover highlight tracks the cursor; while playing, the next
+frame picks up the same state anyway.
 
 ## 5. Lifecycle
 
@@ -124,6 +137,10 @@ The session handles **engine-level input only**:
 - **Escape** aborts the current cutscene.
 
 Everything higher-level — deciding that a left click runs a particular verb
-script against the hovered object, the verb bar, the sentence line — is the
-**shell's** responsibility, built on top of the session by reading VM state. The
-session deliberately knows nothing about verbs.
+script against the hovered object — is the **shell's** responsibility, built
+on top of the session. The shell's click routing resolves verb-band clicks
+through the engine's own `verbAt` hit-test (the same one the frame composer
+uses for the hover highlight, fed by the mouse vars the input layer
+maintains), then dispatches via the VM's verb/scene click handlers. The
+session itself never dispatches clicks; it only *renders* verb state as part
+of the frame.

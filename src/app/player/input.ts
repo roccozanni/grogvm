@@ -6,6 +6,7 @@
 
 import type { Vm } from '../../engine/vm/vm';
 import { viewportLeft } from '../../engine/graphics/viewport';
+import { VERB_BAR_START_Y } from '../../engine/render/screen';
 
 export interface ModifierKeys {
   readonly shift: boolean;
@@ -19,6 +20,11 @@ export interface ScreenPoint {
   readonly x: number;
   /** Canvas-native row, clamped to [0, screenHeight-1]. */
   readonly y: number;
+  /**
+   * Script-screen row (the VAR 45 space the engine's verb hit-test uses):
+   * verb-band rows remap to `VERB_BAR_START_Y +`, room rows pass through.
+   */
+  readonly screenY: number;
   /** Room x = `x + cameraLeft`, clamped to [0, roomWidth-1]. */
   readonly roomX: number;
   /** Room y, clamped to [0, roomHeight-1]. */
@@ -66,11 +72,6 @@ const VAR_VIRT_MOUSE_X = 20;
 const VAR_VIRT_MOUSE_Y = 21;
 const VAR_MOUSE_X = 44;
 const VAR_MOUSE_Y = 45;
-
-// Script-screen y of the verb panel top. With the usual 144-tall playfield the
-// canvas row already equals the script row; this keeps the screen y correct
-// when the room height differs.
-const VERB_BAR_START_Y = 144;
 
 export interface MountScreenInputArgs {
   readonly canvas: HTMLCanvasElement;
@@ -120,6 +121,9 @@ export function mountScreenInput(args: MountScreenInputArgs): MountedInput {
     return {
       x,
       y,
+      // With the usual 144-tall playfield the canvas row already equals the
+      // script row; the remap keeps it correct when the room height differs.
+      screenY: y >= args.roomHeight ? VERB_BAR_START_Y + (y - args.roomHeight) : y,
       roomX: Math.max(0, Math.min(roomWidth - 1, x + cameraLeft)),
       roomY: Math.max(0, Math.min(args.roomHeight - 1, y)),
       inVerbBand: y >= args.roomHeight,
@@ -139,11 +143,10 @@ export function mountScreenInput(args: MountScreenInputArgs): MountedInput {
   });
 
   const writeMouse = (p: ScreenPoint): void => {
-    const screenY = p.inVerbBand ? VERB_BAR_START_Y + (p.y - args.roomHeight) : p.y;
     vm.mouseRoomX = p.roomX;
     vm.mouseRoomY = p.roomY;
     vm.vars.writeGlobal(VAR_MOUSE_X, p.x);
-    vm.vars.writeGlobal(VAR_MOUSE_Y, screenY);
+    vm.vars.writeGlobal(VAR_MOUSE_Y, p.screenY);
     vm.vars.writeGlobal(VAR_VIRT_MOUSE_X, p.roomX);
     vm.vars.writeGlobal(VAR_VIRT_MOUSE_Y, p.roomY);
   };

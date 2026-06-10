@@ -51,17 +51,30 @@ describe.skipIf(!hasGame())('EngineSession — real MI1', () => {
 
     expect(frame.roomId).toBe(LOOKOUT);
     expect(frame.framebuffer.length).toBe(frame.width * frame.height);
-    // Camera-driven viewport: the presented frame is min(320, roomWidth) wide —
-    // never the full width of a wide room.
+    // The presented frame is the full assembled screen; the camera-driven
+    // room slice is min(320, roomWidth) wide and rides alongside.
     const roomW = session.vm.loadedRoom!.width;
-    expect(frame.width).toBe(Math.min(320, roomW));
-    expect(frame.width).toBeLessThanOrEqual(320);
+    expect(frame.width).toBe(320);
+    expect(frame.height).toBe(200);
+    expect(frame.viewportWidth).toBe(Math.min(320, roomW));
     expect(frame.compose.actorsDrawn).toBeGreaterThanOrEqual(1);
     expect(frame.halted).toBe(false);
     expect(renderer.presentCount).toBeGreaterThan(0);
     expect(renderer.width).toBe(frame.width);
     expect(renderer.height).toBe(frame.height);
     expect(renderer.palette.some((b) => b !== 0)).toBe(true);
+  });
+
+  it('the presented frame includes verb-bar text pixels — the complete screen crosses the Renderer seam', () => {
+    const renderer = new MemoryRenderer();
+    const session = createSession(makeGame(), renderer, new ManualClock());
+    session.skipCutscene(); // drives to the lookout with the verb bar live
+    const frame = session.present();
+    expect([...session.vm.verbs.values()].some((v) => v.state === 'on')).toBe(true);
+    // The verb band (rows ≥ roomHeight) carries real ink: at least one pixel
+    // differs from the band fill — text/images, not just the black panel.
+    const band = frame.framebuffer.subarray(frame.roomHeight * frame.width);
+    expect(band.some((p) => p !== 0)).toBe(true);
   });
 
   it('play() runs continuously through the intro without a spurious pause', () => {

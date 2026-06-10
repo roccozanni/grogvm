@@ -40,6 +40,12 @@ export function charsetPayload(file: ResourceFile, entry: CharsetEntry): Uint8Ar
   return payloadOf(file, entry.charBlock);
 }
 
+/** A charset ready to render: parsed header + the CHAR payload it indexes into. */
+export interface LoadedCharset {
+  readonly header: CharsetHeader;
+  readonly payload: Uint8Array;
+}
+
 /**
  * Resolve a charset by SCUMM charset id via the DCHR directory — NOT walk
  * order, whose indices disagree with the id space (null entries shift it;
@@ -51,7 +57,7 @@ export function resolveCharsetById(
   index: IndexFile,
   loff: RoomOffsetTable,
   id: number,
-): { header: CharsetHeader; payload: Uint8Array } | null {
+): LoadedCharset | null {
   const dir = index.charsets[id];
   if (!dir || (dir.room === 0 && dir.offset === 0)) return null;
   const base = loff.get(dir.room);
@@ -64,6 +70,26 @@ export function resolveCharsetById(
     entry.charBlock.offset + entry.charBlock.size,
   );
   try {
+    return { header: parseCharHeader(payload), payload };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Walk-order fallback lookup for ids `resolveCharsetById` can't resolve —
+ * the built-in null charsets 0/5 have no DCHR entry. Out-of-range ids fall
+ * back to the file's first charset; `null` only when the file has none.
+ */
+export function charsetByWalkOrder(file: ResourceFile, id: number): LoadedCharset | null {
+  const all = walkCharsets(file);
+  if (all.length === 0) return null;
+  const wanted = id >= 0 && id < all.length ? all[id]! : all[0]!;
+  try {
+    const payload = file.bytes.subarray(
+      wanted.charBlock.offset + 8,
+      wanted.charBlock.offset + wanted.charBlock.size,
+    );
     return { header: parseCharHeader(payload), payload };
   } catch {
     return null;

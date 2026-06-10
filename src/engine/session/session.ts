@@ -4,6 +4,7 @@ import { bootGame } from '../vm/boot';
 import type { Vm } from '../vm/vm';
 import { snapshotVm, restoreVm, type SaveState } from '../vm/savestate';
 import { composeFrame } from '../render/compositor';
+import { composeScreen, SCREEN_HEIGHT } from '../render/screen';
 import { VIEWPORT_W, viewportLeft } from '../graphics/viewport';
 import type { Renderer } from '../render/renderer';
 import {
@@ -39,6 +40,12 @@ const BLACK_PALETTE = new Uint8Array(768);
 // engine-internal (not in the game bytecode); only the on/off state is faithful.
 const SHAKE_OFFSETS = [0, 2, 4, 2, 0, -2, -4, -2] as const;
 
+// g107 holds the armed verb (set by verb-input script #4); 11 (Walk-to) is
+// the resting default, treated as "nothing armed". An MI1 script convention,
+// not engine state — revisit if another v5 game arms verbs elsewhere.
+const G_ACTIVE_VERB = 107;
+const VERB_WALK_TO = 11;
+
 export function createSession(
   game: SessionGame,
   renderer: Renderer,
@@ -73,12 +80,12 @@ export function createSession(
 
   // Frame production.
   let lastPalette: Uint8Array | null = null;
-  let lastTransparentIndex: number | null = null;
   let lastW = -1;
   let lastH = -1;
   let roomScratch = new Uint8Array(320 * 200); // full-room compose buffer
-  let viewScratch = new Uint8Array(320 * 200); // presented viewport slice
-  let shakeScratch = new Uint8Array(320 * 200); // vertically-jittered frame when shaking
+  let viewScratch = new Uint8Array(320 * 200); // camera-sliced room band
+  let shakeScratch = new Uint8Array(320 * 200); // vertically-jittered band when shaking
+  let screenScratch = new Uint8Array(320 * 200); // the full assembled screen
   let shakePhase = 0; // advances per presented frame while shakeEnabled
 
   const frameSubs = new Set<(f: FrameInfo) => void>();
@@ -220,34 +227,63 @@ export function createSession(
       shakePhase = 0;
     }
 
-    if (viewportW !== lastW || height !== lastH) {
-      renderer.resize(viewportW, height);
-      lastW = viewportW;
-      lastH = height;
+    // Assemble the COMPLETE screen: room band + verb panel + dialog. What the
+    // renderer presents is the whole visible game — no layer paints after it.
+    const screenW = Math.max(viewportW, VIEWPORT_W);
+    const screenH = Math.max(height, SCREEN_HEIGHT);
+    const screenNeed = screenW * screenH;
+    if (screenScratch.length < screenNeed) screenScratch = new Uint8Array(screenNeed);
+    const screenFb = screenScratch.subarray(0, screenNeed);
+    const armed = vm.vars.readGlobal(G_ACTIVE_VERB);
+    composeScreen({
+      roomBand: fb,
+      viewportWidth: viewportW,
+      roomHeight: height,
+      framebuffer: screenFb,
+      screenWidth: screenW,
+      screenHeight: screenH,
+      cameraLeft,
+      verbs: [...vm.verbs.values()],
+      isVerbArchived: (id) => vm.savedVerbStates.has(id),
+      currentCharsetId: vm.currentCharset,
+      getCharset: (id) => vm.getCharset(id),
+      getRoom: (id) => vm.getRoom(id),
+      activeDialog: vm.activeDialog,
+      systemTexts: vm.systemTexts,
+      getActor: (id) => (id >= 1 && id <= vm.actors.capacity ? vm.actors.get(id) : null),
+      screenTop: vm.screen.top,
+      charsetColorMap: vm.charsetColorMap,
+      armedVerbId: armed > 0 && armed !== VERB_WALK_TO ? armed : null,
+      // Script-screen coords — the shell's input layer maintains these VARs.
+      mouse: { x: vm.vars.readGlobal(VAR_MOUSE_X), y: vm.vars.readGlobal(VAR_MOUSE_Y) },
+      getObjectState: (id) => vm.objectStates.get(id),
+    });
+
+    if (screenW !== lastW || screenH !== lastH) {
+      renderer.resize(screenW, screenH);
+      lastW = screenW;
+      lastH = screenH;
     }
 
-    if (room) {
-      lastPalette = room.palette;
-      lastTransparentIndex = room.transparentIndex;
-      renderer.setPalette(room.palette);
-      renderer.setTransparentIndex(room.transparentIndex);
-    } else {
-      // No room: black backdrop. lastPalette keeps the shell's overlay colours
-      // alive through the brief no-room interval.
-      renderer.setPalette(BLACK_PALETTE);
-      renderer.setTransparentIndex(null);
-    }
-    renderer.present(fb);
+    if (room) lastPalette = room.palette;
+    // No-room frames keep the last room's palette so verb/dialog text stays
+    // visible over the black band (BLACK_PALETTE would render it invisible).
+    const palette = room?.palette ?? lastPalette ?? BLACK_PALETTE;
+    renderer.setPalette(palette);
+    // The assembled frame is the complete screen — every pixel is opaque.
+    renderer.setTransparentIndex(null);
+    renderer.present(screenFb);
 
     const info: FrameInfo = {
       tickCount,
       framed,
-      width: viewportW,
-      height,
+      width: screenW,
+      height: screenH,
+      viewportWidth: viewportW,
+      roomHeight: height,
       roomId: room?.id ?? null,
-      palette: room?.palette ?? lastPalette ?? BLACK_PALETTE,
-      transparentIndex: room ? room.transparentIndex : lastTransparentIndex,
-      framebuffer: Uint8Array.from(fb),
+      palette,
+      framebuffer: Uint8Array.from(screenFb),
       compose,
       halted: vm.haltInfo !== null,
     };
@@ -326,7 +362,6 @@ export function createSession(
     idleStreak = 0;
     idleReason = null;
     lastPalette = null;
-    lastTransparentIndex = null;
     lastW = -1;
     lastH = -1;
   };
@@ -369,6 +404,10 @@ export function createSession(
       let framed = false;
       if (!vm.haltInfo) framed = runTick().framed;
       return composeAndPresent(framed);
+    },
+
+    present(): FrameInfo {
+      return composeAndPresent(false);
     },
 
     setRate(hz: number): void {
