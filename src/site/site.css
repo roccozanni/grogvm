@@ -104,6 +104,14 @@ body {
   margin: 0 0 1.25rem;
 }
 
+.prose img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 0 1.25rem;
+  border: 1px solid var(--border);
+}
+
 .prose blockquote {
   padding: 0.7rem 1rem;
   border-left: 3px solid var(--accent);

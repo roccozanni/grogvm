@@ -22,6 +22,8 @@ export function contentPlugin({ pagesDir, siteCssPath, stagingRoot }: ContentPlu
 
   const siteCss = (): string => readFileSync(siteCssPath, 'utf8');
   const favicon = (): string => readFileSync(join(dirname(siteCssPath), 'favicon.svg'), 'utf8');
+  const heroSvg = (): string => readFileSync(join(dirname(siteCssPath), 'grogvm.svg'), 'utf8');
+  const ogImage = (): Buffer => readFileSync(join(dirname(siteCssPath), 'og.png'));
   const pageHtml = (page: Page): string =>
     renderDocument({
       title: page.title,
@@ -75,9 +77,11 @@ Sitemap: ${SITE_URL}/sitemap.xml
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const raw = (req.url ?? '').split('?')[0];
-        const statics: Record<string, [string, () => string]> = {
+        const statics: Record<string, [string, () => string | Buffer]> = {
           '/site.css': ['text/css', siteCss],
           '/favicon.svg': ['image/svg+xml', favicon],
+          '/grogvm.svg': ['image/svg+xml', heroSvg],
+          '/og.png': ['image/png', ogImage],
           '/robots.txt': ['text/plain', robots],
           '/sitemap.xml': ['application/xml', sitemap],
         };
@@ -112,13 +116,15 @@ Sitemap: ${SITE_URL}/sitemap.xml
     // pages and the site-wide files.
     closeBundle() {
       if (!isBuild) return;
-      const write = (rel: string, body: string): void => {
+      const write = (rel: string, body: string | Buffer): void => {
         const path = join(outDir, rel);
         mkdirSync(dirname(path), { recursive: true });
         writeFileSync(path, body);
       };
       write('site.css', siteCss());
       write('favicon.svg', favicon());
+      write('grogvm.svg', heroSvg());
+      write('og.png', ogImage());
       write('robots.txt', robots());
       write('sitemap.xml', sitemap());
       write('404.html', notFoundHtml());

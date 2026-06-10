@@ -5,6 +5,8 @@ description: A from-scratch TypeScript reimplementation of the SCUMM v5 engine �
 
 # GrogVM
 
+![A pixel-art mug of glowing green grog beside a terminal prompt reading GrogVM](/grogvm.svg)
+
 A from-scratch TypeScript reimplementation of the SCUMM v5 engine — the one that
 ran *The Secret of Monkey Island* and *Monkey Island 2: LeChuck's Revenge* —
 running in the browser, with no server and no emulator. Games are never bundled or

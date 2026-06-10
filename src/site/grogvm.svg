@@ -1,0 +1,124 @@
+<svg viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg" width="1200" height="630" role="img" aria-label="GrogVM — the SCUMM v5 engine, rebuilt for the browser">
+  <title>GrogVM — the SCUMM v5 engine, rebuilt for the browser</title>
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#9be65c" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#0c0d12" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="#0c0d12"/>
+  <rect x="16" y="16" width="1168" height="598" fill="none" stroke="#1f2230" stroke-width="2"/>
+
+  <ellipse cx="225" cy="312" rx="210" ry="190" fill="url(#glow)"/>
+
+  <!-- steam -->
+  <rect x="149" y="178" width="20" height="20" fill="#243517" rx="2"/>
+  <rect x="193" y="178" width="20" height="20" fill="#243517" rx="2"/>
+  <rect x="237" y="178" width="20" height="20" fill="#243517" rx="2"/>
+  <rect x="127" y="200" width="20" height="20" fill="#19250f" rx="2"/>
+  <rect x="259" y="200" width="20" height="20" fill="#19250f" rx="2"/>
+  <rect x="149" y="222" width="20" height="20" fill="#243517" rx="2"/>
+  <rect x="193" y="222" width="20" height="20" fill="#243517" rx="2"/>
+  <rect x="237" y="222" width="20" height="20" fill="#243517" rx="2"/>
+
+  <!-- rim -->
+  <rect x="127" y="244" width="20" height="20" fill="#5f6680" rx="1"/>
+  <rect x="149" y="244" width="20" height="20" fill="#79829a" rx="1"/>
+  <rect x="171" y="244" width="20" height="20" fill="#8a93a8" rx="1"/>
+  <rect x="193" y="244" width="20" height="20" fill="#8a93a8" rx="1"/>
+  <rect x="215" y="244" width="20" height="20" fill="#7e879e" rx="1"/>
+  <rect x="237" y="244" width="20" height="20" fill="#79829a" rx="1"/>
+  <rect x="259" y="244" width="20" height="20" fill="#6b7488" rx="1"/>
+  <rect x="281" y="244" width="20" height="20" fill="#565d74" rx="1"/>
+
+  <!-- foam + handle -->
+  <rect x="127" y="266" width="20" height="20" fill="#6b7488" rx="1"/>
+  <rect x="149" y="266" width="20" height="20" fill="#dff2c4" rx="1"/>
+  <rect x="171" y="266" width="20" height="20" fill="#cfe7ae" rx="1"/>
+  <rect x="193" y="266" width="20" height="20" fill="#dff2c4" rx="1"/>
+  <rect x="215" y="266" width="20" height="20" fill="#cfe7ae" rx="1"/>
+  <rect x="237" y="266" width="20" height="20" fill="#dff2c4" rx="1"/>
+  <rect x="259" y="266" width="20" height="20" fill="#6b7488" rx="1"/>
+  <rect x="281" y="266" width="20" height="20" fill="#4e5468" rx="1"/>
+  <rect x="303" y="266" width="20" height="20" fill="#5a6178" rx="1"/>
+
+  <!-- grog -->
+  <rect x="127" y="288" width="20" height="20" fill="#6b7488" rx="1"/>
+  <rect x="149" y="288" width="20" height="20" fill="#8ed957" rx="1"/>
+  <rect x="171" y="288" width="20" height="20" fill="#65a937" rx="1"/>
+  <rect x="193" y="288" width="20" height="20" fill="#8ed957" rx="1"/>
+  <rect x="215" y="288" width="20" height="20" fill="#65a937" rx="1"/>
+  <rect x="237" y="288" width="20" height="20" fill="#8ed957" rx="1"/>
+  <rect x="259" y="288" width="20" height="20" fill="#6b7488" rx="1"/>
+  <rect x="303" y="288" width="20" height="20" fill="#5a6178" rx="1"/>
+
+  <rect x="127" y="310" width="20" height="20" fill="#6b7488" rx="1"/>
+  <rect x="149" y="310" width="20" height="20" fill="#65a937" rx="1"/>
+  <rect x="171" y="310" width="20" height="20" fill="#8ed957" rx="1"/>
+  <rect x="193" y="310" width="20" height="20" fill="#65a937" rx="1"/>
+  <rect x="215" y="310" width="20" height="20" fill="#8ed957" rx="1"/>
+  <rect x="237" y="310" width="20" height="20" fill="#65a937" rx="1"/>
+  <rect x="259" y="310" width="20" height="20" fill="#6b7488" rx="1"/>
+  <rect x="281" y="310" width="20" height="20" fill="#4e5468" rx="1"/>
+  <rect x="303" y="310" width="20" height="20" fill="#5a6178" rx="1"/>
+
+  <rect x="127" y="332" width="20" height="20" fill="#6b7488" rx="1"/>
+  <rect x="149" y="332" width="20" height="20" fill="#8ed957" rx="1"/>
+  <rect x="171" y="332" width="20" height="20" fill="#65a937" rx="1"/>
+  <rect x="193" y="332" width="20" height="20" fill="#8ed957" rx="1"/>
+  <rect x="215" y="332" width="20" height="20" fill="#65a937" rx="1"/>
+  <rect x="237" y="332" width="20" height="20" fill="#8ed957" rx="1"/>
+  <rect x="259" y="332" width="20" height="20" fill="#6b7488" rx="1"/>
+
+  <rect x="127" y="354" width="20" height="20" fill="#6b7488" rx="1"/>
+  <rect x="149" y="354" width="20" height="20" fill="#65a937" rx="1"/>
+  <rect x="171" y="354" width="20" height="20" fill="#8ed957" rx="1"/>
+  <rect x="193" y="354" width="20" height="20" fill="#65a937" rx="1"/>
+  <rect x="215" y="354" width="20" height="20" fill="#8ed957" rx="1"/>
+  <rect x="237" y="354" width="20" height="20" fill="#65a937" rx="1"/>
+  <rect x="259" y="354" width="20" height="20" fill="#6b7488" rx="1"/>
+
+  <rect x="127" y="376" width="20" height="20" fill="#6b7488" rx="1"/>
+  <rect x="149" y="376" width="20" height="20" fill="#8ed957" rx="1"/>
+  <rect x="171" y="376" width="20" height="20" fill="#65a937" rx="1"/>
+  <rect x="193" y="376" width="20" height="20" fill="#8ed957" rx="1"/>
+  <rect x="215" y="376" width="20" height="20" fill="#65a937" rx="1"/>
+  <rect x="237" y="376" width="20" height="20" fill="#8ed957" rx="1"/>
+  <rect x="259" y="376" width="20" height="20" fill="#6b7488" rx="1"/>
+
+  <!-- bottom wall -->
+  <rect x="127" y="398" width="20" height="20" fill="#565d74" rx="1"/>
+  <rect x="149" y="398" width="20" height="20" fill="#6b7488" rx="1"/>
+  <rect x="171" y="398" width="20" height="20" fill="#737c92" rx="1"/>
+  <rect x="193" y="398" width="20" height="20" fill="#737c92" rx="1"/>
+  <rect x="215" y="398" width="20" height="20" fill="#6b7488" rx="1"/>
+  <rect x="237" y="398" width="20" height="20" fill="#5f6680" rx="1"/>
+  <rect x="259" y="398" width="20" height="20" fill="#565d74" rx="1"/>
+  <rect x="281" y="398" width="20" height="20" fill="#495064" rx="1"/>
+
+  <!-- base -->
+  <rect x="149" y="420" width="20" height="20" fill="#495064" rx="1"/>
+  <rect x="171" y="420" width="20" height="20" fill="#565d74" rx="1"/>
+  <rect x="193" y="420" width="20" height="20" fill="#5a6178" rx="1"/>
+  <rect x="215" y="420" width="20" height="20" fill="#565d74" rx="1"/>
+  <rect x="237" y="420" width="20" height="20" fill="#4e5468" rx="1"/>
+  <rect x="259" y="420" width="20" height="20" fill="#434960" rx="1"/>
+
+  <!-- wordmark -->
+  <text x="438" y="322"
+        font-family="Courier New, Courier, monospace"
+        font-size="116" font-weight="bold"
+        fill="#9be65c">&gt; GrogVM</text>
+  <rect x="1008" y="232" width="46" height="92" fill="#9be65c"/>
+
+  <line x1="438" y1="350" x2="1164" y2="350" stroke="#1f2230" stroke-width="1"/>
+
+  <text x="442" y="396"
+        font-family="Courier New, Courier, monospace"
+        font-size="27" fill="#e3e3e3">The SCUMM v5 engine, rebuilt for the browser</text>
+
+  <text x="1164" y="592" text-anchor="end"
+        font-family="Courier New, Courier, monospace"
+        font-size="16" fill="#888">grogvm.dev</text>
+</svg>

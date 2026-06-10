@@ -57,9 +57,13 @@ ${discovery}    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <meta property="og:title" content="${ogTitle}" />
     <meta property="og:description" content="${description}" />
     <meta property="og:url" content="${url}" />
-    <meta name="twitter:card" content="summary" />
+    <meta property="og:image" content="${SITE_URL}/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="${ogTitle}" />
     <meta name="twitter:description" content="${description}" />
+    <meta name="twitter:image" content="${SITE_URL}/og.png" />
     <link rel="stylesheet" href="/site.css" />
   </head>
   <body>
