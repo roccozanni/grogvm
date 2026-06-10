@@ -79,8 +79,11 @@ an actor-object, and a one-object inventory-slot verb. (Backlog item under Input
 
 ### Tier-2 divergence checklist
 
-Silent, self-flagged approximations (run `git grep -nE "for now|doesn't yet|best-effort|we don't yet"`
-to refresh). Tiering: **Tier 1** = loud (halts on unknown opcode — fine). **Tier 2**
+Silent, self-flagged approximations. Hand-curated — comment phrasing drifts, so
+no grep refreshes this list; the heuristic sweep for NEW flags is
+`git grep -niE "best-effort|for now|not yet|no [a-z]+ yet|approximat" -- src/ ':!*test*'`
+(checked 2026-06-10: every hit is tracked here or is a platform-side best-effort
+catch in `savegames.ts`). Tiering: **Tier 1** = loud (halts on unknown opcode — fine). **Tier 2**
 = these (silent until a script ordering makes them observable, like the EXCD bug).
 **Tier 3** = unknown unknowns (only ScummVM differential tracing finds them).
 
@@ -95,7 +98,8 @@ Priority H/M/L = likelihood of biting current/near play × severity.
   handled** in the talk path (`decodeScummStringPages` sets keepText →
   `addSystemText` accumulates it) — only static `decodeScummString` strips it,
   correctly; actor-name `0xFF0A` only matters in dialogue text.
-- [ ] **L/M — `print` `clipped` line-wrap bound not modelled** (`vm.ts:~524`).
+- [ ] **L/M — `print` `clipped` line-wrap bound not modelled** (`vm.ts:~114`,
+  the stored SO_CLIPPED bound).
   Long lines may overflow / mis-wrap vs the original's clip-X wrapping.
 - [ ] **M — blast-text (a=254) lifetime: `restoreCharsetBg` approximated by
   cutscene-end / room-change / overwrite / camera scroll, not real screen
@@ -128,15 +132,21 @@ Priority H/M/L = likelihood of biting current/near play × severity.
     2/3/8 path. NOT audio (no sound op gates the disclaimer span; confirmed).
   Fixing this is the deferred `restoreCharsetBg` refactor + a charset/colour pass;
   needs in-browser pixel iteration.
-- [ ] **L — flashlight gfx not modelled** (`opcodes/index.ts:~577`, dark-room
+- [ ] **L — flashlight gfx not modelled** (`opcodes/index.ts:~589`, dark-room
   strip extent). Cosmetic; only the flashlight rooms.
 - [ ] **L — global arithmetic doesn't wrap at int16** (`Variables` is
   `Int32Array`, `value|0`). SCUMM globals are int16, so arithmetic past ±32767
   wraps in the original; ours saturates to 32-bit. Rare in MI1, and int16-clamping
   risks engine counters/timers — audit before touching.
 - [ ] **? — `actorOps` subop `0x0f` treated as no-arg no-op "for now"**
-  (`opcodes/index.ts:~1874`; seen in MI1 boot after setCostume, not in the
+  (`opcodes/index.ts:~1845`; seen in MI1 boot after setCostume, not in the
   wiki). Assess whether it affects behaviour or is genuinely inert.
+- [ ] **L — slot exhaustion silently skips EXCD / ENCD / the inventory script**
+  (`vm.ts:682/711/1613`): with all 25 script slots busy, a room's exit/entry
+  script or the inventory refresh just doesn't run — the same silent shape as
+  the EXCD ordering bug. MI1 play stays far below 25 live slots.
+- [ ] **L — restored music slot is a heuristic** (`sound/backend.ts:93`): on
+  save restore, the looping active sound is assumed to be the music slot.
 - Already tracked elsewhere (cross-ref, not duplicated here): line-following
   walker (Pathfinding backlog), `screenEffect` animation + `VAR_CURRENT_LIGHTS`
   darkening (Rendering backlog), `saveRestoreVerbs` subset (Watch-for), audio /
@@ -198,10 +208,10 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
   the walk→stop transition (shipped 2026-05-31). Not yet handled: a *turn in
   place while idle* (a script changing `facing` with no walk) — the head keeps
   its last init-set frame; wire the same init-re-point on any at-rest facing
-  change when a scene surfaces it. Two scene-specific symptoms noted earlier and
-  **not since re-confirmed** (verify before chasing): a room-33 cliff N/S facing
-  flip-flop (likely a walk direction-picker issue, separate from the head) and a
-  room-38 entry head-loss transient. See [COSTUME-ANIM](pages/docs/scumm/costume-anim.md).
+  change when a scene surfaces it. (The two scene symptoms noted earlier — the
+  room-33 cliff N/S facing flip-flop and the room-38 entry head-loss transient —
+  were re-verified in-browser 2026-06-10: both fine.)
+  See [COSTUME-ANIM](pages/docs/scumm/costume-anim.md).
 
 **Pathfinding**
 
