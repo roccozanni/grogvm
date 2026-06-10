@@ -331,10 +331,12 @@ In rough order of "what hits you first":
    z-plane was applied at the object's design `imhd.x/y` instead of its
    current (SO_AT) position. Object z-planes move with the object (see
    "Per-object z-planes").
-10. **A drawn object buries the actor everywhere it overlaps** → the
-    object's z-plane is fully set (a solid-fill mask, not a silhouette)
-    and wasn't dropped. The loader drops all-1s **object** z-planes; only
-    shaped masks occlude. Room 58's path trunks are the case.
+10. **A drawn object buries the actor everywhere it overlaps** → a solid
+    (all-1s) object mask survived that a later opaque draw should have
+    erased. Masks are written in draw order — an opaque strip *replaces*
+    the surface, zeros included — so check stamp order and the per-strip
+    opacity test. Room 58's path tiles, parked under the dressing tiles,
+    are the case (see "The mask surface is written in draw order").
 11. **A drawn object hides a floor (clip-1) actor it shouldn't** → the
     object's mask lives in `ZP02` (plane 2) but was OR'd into plane 1 (the
     old single-plane collapse). An object `ZP0k` targets plane `k` alone, so
@@ -506,18 +508,20 @@ of the drifting cloud actors (room 10's costume-59 clouds at
   `imhd.width × height`; width must be a multiple of 8, else skipped). It
   does **not** OR the chunks into one mask — see "Each ZP## targets its own
   plane" below for why that was wrong.
-- The compositor ORs each **drawn** object's `ZP0k` into room plane `k` at
-  the object's runtime position, then applies the single-plane rule: a
-  clip-`k` actor is masked by plane `k` alone. So a `forceClip = 1` /
-  box-mask-1 actor is hidden behind an object's `ZP01` but **not** its
-  `ZP02`; an in-front actor (`neverZclip` class / `actorZ = effective plane
-  count`) by neither. If an object targets a plane the room itself lacks,
-  the merged stack is extended so a clip-`k` actor still has a plane `k` to
-  test.
-- The z-plane — not the object's image opacity — is the occlusion
-  authority (faithful to SCUMM), so a few title *edge* pixels the
-  authored mask doesn't cover can still show a cloud; that matches the
-  original's masking.
+- Each **drawn** object's `ZP0k` is stamped into room plane `k` at the
+  object's runtime position — in **draw order, rewriting what was there**
+  (see "The mask surface is written in draw order" below) — then the
+  single-plane rule applies: a clip-`k` actor is masked by plane `k` alone.
+  So a `forceClip = 1` / box-mask-1 actor is hidden behind an object's
+  `ZP01` but **not** its `ZP02`; an in-front actor (`neverZclip` class /
+  `actorZ = effective plane count`) by neither. If an object targets a
+  plane the room itself lacks, the merged stack is extended so a clip-`k`
+  actor still has a plane `k` to test.
+- The z-plane — not the object's image opacity — decides which actor
+  *pixels* are hidden, so a few title *edge* pixels the authored mask
+  doesn't cover can still show a cloud; that matches the original's
+  masking. Opacity matters at mask-*write* time instead: it selects
+  whether a strip replaces or ORs (below).
 
 ### Each ZP## targets its own plane — not a single merged foreground
 
@@ -544,27 +548,52 @@ composed by repositioning a shared set of tile objects, so an object's
 z-plane must occlude where the object actually draws, not at its design
 `imhd.x/y`.
 
-### A fully-set object mask is dropped (⚠️ tentative heuristic)
+### The mask surface is written in draw order — later draws erase earlier masks
 
-Genuine foreground occluders are *shaped* masks (the title logo ~33% set;
-the forest foliage ~40–53%) — transparency around the silhouette. An object
-z-plane that is **fully set** (every bit 1 over the whole bounding box) is
-**dropped** by the loader (decodes to no plane) so it never occludes actors.
-Room 58's "il sentiero" path trunks (objs 685/686/687) carry such all-1s
-masks: ego walks *in front* of them, while the shaped foliage masks (671/673)
-still occlude. Without the drop, every path trunk buried ego wherever it
-overlapped.
+The mask planes are a **stateful surface**, exactly like the background
+virtual screen the images draw into: an object draw doesn't *overlay* its
+z-plane onto a merged stack, it **rewrites the surface in its footprint**,
+strip by strip, in draw order. Per 8-px strip:
 
-> ⚠️ **This drop is a heuristic, not a confirmed engine rule.** It keys on the
-> only signal that separates occluders from non-occluders in MI1 — object masks
-> are cleanly bimodal (shaped <95% vs solid 100%, nothing between; the 36 solid
-> ones are all non-occluders: the forest path, the store door, levers, the
-> vase). But *why* the original engine ignores a fully-solid object z-plane is
-> unknown — the answer is in its object-mask write path. Ruled out as the cause
-> (object class, the `ZP0k → plane k` index, image transparency — the trunks are
-> opaque color-0, not transparent — and the actor's walk-box clip plane), so a
-> future object-occlusion oddity should suspect *this drop* before those.
+- A strip with **no transparent image pixel replaces** the mask rows it
+  covers — the object's `ZP0k` bits where it has them, **zeros where it has
+  no data for plane `k`** (no chunk, or that strip is the offset-0 sentinel).
+- A strip **with transparency ORs** its bits in, and leaves planes it has no
+  data for untouched.
 
-> The drop applies to **object** z-planes only. Room z-planes (`ZP01`…) are the
-> room's authored foreground and are never dropped — a room plane can
-> legitimately be dense.
+The room's own planes are just the seed — what the background draw stamps —
+and every object drawn after rewrites from there. Two consequences that look
+wrong until you know the rule:
+
+- **An object's mask can be erased by a later draw.** A mask only occludes
+  while it is the *most recent* opaque draw over its strips.
+- **A solid all-1s object mask is real, meaningful data, not an anomaly.**
+  MI1's object masks are bimodal (shaped silhouettes vs fully-set), and every
+  solid one is a non-occluder *in practice* — not because the engine drops
+  solid masks (it doesn't; a solid mask nothing covers occludes just fine)
+  but because each one is authored to be drawn under later opaque draws that
+  erase it.
+
+**MI1's forest maze (room 58) is the forcing case.** Every walk box there is
+`mask = 1` — ego is clip-1 on the whole floor, so box masks can't make one
+tile occlude and another not. Every object is fully opaque. The "il sentiero"
+exit tiles (#685–688) carry **solid 100% `ZP01` masks**, and each screen's
+entry script draws the exits *first*, then six opaque dressing tiles covering
+the whole 3×2 tile grid, then the props. The dressing draws erase the exits'
+masks — ego walks freely into the path openings — while the shaped rock-band
+tiles drawn last keep their bits and occlude ego behind the rock. **Mask
+shape was never the occluder/non-occluder rule; draw order plus strip opacity
+is.** (One authored sliver survives: the right exit #687 is 24 px wide and
+the dressing grid covers only its first two strips, so its solid mask stands
+in the rightmost strip, x 312–319 — in the original too.)
+
+The same rule is why the one tile the forest's park-all loop never parks
+(#673, dressed on only 6 of the 20 screens) is harmless: on screens that
+don't dress it, its persisted nonzero state re-draws it at its design
+position, where that screen's dressing tiles — drawn after it — erase its
+pixels *and* its mask. The scripters never needed to park it.
+
+Two related non-bugs, same room: the hard vertical seams at the tile
+boundaries (x = 104/208) are the authored art, present in the original; and
+the room's nearly-empty `ZP01` (2.5%) is fine — the dressing tiles rewrite
+virtually the whole surface every screen anyway.

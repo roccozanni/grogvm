@@ -308,15 +308,6 @@ function resolveClipPlane(
   return box ? box.mask : 0;
 }
 
-/** A drawn object's z-plane placed for actor occlusion: `plane` (its `ZP0k`)
- *  targets plane index `planeIndex` (= k-1) at room position (`x`,`y`). */
-export interface ForegroundPlane {
-  readonly x: number;
-  readonly y: number;
-  readonly planeIndex: number;
-  readonly plane: DecodedZPlane;
-}
-
 /** Options selecting which objects contribute foreground z-planes — the same
  *  draw-queue / state / position accessors {@link composeFrame} consumes. */
 export interface ForegroundPlaneOptions {
@@ -325,18 +316,23 @@ export interface ForegroundPlaneOptions {
   readonly getObjectPosition?: (objectId: number) => { x: number; y: number } | undefined;
 }
 
-/**
- * Collect every drawn object's z-planes at their runtime positions — the
- * inputs to {@link mergeForeground}. Skips hidden/imageless objects (their
- * skip reasons surface in {@link composeFrame}'s own pass). Solid-fill
- * planes were already dropped by the loader (zplane.md §"fully-set mask").
- */
-export function collectForegroundPlanes(
-  room: LoadedRoom,
-  opts: ForegroundPlaneOptions,
-): ForegroundPlane[] {
-  const fgPlanes: ForegroundPlane[] = [];
-  if (!opts.objectDrawQueue) return fgPlanes;
+/** One drawn object's mask contribution, at its runtime position. */
+interface ObjectStamp {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  /** Image pixels — the per-strip opacity test reads these. */
+  readonly indexed: Uint8Array;
+  /** `zPlanes[k-1]` = the object's `ZP0k`, absent slots = no data for that plane. */
+  readonly zPlanes: ReadonlyArray<DecodedZPlane | null>;
+}
+
+/** Drawn objects in queue (draw) order — skips hidden/imageless objects, whose
+ *  skip reasons surface in {@link composeFrame}'s own pass. */
+function collectStamps(room: LoadedRoom, opts: ForegroundPlaneOptions): ObjectStamp[] {
+  const out: ObjectStamp[] = [];
+  if (!opts.objectDrawQueue) return out;
   for (const objId of opts.objectDrawQueue) {
     const obj = room.objects.get(objId);
     if (!obj) continue;
@@ -345,58 +341,98 @@ export function collectForegroundPlanes(
     const image = obj.images.get(state);
     if (!image) continue;
     const pos = opts.getObjectPosition?.(objId);
-    const left = pos?.x ?? obj.imhd.x;
-    const top = pos?.y ?? obj.imhd.y;
-    image.zPlanes.forEach((plane, planeIndex) => {
-      if (plane) fgPlanes.push({ x: left, y: top, planeIndex, plane });
+    out.push({
+      x: pos?.x ?? obj.imhd.x,
+      y: pos?.y ?? obj.imhd.y,
+      width: obj.imhd.width,
+      height: obj.imhd.height,
+      indexed: image.indexed,
+      zPlanes: image.zPlanes,
     });
   }
-  return fgPlanes;
+  return out;
 }
 
 /**
  * The effective z-plane stack that masks actors this frame: room z-planes
- * merged with every drawn object's z-plane. The single entry point for "what
- * occludes an actor" — used by {@link composeFrame} for clipping and by the
- * Z-planes debug overlay for visualisation, so the two can't drift.
+ * stamped over, in draw order, by every drawn object — SCUMM's stateful mask
+ * surface. An object draw REWRITES the mask in its footprint strip by strip
+ * (see {@link applyStamp}); it does not just OR bits in. Order matters: MI1's
+ * forest (room 58) parks solid-mask path tiles under opaque dressing tiles
+ * whose draws erase them — an order-blind OR occludes ego where the original
+ * doesn't. The single entry point for "what occludes an actor" — used by
+ * {@link composeFrame} for clipping and by the Z-planes debug overlay, so the
+ * two can't drift. Stack is extended when an object targets a plane the room
+ * lacks (zplane.md §"Per-object z-planes").
  */
 export function actorOcclusionPlanes(
   room: LoadedRoom,
   opts: ForegroundPlaneOptions,
 ): readonly DecodedZPlane[] {
-  return mergeForeground(room, collectForegroundPlanes(room, opts));
+  const stamps = collectStamps(room, opts);
+  if (stamps.length === 0) return room.zPlanes;
+  const w = room.width, h = room.height;
+  const maxIdx = Math.max(
+    room.zPlanes.length - 1,
+    ...stamps.map((s) => s.zPlanes.length - 1),
+  );
+  const masks: Uint8Array[] = [];
+  for (let i = 0; i <= maxIdx; i++) {
+    masks[i] = room.zPlanes[i] ? room.zPlanes[i]!.mask.slice() : new Uint8Array(w * h);
+  }
+  for (const s of stamps) applyStamp(masks, w, h, s, room.transparentIndex);
+  return masks.map((mask) => ({ width: w, height: h, mask }));
 }
 
 /**
- * OR each drawn object's `ZP0k` into room plane `k` at the object's runtime
- * position — NOT into a single merged foreground, so the single-plane rule
- * holds for objects too (zplane.md §"Each ZP## targets its own plane"). The
- * stack is extended when an object targets a plane the room lacks.
+ * Stamp one drawn object into the mask stack — SCUMM's per-strip mask write:
+ * an 8-px strip with NO transparent image pixel REPLACES the mask rows it
+ * covers with the object's bits (zeros where it has no plane data); a strip
+ * WITH transparency ORs its bits and leaves absent planes untouched.
  */
-function mergeForeground(
-  room: LoadedRoom,
-  fgPlanes: ReadonlyArray<ForegroundPlane>,
-): readonly DecodedZPlane[] {
-  if (fgPlanes.length === 0) return room.zPlanes;
-  const w = room.width, h = room.height;
-  const maxIdx = Math.max(room.zPlanes.length - 1, ...fgPlanes.map((p) => p.planeIndex));
-  // One mutable mask per plane index, seeded from the room's plane (or empty).
-  const masks: Uint8Array[] = [];
-  for (let i = 0; i <= maxIdx; i++) masks[i] = room.zPlanes[i] ? room.zPlanes[i]!.mask.slice() : new Uint8Array(w * h);
-  for (const { x, y, planeIndex, plane } of fgPlanes) {
-    const mask = masks[planeIndex]!;
-    for (let py = 0; py < plane.height; py++) {
-      const fy = y + py;
-      if (fy < 0 || fy >= h) continue;
-      for (let px = 0; px < plane.width; px++) {
-        if (!plane.mask[py * plane.width + px]) continue;
-        const fx = x + px;
-        if (fx < 0 || fx >= w) continue;
-        mask[fy * w + fx] = 1;
+function applyStamp(
+  masks: Uint8Array[],
+  w: number,
+  h: number,
+  s: ObjectStamp,
+  transparentIndex: number | null,
+): void {
+  const ow = s.width, oh = s.height;
+  if (ow === 0 || oh === 0 || s.indexed.length !== ow * oh) return;
+  const y0 = Math.max(0, s.y);
+  const y1 = Math.min(h, s.y + oh);
+  if (y0 >= y1) return;
+  for (let sx = 0; sx < ow; sx += 8) {
+    const sw = Math.min(8, ow - sx);
+    const x0 = Math.max(0, s.x + sx);
+    const x1 = Math.min(w, s.x + sx + sw);
+    if (x0 >= x1) continue;
+    let opaque = true;
+    if (transparentIndex !== null) {
+      scan: for (let py = 0; py < oh; py++) {
+        for (let px = sx; px < sx + sw; px++) {
+          if (s.indexed[py * ow + px] === transparentIndex) {
+            opaque = false;
+            break scan;
+          }
+        }
+      }
+    }
+    for (let k = 0; k < masks.length; k++) {
+      const bits = s.zPlanes[k] ?? null;
+      if (!opaque && !bits) continue;
+      const mask = masks[k]!;
+      for (let fy = y0; fy < y1; fy++) {
+        const py = fy - s.y;
+        for (let fx = x0; fx < x1; fx++) {
+          const px = fx - s.x;
+          const bit = bits ? bits.mask[py * bits.width + px]! : 0;
+          if (opaque) mask[fy * w + fx] = bit;
+          else if (bit) mask[fy * w + fx] = 1;
+        }
       }
     }
   }
-  return masks.map((mask) => ({ width: w, height: h, mask }));
 }
 
 /** Blit one object image, honouring the room's TRNS transparent index and

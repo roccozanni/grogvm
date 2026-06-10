@@ -731,6 +731,101 @@ describe('composeFrame — drawn-object z-planes occlude z-clipped actors', () =
     expect([...fb2].some((v) => v === 0x99)).toBe(false); // shopkeeper hidden by ZP02
   });
 
+});
+
+describe('composeFrame — mask surface follows draw order (per-strip replace/OR)', () => {
+  // SCUMM's mask buffers are a stateful surface: each drawn object REWRITES
+  // the mask in its footprint. An opaque strip replaces (zeros where the
+  // object has no plane data); a strip with transparency ORs. MI1's forest
+  // (room 58) is the forcing case: the solid-mask path tiles are drawn first
+  // and the opaque dressing tiles drawn after must erase their masks.
+  const cost = () => makeOneFrameCostume({ frameW: 2, frameH: 2, pixelIdx: 1, clutIdx: 0x99 });
+  const solidMask = (w: number, h: number) => { const m = new Uint8Array(w * h); m.fill(1); return m; };
+
+  function clip1ActorAt(x: number, y: number): Actor {
+    const a = makeActorAt(9, x, y, 1);
+    a.anim = activeLimb0Anim();
+    a.forceClip = 1;
+    return a;
+  }
+
+  it('a later opaque draw with no plane data ERASES an earlier solid object mask (forest exits)', () => {
+    const room = makeRoom(8, 4, 0x10);
+    const exit = makeObject(1, 0, 0, 8, 4, 0x20, 1, solidMask(8, 4)); // solid ZP01
+    const tile = makeObject(2, 0, 0, 8, 4, 0x30); // opaque, no z-plane
+    (room.objects as Map<number, LoadedObject>).set(1, exit).set(2, tile);
+
+    const fb = new Uint8Array(8 * 4);
+    composeFrame({
+      room, framebuffer: fb, actors: [clip1ActorAt(1, 1)], getCostume: cost,
+      objectDrawQueue: [1, 2], getObjectState: () => 1,
+    });
+    expect(fb[1 * 8 + 1]).toBe(0x99); // tile erased the exit's mask — actor in front
+  });
+
+  it('reversed order keeps the solid mask (last draw wins)', () => {
+    const room = makeRoom(8, 4, 0x10);
+    const exit = makeObject(1, 0, 0, 8, 4, 0x20, 1, solidMask(8, 4));
+    const tile = makeObject(2, 0, 0, 8, 4, 0x30);
+    (room.objects as Map<number, LoadedObject>).set(1, exit).set(2, tile);
+
+    const fb = new Uint8Array(8 * 4);
+    composeFrame({
+      room, framebuffer: fb, actors: [clip1ActorAt(1, 1)], getCostume: cost,
+      objectDrawQueue: [2, 1], getObjectState: () => 1,
+    });
+    expect([...fb].some((v) => v === 0x99)).toBe(false); // exit drawn last → occludes
+  });
+
+  it('a strip with transparency ORs — it does NOT erase the mask underneath', () => {
+    const room: LoadedRoom = { ...makeRoom(8, 4, 0x10), transparentIndex: 0x05 };
+    const exit = makeObject(1, 0, 0, 8, 4, 0x20, 1, solidMask(8, 4));
+    const overlay = makeObject(2, 0, 0, 8, 4, 0x30); // no z-plane
+    overlay.images.get(1)!.indexed[0] = 0x05; // one transparent pixel → strip ORs
+    (room.objects as Map<number, LoadedObject>).set(1, exit).set(2, overlay);
+
+    const fb = new Uint8Array(8 * 4);
+    composeFrame({
+      room, framebuffer: fb, actors: [clip1ActorAt(1, 1)], getCostume: cost,
+      objectDrawQueue: [1, 2], getObjectState: () => 1,
+    });
+    expect([...fb].some((v) => v === 0x99)).toBe(false); // exit mask survived
+  });
+
+  it('replace is bounded by the covering object\'s rows', () => {
+    const room = makeRoom(8, 4, 0x10);
+    const exit = makeObject(1, 0, 0, 8, 4, 0x20, 1, solidMask(8, 4));
+    const tile = makeObject(2, 0, 0, 8, 2, 0x30); // covers rows 0..1 only
+    (room.objects as Map<number, LoadedObject>).set(1, exit).set(2, tile);
+
+    const fb = new Uint8Array(8 * 4);
+    composeFrame({
+      room, framebuffer: fb, actors: [clip1ActorAt(1, 1)], getCostume: cost,
+      objectDrawQueue: [1, 2], getObjectState: () => 1,
+    });
+    expect(fb[1 * 8 + 1]).toBe(0x99); // row 1: cleared by the tile → drawn
+    expect(fb[2 * 8 + 1]).not.toBe(0x99); // row 2: exit mask intact → hidden
+    expect(fb[2 * 8 + 2]).not.toBe(0x99);
+  });
+
+  it('an opaque object draw erases ROOM plane bits in its footprint too', () => {
+    const base = makeRoom(8, 4, 0x10);
+    const mask = solidMask(8, 4);
+    const room: LoadedRoom = {
+      ...base,
+      zPlanes: [{ width: 8, height: 4, mask }],
+      objects: new Map([[1, makeObject(1, 0, 0, 8, 4, 0x30)]]), // opaque, no z-plane
+    };
+    const fb = new Uint8Array(8 * 4);
+    composeFrame({
+      room, framebuffer: fb, actors: [clip1ActorAt(1, 1)], getCostume: cost,
+      objectDrawQueue: [1], getObjectState: () => 1,
+    });
+    expect(fb[1 * 8 + 1]).toBe(0x99); // drawn — the object claimed the strips
+  });
+});
+
+describe('composeFrame — drawBox fills', () => {
   it('paints drawBox fills over the background (inclusive, clamped)', () => {
     const room = makeRoom(8, 4, 0x42);
     const fb = new Uint8Array(8 * 4);
