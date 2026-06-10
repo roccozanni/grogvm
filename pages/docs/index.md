@@ -1,37 +1,39 @@
 ---
 title: Documentation
-description: Reverse-engineering notes behind GrogVM — the SCUMM v5 engine and its file formats (resources, opcodes, graphics, costumes, timing), plus how GrogVM is built on top.
+description: How GrogVM is built, plus the reverse-engineering notes behind it — the SCUMM v5 engine and its file formats (resources, opcodes, graphics, costumes, timing).
 ---
 
 # Documentation
 
-Two halves: a reverse-engineered reference for the SCUMM v5 engine and its file
-formats, and notes on how GrogVM is built on top of it.
+Two halves: notes on how GrogVM is built, and the reverse-engineered reference
+for the SCUMM v5 engine and its file formats it is built against.
 
-## Project status
+> **Status** — in active development. *The Secret of Monkey Island* plays
+> from boot through the end of Part I — verbs, inventory, dialogue,
+> cutscenes, saves — and every resource in its files is browsable in the
+> explorer. Still ahead: audio (silent today), Part II onward, Monkey
+> Island 2, and a few visual effects.
 
-GrogVM is in active development. Where it stands today:
+## Engine notes
 
-- **Playable** — *The Secret of Monkey Island* runs from the intro through the
-  game's opening: Mêlée Island lookout, the SCUMM Bar, the kitchen, and the
-  Fettucini circus. Walking with box-graph pathfinding, the verb and inventory
-  UI, one- and two-object commands ("Use X with Y", "Give X to Y"), dialogue
-  trees, cutscenes, room lighting, and z-plane occlusion all work.
-- **Decoded & inspectable** — every major resource type: rooms and backgrounds,
-  costumes and animation, charset fonts, objects, walk boxes, and the bytecode
-  itself, each viewable live in the explorer.
-- **Persists** — full snapshot/restore of the live VM to a versioned save.
-- **In progress** — audio is still silent (iMUSE/AdLib next); MI2 boots but has
-  v5 edge cases to resolve; and the rest of the MI1 walkthrough plus a few
-  rendering effects (palette cycling, screen-transition animation, smooth camera
-  pan) are still being built.
+How GrogVM itself is built. Start with Architecture — the map of the
+whole project; each doc links into the format reference below where it
+leans on it.
 
-Backed by a synthetic unit-test suite and a from-boot integration playthrough.
+- [Architecture — Layers & Seams](engine/architecture.md)
+- [Game Identity & Variant Detection](engine/game-identity.md)
+- [Engine Session — Game Loop & Runtime](engine/session.md)
+- [Camera — Follow, Pan & the Viewport](engine/camera.md)
+- [Costume Loading & Decoding](engine/costumes.md)
+- [Pathfinding (Box-Graph Routing)](engine/pathfinding.md)
+- [Room Transitions (Entering & Leaving)](engine/room-transitions.md)
+- [Audio Timing (the `AudioBackend` Seam)](engine/audio.md)
+- [Test Harness & Integration Playthroughs](engine/harness.md)
 
 ## SCUMM v5 reference
 
 How the original SCUMM v5 engine and its file formats work, reverse-engineered
-from real game data.
+from real game data — the reference the engine above is built against.
 
 **Resources & the VM**
 
@@ -62,17 +64,3 @@ from real game data.
 - [Screen Effects](scumm/screen-effect.md)
 - [Timing — Jiffy vs. Frame](scumm/timing.md)
 - [Sound (`SOUN`) & Sound-Gated Waits](scumm/sound.md)
-
-## Engine notes
-
-How GrogVM itself is built on top of the reference above.
-
-- [Architecture — Layers & Seams](engine/architecture.md)
-- [Game Identity & Variant Detection](engine/game-identity.md)
-- [Engine Session — Game Loop & Runtime](engine/session.md)
-- [Camera — Follow, Pan & the Viewport](engine/camera.md)
-- [Costume Loading & Decoding](engine/costumes.md)
-- [Pathfinding (Box-Graph Routing)](engine/pathfinding.md)
-- [Room Transitions (Entering & Leaving)](engine/room-transitions.md)
-- [Audio Timing (the `AudioBackend` Seam)](engine/audio.md)
-- [Test Harness & Integration Playthroughs](engine/harness.md)
