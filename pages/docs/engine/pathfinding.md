@@ -197,3 +197,20 @@ remains is the **line-following walker** (`calcMovementFactor`-style stepping
 with sub-pixel accumulation): it keeps the actor *on* the box line, so the
 per-step box assignment is correct — and, ideally, maintaining `_walkbox` at
 gate crossings instead of re-assigning it from pixel position each step.
+
+## 10. Distance queries clamp into reachable boxes (`getDist`)
+
+`getDist` between an actor and an OBJECT doesn't measure to the object's raw
+walk-to point — SCUMM's `getObjActToObjActDist` first clamps the object's
+point **into the nearest box the actor can actually reach** (the same
+effective box set the router uses, runtime locks included), and measures to
+the clamped point. The point is a no-op for objects whose walk-to already
+sits in a visible box.
+
+The witness is "give meat to the piranha poodles" (room 36): the dogs'
+walk-to point sits in a **locked** box, so ego's walk clamps to a far box
+edge — and a raw point-to-point `getDist` then fails the sentence script's
+proximity gate (`getDist >= 32` → "Non riesco ad arrivarci") even though ego
+stands as close as the box graph allows. Clamping the object's point into
+ego's reachable set measures the distance the gate actually intends: "is
+the actor at the spot it can reach for this object?"

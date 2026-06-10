@@ -286,7 +286,11 @@ bookkeeping) instead of re-deriving the boot boilerplate. Two layers:
     `driveTicks(vm, n)`, `driveUntil(vm, pred, {maxTicks})`,
     `driveToRoom(vm, room)`. Operate on a bare `Vm`, so MI2 (any v5 game)
     reuses them unchanged; unit-tested against a **synthetic VM**
-    (`drive.test.ts`), runs everywhere incl. CI.
+    (`drive.test.ts`), runs everywhere incl. CI. Caveat: `setMouse` writes
+    ROOM coords into VARs 44/45 (the browser input layer writes
+    script-SCREEN coords, verb band remapped to y ≥ 144), so headless
+    hover never lands in the verb band — a test wanting the engine's
+    hover highlight must write script-screen coords itself.
   - `actions.ts` — **game-agnostic** faithful player-action vocabulary:
     `walkTo`/`use`/`pickAnswer`/`pickDialogAnswer`/`objectPoint`/`actorPoint`/
     `waitIdle`. Thin sugar over the real click flow (hover poller →

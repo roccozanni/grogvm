@@ -229,6 +229,15 @@ and append the drawn one last (freshest on top). Exact-box match (not
 overlap) leaves a legitimately distinct object resting over a larger
 fixture untouched.
 
+The eviction must also **revert the overdrawn object's state to 0** — in
+SCUMM the strip overwrite erases it, and erased means hidden. The prison's
+rat-hole (room 31, three local-#207 loops) is the witness: each loop
+re-picks one of the hole's three same-box frames *whose state is 0* and
+draws it. `drawObject` sets the drawn frame to state 1; without the revert
+all three latch at 1 after one pass and the picker spins forever (the VM
+froze on a 100k-step guard). With it, the displaced frame returns to the
+pick pool and the animation cycles like the original.
+
 **`setState` renders too.** Setting an object's state to a non-zero,
 image-backed value marks it dirty in SCUMM → it redraws. So `setState`
 queues a current-room object, and room (re)entry queues every object
