@@ -5,8 +5,8 @@ description: How GrogVM is built, plus the reverse-engineering notes behind it �
 
 # Documentation
 
-Two halves: notes on how GrogVM is built, and the reverse-engineered reference
-for the SCUMM v5 engine and its file formats it is built against.
+Two halves: notes on how GrogVM is built, and the reverse-engineered SCUMM v5
+reference it is built against.
 
 > **Status** — in active development. *The Secret of Monkey Island* plays
 > from boot through the end of Part I — verbs, inventory, dialogue,
@@ -21,19 +21,19 @@ whole project; each doc links into the format reference below where it
 leans on it.
 
 - [Architecture — Layers & Seams](engine/architecture.md)
-- [Game Identity & Variant Detection](engine/game-identity.md)
 - [Engine Session — Game Loop & Runtime](engine/session.md)
+- [Room Transitions — Entering & Leaving](engine/room-transitions.md)
 - [Camera — Follow, Pan & the Viewport](engine/camera.md)
+- [Pathfinding — Box-Graph Routing](engine/pathfinding.md)
 - [Costume Loading & Decoding](engine/costumes.md)
-- [Pathfinding (Box-Graph Routing)](engine/pathfinding.md)
-- [Room Transitions (Entering & Leaving)](engine/room-transitions.md)
-- [Audio Timing (the `AudioBackend` Seam)](engine/audio.md)
+- [Audio Timing — the `AudioBackend` Seam](engine/audio.md)
+- [Game Identity & Variant Detection](engine/game-identity.md)
 - [Test Harness & Integration Playthroughs](engine/harness.md)
 
 ## SCUMM v5 reference
 
 How the original SCUMM v5 engine and its file formats work, reverse-engineered
-from real game data — the reference the engine above is built against.
+from real game data.
 
 **Resources & the VM**
 
