@@ -214,8 +214,9 @@ src/
                           per-tag description catalog
     vm/                   the VM + world state — variables, slots, params,
                           boot, savestate, vars.ts (name→index map);
-                          opcodes/index.ts is the EXECUTING opcode table,
-                          disasm.ts is the read-only DISASSEMBLER (below)
+                          opcodes/index.ts defines every opcode ONCE
+                          (decode + exec + disasm text) in the registry
+                          both the dispatcher and disasm.ts read (below)
     graphics/             decoders: smap, costume, charset, zplane, text,
                           palette, actor compositing
     render/               Renderer seam + Canvas2D + Memory + frame
@@ -244,10 +245,10 @@ tools/                    committed first-class CLIs — thin arg-parsing +
 ### The disassembler (`src/engine/vm/disasm.ts`)
 
 A first-class, tested, read-only SCUMM v5 disassembler — the static
-companion to the executing opcode table in `opcodes/index.ts`. Use it
-whenever you need to read what a script actually does (reverse-
-engineering flow, confirming an opcode encoding, hunting who sets a
-var).
+consumer of the opcode registry that also feeds the executing
+dispatcher. Use it whenever you need to read what a script actually
+does (reverse-engineering flow, confirming an opcode encoding, hunting
+who sets a var).
 
 - API: `disassemble(bytecode: Uint8Array): DisasmInstruction[]`
   (`{offset, opcode, text, aligned}`). It executes nothing and is
@@ -258,13 +259,17 @@ var).
   `ENCD/EXCD <room>`, or `SCAN grep=<term>` to sweep every script) —
   lives in `tools/disgrogate.ts` (see `## Command-line tools`). The CLI
   is just file-loading; the decode logic + tests live in the module.
-- **Keep it in sync with `opcodes/index.ts`.** The two decode the same
-  byte stream and MUST agree on operand lengths / param-mode bits — a
-  divergence makes the disassembler silently misalign. When you add or
-  fix an opcode in the executing table, mirror the operand layout here
-  (and vice-versa). Known limitation: a linear sweep still misaligns on
-  ~13% of MI1 scripts (rare opcodes / embedded data) — `SCAN` hits in a
-  script that reports "misaligned" are leads, not proof.
+- **One operand layout per opcode, by construction.** Each family is a
+  single `defineOp` in `opcodes/index.ts` carrying opcode bytes,
+  `decode` (the layout, written once against the `OperandReader` in
+  `opcodes/operands.ts`), `exec`, and `format` — the dispatcher and the
+  disassembler both read that registry (`opcodes/registry.ts`), so the
+  two cannot disagree on operand sizes. When adding or fixing an
+  opcode, touch only its `defineOp`. The one `defineRawOp` exception is
+  `expression` (nested opcodes execute mid-decode). The corpus net
+  (`integration/mi1/disasm.test.ts`) disassembles every script
+  in the installed build and pins **zero misalignments** — run it after
+  any decode change.
 
 ### The harness (`src/testkit/`) + integration playthroughs (`integration/`)
 

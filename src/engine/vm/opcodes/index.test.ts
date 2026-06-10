@@ -932,14 +932,15 @@ describe('seed opcodes — verbOps state wiring', () => {
       walkBoxes: [],
       boxMatrix: [], scaleSlots: [],
     };
-    // findObject(50, 50) — both immediate (opcode 0x35, no mode bits set)
+    // findObject(50, 50) — both immediate (opcode 0x35, no mode bits set).
+    // Immediates are var-or-BYTE (opcode-reference.md), not words.
     vm.startScript({
       scriptId: 1,
       bytecode: bytes(
         0x35,
         0x00, 0x40,          // dest = local 0
-        0x32, 0x00,          // x = 50 imm
-        0x32, 0x00,          // y = 50 imm
+        0x32,                // x = 50 imm
+        0x32,                // y = 50 imm
         0x00,                // stopObjectCode
       ),
     });
@@ -1143,7 +1144,8 @@ describe('room-entry opcodes', () => {
       ['roomOps saveString', [0x33, 0x0d, 0x00, 0x00], /saveString .* not implemented/],
       ['roomOps loadString', [0x33, 0x0e, 0x00, 0x00], /loadString .* not implemented/],
       ['matrixOp setBoxScale', [0x30, 0x02, 0x01, 0x02], /setBoxScale.* not implemented/],
-      ['soundKludge', [0x4c, 0x01, 0x00, 0xff], /soundKludge .* not implemented/],
+      // A well-formed vararg list ([42]) — the shape decodes, the exec halts.
+      ['soundKludge', [0x4c, 0x01, 0x2a, 0x00, 0xff], /soundKludge .* not implemented/],
     ];
     for (const [label, code, re] of cases) {
       const vm = makeVm();

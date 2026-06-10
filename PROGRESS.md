@@ -112,7 +112,7 @@ Priority H/M/L = likelihood of biting current/near play × severity.
   migrated to [ZPLANE §"The mask surface is written in draw
   order"](pages/docs/scumm/zplane.md).
 - [ ] **M — dialog/string escape codes still deferred**
-  (`decodeScummString` / `expandSubstitution`, `opcodes/index.ts:~2155`):
+  (`decodeScummString` / `expandSubstitution`, `opcodes/index.ts:~2128`):
   sound `0xFF09`, mid-string colour `0xFF0E` (consumed, emit nothing; both 0
   uses in MI1). Mid-string colour surfaces as missing inline colour in
   dialogue. *Done / non-gaps:* `0x04` int, `0x05` verb-name, `0x06`
@@ -362,10 +362,12 @@ state is faithful; pending in-browser tuning.
 
 ## Next
 
-Three items ahead, one of which — keep playing MI1 — is the Current section
+Four items ahead, one of which — keep playing MI1 — is the Current section
 above. We no longer track by phase number; the numbered-phase roadmap is
 history (git keeps it).
 
+- **Unify operand decoding** (REVIEW.md item 1) — DONE this session (see
+  `## DONE — Unified operand decoding` below).
 - **Audio timing seam** — DONE this session (see Out of scope → Audio above and
   [engine/audio.md](pages/docs/engine/audio.md)). The PLAN that was here is
   implemented; its findings now live in the docs.
@@ -378,6 +380,45 @@ history (git keeps it).
   small otherwise) — the costume decoder doesn't yet apply this shift.
 
 ---
+
+## DONE — Unified operand decoding (REVIEW.md item 1)
+
+Implemented 2026-06-10 per the plan that lived here (drafted, reviewed, and
+landed the same day). The writeups live in the docs — the registry design in
+[engine/architecture.md](pages/docs/engine/architecture.md) ("The
+disassembler — the static companion") and the operational notes in
+[AGENTS.md](AGENTS.md) ("The disassembler"); REVIEW.md §3 records the
+divergence audit. This is the closure record.
+
+What shipped (`src/engine/vm/opcodes/operands.ts` + `registry.ts` new;
+`opcodes/index.ts` + `disasm.ts` restructured; `integration/mi1/disasm.test.ts` new):
+
+- **One opcode registry, two consumers.** Every opcode family is a single
+  `defineOp` — opcode bytes, operand decode (written once against an
+  `OperandReader` with a live implementation that derefs vars and a static
+  one that labels them), exec, and disasm text. The dispatcher composes
+  decode+exec behind the unchanged `SEED_OPCODES` map (vm.ts untouched);
+  `disassemble()` walks the same registry. The ~570-line shadow decoder in
+  disasm.ts is gone. `expression` is the one `defineRawOp` exception (its
+  subop 0x06 executes a nested opcode mid-stream).
+- **Latent divergences found and resolved** (none had a corpus witness; each
+  resolved to the documented shape in opcode-reference.md, which already had
+  all three right): findObject x,y → var-or-byte (the engine read words),
+  print subop $08 → one var-or-word say-voice (the disasm read nothing),
+  print subop action mask → `& 0x1F` like every other subop family (the
+  engine used `& 0x0F`). Also: matrixOp createBoxMatrix now keys on the
+  subop's low five bits (was the raw byte), and actorOps gained the
+  $00/$07/$0F shapes the disasm couldn't decode.
+- **Corpus net:** `disasm.test.ts` disassembles every global /
+  ENCD/EXCD / local / object-verb script in the installed build and pins
+  **zero misalignments** (measured on both IT and EN builds before the
+  refactor — the "~13% misalign" note in AGENTS.md had rotted; perfection was
+  already true and is now enforced). Probe: `scratch/operand-divergence-probe.ts`.
+- Suites: unit + tsc green, from-boot walkthrough green, build green.
+  Engine-visible behaviour intentionally unchanged except: halts on
+  engine-unimplemented ops now NAME the op (decode + loud `not implemented`
+  exec instead of `unknown opcode`), and a mid-instruction decode error halts
+  before any of the instruction's effects apply (better atomicity).
 
 ## DONE — Audio timing seam (`SilentTimingBackend`)
 

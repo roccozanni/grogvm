@@ -176,11 +176,18 @@ bumps the version rather than accreting fallbacks.
 
 ### The disassembler — the static companion
 
-Alongside the executing opcode table lives a read-only disassembler used for
-reverse-engineering and the script inspectors. The two decode the same byte
-stream and must agree on operand encodings
-(see [opcode dispatch](../scumm/opcodes.md)); keeping them in lockstep is a
-standing discipline whenever an opcode is added or fixed.
+Alongside the executing dispatcher lives a read-only disassembler used for
+reverse-engineering and the script inspectors. Both are consumers of a single
+opcode registry: each opcode family is defined once — its opcode bytes, its
+operand layout (written against an operand-reader interface with a live
+implementation that dereferences variables and a static one that labels
+them), its execution, and its disassembly text. An operand encoding therefore
+exists in exactly one place and the two consumers cannot drift
+(see [opcode dispatch](../scumm/opcodes.md)). The one exception is
+`expression`, whose stream interleaves nested opcode *execution* with
+decoding: its live side stays a streaming evaluator and only the subop shapes
+are shared. A corpus integration test disassembles every script in the
+installed game and holds the line at zero misalignments.
 
 ## 5. The player & the explorer
 
