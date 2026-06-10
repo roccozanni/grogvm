@@ -235,6 +235,31 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
   halt. (`createBoxMatrix` 0x04 stays a correct no-op — mask rebuilt on
   setBoxFlags.)
 
+**Engine internals / tech debt**
+
+From the 2026-06-09 architectural review (its "Secondary findings"); none block
+play — maintainability/quality, not bugs. File:line refs are point-in-time.
+
+- **Savestate reaches directly into `Vm` private fields**
+  (`savestate.ts:224-439` reads/writes `vars.globals`, `objectStates`, slot
+  internals). Consistent with the "trust internal callers" convention and
+  covered by round-trip tests, but every Vm state refactor is silently
+  load-bearing for saves, with only the global `SAVE_VERSION` as the tripwire.
+- **`createSession` cannot be seeded.** `bootGame` takes an injected `random`
+  (boot.ts:72) and the integration harness uses it, but session.ts:447/:466
+  hardcode `undefined` — so browser sessions and the `restore()` / `reboot()`
+  paths are permanently `Math.random`. Deliberate per the jsdoc, but the
+  session API forecloses determinism rather than defaulting away from it.
+- **Costume frames are decoded fresh every frame, per limb, per actor**
+  (`composite.ts` → `decodeCostumeFrame` allocates a new buffer each call).
+  Fine at 320×200 with a few actors; the one place "clarity over performance"
+  has a plausibly visible cost (GC churn in long cutscenes). A note, not a fix.
+- **Sync resource resolution inside the tick** (`vm.getCostume` parses on miss,
+  blocking the frame). Harmless at MI1's 4.8MB-fully-in-RAM scale; contradicts
+  the documented lazy model.
+- **`graphics/composite.ts` vs `render/compositor.ts`** — the split is clean
+  (actor blit vs. frame assembly) but the near-identical names invite confusion.
+
 ### Out of scope (their own phases)
 
 - **Audio timing — DONE (2026-06-09).** `AudioBackend` seam +
