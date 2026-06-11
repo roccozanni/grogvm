@@ -5,7 +5,9 @@
  */
 
 import { ActorTable, DEFAULT_ACTOR_COUNT } from '../actor/actor';
-import { rescaleActorForPosition, startWalk, stepAllActorWalks } from '../actor/walk';
+import { effectiveBoxes, rescaleActorForPosition, startWalk, stepAllActorWalks } from '../actor/walk';
+import { buildBoxMatrix } from '../pathfinding/boxgraph';
+import type { BoxMatrix } from '../pathfinding/boxes';
 import { stepAnim } from '../graphics/costume-anim';
 import { prepareActorDraw } from '../graphics/composite';
 import { findVerbScript } from '../object/verbs';
@@ -280,6 +282,12 @@ export class Vm {
    * See pages/docs/engine/pathfinding.md.
    */
   readonly boxFlagOverrides = new Map<number, number>();
+  /**
+   * Rebuilt next-hop matrix (`matrixOp createBoxMatrix`) routing walks instead
+   * of the disk BOXM until the next room change — the recompute excludes
+   * locked boxes, so routes detour around a freshly sealed region.
+   */
+  boxMatrixOverride: BoxMatrix | null = null;
   /**
    * Object ids the compositor includes next frame; cleared on room change.
    * Order is insignificant in v5 — stacking comes from per-object z-planes.
@@ -697,6 +705,7 @@ export class Vm {
     // Box walk-flags reset to the room's disk values on a room change; the
     // new ENCD re-applies any door locks.
     this.boxFlagOverrides.clear();
+    this.boxMatrixOverride = null;
     this.currentRoom = roomId;
     this.vars.writeGlobal(VAR_ROOM_INDEX, roomId);
     this.applyRoomResources(roomId);
@@ -794,6 +803,12 @@ export class Vm {
    */
   setBoxFlags(boxId: number, flags: number): void {
     this.boxFlagOverrides.set(boxId, flags);
+  }
+
+  /** matrixOp createBoxMatrix: recompute the next-hop matrix from the current boxes + flag overrides. */
+  rebuildBoxMatrix(): void {
+    if (!this.loadedRoom) return;
+    this.boxMatrixOverride = buildBoxMatrix(effectiveBoxes(this, this.loadedRoom.walkBoxes));
   }
 
   /**
@@ -1741,6 +1756,7 @@ export class Vm {
     this.objectNameOverrides.clear();
     this.objectClasses.clear();
     this.boxFlagOverrides.clear();
+    this.boxMatrixOverride = null;
     this.objectDrawQueue.clear();
     this.objectDrawPositions.clear();
     this.drawnBoxes.length = 0;

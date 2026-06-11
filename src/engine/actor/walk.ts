@@ -75,7 +75,12 @@ export function startWalk(
     return;
   }
   const boxes = effectiveBoxes(vm, room.walkBoxes);
-  const path = routeThroughBoxes(boxes, room.boxMatrix, { x: actor.x, y: actor.y }, target);
+  const path = routeThroughBoxes(
+    boxes,
+    vm.boxMatrixOverride ?? room.boxMatrix,
+    { x: actor.x, y: actor.y },
+    target,
+  );
   actor.walkPath = [...path.waypoints];
   actor.walkPathIdx = 0;
 }

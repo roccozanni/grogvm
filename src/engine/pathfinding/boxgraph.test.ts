@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { routeThroughBoxes, gateBetween, closestPointInBox } from './boxgraph';
-import { parseBoxMatrix, type WalkBox } from './boxes';
+import { areBoxesNeighbors, buildBoxMatrix, routeThroughBoxes, gateBetween, closestPointInBox } from './boxgraph';
+import { getNextBox, parseBoxMatrix, type WalkBox } from './boxes';
 
 /** Build a WalkBox from corners; id defaults to its intended array index. */
 function wb(
@@ -94,5 +94,67 @@ describe('routeThroughBoxes', () => {
     const r = routeThroughBoxes([], [], { x: 0, y: 0 }, { x: 30, y: 30 });
     expect(r.reachedGoal).toBe(false);
     expect(r.waypoints).toEqual([{ x: 30, y: 30 }]);
+  });
+});
+
+describe('areBoxesNeighbors', () => {
+  it('detects a shared edge span and rejects disjoint boxes', () => {
+    const a = wb(0, [0, 0, 20, 0, 20, 10, 0, 10]);
+    const b = wb(1, [20, 0, 40, 0, 40, 10, 20, 10]); // abuts a at x=20
+    const c = wb(2, [50, 0, 70, 0, 70, 10, 50, 10]); // 10px gap from b
+    expect(areBoxesNeighbors(a, b)).toBe(true);
+    expect(areBoxesNeighbors(b, c)).toBe(false);
+  });
+
+  it('connects line boxes through a single shared corner', () => {
+    const a = wb(0, [0, 0, 0, 0, 20, 20, 20, 20]); // line (0,0)→(20,20)
+    const b = wb(1, [20, 20, 20, 20, 40, 10, 40, 10]); // line (20,20)→(40,10)
+    expect(areBoxesNeighbors(a, b)).toBe(true);
+  });
+});
+
+describe('buildBoxMatrix (createBoxMatrix)', () => {
+  // A 2×2 ring of boxes: 0─1 across the top, 2─3 across the bottom;
+  // 0|2 and 1|3 also abut. Every pair has a 2-hop alternative route.
+  const ring = [
+    wb(0, [0, 0, 20, 0, 20, 10, 0, 10]),
+    wb(1, [20, 0, 40, 0, 40, 10, 20, 10]),
+    wb(2, [0, 10, 20, 10, 20, 20, 0, 20]),
+    wb(3, [20, 10, 40, 10, 40, 20, 20, 20]),
+  ];
+
+  it('encodes direct hops for adjacent boxes', () => {
+    const m = buildBoxMatrix(ring);
+    expect(getNextBox(m, 0, 1)).toBe(1);
+    expect(getNextBox(m, 0, 2)).toBe(2);
+    expect(getNextBox(m, 1, 2)).toBeGreaterThanOrEqual(0); // any shortest 2-hop
+  });
+
+  it('merges consecutive destinations with the same next hop into one range', () => {
+    const corridor = [
+      wb(0, [0, 0, 20, 0, 20, 10, 0, 10]),
+      wb(1, [20, 0, 40, 0, 40, 10, 20, 10]),
+      wb(2, [40, 0, 60, 0, 60, 10, 40, 10]),
+    ];
+    const m = buildBoxMatrix(corridor);
+    expect(m[0]).toEqual([{ from: 1, to: 2, next: 1 }]);
+  });
+
+  it('routes around a locked box when a detour exists (the room-7 chest)', () => {
+    const locked = ring.map((b) => (b.id === 1 ? { ...b, flags: 0x80 } : b));
+    const m = buildBoxMatrix(locked);
+    expect(getNextBox(m, 0, 3)).toBe(2); // detour under, not through locked 1
+    expect(getNextBox(m, 0, 1)).toBe(-1); // the locked box itself is no destination
+    expect(m[1]).toEqual([]); // and no source
+  });
+
+  it('reports unreachable when locking severs the graph', () => {
+    const corridor = [
+      wb(0, [0, 0, 20, 0, 20, 10, 0, 10]),
+      wb(1, [20, 0, 40, 0, 40, 10, 20, 10], 0x80),
+      wb(2, [40, 0, 60, 0, 60, 10, 40, 10]),
+    ];
+    const m = buildBoxMatrix(corridor);
+    expect(getNextBox(m, 0, 2)).toBe(-1);
   });
 });

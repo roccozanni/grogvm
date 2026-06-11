@@ -490,10 +490,9 @@ defineOp({
 });
 
 // ─── 0x30 / 0xB0  matrixOp ───────────────────────────────────────────
-// createBoxMatrix is a no-op (the walkable mask is rebuilt on every
-// setBoxFlags); setBoxScale halts loudly — no MI1 use, box scale comes
-// from the SCAL slots at load. createBoxMatrix keys on the subop's low
-// five bits like every other subop, not the raw byte.
+// setBoxScale halts loudly — no MI1 use, box scale comes from the SCAL
+// slots at load. createBoxMatrix keys on the subop's low five bits like
+// every other subop, not the raw byte.
 defineOp({
   name: 'matrixOp',
   opcodes: [0x30, 0xb0],
@@ -510,7 +509,8 @@ defineOp({
   },
   exec(vm, slot, d) {
     if (d.action === 0x04) {
-      vm.annotate('matrixOp createBoxMatrix (no-op — mask rebuilt on setBoxFlags)');
+      vm.rebuildBoxMatrix();
+      vm.annotate('matrixOp createBoxMatrix');
       return;
     }
     if (d.action === 0x01) {

@@ -105,6 +105,11 @@ export interface SaveState {
    * restore does not re-run the entry script that set them.
    */
   readonly boxFlags: ReadonlyArray<[number, number]>;
+  /**
+   * Whether `createBoxMatrix` rebuilt the routing matrix in this room; the
+   * matrix itself is recomputed from the restored box flags on restore.
+   */
+  readonly boxMatrixRebuilt: boolean;
   readonly pseudoRooms: ReadonlyArray<[number, number]>;
   readonly uiPaletteOverrides: ReadonlyArray<[number, [number, number, number]]>;
   readonly camera: { x: number };
@@ -271,6 +276,7 @@ export function snapshotVm(vm: Vm, meta?: { game?: string; label?: string; saved
 
     currentRoom: vm.currentRoom,
     boxFlags: [...vm.boxFlagOverrides],
+    boxMatrixRebuilt: vm.boxMatrixOverride !== null,
     pseudoRooms: [...vm.pseudoRooms],
     uiPaletteOverrides: [...vm.uiPaletteOverrides].map(([i, rgb]) => [i, [rgb[0], rgb[1], rgb[2]]]),
     camera: { x: vm.camera.x },
@@ -409,6 +415,7 @@ export function restoreVm(vm: Vm, state: SaveState): void {
   // Finally, reload the current room's resources (bg/palette/scripts)
   // without re-running its ENCD — the restored slots already cover it.
   vm.reloadCurrentRoomResources();
+  if (state.boxMatrixRebuilt) vm.rebuildBoxMatrix();
 }
 
 function applyActorSnapshot(a: Actor, snap: ActorSnapshot): void {

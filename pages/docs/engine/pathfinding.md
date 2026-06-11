@@ -51,11 +51,12 @@ mangled these (A* hugged the single rasterized pixel row).
 
 ## 2. Reading the matrix
 
-The router consumes `BOXM` as a next-hop oracle: given the current box and a
-destination box, it returns the box to step into next (or "unreachable").
-Following that from the start box to the destination box yields the box
-sequence to traverse. The matrix encodes shortest paths directly, so no
-search is needed at routing time — just the chain of lookups.
+The router consumes the room's *current* matrix as a next-hop oracle — the
+disk `BOXM` until a script rebuilds it at runtime (§5): given the current box
+and a destination box, it returns the box to step into next (or
+"unreachable"). Following that from the start box to the destination box
+yields the box sequence to traverse. The matrix encodes shortest paths
+directly, so no search is needed at routing time — just the chain of lookups.
 
 ## 3. The router
 
@@ -118,7 +119,7 @@ to the shared corner.
 > data files here. The collinear-edge gate is geometrically faithful and
 > validated by rendering real routes, not by claiming bit-exactness.
 
-## 5. Runtime box locking (`matrixOp setBoxFlags`)
+## 5. Runtime box locking + matrix rebuild (`matrixOp`)
 
 Walk-box flags are runtime state: a script locks a box (flag bit `0x80`)
 to seal a corridor when a door shuts, unlocks it when the door opens.
@@ -129,19 +130,62 @@ GrogVM mirrors that with **per-box flag overrides** kept beside the room
 (the same pattern as object state and ownership), rather than mutating the
 read-only room data:
 
-- The `matrixOp setBoxFlags` opcode records an override. Nothing is
-  rebuilt — the router reads overrides **live** on each walk.
-- Before routing, overrides are folded into the box list, so a locked box
-  drops out of both endpoint snapping and the hop chain — you can't route
-  through a sealed corridor.
+- The `matrixOp setBoxFlags` opcode records an override. The router reads
+  overrides **live** on each walk: before routing they're folded into the
+  box list, so a locked box drops out of both endpoint snapping and the
+  hop chain — you can't route *through* a sealed corridor.
 - Overrides reset on a real room change (entering a room clears them; ENCD
   re-applies) and are saved in the save state, because restore reloads the
   room fresh but does not re-run ENCD.
 
-Example: room 41's door 564 — its ENCD locks boxes 4/5 when the door is
-closed, sealing the corridor behind it. The sibling `matrixOp`
-sub-commands `setBoxScale` and `createBoxMatrix` are no-ops here: scale is
-read from `SCAL` at load, and the matrix is parsed from disk.
+A lock alone only *seals*: the disk matrix still names the locked box as
+the next hop, so the route breaks there and the actor stops at the seam
+(room 41's door 564 — its ENCD locks boxes 4/5 while the door is closed,
+closing the corridor behind it; there is no way around, so stopping is the
+whole story).
+
+**`matrixOp createBoxMatrix` rebuilds the routing matrix** from the
+current boxes: locked boxes drop out of the box graph entirely and the
+next-hop table is recomputed as shortest hop chains (BFS) over the
+remaining neighbors — so where an alternative route *does* exist, walks
+detour around a freshly sealed region instead of stopping at its seam.
+The rebuilt matrix replaces the disk `BOXM` for routing until the next
+room change. The save state records that a rebuild happened and recomputes
+the matrix from the restored flags on restore.
+
+**Fine print (MI1):** the showcase is the Sea Monkey cabin (room 7):
+dragging the Captain's heavy chest out of the cabinet sets it down on the
+floor, locks walkbox 11 under it, and rebuilds. The disk matrix routes
+2→1 straight through the now-sealed strip — without the rebuild ego is
+trapped in front of the cabinet; the rebuilt matrix detours 2→10→9→1
+around the chest. The only rebuild sites in MI1 are room 7 (ENCD + the
+chest drag) and room 39, both immediately after `setBoxFlags`.
+
+### The neighbor predicate
+
+The rebuild needs to know which boxes connect. SCUMM's own neighbor test
+is engine C, not game bytecode, so — like the gate routine (§4) — it can't
+be read out of the data files; the rule here is instead *derived from*
+them, by classifying every direct hop in MI1's 83 disk matrices against
+the pair's geometry. Two boxes connect iff:
+
+1. they have **collinear axis-aligned edges overlapping a positive
+   span** — the ordinary abutting-floor case; or
+2. a **collapsed (zero-length) edge vertex of one box touches the other
+   box's outline** — how the staircase/cliff "line" boxes (both endpoints
+   collapsed) and sliver triangles chain together.
+
+Rectangle corners touching point-to-point do **not** connect (room 40's
+matrix routes 1→2 via a third box), and neither do two line boxes crossing
+mid-span (room 58's forest verticals cross the ground line unlinked).
+
+> ⚠️ The disk `BOXM` generator **ignored the `0x80` flag** — room 85's
+> matrix routes straight through flagged boxes — while the runtime rebuild
+> must respect it (detouring around fresh locks is its entire purpose).
+> Built with flags ignored, the predicate above reproduces the disk
+> matrices **hop-for-hop in 82 of 83 rooms**; the exception is room 2's
+> box 5, authored-isolated despite real shared edges — and room 2 never
+> rebuilds at runtime, so the difference is unobservable in play.
 
 ## 6. Walker integration
 
