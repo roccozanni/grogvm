@@ -211,7 +211,8 @@ src/
   styles/                 per-island stylesheets (explorer.css, player.css)
   platform/               browser adapters, no UI — routing/, storage/
                           (IndexedDB, FS-Access permission, game files),
-                          detect.ts (game classification),
+                          render/ (Canvas2D implementation of the engine's
+                          Renderer seam), detect.ts (game classification),
                           browser-support.ts (capability gate)
   app/                    the interactive islands — each exports mount(el):
     library/              installed-games list + flash messages
@@ -232,10 +233,11 @@ src/
                           both the dispatcher and disasm.ts read (below)
     graphics/             decoders: smap, costume, charset, zplane, text,
                           palette, actor compositing
-    render/               Renderer seam + Canvas2D + Memory + frame
+    render/               Renderer seam + Memory recorder + frame
                           compositor (room scene) + screen composer
                           (verb band + dialog + verb hit-test; emits the
-                          full 320×200) + indexed-to-rgba pure helper
+                          full 320×200) + indexed-to-rgba pure helper;
+                          the Canvas2D implementation is platform/render/
     room/                 room loader + extract.ts: graceful
                           listRooms/extractRoom static-inspection layer
     object/               OBCD/OBIM loader + verb-script lookup

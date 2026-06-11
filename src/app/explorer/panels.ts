@@ -5,7 +5,7 @@
 import { signal, effect, el, append, clear, bindClass, bindText, type Child } from '../reactive';
 import type { Signal } from '../reactive';
 import { disassemble } from '../../engine/vm/disasm';
-import { Canvas2DRenderer } from '../../engine/render/canvas2d';
+import { Canvas2DRenderer } from '../../platform/render/canvas2d';
 import { objectHitBox } from '../../engine/object/hittest';
 import type {
   RoomRef,

@@ -3,7 +3,7 @@
  * the whole screen, plus a save/load/debug bar. Built on the EngineSession —
  * no VM internals here (that's the Debug drawer).
  */
-import { Canvas2DRenderer } from '../../../engine/render/canvas2d';
+import { Canvas2DRenderer } from '../../../platform/render/canvas2d';
 import { createSession, type FrameInfo } from '../../../engine/session';
 import { el } from '../../reactive';
 import type { StoredGame } from '../../../platform/storage/games';

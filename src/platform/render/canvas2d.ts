@@ -1,5 +1,5 @@
-import type { Renderer } from './renderer';
-import { indexedToRgba } from './indexed-to-rgba';
+import type { Renderer } from '../../engine/render/renderer';
+import { indexedToRgba } from '../../engine/render/indexed-to-rgba';
 
 /**
  * Canvas2D-backed renderer. Owns its canvas: sets the canvas's internal
