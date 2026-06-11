@@ -6,7 +6,7 @@
  * never saved it either. See pages/docs/engine/session.md.
  */
 
-import type { Actor, Facing } from '../actor/actor';
+import type { Actor, Facing, WalkLeg } from '../actor/actor';
 import { DEFAULT_ACTOR_COUNT } from '../actor/actor';
 import type { AnimState, LimbPlayback } from '../graphics/costume-anim';
 import type { Sentence } from './sentence';
@@ -56,6 +56,7 @@ interface ActorSnapshot {
   readonly walkTarget: { x: number; y: number } | null;
   readonly walkPath: ReadonlyArray<{ x: number; y: number }>;
   readonly walkPathIdx: number;
+  readonly walkLeg: WalkLeg | null;
   readonly isMoving: boolean;
   readonly walkFrame: number;
   readonly standFrame: number;
@@ -231,6 +232,7 @@ export function snapshotVm(vm: Vm, meta?: { game?: string; label?: string; saved
       walkTarget: a.walkTarget ? { ...a.walkTarget } : null,
       walkPath: a.walkPath.map((p) => ({ ...p })),
       walkPathIdx: a.walkPathIdx,
+      walkLeg: a.walkLeg ? { ...a.walkLeg } : null,
       isMoving: a.isMoving,
       walkFrame: a.walkFrame,
       standFrame: a.standFrame,
@@ -429,6 +431,7 @@ function applyActorSnapshot(a: Actor, snap: ActorSnapshot): void {
   a.walkTarget = snap.walkTarget ? { ...snap.walkTarget } : null;
   a.walkPath = snap.walkPath.map((p) => ({ ...p }));
   a.walkPathIdx = snap.walkPathIdx;
+  a.walkLeg = snap.walkLeg ? { ...snap.walkLeg } : null;
   a.isMoving = snap.isMoving;
   a.walkFrame = snap.walkFrame;
   a.standFrame = snap.standFrame;

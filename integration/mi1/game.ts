@@ -1299,12 +1299,14 @@ export function grindOneDuel(vm: Vm): boolean {
  *  best-of-5), so the *minimum* we'd need is just those comebacks — but we can't
  *  pin them: the gate's stop-point shifts the RNG at her duel, which changes
  *  which insults she draws (the grind & duel share the seeded stream). So this is
- *  a deliberately generous, LATE-tripping set — its hardest members (12/15/16 are
- *  learned last) guarantee the easy comebacks are in by trip time, leaving margin
- *  to win 5–0 rather than scraping a 5–1. (Comeback 9 is the one the pirate pool
- *  never teaches on this seed; she doesn't need it.) Tighter sets still win but
- *  with a one-exchange margin — see PROGRESS for the tradeoff. */
-const SWORD_MASTER_NEEDED: readonly number[] = [2, 3, 4, 5, 6, 8, 12, 13, 14, 15, 16];
+ *  a deliberately generous, LATE-tripping set: every comeback the pirate pool
+ *  teaches *promptly* on the current stream — all of 1..16 except 12, which the
+ *  pool teaches very late or never (she must not draw a missing one more than
+ *  the loss margin allows; the walkthrough's win is the proof she doesn't).
+ *  Trips around duel 42 of the grind. Any engine change that shifts tick dynamics moves the seeded stream,
+ *  relocating the stragglers/unlearnable holes and the trip point — re-derive
+ *  this set from the grind's learning order when that happens. */
+const SWORD_MASTER_NEEDED: readonly number[] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16];
 /** Ready to face the Sword Master: every comeback her seeded duel demands is
  *  learned AND the readiness gate (`g282 > 3`, four duels won) is clear. */
 export const enoughForSwordMaster = (vm: Vm): boolean => {

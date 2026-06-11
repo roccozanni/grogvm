@@ -102,6 +102,10 @@ function loadUpState(vm: Vm): void {
   ego.walkTarget = { x: 50, y: 100 };
   ego.walkPath = [{ x: 60, y: 110 }, { x: 50, y: 100 }];
   ego.walkPathIdx = 1;
+  ego.walkLeg = {
+    fromX: 60, fromY: 110, toX: 50, toY: 100,
+    deltaXFactor: -131072, deltaYFactor: -131072, xfrac: 0x8000, yfrac: 0x1234,
+  };
   ego.isMoving = true;
   ego.anim = {
     animId: 2,
@@ -183,6 +187,12 @@ describe('save-state — synthetic round-trip', () => {
     expect(ego.width).toBe(48);
     expect(ego.name).toBe('Guybrush Threepwood');
     expect(ego.walkPath).toEqual([{ x: 60, y: 110 }, { x: 50, y: 100 }]);
+    // The mid-leg fixed-point state survives, so a restored walk resumes on
+    // the same line with the same sub-pixel remainders.
+    expect(ego.walkLeg).toEqual({
+      fromX: 60, fromY: 110, toX: 50, toY: 100,
+      deltaXFactor: -131072, deltaYFactor: -131072, xfrac: 0x8000, yfrac: 0x1234,
+    });
     expect(ego.anim.stopped).toBe(0b10);
     expect(ego.anim.limbs).toHaveLength(16);
     expect(ego.anim.limbs[1]!.noLoop).toBe(true);

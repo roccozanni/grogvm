@@ -157,10 +157,9 @@ When a walk-to command fires for an actor:
    position is *not* prepended — the walker starts from where the actor
    already is.
 
-Per tick the walker advances the actor toward the active waypoint by its
-horizontal / vertical walk speed (SCUMM's defaults are 8 / 2 —
-horizontal-biased), bumps the waypoint index on arrival, and stops on the
-final waypoint.
+Per tick the walker advances the actor toward the active waypoint **along
+the line to it** (§9), bumps the waypoint index on arrival, and stops on
+the final waypoint.
 
 **Facing while walking** derives from a point **16 px ahead along the
 path**, not from the final target. Aimed at the final target, ego faces the
@@ -211,21 +210,44 @@ the middle of boxes (one edge crossing per transition) rather than hugging
 walls — which reads as "the actor walks through the room," matching the
 original.
 
-## 9. The stepping model — independent axes vs. line-following
+## 9. The stepping model — line-following legs
 
-The walker advances X and Y by the horizontal / vertical walk speed
-**independently** (each clamped to the remaining distance). SCUMM instead
-moves the actor *along the line* toward the waypoint (`calcMovementFactor`:
-dominant axis at full speed, the other proportional, with sub-pixel
-accumulation) — which keeps the actor *on* the box line through thin
-connectors.
+Each straight leg of the path has its movement fixed once, when the leg
+starts (SCUMM's `calcMovementFactor`): the dominant axis runs at the
+actor's full walk speed for that axis (defaults 8 px/tick horizontal, 2
+vertical — horizontal-biased), and the other axis steps proportionally, so
+the actor tracks the *line* to the waypoint. The per-tick deltas are 16.16
+fixed point with truncating division, and the fractional remainders
+accumulate across ticks — an actor can cover 6 px one tick and 7 the next.
+An axis that steps past the waypoint is pinned to it, so a leg always ends
+exactly on its waypoint. A leg's factors are re-derived whenever the
+waypoint it aims at changes; a teleport mid-walk discards them. Mid-leg
+state (factors and sub-pixel remainders) is part of the save state, so a
+restored mid-walk actor resumes on the same line.
 
-The divergence bites on near-horizontal diagonal connector boxes:
-independent stepping exhausts the small Y delta in one tick and then
-drifts straight along the wrong Y, leaving the thin box; the box
-**assigned** from that off-line position (each movement step) is then
-wrong. This is why a *single* click can't cross room 52's bridge (§7) and
-why thin diagonal connectors are fragile in general.
+Each tick's advance is then **throttled by the actor's current perspective
+scale** — the factors are scaled by `scale/255` — so an actor scaled down
+with distance walks proportionally slower, decelerating smoothly as it
+recedes (the scale is re-resolved from the box every movement step, §6).
+The model is perspective itself: apparent speed tracks apparent size — a
+half-size actor stands twice as far away, so it covers half the screen
+distance per tick. Full size (255) walks at exactly the nominal speeds.
+Like the gate routine (§4 fidelity note), the walker's math is
+engine-internal and can't be ground-truthed against the data files; it is
+validated by timing walks against the running original.
+
+**Fine print (MI1):** the general-store street (room 34) is the showcase
+for the throttle — its walkable boxes resolve through the room's `SCAL`
+slot to scales 33–75, so ego crosses the far-view street at 13–29% of
+nominal speed. Unthrottled, ego glides across it 3–8× too fast while the
+walk cycle animates at the normal rate.
+
+Line-following is what keeps an actor *on* a thin diagonal connector box
+(§1). Stepping the axes independently instead exhausts the smaller axis's
+delta first and then drifts axis-aligned off the line — and the box
+**assigned** from that off-line position (the per-step assignment feeding
+scale and z-clip, §6) is then wrong, which is fatal on degenerate boxes
+like the room-52 bridge (§7).
 
 The walk box itself is **actor state, not a per-draw derivation**: the
 actor stores its assigned box (SCUMM's `_walkbox`), and the compositor and

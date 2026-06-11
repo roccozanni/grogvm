@@ -1,6 +1,6 @@
 /** Per-tick walk stepping and chore driving. See pages/docs/engine/pathfinding.md §6. */
 
-import { DEFAULT_SCALE, type Actor, type Facing } from './actor';
+import { DEFAULT_SCALE, type Actor, type Facing, type WalkLeg } from './actor';
 import type { Vm } from '../vm/vm';
 import { routeThroughBoxes } from '../pathfinding/boxgraph';
 import { findBoxAtOrNearest, type WalkBox } from '../pathfinding/boxes';
@@ -66,6 +66,7 @@ export function startWalk(
   actor.walkTarget = target;
   actor.walkPath = [];
   actor.walkPathIdx = 0;
+  actor.walkLeg = null;
   actor.isMoving = true;
 
   const room = vm.loadedRoom;
@@ -96,10 +97,9 @@ export function stepWalk(actor: Actor): void {
     return;
   }
 
-  const dx = aim.x - actor.x;
-  const dy = aim.y - actor.y;
-  if (dx === 0 && dy === 0) {
+  if (actor.x === aim.x && actor.y === aim.y) {
     // Already on this waypoint — advance within the same tick.
+    actor.walkLeg = null;
     if (advanceWaypoint(actor)) {
       stepWalk(actor);
     } else {
@@ -108,8 +108,11 @@ export function stepWalk(actor: Actor): void {
     return;
   }
 
-  const stepX = clampToward(dx, actor.walkSpeedX);
-  const stepY = clampToward(dy, actor.walkSpeedY);
+  let leg = actor.walkLeg;
+  if (!leg || leg.toX !== aim.x || leg.toY !== aim.y) {
+    leg = calcMovementFactor(actor, aim);
+    actor.walkLeg = leg;
+  }
 
   // Facing follows a lookahead, not this tick's ±1px step — see facingLookahead.
   // Horizontal wins ties (SCUMM bias).
@@ -122,12 +125,73 @@ export function stepWalk(actor: Actor): void {
     actor.facing = fy > 0 ? 'S' : 'N';
   }
 
-  actor.x += stepX;
-  actor.y += stepY;
+  // Step along the line in 16.16 fixed point: the factors carry the slope,
+  // the fracs the sub-pixel remainder. The advance is throttled by the
+  // actor's perspective scale — apparent speed tracks apparent size (a
+  // half-size actor stands twice as far away, so it covers half the screen
+  // distance per tick); scale 255 = full size = exactly the nominal speeds.
+  // Validated by timing walks against the original in-browser.
+  const tmpX = (actor.x << 16) + leg.xfrac + Math.trunc((leg.deltaXFactor * actor.scale) / 255);
+  actor.x = tmpX >> 16;
+  leg.xfrac = tmpX & 0xffff;
+  const tmpY = (actor.y << 16) + leg.yfrac + Math.trunc((leg.deltaYFactor * actor.scale) / 255);
+  actor.y = tmpY >> 16;
+  leg.yfrac = tmpY & 0xffff;
+
+  // An axis that stepped past the waypoint pins to it (truncation makes the
+  // axes finish up to a tick apart even though both follow the same line).
+  if (Math.abs(actor.x - leg.fromX) > Math.abs(leg.toX - leg.fromX)) actor.x = leg.toX;
+  if (Math.abs(actor.y - leg.fromY) > Math.abs(leg.toY - leg.fromY)) actor.y = leg.toY;
 
   if (actor.x === aim.x && actor.y === aim.y) {
+    actor.walkLeg = null;
     if (!advanceWaypoint(actor)) finishWalk(actor);
   }
+}
+
+/**
+ * Fix a leg's per-tick movement (SCUMM's `calcMovementFactor`): the dominant
+ * axis runs at its full walk speed, the other proportionally, so the actor
+ * tracks the LINE to the waypoint — stepping the axes independently instead
+ * drifts off thin diagonal connector boxes.
+ * See pages/docs/engine/pathfinding.md §9.
+ */
+function calcMovementFactor(actor: Actor, aim: { x: number; y: number }): WalkLeg {
+  const diffX = aim.x - actor.x;
+  const diffY = aim.y - actor.y;
+
+  // Assume Y is the dominant axis: full vertical speed, X follows the slope.
+  let deltaYFactor = actor.walkSpeedY << 16;
+  if (diffY < 0) deltaYFactor = -deltaYFactor;
+  let deltaXFactor = deltaYFactor * diffX;
+  if (diffY !== 0) {
+    deltaXFactor = Math.trunc(deltaXFactor / diffY);
+  } else {
+    deltaYFactor = 0;
+  }
+
+  // That overdrives X → the line is X-dominant: clamp X to full speed, Y follows.
+  if (Math.abs(deltaXFactor) > actor.walkSpeedX << 16) {
+    deltaXFactor = actor.walkSpeedX << 16;
+    if (diffX < 0) deltaXFactor = -deltaXFactor;
+    deltaYFactor = deltaXFactor * diffY;
+    if (diffX !== 0) {
+      deltaYFactor = Math.trunc(deltaYFactor / diffX);
+    } else {
+      deltaXFactor = 0;
+    }
+  }
+
+  return {
+    fromX: actor.x,
+    fromY: actor.y,
+    toX: aim.x,
+    toY: aim.y,
+    deltaXFactor,
+    deltaYFactor,
+    xfrac: 0,
+    yfrac: 0,
+  };
 }
 
 /** Big enough to smooth ±1px grid-path jitter; small enough to turn promptly at a corner. */
@@ -172,6 +236,7 @@ function finishWalk(actor: Actor): void {
   actor.walkTarget = null;
   actor.walkPath = [];
   actor.walkPathIdx = 0;
+  actor.walkLeg = null;
   actor.isMoving = false;
 }
 
@@ -208,11 +273,4 @@ export function stepAllActorWalks(vm: Vm): void {
       applyChore(vm, actor, actor.initFrame);
     }
   }
-}
-
-/** Signed step toward `value`, capped at `magnitude`. */
-function clampToward(value: number, magnitude: number): number {
-  if (value > 0) return Math.min(value, magnitude);
-  if (value < 0) return Math.max(value, -magnitude);
-  return 0;
 }

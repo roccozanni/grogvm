@@ -6,6 +6,28 @@ export type Facing = 'N' | 'E' | 'S' | 'W';
 
 export type { AnimState } from '../graphics/costume-anim';
 
+/**
+ * One straight leg of a walk, fixed when the leg starts (SCUMM's
+ * `calcMovementFactor`): per-tick movement factors that follow the LINE to
+ * the waypoint, plus the sub-pixel remainders. Maintained by the walker
+ * (walk.ts); anything that repositions the actor outside the walker must
+ * clear it. See pages/docs/engine/pathfinding.md §9.
+ */
+export interface WalkLeg {
+  /** Where the leg started — overshoot past the waypoint is measured from here. */
+  fromX: number;
+  fromY: number;
+  /** The waypoint this leg heads to; the leg is stale once this ≠ the active aim. */
+  toX: number;
+  toY: number;
+  /** Per-tick step along the line, 16.16 fixed point. */
+  deltaXFactor: number;
+  deltaYFactor: number;
+  /** Sub-pixel remainders (low 16 bits of the fixed-point position), 0..0xffff. */
+  xfrac: number;
+  yfrac: number;
+}
+
 export interface Actor {
   readonly id: number;
   /** Owning room id. `0` = dormant / not in any room. */
@@ -55,6 +77,8 @@ export interface Actor {
   walkPath: ReadonlyArray<{ x: number; y: number }>;
   /** Index into `walkPath` of the *next* waypoint to head toward. */
   walkPathIdx: number;
+  /** The in-flight leg toward the active waypoint; `null` between legs. */
+  walkLeg: WalkLeg | null;
   isMoving: boolean;
   /** Chore frames; anim record = frame*4 + dir. See pages/docs/scumm/costume-anim.md. */
   walkFrame: number;
@@ -120,6 +144,7 @@ export function createActor(id: number): Actor {
     walkTarget: null,
     walkPath: [],
     walkPathIdx: 0,
+    walkLeg: null,
     isMoving: false,
     walkFrame: DEFAULT_WALK_FRAME,
     standFrame: DEFAULT_STAND_FRAME,
@@ -139,6 +164,7 @@ export function putActor(actor: Actor, x: number, y: number, room: number): void
   actor.walkTarget = null;
   actor.walkPath = [];
   actor.walkPathIdx = 0;
+  actor.walkLeg = null;
   actor.isMoving = false;
 }
 

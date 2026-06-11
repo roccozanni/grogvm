@@ -1538,6 +1538,7 @@ defineOp({
       if (walk) {
         ego.x = walk.x;
         ego.y = walk.y;
+        ego.walkLeg = null;
       }
       // Rescale so ego renders at floor scale on the first frame.
       rescaleActorForPosition(vm, ego);

@@ -23,7 +23,8 @@ and boarding: Part II opens aboard the ship** (see Frontier below).
 
 **Working principle (agreed 2026-06-02):** no hacks/shortcuts — every change is
 the final, SCUMM-faithful solution. Confirm the real mechanism first (disassemble
-the original, check ScummVM semantics) before editing; when engine-faithful and a
+the original's scripts; observe the running original in-browser — **never consult
+ScummVM source, in any form**) before editing; when engine-faithful and a
 quick shell workaround disagree, faithful wins. Verify the actual outcome (render
 real pixels for visual bugs; reproduce the real flow for behaviour) — not the
 bookkeeping. Surface any deferral/approximation explicitly and track it here;
@@ -67,6 +68,15 @@ the source-order + parent-chain `findObject` rule in [OBJECTS §2/§7a](pages/do
 the testkit's carried-target slot gestures in [engine/harness.md §3](pages/docs/engine/harness.md)
 and AGENTS "The harness". With the hit-test fix, **zero `pushSentence` shortcuts and zero DEBT
 markers remain in the integration suite** — every walkthrough action is a faithful click.
+The 2026-06-11 line-following walker (per-leg `calcMovementFactor` factors, 16.16 sub-pixel
+accumulation, serialized mid-leg state) closed the last Pathfinding backlog item, and the same
+day's **scale-throttled walk step** (`factor × scale/255` — apparent speed tracks apparent size;
+derived from the user report that ego raced across the far-view store street, room 34, whose
+boxes scale to 33–75/255; probe: `scratch/store-street-scale.ts`) closed the speed half; both in
+[PATHFINDING §9](pages/docs/engine/pathfinding.md). Each shifted the seeded RNG stream, so the
+duel grind's `SWORD_MASTER_NEEDED` set was re-derived (its `game.ts` comment records the
+recipe). Verified in-browser 2026-06-11: walk speed timed against the original on the store
+street — pretty similar.
 
 ### Open bug-report saves (reported, not yet fixed)
 
@@ -143,10 +153,10 @@ Priority H/M/L = likelihood of biting current/near play × severity.
   the EXCD ordering bug. MI1 play stays far below 25 live slots.
 - [ ] **L — restored music slot is a heuristic** (`sound/backend.ts:93`): on
   save restore, the looping active sound is assumed to be the music slot.
-- Already tracked elsewhere (cross-ref, not duplicated here): line-following
-  walker (Pathfinding backlog), `screenEffect` animation + `VAR_CURRENT_LIGHTS`
-  darkening (Rendering backlog), `saveRestoreVerbs` subset (Watch-for), audio /
-  `resourceRoutines` (Out of scope).
+- Already tracked elsewhere (cross-ref, not duplicated here): `screenEffect`
+  animation + `VAR_CURRENT_LIGHTS` darkening (Rendering backlog),
+  `saveRestoreVerbs` subset (Watch-for), audio / `resourceRoutines` (Out of
+  scope).
 
 **Watch for** (recurring failure modes in newly-reached content):
 
@@ -199,17 +209,6 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
   room-33 cliff N/S facing flip-flop and the room-38 entry head-loss transient —
   were re-verified in-browser 2026-06-10: both fine.)
   See [COSTUME-ANIM](pages/docs/scumm/costume-anim.md).
-
-**Pathfinding**
-
-- **Line-following walker (`calcMovementFactor`) — the faithful follow-up,
-  deferred.** `stepWalk` steps X/Y independently; SCUMM moves along the line.
-  Without this, thin diagonal connector boxes are fragile (actor drifts off) —
-  the room-52 single-click bridge crossing is the live symptom (staged in the
-  walkthrough). Touches every walk + the stepWalk unit tests (which encode the
-  current independent-step behaviour) → re-verify intro/bar/kitchen + render.
-  [PATHFINDING §9](pages/docs/engine/pathfinding.md). *(The walk-box-as-state
-  half — tracking `_walkbox` instead of re-deriving it at draw time — is DONE.)*
 
 **Stubbed opcodes (cosmetic / peripheral)**
 

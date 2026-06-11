@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ActorTable, createActor, DEFAULT_WALK_SPEED_X, DEFAULT_WALK_SPEED_Y } from './actor';
+import { ActorTable, createActor } from './actor';
 import { applyStandPose, startWalk, stepAllActorWalks, stepWalk, rescaleActorForPosition } from './walk';
 import { currentLimbPicture } from '../graphics/costume-anim';
 import type { CostumeHeader } from '../graphics/costume';
@@ -64,12 +64,14 @@ function walkingActor(opts: {
 }
 
 describe('stepWalk', () => {
-  it('moves toward the target by walkSpeed in one tick', () => {
+  it('moves along the line toward the target in one tick', () => {
     const a = walkingActor({ x: 0, y: 0, targetX: 100, targetY: 50 });
     stepWalk(a);
-    // Default speeds: 8 horizontal, 2 vertical.
-    expect(a.x).toBe(DEFAULT_WALK_SPEED_X);
-    expect(a.y).toBe(DEFAULT_WALK_SPEED_Y);
+    // The line is Y-dominant (slope 1/2 > speedY/speedX = 2/8): Y runs at
+    // full speed 2, X proportionally at 4 — NOT at its full speed 8, which
+    // would leave the line.
+    expect(a.x).toBe(4);
+    expect(a.y).toBe(2);
     expect(a.isMoving).toBe(true);
   });
 
@@ -96,8 +98,10 @@ describe('stepWalk', () => {
   it('handles negative deltas (walking left / up)', () => {
     const a = walkingActor({ x: 100, y: 50, targetX: 80, targetY: 44 });
     stepWalk(a);
-    expect(a.x).toBe(100 - DEFAULT_WALK_SPEED_X);
-    expect(a.y).toBe(50 - DEFAULT_WALK_SPEED_Y);
+    // Y-dominant line (6 down-left per 20 across): Y at full speed 2,
+    // X at 20/6 · 2 ≈ 6.67 px/tick — 93.33, floored to 93.
+    expect(a.x).toBe(93);
+    expect(a.y).toBe(48);
     expect(a.facing).toBe('W');
   });
 
@@ -204,14 +208,13 @@ describe('stepWalk — path following', () => {
     stepWalk(a);
     expect(a.x).toBe(8); expect(a.y).toBe(0);
     expect(a.walkPathIdx).toBe(0);
-    // Tick 2: reach (16, 0), advance to next waypoint immediately.
+    // Tick 2: reach (16, 0), advance to the next waypoint.
     stepWalk(a);
     expect(a.x).toBe(16); expect(a.y).toBe(0);
     expect(a.walkPathIdx).toBe(1);
-    // Tick 3: from (16, 0) toward (16, 4) — step is (0, 2).
+    // Ticks 3-4: down toward (16, 4) at 2 px/tick.
     stepWalk(a);
     expect(a.x).toBe(16); expect(a.y).toBe(2);
-    // Tick 4: reach (16, 4), path done.
     stepWalk(a);
     expect(a.x).toBe(16); expect(a.y).toBe(4);
     expect(a.isMoving).toBe(false);
@@ -245,6 +248,72 @@ describe('stepWalk — path following', () => {
   });
 });
 
+describe('stepWalk — line following (calcMovementFactor)', () => {
+  it('stays ON a thin near-horizontal diagonal, never drifting off the line', () => {
+    // The room-52 bridge shape: a degenerate connector line from (0,100) to
+    // (80,90). Independent X/Y stepping spends the 10px of Y in 5 ticks and
+    // then walks level at y=90 — up to 5px off the line, so the box assigned
+    // from the position leaves the connector. Line-following holds the actor
+    // on the line every tick: X clamps to full speed 8, Y follows at 1.
+    const a = walkingActor({ x: 0, y: 100, targetX: 80, targetY: 90 });
+    for (let i = 0; i < 20 && a.isMoving; i++) {
+      stepWalk(a);
+      const lineY = 100 - a.x / 8;
+      expect(Math.abs(a.y - lineY)).toBeLessThanOrEqual(1);
+    }
+    expect(a.isMoving).toBe(false);
+    expect(a.x).toBe(80);
+    expect(a.y).toBe(90);
+  });
+
+  it('accumulates sub-pixel remainders and lands exactly on the target', () => {
+    // (0,0)→(100,30): X moves at 100/30 · 2 ≈ 6.67 px/tick — not a whole
+    // pixel, so the fraction must carry tick to tick (6, then 13, …) and the
+    // final overshoot pin lands the actor exactly on the waypoint.
+    const a = walkingActor({ x: 0, y: 0, targetX: 100, targetY: 30 });
+    stepWalk(a);
+    expect(a.x).toBe(6);
+    stepWalk(a);
+    expect(a.x).toBe(13);
+    for (let i = 0; i < 20 && a.isMoving; i++) stepWalk(a);
+    expect(a.isMoving).toBe(false);
+    expect(a.x).toBe(100);
+    expect(a.y).toBe(30);
+  });
+
+  it('re-derives the leg per waypoint, so each segment follows its own line', () => {
+    // Two legs with opposite dominance: a long horizontal run, then a long
+    // vertical drop. The first leg must not inherit the second's slope.
+    const a = createActor(1);
+    a.x = 0; a.y = 0;
+    a.walkPath = [
+      { x: 32, y: 4 },  // X-dominant: steps (8, 1)
+      { x: 32, y: 24 }, // pure vertical: steps (0, 2)
+    ];
+    a.walkPathIdx = 0;
+    a.isMoving = true;
+    stepWalk(a);
+    expect(a.x).toBe(8); expect(a.y).toBe(1);
+    for (let i = 0; i < 8 && a.walkPathIdx === 0; i++) stepWalk(a);
+    expect(a.x).toBe(32); expect(a.y).toBe(4);
+    stepWalk(a);
+    expect(a.x).toBe(32); expect(a.y).toBe(6);
+  });
+
+  it('throttles the step by the actor scale (a far-away actor walks slower)', () => {
+    // Scale 64 ≈ drawn at 1/4 size → the nominal 8 px/tick horizontal step
+    // becomes 8 × 64/255 ≈ 2 px/tick. This is what keeps ego from racing
+    // across far-view rooms like the store street (room 34, box scales
+    // 33..75).
+    const a = walkingActor({ x: 0, y: 0, targetX: 80, targetY: 0 });
+    a.scale = 64;
+    stepWalk(a);
+    expect(a.x).toBe(2);
+    for (let i = 0; i < 9; i++) stepWalk(a);
+    expect(a.x).toBe(20); // 10 ticks × 2 px — a full-size actor would be at ~79
+  });
+});
+
 describe('stepAllActorWalks', () => {
   it('ticks every actor in the table independently', () => {
     const vm = { actors: new ActorTable(3) } as unknown as Parameters<typeof stepAllActorWalks>[0];
@@ -258,7 +327,7 @@ describe('stepAllActorWalks', () => {
 
     stepAllActorWalks(vm);
 
-    expect(a1.x).toBe(DEFAULT_WALK_SPEED_X);
+    expect(a1.x).toBe(8);
     expect(a1.isMoving).toBe(true);
     expect(a2.x).toBe(50); // unchanged
     expect(a3.isMoving).toBe(false); // arrived
