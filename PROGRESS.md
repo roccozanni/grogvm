@@ -16,10 +16,11 @@ Lean tracker. Two buckets:
 
 Playing MI1 from boot and fixing each blocker engine-faithfully (committed on
 `main`). **Unit suite green + tsc clean**, plus a data-gated, from-boot
-integration playthrough (`npm run test:integration`). **All of Part I now plays
-end-to-end from boot — through the three trials, the idol theft, the docks vow,
-recruiting the crew (Otis, Carla, Meathook), buying the Sea Monkey from Stan,
-and boarding: Part II opens aboard the ship** (see Frontier below).
+integration playthrough (`npm run test:integration`). **Parts I AND II now play
+end-to-end from boot — the three trials, the crew and the Sea Monkey, then the
+whole Journey: the ship rooms looted, the navigation broth cooked, and the
+cannon shot onto Monkey Island's beach: Part III opens ashore** (see Frontier
+below).
 
 **Working principle (agreed 2026-06-02):** no hacks/shortcuts — every change is
 the final, SCUMM-faithful solution. Confirm the real mechanism first (disassemble
@@ -42,18 +43,25 @@ action waits on `waitReady`, then asserts via named condition-waiters (`waitPick
 the *printing-sentence-blocks-the-next* finding → [INPUT §5](pages/docs/scumm/input.md).
 A clean fast-forward save (`saves/MI1-walkthrough-frontier.websave.json`, gitignored,
 written by the ALWAYS-LAST `frontier` beat and regenerated each green run) sits at the furthest
-clean state — currently aboard the Sea Monkey in the captain's cabin (room 7), crew + ship
-secured, Part II just begun.
+clean state — currently on Monkey Island's beach (room 20), Part II complete.
 
-**Frontier: Part I is FINISHED and Part II has begun — the crew is recruited (Otis bit#76,
-Carla bit#89, Meathook bit#88), the Sea Monkey bought (bit#51), and the boarding/departure plays
-through to the captain's cabin (room 7), playable, all from boot.** The clean fast-forward save
-sits aboard the Sea Monkey. Routes + mechanics live in the walkthrough beats and `game.ts`
-(`crackSafe`/`buySeaMonkey`/`townToMap` helpers), not here.
+**Frontier: Parts I and II are FINISHED — after the crew/ship finale, the Journey plays through
+from boot: the cabin loot (pen/ink/book), the Jolly Roger off the crow's nest, the hold
+(gunpowder/rope/wine), the cereal-prize key, the cabinet chest (recipe + cinnamon), all eight
+ingredients into the galley pot (the voyage cooks itself, g259 1→2), the flaming-mass fuse, and
+the cannon launch onto Monkey Island's beach (room 20), playable.** Ship-room ids + mechanics live
+in `game.ts` (`shipCabin`/`shipDeck`/`shipHold`/`shipGalley`/`crowsNest`/`monkeyBeach`), not here.
 
-> **NEXT SESSION — Part II proper (The Journey).** Aboard the Sea Monkey: the cabin (room 7), the
-> hold/galley below decks, the voyage to Monkey Island (the navigation recipe). Restore the frontier
-> save to start in the cabin; same loop — disassemble first, drive headless, assert mechanics.
+> **NEXT SESSION — Part III (Under Monkey Island).** Ashore at the beach (room 20): the bananas,
+> the rowboat, the island map (room 11), the cannibals' village, Herman Toothrot. Restore the
+> frontier save to start on the beach; same loop — disassemble first, drive headless, assert
+> mechanics.
+
+**`createBoxMatrix` is now a real runtime rebuild** (2026-06-11) — locked boxes drop out of
+the graph and walks detour around fresh seals (the room-7 chest drag was the blocker; the
+savestate gained a required `boxMatrixRebuilt` bool). Migrated to
+[PATHFINDING §5](pages/docs/engine/pathfinding.md), incl. the empirically-derived neighbor
+predicate and its 82/83-room hop-for-hop validation against the disk BOXMs.
 
 **Pending in-browser checks** (fixes shipped + folded into docs, look not yet confirmed):
 

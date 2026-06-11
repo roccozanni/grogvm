@@ -71,7 +71,7 @@ import {
   waitReady,
   walkTo,
 } from '../../src/testkit/scummv5';
-import { VAR_CURRENT_LIGHTS, VAR_EGO } from '../../src/engine/vm/vars';
+import { VAR_CURRENT_LIGHTS, VAR_EGO, VAR_VERB_SCRIPT } from '../../src/engine/vm/vars';
 import {
   boot,
   buySeaMonkey,
@@ -1455,8 +1455,250 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
   });
 
   describe('Part II — The Journey', () => {
-    beat('⚙️ Sea Monkey cabin — placeholder: Part II beats grow from here', () => {
-      expect(vm.currentRoom).toBe(ROOMS.docks.seaMonkeyCabin);
+    beat('⚙️ Sea Monkey cabin — pen then ink, the drawer gives up the book, the cabinet stays locked', () => {
+      const cabin = ROOMS.shipCabin;
+      expect(vm.currentRoom).toBe(cabin.id);
+
+      // The pen first: its Pick up is what clears the ink's untouchable class.
+      use(vm, VERBS.pickUp, cabin.pen);
+      expect(waitPickedUp(vm, cabin.pen)).toBe(true);
+      use(vm, VERBS.pickUp, cabin.ink);
+      expect(waitPickedUp(vm, cabin.ink)).toBe(true);
+
+      // The drawer is open-then-look-inside: Open flips its state, the LOOK
+      // runs the inside cutscene that auto-pockets the dusty book.
+      use(vm, VERBS.open, cabin.drawer);
+      expect(driveUntil(vm, (v) => v.objectStates.get(cabin.drawer) === 1, { maxTicks: 6000 })).toBe(true);
+      use(vm, VERBS.look, cabin.drawer);
+      expect(waitPickedUp(vm, cabin.book, 12000)).toBe(true);
+
+      // The cabinet refuses a bare Open — its key is still hidden in a cereal
+      // box two decks down.
+      use(vm, VERBS.open, cabin.cabinet);
+      waitIdle(vm);
+      expect(vm.objectStates.get(cabin.cabinet)).not.toBe(1);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('🚶‍➡️ Sea Monkey cabin — out on deck, up the rope ladder to the crow\'s nest (17)', () => {
+      walkTo(vm, ROOMS.shipCabin.door);
+      expect(driveToRoom(vm, ROOMS.shipDeck.id, { maxTicks: 8000 })).toBe(true);
+      expect(waitPlayable(vm, 12000)).toBe(true);
+      walkTo(vm, ROOMS.shipDeck.ropeLadder);
+      expect(driveToRoom(vm, ROOMS.crowsNest.id, { maxTicks: 8000 })).toBe(true);
+      expect(waitPlayable(vm, 8000)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('⚙️ Crow\'s nest — strike the Jolly Roger (a broth ingredient, of course)', () => {
+      use(vm, VERBS.pickUp, ROOMS.crowsNest.jollyRoger);
+      expect(waitPickedUp(vm, ROOMS.crowsNest.jollyRoger, 8000)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('🚶‍➡️ Crow\'s nest — slide down and descend the hatches to the hold (8)', () => {
+      walkTo(vm, ROOMS.crowsNest.deckBelow);
+      expect(driveToRoom(vm, ROOMS.shipDeck.id, { maxTicks: 8000 })).toBe(true);
+      expect(waitPlayable(vm, 8000)).toBe(true);
+      walkTo(vm, ROOMS.shipDeck.hatch);
+      expect(driveToRoom(vm, ROOMS.shipLanding.id, { maxTicks: 8000 })).toBe(true);
+      expect(waitPlayable(vm, 8000)).toBe(true);
+      walkTo(vm, ROOMS.shipLanding.holdHatch);
+      expect(driveToRoom(vm, ROOMS.shipHold.id, { maxTicks: 8000 })).toBe(true);
+      expect(waitPlayable(vm, 8000)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('⚙️ Sea Monkey hold — gunpowder off the kegs, the giant rope, wine out of the chest', () => {
+      const hold = ROOMS.shipHold;
+      // The kegs hand over the gunpowder object on Pick up.
+      use(vm, VERBS.pickUp, hold.kegs);
+      expect(waitPickedUp(vm, hold.gunpowder, 8000)).toBe(true);
+      use(vm, VERBS.pickUp, hold.rope);
+      expect(waitPickedUp(vm, hold.rope, 8000)).toBe(true);
+      // The wine chest is open-then-look-inside, like the cabin drawer.
+      use(vm, VERBS.open, hold.wineChest);
+      expect(driveUntil(vm, (v) => v.objectStates.get(hold.wineChest) === 1, { maxTicks: 6000 })).toBe(true);
+      use(vm, VERBS.look, hold.wineChest);
+      expect(waitPickedUp(vm, hold.wine, 12000)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('🚶‍➡️ Sea Monkey hold — up a deck and through to the galley (14)', () => {
+      walkTo(vm, ROOMS.shipHold.ladder);
+      expect(driveToRoom(vm, ROOMS.shipLanding.id, { maxTicks: 8000 })).toBe(true);
+      expect(waitPlayable(vm, 8000)).toBe(true);
+      walkTo(vm, ROOMS.shipLanding.galleyDoor);
+      expect(driveToRoom(vm, ROOMS.shipGalley.id, { maxTicks: 8000 })).toBe(true);
+      expect(waitPlayable(vm, 8000)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('⚙️ Galley — the cupboard\'s cereal box crunches down to a prize: a small key', () => {
+      const ego = vm.vars.readGlobal(VAR_EGO);
+      const galley = ROOMS.shipGalley;
+      use(vm, VERBS.open, galley.cupboard);
+      expect(driveUntil(vm, (v) => v.objectStates.get(galley.cupboard) === 1, { maxTicks: 6000 })).toBe(true);
+
+      // The visible box (#168) forwards every verb to the real cereal (#164);
+      // taking it stages the prize at owner 14, hidden inside the box.
+      use(vm, VERBS.pickUp, galley.cerealShelf);
+      expect(waitPickedUp(vm, galley.cereal, 8000)).toBe(true);
+
+      // Open the carried box: the eat cutscene ends in "there's a surprise
+      // inside" and #185 hands the prize over.
+      use(vm, VERBS.open, galley.cereal);
+      expect(driveUntil(vm, (v) => v.getObjectOwner(galley.smallKey) === ego, { maxTicks: 20000 })).toBe(true);
+      expect(waitPlayable(vm, 12000)).toBe(true);
+
+      // Look at the surprise — it's a small key with a monkey engraved on it.
+      use(vm, VERBS.look, galley.smallKey);
+      expect(driveUntil(vm, (v) => v.vars.readBit(galley.prizeRevealedBit) === 1, { maxTicks: 8000 })).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('🚶‍➡️ Galley — back up top and into the captain\'s cabin (7), key in pocket', () => {
+      walkTo(vm, ROOMS.shipGalley.ladder);
+      expect(driveToRoom(vm, ROOMS.shipLanding.id, { maxTicks: 8000 })).toBe(true);
+      expect(waitPlayable(vm, 8000)).toBe(true);
+      walkTo(vm, ROOMS.shipLanding.ladderUp);
+      expect(driveToRoom(vm, ROOMS.shipDeck.id, { maxTicks: 8000 })).toBe(true);
+      expect(waitPlayable(vm, 8000)).toBe(true);
+      use(vm, VERBS.open, ROOMS.shipDeck.cabinDoor);
+      walkTo(vm, ROOMS.shipDeck.cabinDoor);
+      expect(driveToRoom(vm, ROOMS.shipCabin.id, { maxTicks: 8000 })).toBe(true);
+      expect(waitPlayable(vm, 8000)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('⚙️ Sea Monkey cabin — the key opens the cabinet; drag the chest out for the recipe + cinnamon', () => {
+      const ego = vm.vars.readGlobal(VAR_EGO);
+      const cabin = ROOMS.shipCabin;
+
+      useWith(vm, VERBS.use, ROOMS.shipGalley.smallKey, cabin.cabinet);
+      expect(driveUntil(vm, (v) => v.objectStates.get(cabin.cabinet) === 1, { maxTicks: 12000 })).toBe(true);
+
+      // The heavy chest inside is hoverable now (parent-gated on the open
+      // cabinet). Picking it up runs #184: ego drags it onto the floor —
+      // where it seals walkbox 11 and `createBoxMatrix` reroutes the room.
+      use(vm, VERBS.pickUp, cabin.heavyChest);
+      expect(driveUntil(vm, (v) => v.objectStates.get(cabin.placedChest) === 1, { maxTicks: 20000 })).toBe(true);
+      expect(waitPlayable(vm, 12000)).toBe(true);
+
+      // Open the placed chest, look inside: the reveal cutscene pockets the
+      // recipe and the cinnamon and sets the recipe flag the pot gates on.
+      use(vm, VERBS.open, cabin.placedChest);
+      expect(driveUntil(vm, (v) => v.objectStates.get(cabin.placedChestOpen) === 1, { maxTicks: 8000 })).toBe(true);
+      use(vm, VERBS.look, cabin.placedChest);
+      expect(driveUntil(vm, (v) => v.getObjectOwner(cabin.recipe) === ego, { maxTicks: 20000 })).toBe(true);
+      expect(driveUntil(vm, (v) => v.getObjectOwner(cabin.cinnamon) === ego, { maxTicks: 20000 })).toBe(true);
+      expect(vm.vars.readBit(cabin.recipeBit)).toBe(1);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('🚶‍➡️ Sea Monkey cabin — around the dragged chest (the rebuilt box matrix) and down to the galley', () => {
+      // This leg is the createBoxMatrix proof: the direct strip to the door
+      // is sealed under the chest, so the walk must take the rebuilt detour.
+      walkTo(vm, ROOMS.shipCabin.door);
+      expect(driveToRoom(vm, ROOMS.shipDeck.id, { maxTicks: 8000 })).toBe(true);
+      expect(waitPlayable(vm, 8000)).toBe(true);
+      walkTo(vm, ROOMS.shipDeck.hatch);
+      expect(driveToRoom(vm, ROOMS.shipLanding.id, { maxTicks: 8000 })).toBe(true);
+      expect(waitPlayable(vm, 8000)).toBe(true);
+      walkTo(vm, ROOMS.shipLanding.galleyDoor);
+      expect(driveToRoom(vm, ROOMS.shipGalley.id, { maxTicks: 8000 })).toBe(true);
+      expect(waitPlayable(vm, 8000)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('⚙️ Galley — all eight ingredients into the pot; the broth sails the ship itself', () => {
+      const galley = ROOMS.shipGalley;
+      expect(vm.vars.readGlobal(VARS.voyageStage)).toBe(0);
+
+      // Seven ingredients, each confirmed by its own pot bit; order is free.
+      for (const [obj, bit] of galley.ingredients.slice(0, -1)) {
+        useWith(vm, VERBS.use, obj, galley.bigPot);
+        expect(driveUntil(vm, (v) => v.vars.readBit(bit) === 1, { maxTicks: 16000 })).toBe(true);
+      }
+      // The eighth fills g260 to 8 and fires the cooking cutscene (#108):
+      // ego faints, "Passano giorni", and the voyage stage flips to 1.
+      const [lastObj, lastBit] = galley.ingredients[galley.ingredients.length - 1]!;
+      useWith(vm, VERBS.use, lastObj, galley.bigPot);
+      expect(driveUntil(vm, (v) => v.vars.readBit(lastBit) === 1, { maxTicks: 16000 })).toBe(true);
+      expect(waitGlobal(vm, VARS.voyageStage, 1, 60000)).toBe(true);
+      expect(vm.vars.readGlobal(galley.potCountVar)).toBe(8);
+
+      // Ego is out cold on the galley floor; the cutscene routes the next
+      // click to the wake-up script (g32 → local #201), which hands back
+      // control ("Mi sento malissimo").
+      expect(driveUntil(vm, (v) => v.vars.readGlobal(VAR_VERB_SCRIPT) === 201, { maxTicks: 20000 })).toBe(true);
+      walkTo(vm, { x: 160, y: 130 });
+      expect(driveUntil(vm, (v) => v.vars.readGlobal(VAR_VERB_SCRIPT) === 4, { maxTicks: 20000 })).toBe(true);
+      expect(waitPlayable(vm, 12000)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('⚙️ Galley — pocket the small pot; the business card burns to a flaming mass', () => {
+      const ego = vm.vars.readGlobal(VAR_EGO);
+      const galley = ROOMS.shipGalley;
+      use(vm, VERBS.pickUp, galley.smallPot);
+      expect(waitPickedUp(vm, galley.smallPot, 8000)).toBe(true);
+      // Stan's business card on the fire — consumed, the flaming mass lands
+      // in inventory (the only fire that can ride to the cannon).
+      useWith(vm, VERBS.use, ROOMS.stan.businessCard, galley.fire);
+      expect(driveUntil(vm, (v) => v.getObjectOwner(galley.flamingMass) === ego, { maxTicks: 16000 })).toBe(true);
+      expect(vm.getObjectOwner(ROOMS.stan.businessCard)).not.toBe(ego);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('🚶‍➡️ Galley — down for a fresh batch of gunpowder, then up on deck (19)', () => {
+      // The pot returned the first batch to the room (owner 15), so the kegs
+      // refill on a second visit.
+      const ego = vm.vars.readGlobal(VAR_EGO);
+      expect(vm.getObjectOwner(ROOMS.shipHold.gunpowder)).not.toBe(ego);
+      walkTo(vm, ROOMS.shipGalley.ladder);
+      expect(driveToRoom(vm, ROOMS.shipLanding.id, { maxTicks: 8000 })).toBe(true);
+      expect(waitPlayable(vm, 8000)).toBe(true);
+      walkTo(vm, ROOMS.shipLanding.holdHatch);
+      expect(driveToRoom(vm, ROOMS.shipHold.id, { maxTicks: 8000 })).toBe(true);
+      expect(waitPlayable(vm, 8000)).toBe(true);
+      use(vm, VERBS.pickUp, ROOMS.shipHold.kegs);
+      expect(waitPickedUp(vm, ROOMS.shipHold.gunpowder, 8000)).toBe(true);
+      walkTo(vm, ROOMS.shipHold.ladder);
+      expect(driveToRoom(vm, ROOMS.shipLanding.id, { maxTicks: 8000 })).toBe(true);
+      expect(waitPlayable(vm, 8000)).toBe(true);
+      walkTo(vm, ROOMS.shipLanding.ladderUp);
+      expect(driveToRoom(vm, ROOMS.shipDeck.id, { maxTicks: 8000 })).toBe(true);
+      // First deck entry post-voyage: the ENCD tail plays the "siamo arrivati
+      // a Monkey Island" look and bumps the voyage stage to 2.
+      expect(waitPlayable(vm, 8000)).toBe(true);
+      expect(vm.vars.readGlobal(VARS.voyageStage)).toBe(2);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('⚙️ Sea Monkey deck — rig the cannon (rope fuse, powder, flame) and ride the pot-helmet to Monkey Island (20)', () => {
+      const deck = ROOMS.shipDeck;
+      const fuseTouchable = (v: typeof vm) =>
+        (((v.objectClasses.get(deck.fuse) ?? 0) >>> 31) & 1) === 0;
+
+      // The rope ties on as the fuse (local #250)…
+      useWith(vm, VERBS.use, ROOMS.shipHold.rope, deck.cannon);
+      expect(driveUntil(vm, fuseTouchable, { maxTicks: 12000 })).toBe(true);
+      // …the gunpowder goes down the nozzle…
+      useWith(vm, VERBS.use, ROOMS.shipHold.gunpowder, deck.nozzle);
+      expect(driveUntil(vm, (v) => v.vars.readBit(deck.powderLoadedBit) === 1, { maxTicks: 16000 })).toBe(true);
+
+      // …light the fuse and WEAR THE POT — the burn-down (#251) is a short
+      // window, and the small pot's one-object Use is the climb-in (#107).
+      useWith(vm, VERBS.use, ROOMS.shipGalley.flamingMass, deck.fuse);
+      expect(
+        driveUntil(vm, (v) => v.slots.some((s) => s.status !== 'dead' && s.scriptId === deck.fuseScript), { maxTicks: 12000 }),
+      ).toBe(true);
+      use(vm, VERBS.use, ROOMS.shipGalley.smallPot);
+
+      // BOOM: the launch cutscene flies ego over the water to the beach.
+      expect(driveToRoom(vm, ROOMS.monkeyBeach.id, { maxTicks: 90000 })).toBe(true);
+      expect(waitPlayable(vm, 30000)).toBe(true);
       expect(vm.haltInfo).toBeNull();
     });
   });
@@ -1473,14 +1715,12 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
         'saves/MI1-walkthrough-frontier.websave.json',
         JSON.stringify(snapshotVm(vm, { game: 'MI1', label: 'walkthrough-frontier' })),
       );
-      // Furthest clean point so far: aboard the Sea Monkey in the captain's
-      // cabin (room 7), the crew recruited (Otis bit#76, Meathook bit#88, Carla
-      // bit#89), the ship bought (bit#51) — Part I complete, Part II begun.
-      expect(vm.currentRoom).toBe(ROOMS.docks.seaMonkeyCabin);
+      // Furthest clean point so far: shot out of the Sea Monkey's cannon onto
+      // Monkey Island's beach (room 20), the voyage played out (g259=2 — the
+      // post-voyage deck arrival look ran) — Part II complete, Part III begun.
+      expect(vm.currentRoom).toBe(ROOMS.monkeyBeach.id);
+      expect(vm.vars.readGlobal(VARS.voyageStage)).toBe(2);
       expect(vm.vars.readBit(ROOMS.stan.shipBoughtBit)).toBe(1);
-      expect(vm.vars.readBit(ROOMS.prison.otisFreedBit)).toBe(1);
-      expect(vm.vars.readBit(ROOMS.meathookHouse.recruitedBit)).toBe(1);
-      expect(vm.vars.readBit(ROOMS.swordMaster.recruitedBit)).toBe(1);
     });
   });
 });

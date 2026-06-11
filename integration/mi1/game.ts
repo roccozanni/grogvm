@@ -118,6 +118,14 @@ export const VARS = {
    * game is running. Used to tell the opener apart from the insult rounds.
    */
   duelMode: 285,
+  /**
+   * Voyage stage (g259): 0 aboard the Sea Monkey before the broth; 1 once
+   * the cooking cutscene (#108) has sailed the ship — the gate the cannon's
+   * climb-in checks, and the deck ENCD's wide-scroll / island-on-the-horizon
+   * switch; 2 once the deck has been re-entered post-voyage (its ENCD tail
+   * plays the "siamo arrivati a Monkey Island" look and bumps the stage).
+   */
+  voyageStage: 259,
 } as const;
 
 /**
@@ -734,9 +742,220 @@ export const ROOMS = {
      * scene (ENCD → local #200): each crew member greets ego with a small
      * don't-care menu, then the departure plays through rooms 97 → 87 → the
      * below-decks chat (19) and hands control back aboard the Sea Monkey —
-     * the captain's cabin ({@link seaMonkeyCabin}), Part II begun.
+     * the captain's cabin ({@link ROOMS.shipCabin}), Part II begun.
      */
     seaMonkeyCabin: 7,
+  },
+
+  /**
+   * The Sea Monkey, captain's cabin (room 7) — where Part II opens. The ship
+   * is five connected rooms: cabin (7) ⇄ deck ({@link shipDeck}, 19) ⇄
+   * between-decks landing ({@link shipLanding}, 9) ⇄ hold ({@link shipHold},
+   * 8) / galley ({@link shipGalley}, 14), plus the crow's nest
+   * ({@link crowsNest}, 17) up the deck's rope ladder.
+   */
+  shipCabin: {
+    id: 7,
+    /** "la penna d'oca" (#75) — the quill pen. Its Pick up also clears the
+     *  ink's untouchable class, so the ink is grabbable only after the pen. */
+    pen: 75,
+    /** "l'inchiostro" (#82) — the ink, a broth ingredient. Plain Pick up
+     *  (once {@link pen} has been taken). */
+    ink: 82,
+    /** "il cassetto" (#83) — the Captain's drawer. Open flips its state;
+     *  LOOK at it while open runs the look-inside cutscene that auto-pockets
+     *  the dusty book (#74). */
+    drawer: 83,
+    /** "il libro impolverato" (#74) — the dusty navigation book, handed over
+     *  by the drawer's look-inside. (Its own Use/Look opens reader #148.) */
+    book: 74,
+    /**
+     * "l'armadio" (#79; #80 is the second door half) — the Captain's locked
+     * cabinet. Open by hand refuses ("Sembra ben chiuso"); Use the small key
+     * ({@link ROOMS.shipGalley}'s `smallKey`, #157) with it → global #25
+     * swings both halves to state 1, revealing the heavy chest inside.
+     */
+    cabinet: 79,
+    /**
+     * "il baule" (#81) — the heavy metal chest INSIDE the cabinet
+     * (parent-gated: hoverable only with the cabinet open). Pick up → global
+     * #184: ego drags it out and sets it down on the floor as #77 (state 1,
+     * touchable), then LOCKS walkbox 11 under it and `createBoxMatrix` — the
+     * runtime matrix rebuild that makes walks detour around the chest
+     * (box 2 → 10 → 9 → 1) instead of through the now-sealed strip.
+     */
+    heavyChest: 81,
+    /** The dragged-out chest on the floor (#77; #78 is its open image).
+     *  Open swaps 77→0 / 78→1; LOOK at it while open fires the verb-61
+     *  reveal cutscene: the recipe (#85) and the cinnamon (#88) are
+     *  pocketed and {@link recipeBit} is set. */
+    placedChest: 77,
+    /** #77's open-image twin — state 1 marks the chest open. */
+    placedChestOpen: 78,
+    /** "il foglio di carta" (#85) — the voyage recipe. Look/Use shows the
+     *  close-up (room 84, click-dismissed); holding it is what matters. */
+    recipe: 85,
+    /** "le stecche di cannella" (#88) — cinnamon sticks, a broth ingredient. */
+    cinnamon: 88,
+    /** bit#531 — the recipe is in hand (set by the chest reveal). The big
+     *  pot refuses every ingredient until this is set. */
+    recipeBit: 531,
+    /** "la porta" (#84) — out to the deck (19); a bare click walks through
+     *  (its verb-11 also swings the deck-side door #253 open). */
+    door: 84,
+  },
+
+  /** The Sea Monkey's deck (room 19) — the cannon lives here. */
+  shipDeck: {
+    id: 19,
+    /** "la porta" (#253) — back into the cabin; Open it (global #25), then a
+     *  bare click walks through (its walk-verb gates on state 1). */
+    cabinDoor: 253,
+    /** "il portello" (#254) — down to the between-decks landing (9). */
+    hatch: 254,
+    /** "una scala di corda" (#258) — up to the crow's nest (17). */
+    ropeLadder: 258,
+    /**
+     * "il cannone" (#256). Use the giant rope ({@link ROOMS.shipHold}'s
+     * `rope`, #91) with it → local #250 ties it on as the fuse: the fuse
+     * actor appears and the fuse object (#252) becomes touchable. (Each
+     * tying shortens the rope's name a notch — g357.)
+     */
+    cannon: 256,
+    /**
+     * "la bocca del cannone" (#257). Use the gunpowder (#101) with it →
+     * {@link powderLoadedBit} set, powder consumed. Climbing in — the small
+     * pot's one-object Use dispatches here — while the fuse burns
+     * ({@link fuseScript} running) requires the voyage done (g259≥1), the
+     * powder loaded, and the small pot in hand (the helmet), then runs the
+     * launch cutscene #107 → ego lands on Monkey Island
+     * ({@link ROOMS.monkeyBeach}, room 20) and the used props are dropped.
+     */
+    nozzle: 257,
+    /** "la miccia" (#252) — the tied-on fuse. Use the flaming mass (#167)
+     *  with it → local #251 (freeze-resistant): the fuse burns ~2.5s, then
+     *  the cannon fires — with ego inside only if #107 is already running,
+     *  else it fires empty (or fizzles without powder). Light it and wear
+     *  the pot IMMEDIATELY. */
+    fuse: 252,
+    /** bit#399 — gunpowder loaded in the nozzle (cleared again when the
+     *  burn-down consumes it). */
+    powderLoadedBit: 399,
+    /** Room-local #251 — the burning-fuse countdown window. */
+    fuseScript: 251,
+  },
+
+  /** The crow's nest (room 17), up the deck's rope ladder. */
+  crowsNest: {
+    id: 17,
+    /** "Il Jolly Roger" (#238) — the flag, a broth ingredient. Plain Pick up
+     *  (it also dismisses the flag actor). */
+    jollyRoger: 238,
+    /** "il ponte della nave" (#237) — a bare click (default 255) slides ego
+     *  back down to the deck (19). */
+    deckBelow: 237,
+  },
+
+  /** The between-decks landing (room 9) connecting deck, hold and galley. */
+  shipLanding: {
+    id: 9,
+    /** "la scala" (#105) — up to the deck (19). */
+    ladderUp: 105,
+    /** "il portello" (#106) — down into the hold (8). */
+    holdHatch: 106,
+    /** "la porta" (#107) — through to the galley (14). */
+    galleyDoor: 107,
+  },
+
+  /** The Sea Monkey's hold (room 8). */
+  shipHold: {
+    id: 8,
+    /** "la scala" (#89) — back up to the landing (9). */
+    ladder: 89,
+    /**
+     * "i barili" (#90) — the powder kegs. Pick up hands over the gunpowder
+     * object (#101) whenever it isn't already held — and the pot returns the
+     * potted powder to owner 15 (the room), so a second visit refills for
+     * the cannon.
+     */
+    kegs: 90,
+    /** "la polvere da sparo" (#101) — the gunpowder, a broth ingredient AND
+     *  the cannon charge. */
+    gunpowder: 101,
+    /** "la corda gigante" (#91) — plain Pick up; later tied to the cannon as
+     *  its fuse. */
+    rope: 91,
+    /** "il baule" (#92) — the wine chest. Open (global #25), then LOOK at it
+     *  while open → the look-inside cutscene pockets the wine (#104) and
+     *  marks the chest looted (class 18). */
+    wineChest: 92,
+    /** "il buon vino" (#104) — the fine wine, a broth ingredient. */
+    wine: 104,
+  },
+
+  /**
+   * The Sea Monkey's galley (room 14) — the voyage puzzle's kitchen: the big
+   * pot over the fire cooks the navigation broth.
+   */
+  shipGalley: {
+    id: 14,
+    /** "la scala" (#166) — back out to the landing (9). */
+    ladder: 166,
+    /** "l'armadio" (#163) — the cupboard; Open (global #25) reveals the
+     *  cereal box. */
+    cupboard: 163,
+    /** The cereal box as it sits in the cupboard (#168) — a forwarder: every
+     *  verb re-dispatches onto {@link cereal} (#164), so the scene click
+     *  targets THIS id. */
+    cerealShelf: 168,
+    /**
+     * "i cereali" (#164) — the cereal, a broth ingredient. Pick up pockets
+     * the box (staging the prize #157 at owner 14, hidden); Open the carried
+     * box → the eat cutscene ("Crunch" ×10, bit#366) → global #185 hands the
+     * surprise (#157) to ego.
+     */
+    cereal: 164,
+    /** "la sorpresa" → "la chiave piccola" (#157) — the cereal prize. LOOK at
+     *  it to discover it's a small key ({@link prizeRevealedBit}); it opens
+     *  exactly one thing: the cabin cabinet (#79). */
+    smallKey: 157,
+    /** bit#367 — the prize has been looked at and renamed to the small key. */
+    prizeRevealedBit: 367,
+    /**
+     * "la pentola" (#158) — the BIG pot over the fire, the ingredient sink.
+     * Its Use-with handler gates on the recipe ({@link ROOMS.shipCabin}'s
+     * `recipeBit`) then accepts EXACTLY eight ingredients, one bit each:
+     * ink #82→bit#427, gunpowder #101→bit#428 (returned to the room, owner
+     * 15), Jolly Roger #238→bit#429, cereal #164→bit#430, wine #104→bit#431,
+     * breath mint #395→bit#432, rubber chicken #377→bit#433, cinnamon
+     * #88→bit#434. The running total lives in g260; at 8 the cooking
+     * cutscene (global #108) fires: ego faints, "Passano giorni", the ship
+     * sails itself ({@link VARS.voyageStage} g259 → 1), and ego wakes in the
+     * galley on the next click (g32 → local #201).
+     */
+    bigPot: 158,
+    /** g260 — how many of the eight ingredients are in the pot. */
+    potCountVar: 260,
+    /** The eight pot partners and the bit each one sets (see {@link bigPot}). */
+    ingredients: [
+      [82, 427], [101, 428], [238, 429], [164, 430], [104, 431], [395, 432], [377, 433], [88, 434],
+    ],
+    /** "la pentola" (#165) — the SMALL pot, the launch helmet. Plain Pick up;
+     *  its one-object Use on deck dispatches the climb-into-the-nozzle. */
+    smallPot: 165,
+    /** "il fuoco ardente" (#161). Use the business card (#702) with it →
+     *  the card burns ("li brucerò tutti") and the flaming mass (#167) lands
+     *  in inventory — the fuse lighter. */
+    fire: 161,
+    /** "la massa infuocata" (#167) — the burning business card. */
+    flamingMass: 167,
+  },
+
+  /** Monkey Island's beach (room 20) — where the cannon launch (#107) drops
+   *  ego (x 344, y 105), Part III's opening shore. The launch strips the
+   *  voyage props (rope, powder, key, pots, recipe…) on landing. */
+  monkeyBeach: {
+    id: 20,
   },
 
   /**
