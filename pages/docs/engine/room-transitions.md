@@ -52,9 +52,16 @@ On a room change, in this exact order:
    over the freshly-decoded CLUT; and re-queue every object already in a
    non-zero, image-backed state (so a door left open stays drawn open across
    re-entry and save/restore).
-7. **Place the entering ego** (`loadRoomWithEgo` only — §3), *between* the
+7. **Resolve box + scale for every actor already placed in the room.** A
+   `putActor` into a room that isn't current can't resolve a walk box — those
+   boxes aren't loaded — so the room load is itself a placement event (see
+   [walk-boxes §"Perspective-scale recompute timing"](../scumm/walk-boxes.md)).
+   The intro is the witness: the boot script parks ego on the cliff path
+   (room 38) while the title room is still current; the path room's first
+   frame must already show him at path scale, not full-size.
+8. **Place the entering ego** (`loadRoomWithEgo` only — §3), *between* the
    resource load and the entry script.
-8. **Run the entry side, nested: the entry hook (`VAR_ENTRY_SCRIPT`), the new
+9. **Run the entry side, nested: the entry hook (`VAR_ENTRY_SCRIPT`), the new
    room's `ENCD` to its first `breakHere` (see §4), then the second entry
    hook (`VAR_ENTRY_SCRIPT2`).** MI1 boots `#5`/`#6` into the entry hooks;
    `#6` re-runs the verb-bar scripts and clears pending sentences on every
@@ -85,7 +92,7 @@ lets the new room's entry script walk it the rest of the way:
   (the object's `walkX/walkY`, *not* its image origin), shifted by any
   `drawObject … at` reposition the object has had, then clamped into the walk
   boxes (SCUMM's `adjustXYToBeInBox`). Placement happens *after* the entry
-  script's first slice has run (step 8 begins the script; the placement reads
+  script's first slice has run (step 9 begins the script; the placement reads
   the now-repositioned object), so the ego lands at the screen *edge* the entry
   object occupies — not at the object's design coordinates.
 - **The entry script walks the ego in.** Gated on `VAR_WALKTO_OBJ`, the `ENCD`

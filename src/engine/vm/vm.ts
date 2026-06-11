@@ -5,7 +5,7 @@
  */
 
 import { ActorTable, DEFAULT_ACTOR_COUNT } from '../actor/actor';
-import { startWalk, stepAllActorWalks } from '../actor/walk';
+import { rescaleActorForPosition, startWalk, stepAllActorWalks } from '../actor/walk';
 import { stepAnim } from '../graphics/costume-anim';
 import { prepareActorDraw } from '../graphics/composite';
 import { findVerbScript } from '../object/verbs';
@@ -700,6 +700,16 @@ export class Vm {
     this.currentRoom = roomId;
     this.vars.writeGlobal(VAR_ROOM_INDEX, roomId);
     this.applyRoomResources(roomId);
+
+    // Room load is itself a placement event: an actor put into this room
+    // while another was current skipped its placement rescale (these boxes
+    // weren't loaded), so resolve box + scale for everyone here before the
+    // entry scripts run. Witness: the intro's boot script parks ego on the
+    // cliff path (room 38) while room 10 is still current — without this he
+    // renders full-size on the room's first frame.
+    for (const actor of this.actors.all()) {
+      if (actor.room === roomId) rescaleActorForPosition(this, actor);
+    }
 
     const next = this.loadedRoom;
     if (next) this.runHookScript(VARS.VAR_ENTRY_SCRIPT);

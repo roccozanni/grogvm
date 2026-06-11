@@ -76,7 +76,16 @@ boxes scale to 33–75/255; probe: `scratch/store-street-scale.ts`) closed the s
 [PATHFINDING §9](pages/docs/engine/pathfinding.md). Each shifted the seeded RNG stream, so the
 duel grind's `SWORD_MASTER_NEEDED` set was re-derived (its `game.ts` comment records the
 recipe). Verified in-browser 2026-06-11: walk speed timed against the original on the store
-street — pretty similar.
+street — pretty similar. Same day, the intro's **room-38 full-size-ego flash** (user-reported:
+ego pops in top-right at scale 255, snaps down when the entry walk starts) — root cause: the
+boot script `putActor`s ego into room 38 while room 10 is still current, so the placement
+rescale has no boxes to resolve against, and nothing re-resolved at load; fix: **the room load
+is itself a placement event** — `enterRoom` resolves box + scale for every actor already in
+the arriving room, before the entry scripts (ego now enters at scale 215, box 5, from the
+first frame; headless repro: `scratch/lookout-entry-scale.ts`). Folded into
+[room-transitions §1 step 7](pages/docs/engine/room-transitions.md) and
+[walk-boxes §"Perspective-scale recompute timing"](pages/docs/scumm/walk-boxes.md); the
+in-browser look at the fixed intro is still pending.
 
 ### Open bug-report saves (reported, not yet fixed)
 

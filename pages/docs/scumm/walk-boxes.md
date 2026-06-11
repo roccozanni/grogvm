@@ -194,7 +194,13 @@ front), or a direct fixed value. The non-obvious part is
 *when* to recompute it: on **position change**, not on every tick. The
 rescale lookup runs at two moments — each walk step (while the actor is
 moving), **and every discrete placement event**: `loadRoomWithEgo`,
-`putActor`, `putActorAtObject`. The placement rescale is load-bearing: enter a far-view
+`putActor`, `putActorAtObject`, and the **room load itself** (for every
+actor already placed in the arriving room). The room-load case exists
+because a `putActor` into a room that isn't current has no boxes to resolve
+against — the intro parks ego on the cliff path (room 38) from the title
+room, and without the load-time pass he renders full-size on the path's
+first frame, snapping smaller only when the entry walk starts. The
+placement rescale is load-bearing: enter a far-view
 room (e.g. the street, 78) via `loadRoomWithEgo` and a *standing* ego would
 otherwise keep its pre-transition scale and render full-size until its
 first walk step. It is deliberately kept **off** the per-idle-tick path so

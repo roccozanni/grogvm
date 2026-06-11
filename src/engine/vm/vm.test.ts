@@ -793,7 +793,7 @@ describe('Vm — enterRoom + ENCD/EXCD', () => {
       exitScript: excd ? new Uint8Array(excd) : null,
       localScripts: new Map(),
       objects: new Map(),
-      walkBoxes: [],
+      walkBoxes: [] as LoadedRoom['walkBoxes'][number][],
       boxMatrix: [], scaleSlots: [],
     };
   }
@@ -826,6 +826,39 @@ describe('Vm — enterRoom + ENCD/EXCD', () => {
     expect(vm.loadedRoom).toBeNull();
     expect(vm.lastRoomLoadError).toMatch(/no LOFF entry/);
     expect(vm.currentRoom).toBe(0);
+  });
+
+  it('rescales actors already placed in the room when it loads (placement event)', () => {
+    // The intro's boot script parks ego on the cliff path (room 38) while
+    // room 10 is still current — the placement-time rescale no-ops there
+    // because that room's boxes aren't loaded. The room load itself must
+    // resolve box + scale for actors already in the room, or they render at
+    // their stale scale on the first frame.
+    const room = fakeRoom(7);
+    room.walkBoxes = [{
+      id: 0, ulx: 0, uly: 60, urx: 100, ury: 60, lrx: 100, lry: 90, llx: 0, lly: 90,
+      mask: 0, flags: 0, scale: 120,
+    }];
+    const vm = new Vm({
+      numVariables: 32,
+      numBitVariables: 64,
+      handlers: new Map(),
+      resolveRoom: () => room,
+    });
+    const a = vm.actors.get(1);
+    a.room = 7; a.x = 50; a.y = 70; a.scale = 255; // placed before the load
+    const pinned = vm.actors.get(2);
+    pinned.room = 7; pinned.x = 50; pinned.y = 70; pinned.scale = 128;
+    pinned.ignoreBoxes = true; // script-pinned, off the box grid
+    const elsewhere = vm.actors.get(3);
+    elsewhere.room = 9; elsewhere.x = 50; elsewhere.y = 70; elsewhere.scale = 255;
+
+    vm.enterRoom(7);
+
+    expect(a.scale).toBe(120); // resolved from the box, not left stale
+    expect(a.walkBox).toBe(0);
+    expect(pinned.scale).toBe(128); // ignoreBoxes exemption holds
+    expect(elsewhere.walkBox).toBe(-1); // other rooms untouched
   });
 
   it('starts the new room\'s ENCD as a labelled slot', () => {
