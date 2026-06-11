@@ -666,6 +666,11 @@ export class Vm {
     this.roomScroll = null;
     this.cameraDest = null;
     const prev = this.loadedRoom;
+    // SCUMM's startScene brackets the room scripts with the global hooks in
+    // VAR_ENTRY/EXIT_SCRIPT(2): exit → EXCD → exit2 leaving, entry → ENCD →
+    // entry2 arriving. MI1 boots #5/#6/#7 into them; #7 records the room
+    // being left in g101, which entry scripts branch on (Hook Isle's sides).
+    if (prev) this.runHookScript(VARS.VAR_EXIT_SCRIPT);
     if (prev?.exitScript && prev.exitScript.length > 0) {
       try {
         const excd = this.startScript({
@@ -682,6 +687,7 @@ export class Vm {
         // No free slot — silently skip. EXCD running is best-effort.
       }
     }
+    if (prev) this.runHookScript(VARS.VAR_EXIT_SCRIPT2);
 
     // SCUMM's startScene stops every room-local and object/verb script on a
     // room change (only globals survive) — after EXCD (scriptId 0, spared),
@@ -696,6 +702,7 @@ export class Vm {
     this.applyRoomResources(roomId);
 
     const next = this.loadedRoom;
+    if (next) this.runHookScript(VARS.VAR_ENTRY_SCRIPT);
     if (next?.entryScript && next.entryScript.length > 0) {
       try {
         const encd = this.startScript({
@@ -710,6 +717,20 @@ export class Vm {
       } catch {
         // No free slot — silently skip.
       }
+    }
+    if (next) this.runHookScript(VARS.VAR_ENTRY_SCRIPT2);
+  }
+
+  /** Run one of the startScene hook scripts (a global id held in `varId`),
+   *  nested; absent/unresolvable hooks are a silent no-op. */
+  private runHookScript(varId: number): void {
+    const id = this.vars.readGlobal(varId);
+    if (id <= 0) return;
+    try {
+      const s = this.startScriptById(id);
+      if (s) this.runScriptNested(s);
+    } catch {
+      // Resolver/slot trouble — the hook is best-effort, like EXCD/ENCD.
     }
   }
 
@@ -986,14 +1007,21 @@ export class Vm {
   }
 
   /**
-   * Stop room-local (id ≥ {@link LSCR_THRESHOLD}) and object/verb scripts,
-   * sparing globals and the freshly-started ENCD/EXCD (scriptId 0) —
-   * SCUMM's `startScene` behaviour on every room change.
+   * Stop room-local (id ≥ {@link LSCR_THRESHOLD}), object/verb scripts AND
+   * stale ENCD/EXCD slices, sparing globals — SCUMM's `startScene` kills
+   * everything room-scoped on a room change. A yielded previous-room ENCD
+   * left alive would resume against the NEW room's locals (room 19's ENCD
+   * starting its #205 after the intro moved on to room 7).
    */
   private stopRoomLocalScripts(): void {
     for (const s of this.slots) {
       if (s.status === 'dead') continue;
-      if (s.scriptId >= Vm.LSCR_THRESHOLD || s.label.startsWith('VERB-')) {
+      if (
+        s.scriptId >= Vm.LSCR_THRESHOLD ||
+        s.label.startsWith('VERB-') ||
+        s.label.startsWith('ENCD-') ||
+        s.label.startsWith('EXCD-')
+      ) {
         s.kill();
       }
     }
@@ -1453,6 +1481,9 @@ export class Vm {
   moveCameraTo(x: number): void {
     if (x === this.camera.x) return;
     this.camera.x = x;
+    // Scripts poll VAR_CAMERA_POS_X (escape-watchers, walk-past-camera gates),
+    // so it must track every camera move.
+    this.vars.writeGlobal(VARS.VAR_CAMERA_POS_X, x);
     this.eraseTransientSystemText();
   }
 
@@ -1470,8 +1501,12 @@ export class Vm {
   }
 
   /**
-   * Keep the followed actor inside a central dead-zone band (±80 px): small
-   * movements don't scroll, but the actor never leaves the viewport.
+   * Follow-pan arming: an actor more than 80 px off-centre arms a pan whose
+   * destination is the actor's own (clamped) X — not the dead-zone edge —
+   * latched in {@link cameraDest} until it lands, so the camera settles
+   * CENTRED and scripts gating on VAR_CAMERA_POS_X reaching the exact
+   * centred value (walk-past-camera waits) terminate. {@link stepCameraPan}
+   * does the movement at CAMERA_PAN_STEP/frame.
    */
   moveCameraFollow(): void {
     const id = this.cameraFollowActor;
@@ -1480,11 +1515,9 @@ export class Vm {
     const room = this.loadedRoom;
     if (!room || actor.room !== this.currentRoom) return;
     const DEAD = 80;
-    let x = this.camera.x;
-    if (actor.x > x + DEAD) x = actor.x - DEAD;
-    else if (actor.x < x - DEAD) x = actor.x + DEAD;
-    else return;
-    this.moveCameraTo(this.clampCameraX(x));
+    if (this.cameraDest === null && Math.abs(actor.x - this.camera.x) <= DEAD) return;
+    const target = this.clampCameraX(actor.x);
+    this.cameraDest = target === this.camera.x ? null : target;
   }
 
   /**

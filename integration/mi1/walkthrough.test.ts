@@ -67,11 +67,17 @@ import {
 import { VAR_CURRENT_LIGHTS, VAR_EGO } from '../../src/engine/vm/vars';
 import {
   boot,
+  buySeaMonkey,
+  crackSafe,
   enoughForSwordMaster,
   fightSwordMaster,
   grindOneDuel,
   hasGame,
+  mugDying,
+  mugHasGrog,
+  mugUsable,
   ROOMS,
+  townToMap,
   VARS,
   VERBS,
 } from './game';
@@ -83,6 +89,11 @@ const vm = boot();
 // every later beat is skipped, not cascaded into noise or — worse — falsely
 // passed. So a red+skipped tail localizes exactly where the game broke.
 let broken = false;
+
+// The grog carrier in play, shared by the run-to-the-jail and lock-melt
+// beats (which mug is live depends on how many pours the run needed).
+let activeMug = 0;
+let remainingMugs: number[] = [];
 const beat = (name: string, fn: (ctx: TestContext) => void | Promise<void>): void =>
   it(name, async (ctx) => {
     if (broken) return ctx.skip();
@@ -382,6 +393,11 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     use(vm, VERBS.pickUp, ROOMS.voodooShop.chicken);
     expect(waitPickedUp(vm, ROOMS.voodooShop.chicken)).toBe(true);
 
+    // The shop's entrance choreography (local #200, gated on arriving from
+    // the street — g101, the exit hook's record) closes the door behind you,
+    // so leaving is open-then-walk again.
+    use(vm, VERBS.open, ROOMS.voodooShop.door);
+    expect(driveUntil(vm, (v) => v.objectStates.get(ROOMS.voodooShop.door) === 1, { maxTicks: 8000 })).toBe(true);
     walkTo(vm, ROOMS.voodooShop.door);
     expect(driveToRoom(vm, ROOMS.meleeStreet.id, { maxTicks: 8000 })).toBe(true);
     expect(vm.haltInfo).toBeNull();
@@ -1037,6 +1053,384 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     expect(vm.haltInfo).toBeNull();
   });
 
+  beat('I · Mêlée docks → SCUMM Bar — back ashore; pocket all five pewter mugs', () => {
+    // Post-vow the molo (#905) carries ego straight up to the lookout (33,
+    // bit#453 reroute); the bar door is right there. The bar has emptied out —
+    // the cook just stands idle — and the five mugs (#362–366) are free to
+    // take, the grog carriers for Otis's lock.
+    const ego = vm.vars.readGlobal(VAR_EGO);
+    walkTo(vm, 905);
+    expect(driveToRoom(vm, ROOMS.meleeLookout.id, { maxTicks: 14000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    use(vm, VERBS.open, ROOMS.meleeLookout.barDoor);
+    walkTo(vm, ROOMS.meleeLookout.barDoor);
+    expect(driveToRoom(vm, ROOMS.scummBar.id, { maxTicks: 8000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    for (const mug of ROOMS.scummBar.mugs) {
+      use(vm, VERBS.pickUp, mug);
+      expect(waitPickedUp(vm, mug)).toBe(true);
+      expect(mugUsable(vm, mug)).toBe(true); // class 12: the barrel will fill it
+    }
+    expect(vm.getObjectOwner(ROOMS.scummBar.mugs[0]!)).toBe(ego);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat('I · SCUMM Bar kitchen — fill a mug at the grog barrel (the melt timer starts)', () => {
+    // The kitchen door is shut post-vow (no cook gate anymore): Open it, walk
+    // through. DEBT — the fill (and every grog gesture after it) commits via
+    // `pushSentence`: a mug's inventory slot sits beyond the panel's visible
+    // window with this many items carried, so the faithful slot-click can't
+    // reach it (same gap as the petal+meat combine; retire together when the
+    // testkit models inventory-panel scrolling). The committed triple is the
+    // exact doSentence the verb input would build.
+    const [mug] = ROOMS.scummBar.mugs;
+    use(vm, VERBS.open, ROOMS.scummBar.kitchenDoor);
+    walkTo(vm, ROOMS.scummBar.kitchenDoor);
+    expect(driveToRoom(vm, ROOMS.kitchen.id, { maxTicks: 8000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    expect(mugHasGrog(vm, mug!)).toBe(false);
+    vm.pushSentence({ verb: VERBS.use, objectA: mug!, objectB: ROOMS.kitchen.barrel });
+    expect(driveUntil(vm, (v) => mugHasGrog(v as typeof vm, mug!), { maxTicks: 8000 })).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat('I · SCUMM Bar → jail — race the melting mug across town, pouring as it dies', () => {
+    // The melt ladder drains fastest in the transit rooms (35: −3/tick,
+    // 34: −5), so the run is: kitchen door → bar → lookout → town street →
+    // store street → jail, decanting into a fresh mug (global #69) whenever
+    // the active one hits its dying stage (class 6). Four spares is plenty.
+    const mugs = [...ROOMS.scummBar.mugs];
+    let active = mugs.shift()!;
+    const pourIfDying = (): void => {
+      if (!mugDying(vm, active)) return;
+      const next = mugs.shift()!;
+      vm.pushSentence({ verb: VERBS.use, objectA: active, objectB: next }); // DEBT (see fill beat)
+      expect(driveUntil(vm, (v) => mugHasGrog(v as typeof vm, next), { maxTicks: 6000 })).toBe(true);
+      active = next;
+    };
+    const hop = (target: number, room: number): void => {
+      walkTo(vm, target);
+      expect(driveToRoom(vm, room, { maxTicks: 14000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      pourIfDying();
+    };
+    hop(ROOMS.kitchen.barDoor, ROOMS.scummBar.id);
+    hop(ROOMS.scummBar.exitDoor, ROOMS.meleeLookout.id);
+    hop(ROOMS.meleeLookout.townArch, ROOMS.meleeStreet.id);
+    hop(ROOMS.meleeStreet.storeArch, ROOMS.storeStreet.id);
+    hop(ROOMS.storeStreet.prison, ROOMS.prison.id);
+    // Arrived with live grog: still a mug (class 12) and still full (class 18).
+    expect(mugUsable(vm, active)).toBe(true);
+    expect(mugHasGrog(vm, active)).toBe(true);
+    activeMug = active;
+    remainingMugs = mugs;
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat('I · Mêlée jail — Otis agrees to join, then the grog melts his lock', () => {
+    const jail = ROOMS.prison;
+    // Post-vow his conversation arms the recruit pair: #123 is the news
+    // ("Hanno rapito il Governatore!"), then #123 again is the ask ("Se ti
+    // faccio uscire, ti unirai al mio equipaggio?") — the second sets
+    // bit#477, REQUIRED before the melt or #70 takes the mocking branch.
+    expect(vm.vars.readBit(jail.otisAgreedBit)).toBe(0);
+    const otis = vm.actors.get(jail.prisonerActor);
+    walkTo(vm, { x: otis.x + 30, y: otis.y });
+    waitIdle(vm);
+    use(vm, VERBS.talk, jail.prisoner);
+    expect(pickDialogAnswer(vm, jail.recruitAnswer, { armTicks: 16000 }).length).toBeGreaterThan(0);
+    expect(pickDialogAnswer(vm, jail.recruitAnswer, { armTicks: 16000 }).length).toBeGreaterThan(0);
+    expect(
+      driveUntil(vm, (v) => v.vars.readBit(jail.otisAgreedBit) === 1, { maxTicks: 8000 }),
+    ).toBe(true);
+    // Step out of the conversation (the remaining options are small talk; the
+    // goodbye is the last armed slot each menu).
+    for (let step = 0; step < 4; step++) {
+      const open = [...vm.verbs.entries()].filter(([k, s]) => k >= 120 && k <= 129 && s.state === 'on');
+      if (open.length === 0) break;
+      pickAnswer(vm, open[open.length - 1]![0]);
+      driveUntil(vm, () => ![...vm.verbs.entries()].some(([k, s]) => k >= 120 && k <= 129 && s.state === 'on'), { maxTicks: 10000 });
+    }
+    expect(waitPlayable(vm, 14000)).toBe(true);
+
+    // Pour onto the lock (#403 → #69 → #70): the rescue cutscene melts it,
+    // frees Otis (bit#76 — his crew flag) and, with bit#477 set, plays the
+    // friendly join before he heads off "to get his things".
+    if (mugDying(vm, activeMug)) {
+      const next = remainingMugs.shift()!;
+      vm.pushSentence({ verb: VERBS.use, objectA: activeMug, objectB: next }); // DEBT (see fill beat)
+      expect(driveUntil(vm, (v) => mugHasGrog(v as typeof vm, next), { maxTicks: 6000 })).toBe(true);
+      activeMug = next;
+    }
+    expect(vm.vars.readBit(jail.otisFreedBit)).toBe(0);
+    vm.pushSentence({ verb: VERBS.use, objectA: activeMug, objectB: jail.lock }); // DEBT (see fill beat)
+    expect(
+      driveUntil(vm, (v) => v.vars.readBit(jail.otisFreedBit) === 1, { maxTicks: 20000 }),
+    ).toBe(true);
+    expect(
+      driveUntil(vm, (v) => v.actors.get(jail.prisonerActor).room !== jail.id, { maxTicks: 60000 }),
+    ).toBe(true);
+    expect(waitPlayable(vm, 20000)).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat("I · Sword Master's clearing — Carla joins on hearing the news (bit#89)", () => {
+    // Jail → store street → town street, west arch (the post-vow reroute can
+    // land either at the lookout or back on the docks — both reach the cliff
+    // path), up to the map, and out to her clearing.
+    walkTo(vm, ROOMS.prison.entrance);
+    expect(driveToRoom(vm, ROOMS.storeStreet.id, { maxTicks: 14000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    walkTo(vm, ROOMS.storeStreet.townArch);
+    expect(driveToRoom(vm, ROOMS.meleeStreet.id, { maxTicks: 14000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    townToMap(vm);
+    expect(vm.currentRoom).toBe(ROOMS.meleeMap.id);
+    walkTo(vm, ROOMS.meleeMap.swordMaster);
+    expect(driveToRoom(vm, ROOMS.swordMaster.id, { maxTicks: 14000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+
+    expect(vm.vars.readBit(ROOMS.swordMaster.recruitedBit)).toBe(0);
+    use(vm, VERBS.talk, ROOMS.swordMaster.master);
+    expect(
+      pickDialogAnswer(vm, ROOMS.swordMaster.recruitAnswer, { armTicks: 16000 }).length,
+    ).toBeGreaterThan(0);
+    // Her reaction plays through the close-up (44) and back; the flag is the
+    // mechanic, the room the proof control returned.
+    expect(
+      driveUntil(vm, (v) => v.vars.readBit(ROOMS.swordMaster.recruitedBit) === 1, { maxTicks: 30000 }),
+    ).toBe(true);
+    expect(driveUntil(vm, (v) => v.currentRoom === ROOMS.swordMaster.id, { maxTicks: 30000 })).toBe(true);
+    expect(waitPlayable(vm, 20000)).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat('I · Hook Isle — zipline across on the rubber chicken, into Meathook\'s house', () => {
+    const isle = ROOMS.hookIsle;
+    const ego = () => vm.actors.get(vm.vars.readGlobal(VAR_EGO));
+    walkTo(vm, ROOMS.swordMaster.path);
+    expect(driveToRoom(vm, ROOMS.meleeMap.id, { maxTicks: 12000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    walkTo(vm, ROOMS.meleeMap.beach);
+    expect(driveToRoom(vm, isle.id, { maxTicks: 14000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+
+    // Climb the ladder tower to its platform (box 7), hook the chicken over
+    // the cable (#203 glides ego across to the house pole top, box 10), then
+    // the front door — touchable only on this side — into the house.
+    walkTo(vm, isle.tower);
+    expect(driveUntil(vm, () => ego().walkBox === isle.towerTopBox, { maxTicks: 8000 })).toBe(true);
+    vm.pushSentence({ verb: VERBS.use, objectA: ROOMS.voodooShop.chicken, objectB: isle.cableFromTower }); // DEBT (see fill beat)
+    expect(driveUntil(vm, () => ego().walkBox === isle.houseTopBox, { maxTicks: 8000 })).toBe(true);
+    expect(waitPlayable(vm, 10000)).toBe(true);
+    // The chicken survives the trip (it's a pulley, not a fare).
+    expect(vm.getObjectOwner(ROOMS.voodooShop.chicken)).toBe(vm.vars.readGlobal(VAR_EGO));
+    use(vm, VERBS.open, isle.door);
+    expect(driveUntil(vm, (v) => v.objectStates.get(isle.door) === 1, { maxTicks: 8000 })).toBe(true);
+    walkTo(vm, isle.door);
+    expect(driveToRoom(vm, ROOMS.meathookHouse.id, { maxTicks: 8000 })).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat("I · Meathook's house — the news, the dare, the beast: Meathook joins (bit#88)", () => {
+    const house = ROOMS.meathookHouse;
+    // Walking in fires his accost by itself. The news (120), then the crew
+    // idea (122) → he questions our bravery and the dare tour (#201) walks us
+    // through the trophy doors to the little door.
+    expect(pickDialogAnswer(vm, house.answers.kidnapped, { armTicks: 20000 }).length).toBeGreaterThan(0);
+    expect(pickDialogAnswer(vm, house.answers.crewIdea, { armTicks: 20000 }).length).toBeGreaterThan(0);
+    const tourRunning = (v: typeof vm) =>
+      v.slots.some((s) => s.status !== 'dead' && s.scriptId === house.tourScript);
+    expect(driveUntil(vm, tourRunning, { maxTicks: 30000 })).toBe(true);
+    const doorTouchable = (v: typeof vm) =>
+      (((v.objectClasses.get(house.littleDoor) ?? 0) >>> 31) & 1) === 0;
+    expect(
+      driveUntil(vm, (v) => v.cutsceneStack.length === 0 && doorTouchable(v), { maxTicks: 120000 }),
+    ).toBe(true);
+
+    // Open the little door → the beast bursts out shrieking (#49 sets
+    // bit#323, clears the door's class 6 and renames it the winged devil)…
+    expect(vm.vars.readBit(house.beastOutBit)).toBe(0);
+    use(vm, VERBS.open, house.littleDoor);
+    expect(driveUntil(vm, (v) => v.vars.readBit(house.beastOutBit) === 1, { maxTicks: 30000 })).toBe(true);
+    const class6 = (v: typeof vm) => (((v.objectClasses.get(house.littleDoor) ?? 0) >> 5) & 1) === 1;
+    expect(driveUntil(vm, (v) => !class6(v), { maxTicks: 60000 })).toBe(true);
+    expect(waitPlayable(vm, 30000)).toBe(true);
+
+    // …then touch it: "Usa" has no entry on #478, so the engine falls back to
+    // its 255 default — the payoff cutscene (#205). Meathook signs on
+    // (bit#88) and the scene walks ego back outside.
+    use(vm, VERBS.use, house.littleDoor);
+    expect(driveUntil(vm, (v) => v.vars.readBit(house.recruitedBit) === 1, { maxTicks: 120000 })).toBe(true);
+    expect(driveToRoom(vm, ROOMS.hookIsle.id, { maxTicks: 30000 })).toBe(true);
+    expect(waitPlayable(vm, 20000)).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat('I · Hook Isle — zipline back and return to the Mêlée map', () => {
+    const isle = ROOMS.hookIsle;
+    const ego = () => vm.actors.get(vm.vars.readGlobal(VAR_EGO));
+    // The mirror trip: house pole up (box 10), chicken on the cable back to
+    // the tower (box 7), climb down, and the path — touchable again on this
+    // side — up to the map.
+    walkTo(vm, isle.housePole);
+    expect(driveUntil(vm, () => ego().walkBox === isle.houseTopBox, { maxTicks: 8000 })).toBe(true);
+    vm.pushSentence({ verb: VERBS.use, objectA: ROOMS.voodooShop.chicken, objectB: isle.cableFromHouse }); // DEBT (see fill beat)
+    expect(driveUntil(vm, () => ego().walkBox === isle.towerTopBox, { maxTicks: 8000 })).toBe(true);
+    expect(waitPlayable(vm, 10000)).toBe(true);
+    walkTo(vm, isle.tower);
+    driveUntil(vm, () => ego().walkBox !== isle.towerTopBox, { maxTicks: 8000 });
+    expect(waitPlayable(vm, 10000)).toBe(true);
+    walkTo(vm, isle.path);
+    expect(driveToRoom(vm, ROOMS.meleeMap.id, { maxTicks: 12000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat("I · Stan's — the cheapest ship, the credit question, and the famous exit", () => {
+    const stan = ROOMS.stan;
+    const ego = vm.vars.readGlobal(VAR_EGO);
+    walkTo(vm, ROOMS.meleeMap.lights);
+    expect(driveToRoom(vm, stan.id, { maxTicks: 14000 })).toBe(true);
+    // Stan accosts on arrival; ask for the cheap one (the Sea Monkey pitch),
+    // try credit — he points at the storekeeper in town — then back out and
+    // leave. His farewell hands over the business card + compass and walks
+    // ego off the lot itself (loadRoomWithEgo → the map).
+    expect(pickDialogAnswer(vm, stan.answers.cheapest, { armTicks: 30000 }).length).toBeGreaterThan(0);
+    expect(pickDialogAnswer(vm, stan.answers.onCredit, { armTicks: 24000 }).length).toBeGreaterThan(0);
+    expect(pickDialogAnswer(vm, stan.answers.backOut, { armTicks: 24000 }).length).toBeGreaterThan(0);
+    expect(pickDialogAnswer(vm, stan.answers.thinkItOver, { armTicks: 24000 }).length).toBeGreaterThan(0);
+    expect(driveToRoom(vm, ROOMS.meleeMap.id, { maxTicks: 40000 })).toBe(true);
+    expect(waitPlayable(vm, 14000)).toBe(true);
+    expect(vm.getObjectOwner(stan.businessCard)).toBe(ego);
+    expect(vm.getObjectOwner(stan.compass)).toBe(ego);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat('I · General store — the credit interview: watch the keeper dial the safe', () => {
+    const store = ROOMS.store;
+    // Map → the village node (the docks now) → lookout → the two arches → the
+    // store. Then the interview: ask for the note (armed only after Stan's
+    // referral), claim a job, name it — he dials the safe to fetch the note
+    // while we "watch" (the combination digits live in g221..g224; random per
+    // game, so the cracking beat reads them from the vars).
+    walkTo(vm, ROOMS.meleeMap.village);
+    expect(
+      driveUntil(
+        vm,
+        (v) => v.currentRoom === ROOMS.meleeLookout.id || v.currentRoom === ROOMS.docks.id,
+        { maxTicks: 14000 },
+      ),
+    ).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    if (vm.currentRoom === ROOMS.docks.id) {
+      walkTo(vm, 905); // il molo climbs to the lookout post-vow
+      expect(driveToRoom(vm, ROOMS.meleeLookout.id, { maxTicks: 14000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+    }
+    walkTo(vm, ROOMS.meleeLookout.townArch);
+    expect(driveToRoom(vm, ROOMS.meleeStreet.id, { maxTicks: 14000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    walkTo(vm, ROOMS.meleeStreet.storeArch);
+    expect(driveToRoom(vm, ROOMS.storeStreet.id, { maxTicks: 14000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    use(vm, VERBS.open, ROOMS.storeStreet.storeDoor);
+    walkTo(vm, ROOMS.storeStreet.storeDoor);
+    expect(driveToRoom(vm, store.id, { maxTicks: 14000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+
+    use(vm, VERBS.push, store.bell);
+    use(vm, VERBS.talk, store.shopkeeper);
+    expect(pickDialogAnswer(vm, store.creditAnswers.askNote, { armTicks: 20000 }).length).toBeGreaterThan(0);
+    expect(pickDialogAnswer(vm, store.creditAnswers.haveJob, { armTicks: 20000 }).length).toBeGreaterThan(0);
+    // The dial: the safe's state flips open while he checks the note.
+    expect(
+      driveUntil(vm, (v) => v.objectStates.get(store.safe) === 1, { maxTicks: 40000 }),
+    ).toBe(true);
+    expect(pickDialogAnswer(vm, store.creditAnswers.jobAtStans, { armTicks: 30000 }).length).toBeGreaterThan(0);
+    // The combination exists and is in range (1..4 per digit).
+    for (let i = 0; i < 4; i++) {
+      const digit = vm.vars.readGlobal(store.comboVar + i);
+      expect(digit).toBeGreaterThanOrEqual(1);
+      expect(digit).toBeLessThanOrEqual(4);
+    }
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat('I · General store — send him after the Sword Master; crack the safe for the note', () => {
+    const store = ROOMS.store;
+    const ego = vm.vars.readGlobal(VAR_EGO);
+    // The errand empties the store (the cracking window — he does come back).
+    expect(
+      pickDialogAnswer(vm, store.creditAnswers.fetchSwordMaster, { armTicks: 30000 }).length,
+    ).toBeGreaterThan(0);
+    expect(
+      driveUntil(vm, (v) => v.actors.get(store.keeperActor).room !== store.id, { maxTicks: 40000 }),
+    ).toBe(true);
+    expect(waitPlayable(vm, 20000)).toBe(true);
+    // DEBT — the handle moves commit via `pushSentence` (the keeper's own dial
+    // leaves the handle's drawn state hover-resolving under the safe body
+    // headlessly; flagged in PROGRESS for an in-browser hit-test check).
+    expect(vm.getObjectOwner(store.creditNote)).not.toBe(ego);
+    expect(crackSafe(vm)).toBe(true);
+    expect(vm.getObjectOwner(store.creditNote)).toBe(ego);
+    expect(waitPlayable(vm, 20000)).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat("I · Stan's — the note closes it: walk-away ×3, ladder to 5000, the Sea Monkey is ours", () => {
+    const stan = ROOMS.stan;
+    // Back across town to the lot, note in hand.
+    use(vm, VERBS.open, ROOMS.store.door);
+    walkTo(vm, ROOMS.store.door);
+    expect(driveToRoom(vm, ROOMS.storeStreet.id, { maxTicks: 14000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    walkTo(vm, ROOMS.storeStreet.townArch);
+    expect(driveToRoom(vm, ROOMS.meleeStreet.id, { maxTicks: 14000 })).toBe(true);
+    expect(waitPlayable(vm)).toBe(true);
+    townToMap(vm);
+    expect(vm.currentRoom).toBe(ROOMS.meleeMap.id);
+    walkTo(vm, ROOMS.meleeMap.lights);
+    expect(driveToRoom(vm, stan.id, { maxTicks: 14000 })).toBe(true);
+
+    // Re-open the cheap-ship pitch, then drive the deal machine: the credit
+    // note opens the deal menu, three walk-away threats grind the price 8000
+    // → 6400, the rising-offer ladder takes it to 4900, and the insisted 5000
+    // clears it — bit#51, the Sea Monkey is ours. Control returns with ego on
+    // the deck; the lot path leads back to the map.
+    expect(vm.vars.readBit(stan.shipBoughtBit)).toBe(0);
+    expect(pickDialogAnswer(vm, stan.answers.cheapest, { armTicks: 30000 }).length).toBeGreaterThan(0);
+    expect(buySeaMonkey(vm)).toBe(true);
+    expect(vm.vars.readBit(stan.shipBoughtBit)).toBe(1);
+    expect(waitPlayable(vm, 30000)).toBe(true);
+    walkTo(vm, stan.path);
+    expect(driveToRoom(vm, ROOMS.meleeMap.id, { maxTicks: 20000 })).toBe(true);
+    expect(waitPlayable(vm, 14000)).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
+  beat('I → II · Mêlée docks — the crew boards the Sea Monkey; Part II opens aboard', () => {
+    // Ship + three crew flags set: the village node lands at the docks, where
+    // the crew is waiting (ENCD → the dock scene). Each member greets ego
+    // with a small don't-care menu; answering through them rolls straight
+    // into the departure — rooms 97 → 87 → the below-decks chat (19) — and
+    // control comes back in the Sea Monkey's cabin (room 7). Part II.
+    walkTo(vm, ROOMS.meleeMap.village);
+    expect(driveToRoom(vm, ROOMS.docks.id, { maxTicks: 14000 })).toBe(true);
+    const answers = () =>
+      [...vm.verbs.entries()].filter(([k, v]) => k >= 120 && k <= 129 && v.state === 'on');
+    for (let step = 0; step < 10 && vm.currentRoom === ROOMS.docks.id; step++) {
+      if (!driveUntil(vm, () => answers().length > 0 || vm.currentRoom !== ROOMS.docks.id, { maxTicks: 20000 })) break;
+      if (vm.currentRoom !== ROOMS.docks.id) break;
+      const k = answers()[0]![0];
+      pickAnswer(vm, k);
+      driveUntil(vm, () => !answers().some(([j]) => j === k) || vm.currentRoom !== ROOMS.docks.id, { maxTicks: 20000 });
+    }
+    expect(driveToRoom(vm, ROOMS.docks.seaMonkeyCabin, { maxTicks: 60000 })).toBe(true);
+    expect(waitPlayable(vm, 30000)).toBe(true);
+    expect(vm.haltInfo).toBeNull();
+  });
+
   // ALWAYS THE LAST BEAT: snapshot the furthest clean playable state to a save so
   // the NEXT frontier's beats can be developed by fast-forwarding here
   // (restoreSave) instead of re-driving from boot — the regression net itself
@@ -1048,10 +1442,13 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       'saves/MI1-walkthrough-frontier.websave.json',
       JSON.stringify(snapshotVm(vm, { game: 'MI1', label: 'walkthrough-frontier' })),
     );
-    // Furthest clean point so far: surfaced on the Mêlée docks (room 83), the
-    // rescue vowed (bit#304) — all three trials done, the Governor kidnapped,
-    // and the quest for a crew + ship begun. Part I's setup is complete.
-    expect(vm.currentRoom).toBe(ROOMS.docks.id);
-    expect(vm.vars.readBit(ROOMS.docks.questDeclaredBit)).toBe(1);
+    // Furthest clean point so far: aboard the Sea Monkey in the captain's
+    // cabin (room 7), the crew recruited (Otis bit#76, Meathook bit#88, Carla
+    // bit#89), the ship bought (bit#51) — Part I complete, Part II begun.
+    expect(vm.currentRoom).toBe(ROOMS.docks.seaMonkeyCabin);
+    expect(vm.vars.readBit(ROOMS.stan.shipBoughtBit)).toBe(1);
+    expect(vm.vars.readBit(ROOMS.prison.otisFreedBit)).toBe(1);
+    expect(vm.vars.readBit(ROOMS.meathookHouse.recruitedBit)).toBe(1);
+    expect(vm.vars.readBit(ROOMS.swordMaster.recruitedBit)).toBe(1);
   });
 });

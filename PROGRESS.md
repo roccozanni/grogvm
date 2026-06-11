@@ -17,9 +17,9 @@ Lean tracker. Two buckets:
 Playing MI1 from boot and fixing each blocker engine-faithfully (committed on
 `main`). **Unit suite green + tsc clean**, plus a data-gated, from-boot
 integration playthrough (`npm run test:integration`). **All of Part I now plays
-end-to-end from boot** — intro, the three trials (insult-swordfighting, the
-buried treasure, and the idol theft), then the Sheriff's catch, the underwater
-escape, and the docks vow that opens Part II (see Frontier below).
+end-to-end from boot — through the three trials, the idol theft, the docks vow,
+recruiting the crew (Otis, Carla, Meathook), buying the Sea Monkey from Stan,
+and boarding: Part II opens aboard the ship** (see Frontier below).
 
 **Working principle (agreed 2026-06-02):** no hacks/shortcuts — every change is
 the final, SCUMM-faithful solution. Confirm the real mechanism first (disassemble
@@ -41,20 +41,44 @@ action waits on `waitReady`, then asserts via named condition-waiters (`waitPick
 the *printing-sentence-blocks-the-next* finding → [INPUT §5](pages/docs/scumm/input.md).
 A clean fast-forward save (`saves/MI1-walkthrough-frontier.websave.json`, gitignored,
 written by the ALWAYS-LAST `frontier` beat and regenerated each green run) sits at the furthest
-clean state — currently the Mêlée docks (room 83), surfaced from the sea with the rescue vowed (bit#304).
+clean state — currently aboard the Sea Monkey in the captain's cabin (room 7), crew + ship
+secured, Part II just begun.
 
-**Frontier: Part I is COMPLETE — all three trials done (sword + treasure + idol), the Governor
-kidnapped, and Guybrush has vowed to get a crew + ship to rescue her (bit#304). The whole from-boot
-net is green.** The clean fast-forward save sits on the Mêlée docks (room 83), quest vowed. The full
-Part-I arc (dogs → mansion gauntlet → Otis's cake/file → grab the idol → Sheriff catch → the sea →
-recover the idol → auto-escape → the docks vow) is in the net; routes + mechanics live in the
-walkthrough beats and `game.ts` helpers, not here.
+**Frontier: Part I is FINISHED and Part II has begun — the crew is recruited (Otis bit#76,
+Carla bit#89, Meathook bit#88), the Sea Monkey bought (bit#51), and the boarding/departure plays
+through to the captain's cabin (room 7), playable, all from boot.** The clean fast-forward save now
+sits aboard the Sea Monkey. The crew/ship arc added 2026-06-10: grog mugs → Otis's lock-melt, the
+Carla and Meathook recruits (Hook Isle zipline both ways), Stan's credit referral, the store
+credit-interview + Sword-Master errand + safe-crack (the 4-digit combination lives in g221..g224 —
+random per game, the beats read it from the vars), the walk-away/offer-ladder haggle to 5000, and
+the dock boarding. Routes + mechanics live in the walkthrough beats and `game.ts`
+(`crackSafe`/`buySeaMonkey`/`townToMap` helpers), not here.
 
-> **NEXT SESSION — start Part II.** Guybrush needs a *ship* (Stan's used vessels) and a *crew*.
-> Restore the frontier save to land on the docks, then extend the net beat by beat from boot the same
-> way (one seeded VM; develop each beat by fast-forwarding the frontier save, then fold it in). First
-> scouting step: from the docks, find the route to Stan's ship-yard and the crew (the Voodoo Lady /
-> the SCUMM Bar pirates) — disassemble first, drive headless, assert mechanics not strings.
+> **NEXT SESSION — Part II proper (The Journey).** Aboard the Sea Monkey: the cabin (room 7), the
+> hold/galley below decks, the voyage to Monkey Island (the navigation recipe). Restore the frontier
+> save to start in the cabin; same loop — disassemble first, drive headless, assert mechanics.
+
+**Lab notes 2026-06-10 (crew & ship session) — engine fixes shipped with unit tests:**
+- **VAR_CAMERA_POS_X (g2) was never written.** Scripts poll it constantly (escape-watchers,
+  walk-past-camera gates — Meathook's payoff #205 loops on `meathookX < g2 − 175`). Fixed:
+  `moveCameraTo` mirrors every camera move into g2.
+- **Camera-follow destination was the dead-zone edge, not the actor.** SCUMM v5's follow pans TO the
+  actor's (clamped) x at 8 px/frame once it leaves the ±80 band, latched until it lands — Stan's #56
+  waits for `g2 == 160` exactly with ego at x=94 (clamp floor). Fixed: `moveCameraFollow` arms
+  `cameraDest` (so `wait forCamera` covers follow-pans too) and the pan stepper does the moving.
+- **Stale ENCD/EXCD slices survived room changes.** A yielded previous-room ENCD resumed against the
+  NEW room's locals (room 19's ENCD starting its #205 after the Part-II intro moved on to room 7 →
+  halt). Fixed: `stopRoomLocalScripts` also kills `ENCD-`/`EXCD-` labelled slots — SCUMM's startScene
+  kills everything room-scoped.
+- **VAR_ENTRY/EXIT_SCRIPT hooks were never run.** MI1 boots #5/#6/#7 into g28/g29/g30; SCUMM brackets
+  every room change with them (exit → EXCD → exit2, entry → ENCD → entry2). #7 records the
+  left-room in g101 — entry scripts branch on it (Hook Isle's side-touchability, the Voodoo Lady's
+  entrance choreography which now correctly closes the door behind you). Wired into `enterRoom`
+  (`runHookScript`); #6 also re-runs the verb-bar scripts and clears pending sentences per entry.
+- **Open question (in-browser check):** after the storekeeper dials the safe, the handle (#390)
+  no longer hover-resolves headlessly (every point in its hit-box resolves the safe #389), so the
+  cracking beats commit handle moves via `pushSentence`. Possibly a compositing/hit-test divergence
+  in how the dialed handle's state image is drawn — verify against real pixels in the browser.
 
 **Testkit debt — `pushSentence` shortcuts (flagged at each call site).** A few beats commit a
 sentence directly because the faithful click flow can't drive the gesture headlessly. Re-assessed
@@ -68,9 +92,17 @@ sentence directly because the faithful click flow can't drive the gesture headle
   whose actors ARE reachable by the actor-give path — `give()` drives those for real.)
 - **One-object verb on a carried item** (Otis beat: Open the cake) — no kit gesture for arming a verb
   and clicking an inventory slot to commit a one-object sentence.
+- **Inventory slot beyond the visible panel window** (added 2026-06-10: the grog fill/pours/lock-melt,
+  the chicken-on-cable ziplines) — with a dozen-plus items carried the mug/chicken slot ids land
+  outside the panel's slot-verb range, so the slot click misroutes (`verb:211` garbage observed);
+  needs panel scrolling modelled.
+- **Safe-handle moves after the keeper's dial** (store beats) — the dialed handle no longer
+  hover-resolves headlessly (every box point resolves the safe body); possible hit-test/compositing
+  divergence, flagged for an in-browser check in the lab notes above.
 Each `pushSentence` is the exact `doSentence` the verb input would build, so the engine path under
 test is identical. Retire them by teaching the testkit: two-inventory object B, a give committed onto
-an actor-object, and a one-object inventory-slot verb. (Backlog item under Input / UI below.)
+an actor-object, a one-object inventory-slot verb, and panel scrolling. (Backlog item under Input / UI
+below.)
 
 ### Open bug-report saves (reported, not yet fixed)
 

@@ -12,8 +12,10 @@ import {
   makeSeededRandom,
   pickAnswer,
   use,
+  waitPlayable,
   walkTo,
 } from '../../src/testkit/scummv5';
+import { VAR_EGO } from '../../src/engine/vm/vars';
 import type { Vm } from '../../src/engine/vm/vm';
 
 /** The build we run the playthrough against (IT — also carries the saves). */
@@ -162,6 +164,8 @@ export const VERBS = {
   give: 4,
   /** "Premi" / Push — e.g. ring the general-store bell. */
   push: 5,
+  /** "Tira" / Pull — the safe handle's other direction. */
+  pull: 6,
   /** "Usa" / Use — two-object (Use X with Y), e.g. the shovel on the dig X. */
   use: 7,
 } as const;
@@ -242,6 +246,12 @@ export const ROOMS = {
      * duel once the readiness gate (`g282 > 3`) is clear.
      */
     swordMaster: 918,
+    /** "la spiaggia" (#910) — Hook Isle's beach (#909 "l'isola" defers to it);
+     *  its verb-11 lands ego on Meathook's island ({@link hookIsle}, room 48). */
+    beach: 910,
+    /** "le luci" (#915) — the lights of Stan's Previously Owned Vessels; its
+     *  verb-11 is a straight `loadRoomWithEgo room=59` ({@link stan}). */
+    lights: 915,
   },
 
   /** The clearing (room 52) — the Fettucini circus camp. */
@@ -294,6 +304,14 @@ export const ROOMS = {
   /** The SCUMM Bar interior (entered through the lookout's bar door). */
   scummBar: {
     id: 28,
+    /**
+     * The five pewter mugs ("la tazza", #362–366) on the bar tables. Pick up
+     * (verb 9 → global #183) pockets each. Post-vow they're the grog carriers
+     * for Otis's lock: class 12 = a usable mug (the barrel only fills class-12
+     * partners), class 18 = currently holds grog. See {@link ROOMS.kitchen}'s
+     * `barrel` for the fill and the melt ladder.
+     */
+    mugs: [362, 363, 364, 365, 366],
     /**
      * The LOOM-ad salesman pirate. "Parla" (talk to, verb 10) — also his
      * default verb (g182) — runs his verb script, which starts the
@@ -371,6 +389,19 @@ export const ROOMS = {
     /** Kitchen-side door back to the SCUMM Bar (28); Walk-to runs its
      *  `loadRoomWithEgo` 28. No cook gating on this side. */
     barDoor: 570,
+    /**
+     * "il barile" (#569) — the grog barrel. Use a mug with it (its verb-7
+     * gates on the partner being class 12 and on the melt timer #68 not
+     * already running) → local #215 fills the mug: class 18 set ("has grog")
+     * and global #68 starts the MELT LADDER — class 19 ("si scioglie"), then
+     * a g233 countdown that drains FASTER in transit rooms (33: −2/tick,
+     * 35: −3, 34: −5, elsewhere −1), then class 6 ("in fin di vita"), then
+     * class 12 cleared (a useless pewter wad) and the mug is destroyed.
+     * Pour mug-to-mug (use grog mug with a fresh one → global #69) restarts
+     * the ladder in the target; pour onto Otis's lock (#69 routes cell ids →
+     * #70) while classes 12+18 still hold.
+     */
+    barrel: 569,
   },
 
   /** The LOOM-ad pirate close-up (reached by talking to {@link ROOMS.scummBar}'s
@@ -525,6 +556,50 @@ export const ROOMS = {
     /** "la porta" (#387) → back out to the street (room 34); Open (verb 2)
      *  then click to walk through. */
     door: 387,
+    /** The shopkeeper — ACTOR 11 (object {@link shopkeeper} is his talk
+     *  target). His presence in room 30 is the safe's guard: handle moves
+     *  while he's in get a scolding instead of registering. */
+    keeperActor: 11,
+    /** "la cassaforte" (#389) — its state flips to 1 (open) while the keeper
+     *  dials it during the credit interview, and when the player cracks it. */
+    safe: 389,
+    /**
+     * "la maniglia" (#390) — the safe handle. Push (verb 5) / Pull (verb 6)
+     * feed local #202, the combination matcher: moves group by direction;
+     * each direction CHANGE closes a group whose size must equal the next
+     * combination digit. The combination is FOUR digits in g221..g224
+     * (generated once, 1–4 each, by local #205 on the first store entry —
+     * random per game, so read it from the vars, never hardcode). Entry
+     * state: g226 = groups consumed, g227 = current group count, g228 = last
+     * direction (0 pull / 1 push — the FIRST group must continue whatever
+     * g228 holds), bit#73 = still-correct flag. On the final matching move
+     * the safe opens and the first open hands over {@link creditNote}.
+     */
+    handle: 390,
+    /** First of the four combination digit globals (g221..g224). */
+    comboVar: 221,
+    /** g226/g227/g228 — the matcher's live state (see {@link handle}). */
+    comboPosVar: 226,
+    comboCountVar: 227,
+    comboDirVar: 228,
+    /** "il biglietto del negoziante" (#397) — the note of credit, picked up
+     *  automatically on the first player open of the safe. */
+    creditNote: 397,
+    /**
+     * The credit interview + errand (conversation #211, after Stan's
+     * referral). Slot ids as armed at this stage of the tree (sword/shovel/
+     * mint long bought): top menu has the Sword-Master line at 122 and the
+     * credit ask at 123; the job question answers "Certo che sì!" at 120;
+     * the job-detail menu has "Pulisco le navi al concessionario Stan." at
+     * 123. Asking the keeper to fetch the Sword Master (122) sends him out —
+     * the safe-cracking window.
+     */
+    creditAnswers: {
+      askNote: 123,
+      haveJob: 120,
+      jobAtStans: 123,
+      fetchSwordMaster: 122,
+    },
   },
 
   /**
@@ -653,6 +728,15 @@ export const ROOMS = {
     /** `bit#304` — set when the rescue is vowed (#123); the Part-I-into-II
      *  quest flag (also read by other rooms' ENCD, e.g. the jail). */
     questDeclaredBit: 304,
+    /**
+     * Boarding: with the ship bought ({@link ROOMS.stan}'s `shipBoughtBit`)
+     * and the crew flags set, arriving at the docks runs the crew-at-the-dock
+     * scene (ENCD → local #200): each crew member greets ego with a small
+     * don't-care menu, then the departure plays through rooms 97 → 87 → the
+     * below-decks chat (19) and hands control back aboard the Sea Monkey —
+     * the captain's cabin ({@link seaMonkeyCabin}), Part II begun.
+     */
+    seaMonkeyCabin: 7,
   },
 
   /**
@@ -692,6 +776,28 @@ export const ROOMS = {
      *  file (the verb-2 `actorSetClass` clears class 6 and sets class 3).
      *  Asserted instead of the localized "la lima" rename. */
     cakeIsFileClassBit: 2,
+    /**
+     * "la serratura" (#403) — the lock on Otis's cell. Using a grog mug on it
+     * routes (via the mug's verb-7 → #69 → #70 [mug, 401]) into the lock-melt
+     * cutscene: the lock dissolves, Otis is freed, and — with {@link
+     * otisAgreedBit} already set — local #208 plays the friendly join
+     * (otherwise he just bolts mocking you).
+     */
+    lock: 403,
+    /**
+     * Otis's POST-VOW conversation (#405's talk, with bit#304 set): answer
+     * #123 twice — first "Hanno rapito il Governatore!" (the news), then
+     * "Se ti faccio uscire, ti unirai al mio equipaggio?" — the second pick
+     * sets {@link otisAgreedBit}.
+     */
+    recruitAnswer: 123,
+    /** bit#477 — Otis agreed to join (the second #123 pick above). Must be
+     *  set BEFORE the lock melts for the friendly-join branch of #70. */
+    otisAgreedBit: 477,
+    /** bit#76 — the cell lock melted / Otis freed (#70 sets it at the top of
+     *  the rescue). One of the three crew flags the island scripts OR
+     *  together (with bit#88 Meathook and bit#89 Carla). */
+    otisFreedBit: 76,
   },
 
   /**
@@ -799,6 +905,141 @@ export const ROOMS = {
     /** bit#20 — set once Carla has been fought (#116 gates on it being clear).
      *  Beating her sets it; the trial is complete on the win. */
     foughtBit: 20,
+    /**
+     * Post-vow recruit: talk to her (#744) and answer #122 ("Hanno RAPITO il
+     * Governatore!"). Her reaction plays through the close-up (room 44) and
+     * sets {@link recruitedBit}; control returns in her clearing (61).
+     */
+    recruitAnswer: 122,
+    /** bit#89 — Carla recruited (one of the three crew flags). */
+    recruitedBit: 89,
+  },
+
+  /**
+   * Hook Isle (room 48) — Meathook's island, reached from the map's beach
+   * node ({@link meleeMap}'s `beach`, #910). His house sits across a chasm
+   * spanned by a cable between two poles; the rubber chicken ({@link
+   * ROOMS.voodooShop}'s `chicken`, #377) is the zipline grip. Local #203
+   * branches on ego's walkbox — tower top (box 7) ziplines across to the
+   * house pole top (box 10) and vice versa — and locals #201/#202 swap which
+   * side's objects are touchable (class 32) after each crossing.
+   */
+  hookIsle: {
+    id: 48,
+    /** "il palo" (#601) — the LADDER TOWER on the path side. A bare click
+     *  climbs ego to its platform, walkbox 7 (its verb branches on box 7:
+     *  local #204 climbs up, #205 climbs down). */
+    tower: 601,
+    /** Walkbox of the tower platform — the zipline's near end. */
+    towerTopBox: 7,
+    /** "il palo" (#600) — the pole by the house; box 10 at its top is the
+     *  zipline's far end, and a bare click there climbs back up. */
+    housePole: 600,
+    /** Walkbox at the house-pole top — the zipline landing. */
+    houseTopBox: 10,
+    /** "il cavo" segments (#603–606). Use the chicken with one: from box 7
+     *  #605 is the touchable segment, from box 10 it's #603 — either runs the
+     *  crossing (#203). The chicken is NOT consumed. */
+    cableFromTower: 605,
+    cableFromHouse: 603,
+    /** "la porta" (#598) — Meathook's front door; touchable only on the house
+     *  side (local #201 clears its class 32 after the crossing). Open, then
+     *  walk through → the house ({@link meathookHouse}, room 37). */
+    door: 598,
+    /** "il sentiero" (#599) — back to the Mêlée map; touchable only on the
+     *  path side. */
+    path: 599,
+  },
+
+  /**
+   * Meathook's house (room 37). Walking in fires his accost (#60, started by
+   * the room's ENCD via local #203) — no Talk click needed. The recruit:
+   * answer the news, propose getting a crew, and he challenges your bravery —
+   * the tour cutscene (local #201) leads to the little door, "aprire quella
+   * porticina ^e toccare la bestia".
+   */
+  meathookHouse: {
+    id: 37,
+    /**
+     * "la porta" (#478) — the little door, later renamed to the winged-devil
+     * object. Open it (verb 2, class 6 set → global #49): the bird pops out
+     * shrieking, #49 then CLEARS class 6 and renames it. Touch the beast =
+     * any verb without its own entry on #478 (e.g. "Usa"; the game's own
+     * hover default is the joke verb 18 "Palpa") → falls back to the 255
+     * entry → local #205, the payoff: Meathook joins ({@link recruitedBit}),
+     * and the cutscene walks ego back outside.
+     */
+    littleDoor: 478,
+    answers: {
+      /** Accost menu 1: "Il Governatore è stato RAPITO!" — the news. */
+      kidnapped: 120,
+      /** Menu 2 (what do we do): "Potremmo mettere insieme un equipaggio ed
+       *  inseguirli." — the crew idea; Meathook then runs the dare tour. */
+      crewIdea: 122,
+    },
+    /** Room-local #201 — the dare tour cutscene (he opens the trophy doors up
+     *  to the porticina). Its end makes {@link littleDoor} touchable. */
+    tourScript: 201,
+    /** bit#323 — set by #49 when the beast first pops out (the scream gag). */
+    beastOutBit: 323,
+    /** bit#88 — Meathook recruited (one of the three crew flags). */
+    recruitedBit: 88,
+  },
+
+  /**
+   * Stan's Previously Owned Vessels (room 59), reached from the map's lights
+   * node ({@link meleeMap}'s `lights`, #915). Stan (actor 3) accosts on
+   * arrival; his whole pitch is global #56 — one giant menu state machine
+   * (ship tour, financing, accessories, the haggle). The Sea Monkey is the
+   * cheap ship; its asking price g202 starts at 8000.
+   */
+  stan: {
+    id: 59,
+    /** "il sentiero" (#698) — back up to the Mêlée map (only reachable when
+     *  the conversation has released control). */
+    path: 698,
+    /** "il biglietto da visita" (#702) — Stan's business card; his farewell
+     *  branch hands it (and {@link compass}) over while exiting you to the
+     *  map. */
+    businessCard: 702,
+    /** "la bussola magnetica" (#732) — thrown in on the same farewell. */
+    compass: 732,
+    /** bit#51 — the Sea Monkey is bought (the deal-close branch sets it). */
+    shipBoughtBit: 51,
+    /** g202 — Stan's current asking price for the ship under discussion. */
+    priceVar: 202,
+    /** g220 — walk-away-threat counter; each of the first three threats drops
+     *  g202 by g216[g220] (1000/500/100 on this build's tables), a FOURTH
+     *  walks you off the lot. */
+    walkAwaysVar: 220,
+    /** g204 — the last offer made (the offer ladder compares against it). */
+    lastOfferVar: 204,
+    answers: {
+      /** Browse menu: "Veramente non posso spendere tanto." → the Sea Monkey
+       *  pitch. (On a later visit the same slot reads "posso rivedere quella
+       *  che costa poco?".) */
+      cheapest: 122,
+      /** Sea Monkey menu: "Veramente, speravo di prenderla a credito." — Stan
+       *  points you at the storekeeper (no bit; the store's credit line arms
+       *  off this referral). */
+      onCredit: 121,
+      /** Sea Monkey menu: "Pensandoci bene, questa non è proprio la nave che
+       *  mi serve." — back out of the pitch to the browse menu. */
+      backOut: 125,
+      /** Browse menu: "Veramente, vorrei pensarci su un'altro po'." — leave;
+       *  Stan's farewell hands the card + compass and exits to the map. */
+      thinkItOver: 124,
+      /** Browse menu, note in hand: "Ho un credito dal negoziante. Lo
+       *  accetterai?" — opens the deal menu. */
+      haveCreditNote: 124,
+      /** Deal menu: "Vorrei farti un'offerta." — the offer ladder. */
+      makeAnOffer: 121,
+      /** Deal menu: "Scordatelo. Tanto non mi serve questa barca." — the
+       *  walk-away threat (see {@link walkAwaysVar}). */
+      walkAway: 123,
+      /** Threat follow-up: "Beh, forse hai ragione^" — stay on the lot. */
+      stay: 120,
+    },
   },
 
   /**
@@ -1089,6 +1330,129 @@ const pickComebackScrolling = (vm: Vm, want: number | undefined): void => {
     { maxTicks: 6000 },
   );
 };
+
+// ── Crew & ship helpers (the Part-I finale) ──────────────────────────────
+
+/**
+ * From the Mêlée town street (35) up to the island map (85). The west arch's
+ * verb-11 branches on plot bits — post-vow it can land at the lookout (33) or
+ * dump ego on the docks (83, whose molo then climbs to the lookout) — so this
+ * absorbs the reroute, then takes the cliff and the path up.
+ */
+export function townToMap(vm: Vm): void {
+  walkTo(vm, ROOMS.meleeStreet.lookoutArch);
+  driveUntil(vm, (v) => v.currentRoom === ROOMS.meleeLookout.id || v.currentRoom === ROOMS.docks.id, {
+    maxTicks: 14000,
+  });
+  waitPlayable(vm, 10000);
+  if (vm.currentRoom === ROOMS.docks.id) {
+    walkTo(vm, 905); // il molo → the lookout (bit#453 reroute)
+    driveToRoom(vm, ROOMS.meleeLookout.id, { maxTicks: 14000 });
+    waitPlayable(vm, 10000);
+  }
+  walkTo(vm, ROOMS.meleeLookout.cliff);
+  driveToRoom(vm, ROOMS.cliffPath.id, { maxTicks: 8000 });
+  walkTo(vm, ROOMS.cliffPath.path);
+  driveToRoom(vm, ROOMS.meleeMap.id, { maxTicks: 8000 });
+  waitPlayable(vm, 10000);
+}
+
+/** Class N is bit N−1 of the runtime class mask. */
+const hasClass = (vm: Vm, obj: number, cls: number): boolean =>
+  ((vm.objectClasses.get(obj) ?? 0) & (1 << (cls - 1))) !== 0;
+/** The mug still works as a container (class 12 — cleared at the wad stage). */
+export const mugUsable = (vm: Vm, mug: number): boolean => hasClass(vm, mug, 12);
+/** The mug currently holds grog (class 18 — set on fill/pour). */
+export const mugHasGrog = (vm: Vm, mug: number): boolean => hasClass(vm, mug, 18);
+/** The mug entered its last stage ("in fin di vita", class 6) — pour NOW. */
+export const mugDying = (vm: Vm, mug: number): boolean => hasClass(vm, mug, 6);
+
+/**
+ * Crack the store safe — keeper already away. Reads the four combination
+ * digits (g221..g224) and the dial state the keeper's own opening left
+ * behind (g228 = his last direction, which the first group must continue),
+ * then feeds the handle the four alternating-direction groups. Each move is
+ * a committed sentence (see the beat's DEBT note) and waits for the matcher
+ * to register before the next. Returns whether the note (#397) landed in
+ * ego's inventory.
+ */
+export function crackSafe(vm: Vm): boolean {
+  const ego = vm.vars.readGlobal(VAR_EGO);
+  const combo = [0, 1, 2, 3].map((i) => vm.vars.readGlobal(ROOMS.store.comboVar + i));
+  const firstPush = vm.vars.readGlobal(ROOMS.store.comboDirVar) === 1;
+  const state = (): string =>
+    [ROOMS.store.comboPosVar, ROOMS.store.comboCountVar, ROOMS.store.comboDirVar]
+      .map((v) => vm.vars.readGlobal(v))
+      .join(',');
+  for (let group = 0; group < 4; group++) {
+    const push = group % 2 === 0 ? firstPush : !firstPush;
+    for (let k = 0; k < combo[group]!; k++) {
+      const before = state();
+      vm.pushSentence({ verb: push ? VERBS.push : VERBS.pull, objectA: ROOMS.store.handle, objectB: 0 });
+      driveUntil(vm, (v) => state() !== before || v.getObjectOwner(ROOMS.store.creditNote) === ego, {
+        maxTicks: 6000,
+      });
+      if (vm.getObjectOwner(ROOMS.store.creditNote) === ego) return true;
+    }
+  }
+  return driveUntil(vm, (v) => v.getObjectOwner(ROOMS.store.creditNote) === ego, { maxTicks: 30000 });
+}
+
+/**
+ * Close the Sea Monkey deal — assumes the browse menu is reachable (Stan's
+ * pitch live) and the credit note (#397) is in hand. Drives #56's deal state
+ * machine: open the deal with the note, threaten to walk ×3 (price 8000 →
+ * 6400 via g216[]'s 1000/500/100 drops; a 4th threat walks you off the lot),
+ * then climb the offer ladder 2000→3000→4000→5000 (each rising offer drops
+ * the price another 500) and insist on 5000 until it clears the price (4900).
+ * Returns whether the ship was bought (bit#51).
+ */
+export function buySeaMonkey(vm: Vm): boolean {
+  const armed = (): Array<[number, string]> => {
+    const out: Array<[number, string]> = [];
+    for (let v = 120; v <= 129; v++) {
+      const slot = vm.verbs.get(v);
+      if (slot?.state === 'on') out.push([v, slot.name ?? '']);
+    }
+    return out;
+  };
+  const A = ROOMS.stan.answers;
+  for (let step = 0; step < 24; step++) {
+    if (vm.vars.readBit(ROOMS.stan.shipBoughtBit) === 1) return true;
+    if (!driveUntil(vm, () => armed().length > 0 || vm.vars.readBit(ROOMS.stan.shipBoughtBit) === 1, { maxTicks: 24000 })) break;
+    if (vm.vars.readBit(ROOMS.stan.shipBoughtBit) === 1) return true;
+    const m = armed();
+    const ids = new Set(m.map(([k]) => k));
+    const price = vm.vars.readGlobal(ROOMS.stan.priceVar);
+    const threats = vm.vars.readGlobal(ROOMS.stan.walkAwaysVar);
+    const lastOffer = vm.vars.readGlobal(ROOMS.stan.lastOfferVar);
+    // The deal menu and the threat follow-up reuse low slots; tell the offer
+    // menu apart by its full five-slot spread (the four rungs + "soffrire").
+    const offerMenu = ids.has(124) && ids.has(122) && ids.has(121) && ids.has(120) && ids.has(123) && !ids.has(125);
+    let pick: number;
+    if (offerMenu) {
+      // climb: first offer 2000 (slot 120), then one rung above the last
+      pick = 120 + Math.min(3, lastOffer === 0 ? 0 : lastOffer / 1000 - 1);
+    } else if (ids.has(A.stay) && m.length === 2) {
+      pick = A.stay; // "Beh, forse hai ragione^" — stay after a threat
+    } else if (ids.has(A.haveCreditNote) && ids.has(125)) {
+      pick = A.haveCreditNote; // browse menu, note in hand → open the deal
+    } else if (threats < 3 && ids.has(A.walkAway)) {
+      pick = A.walkAway;
+    } else if (price > 5000 || ids.has(A.makeAnOffer)) {
+      pick = A.makeAnOffer;
+    } else {
+      pick = m[0]![0];
+    }
+    pickAnswer(vm, pick);
+    driveUntil(
+      vm,
+      (v) => !armed().some(([j]) => j === pick) || v.vars.readBit(ROOMS.stan.shipBoughtBit) === 1,
+      { maxTicks: 24000 },
+    );
+  }
+  return driveUntil(vm, (v) => v.vars.readBit(ROOMS.stan.shipBoughtBit) === 1, { maxTicks: 90000 });
+}
 
 /** Duel the Sword Master (Carla) — assumes ego is already in her clearing (room
  *  61, reached via the Mêlée-map node #918). Talk to her (#744) to start the

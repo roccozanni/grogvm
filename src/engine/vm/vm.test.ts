@@ -401,7 +401,15 @@ describe('Vm — actorFromPos', () => {
 describe('Vm — moveCameraFollow', () => {
   const wideRoom = (w: number) => ({ ...roomWithObjects(1, []), width: w });
 
-  it('scrolls to keep the followed actor in the dead-zone band', () => {
+  // Settle a follow-pan: arm (follow) + step (pan), as tick() does each frame.
+  const settleFollow = (vm: Vm, frames = 100): void => {
+    for (let i = 0; i < frames; i++) {
+      vm.stepCameraPan();
+      vm.moveCameraFollow();
+    }
+  };
+
+  it('pans to centre on the followed actor once outside the dead zone', () => {
     const vm = makeVm();
     vm.loadedRoom = wideRoom(1008);
     vm.currentRoom = 1;
@@ -410,8 +418,9 @@ describe('Vm — moveCameraFollow', () => {
     a.x = 500;
     vm.cameraFollowActor = 1;
     vm.camera.x = 160;
-    vm.moveCameraFollow();
-    expect(vm.camera.x).toBe(420); // 500 − 80 (dead zone)
+    settleFollow(vm);
+    expect(vm.camera.x).toBe(500); // centred, not parked at the band edge
+    expect(vm.cameraDest).toBeNull();
   });
 
   it('does not move while the actor stays within the dead zone', () => {
@@ -436,7 +445,7 @@ describe('Vm — moveCameraFollow', () => {
     a.x = 1000;
     vm.cameraFollowActor = 1;
     vm.camera.x = 800;
-    vm.moveCameraFollow();
+    settleFollow(vm);
     expect(vm.camera.x).toBe(848); // 1008 − 160 (max centre)
   });
 
@@ -447,6 +456,21 @@ describe('Vm — moveCameraFollow', () => {
     vm.camera.x = 160;
     vm.moveCameraFollow();
     expect(vm.camera.x).toBe(160);
+  });
+
+  it('mirrors every camera move into VAR_CAMERA_POS_X (scripts poll it)', () => {
+    const vm = makeVm();
+    vm.loadedRoom = wideRoom(1008);
+    vm.currentRoom = 1;
+    const a = vm.actors.get(1);
+    a.room = 1;
+    a.x = 500;
+    vm.cameraFollowActor = 1;
+    vm.camera.x = 160;
+    settleFollow(vm);
+    expect(vm.vars.readGlobal(2)).toBe(vm.camera.x);
+    vm.moveCameraTo(vm.clampCameraX(300));
+    expect(vm.vars.readGlobal(2)).toBe(300);
   });
 });
 
@@ -821,21 +845,45 @@ describe('Vm — enterRoom + ENCD/EXCD', () => {
   });
 
   it('starts the previous room\'s EXCD when transitioning to a new room', () => {
-    const a = fakeRoom(1, [0x80], [0xa0]); // ENCD breakHere; EXCD stopObjectCode
+    // EXCD = [0x01] → "g6 = 7"; it must fire on LEAVING room 1, not entering.
+    const a = fakeRoom(1, [0x80], [0x01]); // ENCD breakHere; EXCD marker
     const b = fakeRoom(2);
     const vm = new Vm({
       numVariables: 32,
       numBitVariables: 64,
-      handlers: new Map(),
+      handlers: new Map<number, OpcodeHandler>([
+        [0x80, (_v, slot) => slot.yield_()],
+        [0x01, (v, slot) => { v.vars.writeGlobal(6, 7); slot.kill(); }],
+      ]),
       resolveRoom: (id) => (id === 1 ? a : b),
     });
     vm.enterRoom(1);
-    // Sanity: ENCD-1 fired.
     expect(vm.slots.some((s) => s.label === 'ENCD-1')).toBe(true);
+    expect(vm.vars.readGlobal(6)).toBe(0);
     vm.enterRoom(2);
-    // EXCD-1 should now be queued (for the room we just left).
-    expect(vm.slots.some((s) => s.label === 'EXCD-1')).toBe(true);
+    expect(vm.vars.readGlobal(6)).toBe(7);
     expect(vm.loadedRoom).toBe(b);
+  });
+
+  it('kills a yielded previous-room ENCD on the next room change', () => {
+    const a = fakeRoom(1, [0x80, 0x80, 0xa0]); // ENCD = breakHere; breakHere; stop
+    const b = fakeRoom(2);
+    const vm = new Vm({
+      numVariables: 32,
+      numBitVariables: 64,
+      handlers: new Map<number, OpcodeHandler>([
+        [0x80, (_v, slot) => slot.yield_()],
+        [0xa0, (_v, slot) => slot.kill()],
+      ]),
+      resolveRoom: (id) => (id === 1 ? a : b),
+    });
+    vm.enterRoom(1);
+    const encd = vm.slots.find((s) => s.label === 'ENCD-1')!;
+    expect(encd.status).not.toBe('dead'); // yielded at the breakHere
+    vm.enterRoom(2);
+    // Room-scoped: a stale ENCD resuming against the new room's locals
+    // is SCUMM's startScene kill set.
+    expect(encd.status).toBe('dead');
   });
 
   it('runs ENCD NESTED — its effect is visible the instant enterRoom returns', () => {
@@ -869,6 +917,30 @@ describe('Vm — enterRoom + ENCD/EXCD', () => {
     vm.enterRoom(1);
     vm.enterRoom(2);
     expect(vm.vars.readGlobal(6)).toBe(7);
+  });
+
+  it('brackets a room change with the VAR_ENTRY/EXIT_SCRIPT hooks in SCUMM order', () => {
+    // exit hook → EXCD → entry hook → ENCD, recorded as opcode markers.
+    const order: string[] = [];
+    const a = fakeRoom(1, undefined, [0x02]); // EXCD marker
+    const b = fakeRoom(2, [0x03]); // ENCD marker
+    const vm = new Vm({
+      numVariables: 64,
+      numBitVariables: 64,
+      handlers: new Map<number, OpcodeHandler>([
+        [0x01, (_v, slot) => { order.push(`hook-${slot.scriptId}`); slot.kill(); }],
+        [0x02, (_v, slot) => { order.push('excd'); slot.kill(); }],
+        [0x03, (_v, slot) => { order.push('encd'); slot.kill(); }],
+      ]),
+      resolveRoom: (id) => (id === 1 ? a : b),
+      resolveGlobalScript: (id) => ({ bytecode: new Uint8Array([0x01]), room: 0, scriptId: id }),
+    });
+    vm.vars.writeGlobal(28, 5); // VAR_ENTRY_SCRIPT
+    vm.vars.writeGlobal(30, 7); // VAR_EXIT_SCRIPT
+    vm.enterRoom(1);
+    order.length = 0; // only the transition matters
+    vm.enterRoom(2);
+    expect(order).toEqual(['hook-7', 'excd', 'hook-5', 'encd']);
   });
 
   it('does nothing extra when ENCD/EXCD are absent', () => {
