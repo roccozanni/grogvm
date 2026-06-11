@@ -89,8 +89,6 @@ clamp (see Tier-2 below).
 
 **Pending in-browser checks** (fixes shipped + folded into docs, look not yet confirmed):
 
-- The recipe close-up from beat-save 075 — Look at the recipe: legible 8px black ink on
-  parchment, click dismisses back to the cabin (headless repro: `scratch/recipe-look.ts`).
 - The fixed intro entry — room 38 used to flash ego top-right at full scale before the
   entry walk rescaled him; `enterRoom` now resolves box + scale on room load (ego at
   scale 215, box 5 from the first frame; headless repro: `scratch/lookout-entry-scale.ts`).
