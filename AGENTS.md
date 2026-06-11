@@ -335,13 +335,15 @@ bookkeeping) instead of re-deriving the boot boilerplate. Two layers:
     Re-exports `drive.ts`/`actions.ts`/`random.ts`/`png.ts`/`screenshot.ts` so
     a caller gets the whole harness from one import.
   - `screenshot.ts` + `png.ts` — **render the VM to a PNG.** `screenshot(vm)`
-    wires the canonical seven `composeFrame` closures off a live `Vm` and
-    returns `{width, height, pixels (indexed), palette}`; `writeScreenshot(vm,
-    path, {scale=3})` pairs it with `writeIndexedPng`. `png.ts` is the pure,
-    Node-only indexed-framebuffer→PNG encoder (`encodeIndexedPng`/
-    `writeIndexedPng`, 8-bit RGB, nearest-neighbour integer upscale). Reach for
-    these instead of re-pasting a crc32/IHDR/IDAT block + `composeFrame` wiring
-    in a scratch render script.
+    composes the FULL visible screen (room band + verb/inventory panel +
+    dialog) through the session's own pipeline — `composeFrame` → camera
+    slice → `composeScreen`, the canonical closure wiring off a live `Vm` —
+    and returns `{width, height, pixels (indexed), palette}`;
+    `writeScreenshot(vm, path, {scale=3})` pairs it with `writeIndexedPng`.
+    `png.ts` is the pure, Node-only indexed-framebuffer→PNG encoder
+    (`encodeIndexedPng`/`writeIndexedPng`, 8-bit RGB, nearest-neighbour
+    integer upscale). Reach for these instead of re-pasting a crc32/IHDR/IDAT
+    block + compose wiring in a scratch render script.
   - Lives in `src/testkit/`, a **sibling of `engine`/`app`, not inside
     `engine/`** — it's the only `node:fs` consumer and the engine stays a
     portable browser-bundled core. Its own tests are synthetic

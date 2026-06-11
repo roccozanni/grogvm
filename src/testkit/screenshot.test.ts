@@ -1,8 +1,8 @@
 /**
  * Tests the screenshot helper against a synthetic VM with a hand-built room —
- * no game data, runs everywhere. Verifies it composites the loaded room's
- * background into the returned framebuffer and that writeScreenshot lands a
- * decodable, correctly-scaled PNG on disk.
+ * no game data, runs everywhere. Verifies it composes the FULL screen (room
+ * band top-left, verb band below filled with the panel background) and that
+ * writeScreenshot lands a decodable, correctly-scaled PNG on disk.
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -38,18 +38,32 @@ function makeRoom(width: number, height: number, fill: number): LoadedRoom {
 }
 
 function makeVm(room: LoadedRoom | null): Vm {
-  const vm = new Vm({ numVariables: 100, numBitVariables: 64, handlers: new Map() });
+  const vm = new Vm({ numVariables: 200, numBitVariables: 64, handlers: new Map() });
   vm.loadedRoom = room;
   if (room) vm.currentRoom = room.id;
   return vm;
 }
 
 describe('screenshot', () => {
-  it('returns the loaded room background as an indexed framebuffer', () => {
+  it('composes the full screen with the room band at the top-left', () => {
     const room = makeRoom(4, 3, 1);
     const shot = screenshot(makeVm(room));
-    expect([shot.width, shot.height]).toEqual([4, 3]);
-    expect([...shot.pixels]).toEqual(Array(12).fill(1));
+    // Screen-sized output even for a tiny room: 320 wide, 200 tall.
+    expect([shot.width, shot.height]).toEqual([320, 200]);
+    // The 4×3 room band lands top-left; everything else is CLUT 0.
+    let ones = 0;
+    for (let y = 0; y < shot.height; y++) {
+      for (let x = 0; x < shot.width; x++) {
+        const px = shot.pixels[y * shot.width + x]!;
+        if (x < 4 && y < 3) {
+          expect(px).toBe(1);
+          ones++;
+        } else {
+          expect(px).toBe(0);
+        }
+      }
+    }
+    expect(ones).toBe(12);
     expect(shot.palette).toBe(room.palette);
   });
 
@@ -65,7 +79,7 @@ describe('screenshot', () => {
     const png = readFileSync(path);
     expect([...png.subarray(0, 8)]).toEqual([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
     // IHDR width/height follow the 8-byte signature + 4-byte length + "IHDR".
-    expect(png.readUInt32BE(16)).toBe(8); // 4 × scale 2
-    expect(png.readUInt32BE(20)).toBe(6); // 3 × scale 2
+    expect(png.readUInt32BE(16)).toBe(640); // 320 × scale 2
+    expect(png.readUInt32BE(20)).toBe(400); // 200 × scale 2
   });
 });

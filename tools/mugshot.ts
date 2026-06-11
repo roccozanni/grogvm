@@ -39,6 +39,6 @@ writeScreenshot(vm, out, { scale });
 
 const room = vm.loadedRoom;
 console.log(
-  `wrote ${out} — room ${room?.id} ${room?.width}×${room?.height} ×${scale}, ` +
+  `wrote ${out} — full screen ×${scale} (room ${room?.id} ${room?.width}×${room?.height}), ` +
     `${save === 'fresh' ? 'fresh boot' : save} +${ticks} ticks`,
 );
