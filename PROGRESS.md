@@ -87,6 +87,18 @@ first frame; headless repro: `scratch/lookout-entry-scale.ts`). Folded into
 [walk-boxes §"Perspective-scale recompute timing"](pages/docs/scumm/walk-boxes.md); the
 in-browser look at the fixed intro is still pending.
 
+**Verb panel lost its purple (user-reported 2026-06-11, side-by-side vs ScummVM).** A
+regression FROM the entry-hook work above: wiring `VAR_ENTRY_SCRIPT` made MI1's `#6` run on
+every room load, and `#6` branches on `g49` (`VAR_VIDEOMODE`) — `== 19` (VGA mode 0x13)
+re-applies the boot purples from `g377–g388` (slots 1/2/3/6: `(23,0,23)/(83,0,83)/
+(223,83,223)/(127,47,127)`), anything else takes an EGA fallback that blacks slots 1/2 and
+sets slot 3 to `(255,0,255)`. We never seeded `g49`, so the panel's box-grid sprites (room 99
+objs 1030/1032/1033 — fill is CLUT 1/2) went black and the verb ink turned hot magenta.
+Fix: seed `VAR_VIDEOMODE = 19` in `seedEngineVariables`; pixel probe
+`scratch/verb-band-probe.ts` renders the band and now matches the ScummVM reference
+(box grid `(23,0,23)`, ink `(223,83,223)`). Fact folded into
+[boot.md §1](pages/docs/scumm/boot.md); in-browser confirmation pending.
+
 ### Open bug-report saves (reported, not yet fixed)
 
 - (none. Dev save at the forest fork: `saves/MI1-forest-fork.websave.json`,

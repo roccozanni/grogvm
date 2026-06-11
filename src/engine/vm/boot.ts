@@ -12,7 +12,7 @@ import type { ResourceFile } from '../resources/tree';
 import { LIGHTMODE_DEFAULT } from './lighting';
 import { SEED_OPCODES } from './opcodes';
 import { loadGlobalScript, loadSound } from './scripts';
-import { VAR_CURRENT_LIGHTS } from './vars';
+import { VAR_CURRENT_LIGHTS, VAR_VIDEOMODE } from './vars';
 import { Vm } from './vm';
 import { SilentTimingBackend } from '../sound/backend';
 
@@ -128,6 +128,11 @@ export function seedEngineVariables(vm: Vm, gameId: GameId): void {
   vm.vars.writeGlobal(VAR_CURRENT_LIGHTS, LIGHTMODE_DEFAULT);
 
   vm.vars.writeGlobal(VAR_CHARSET, 0);
+
+  // VGA (BIOS mode 0x13). The entry-hook script #6 branches on this to pick
+  // the UI palette: 19 → re-apply the boot purples from g377–g388 each room
+  // load; anything else → an EGA fallback that blacks the verb-panel slots.
+  vm.vars.writeGlobal(VAR_VIDEOMODE, 19);
 
   // MI1 copy-protection: script #176 checks var 74 ("track-b-size") is in
   // [1200, 1250]; the original engine seeds 1225 unconditionally for Monkey.

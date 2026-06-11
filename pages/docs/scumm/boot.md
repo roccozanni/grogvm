@@ -21,6 +21,14 @@ any script runs (the scripts read, never initialise, them):
   all dark; see [lighting.md](lighting.md).
 - **`VAR_CURSORSTATE` / `VAR_USERPUT`** — start dead/disabled; the boot
   and room scripts turn them on via `cursorCommand`.
+- **`VAR_VIDEOMODE` (variable 49) = 19** — the BIOS video mode (0x13 =
+  VGA 320×200×256). MI1's entry-hook script `#6` (run on every room
+  load via `VAR_ENTRY_SCRIPT`) branches on `g49 == 19`: VGA re-applies
+  the UI palette the boot script stashed in `g377–g388` (the verb-panel
+  purples — slots 1/2/3/6); any other value falls into an EGA-era
+  fallback that sets slots 1/2 to black and slot 3 to `(255,0,255)` —
+  the verb panel loses its purple box grid and the verb ink turns
+  hot magenta.
 
 Two variable-number assignments in the same space are easy to get
 wrong:
