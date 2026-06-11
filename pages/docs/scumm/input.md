@@ -463,8 +463,15 @@ input machinery into a dialog mode:
 There is no separate inventory widget. MI1 lays the inventory out across
 **verb slots 200–207** (a 4×2 grid), with **208/209** as the scroll
 arrows. A dedicated **inventory script** (`VAR_INVENTORY_SCRIPT`, g34;
-MI1 = `#9`) runs when the inventory changes: it walks the player's owned
-objects with `findInventory` and assigns each to a slot.
+MI1 = `#9`) re-lays the panel: it walks the player's owned objects with
+`findInventory` and assigns each to a slot. **The engine itself runs it
+on every ownership change**, and its first local selects the window
+behaviour: `pickupObject` passes 1 — snap the window toward the end so
+the just-taken item shows — while `setOwnerOf` passes 0 — keep the
+current page (the script clamps it). Skip the `setOwnerOf` invocation
+and every *script-side* consumption (a trade, an item eaten or
+destroyed) leaves the panel — and the slot table that clicks commit
+through — stale until an arrow click happens to re-lay it.
 
 Inventory membership is **ownership**: an object is in an actor's
 inventory iff that actor owns it (`pickupObject` / `setOwnerOf`), and

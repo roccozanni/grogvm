@@ -19,13 +19,27 @@ A script can narrow this further with `roomOps roomScroll`, which sets
 the default room bounds. Every camera movement — follow, pan, or a direct
 `setCameraAt` — lands inside the active range.
 
+Every movement also **publishes the new centre into `VAR_CAMERA_POS_X`**.
+Scripts poll that variable constantly — escape-watchers, walk-past-camera
+gates (Meathook's payoff script loops on `meathookX < cameraX − 175`; Stan's
+arrival script waits for the centre to equal the clamp floor exactly) — so a
+camera that moves without writing it deadlocks them.
+
 ## 2. Follow mode
 
 `actorFollowCamera` puts the camera in **follow mode**: it tracks the named
 actor with a **dead zone of ±80 px** around the centre. The actor walks freely
-inside that window; only when it nears an edge does it drag the camera along.
-This is why walking around a one-screen room never scrolls, and why a long
-walk across a wide room scrolls only once the actor leads the camera by 80 px.
+inside that window; only when it leaves it does the camera move — and not by
+snapping to the edge: leaving the dead zone arms a **pan to the actor's
+(clamped) x**, stepped by the same 8-px-per-frame stepper as a scripted pan
+(§3) and **latched until it lands**, even if the actor stops back inside the
+dead zone meanwhile. `wait forCamera` covers a follow pan exactly like a
+scripted one — Stan's lot script waits for the centre to settle at the clamp
+floor while the ego stands well inside the dead zone, which only releases
+because the follow pan runs to the *actor's* clamped position, not the
+dead-zone edge. This is why walking around a one-screen room never scrolls,
+and why a long walk across a wide room scrolls only once the actor leads the
+camera by 80 px.
 
 Pointing follow at an actor standing in **another room** is what triggers the
 room switch — MI1's boot script enters the lookout exactly this way: it places

@@ -58,70 +58,15 @@ the dock boarding. Routes + mechanics live in the walkthrough beats and `game.ts
 > hold/galley below decks, the voyage to Monkey Island (the navigation recipe). Restore the frontier
 > save to start in the cabin; same loop — disassemble first, drive headless, assert mechanics.
 
-**Lab notes 2026-06-10 (crew & ship session) — engine fixes shipped with unit tests:**
-- **VAR_CAMERA_POS_X (g2) was never written.** Scripts poll it constantly (escape-watchers,
-  walk-past-camera gates — Meathook's payoff #205 loops on `meathookX < g2 − 175`). Fixed:
-  `moveCameraTo` mirrors every camera move into g2.
-- **Camera-follow destination was the dead-zone edge, not the actor.** SCUMM v5's follow pans TO the
-  actor's (clamped) x at 8 px/frame once it leaves the ±80 band, latched until it lands — Stan's #56
-  waits for `g2 == 160` exactly with ego at x=94 (clamp floor). Fixed: `moveCameraFollow` arms
-  `cameraDest` (so `wait forCamera` covers follow-pans too) and the pan stepper does the moving.
-- **Stale ENCD/EXCD slices survived room changes.** A yielded previous-room ENCD resumed against the
-  NEW room's locals (room 19's ENCD starting its #205 after the Part-II intro moved on to room 7 →
-  halt). Fixed: `stopRoomLocalScripts` also kills `ENCD-`/`EXCD-` labelled slots — SCUMM's startScene
-  kills everything room-scoped.
-- **VAR_ENTRY/EXIT_SCRIPT hooks were never run.** MI1 boots #5/#6/#7 into g28/g29/g30; SCUMM brackets
-  every room change with them (exit → EXCD → exit2, entry → ENCD → entry2). #7 records the
-  left-room in g101 — entry scripts branch on it (Hook Isle's side-touchability, the Voodoo Lady's
-  entrance choreography which now correctly closes the door behind you). Wired into `enterRoom`
-  (`runHookScript`); #6 also re-runs the verb-bar scripts and clears pending sentences per entry.
-- ~~**Open question (in-browser check):** the safe handle (#390) doesn't hover-resolve~~ —
-  resolved 2026-06-11; see the *object hit-test was draw-ordered* lab note below.
-
-**Lab note 2026-06-11 — stale inventory panel on owner changes (user-reported in-browser,
-root-caused; fix awaiting in-browser confirmation).** The panel re-lays only when the inventory
-script `#9` runs. `pickupObject` ran it (arg 1, snap to the end so the new item shows) but
-`setOwnerOf` — the path every script-driven consumption takes (the pour `#69`, the mug
-wad-ification `#68`, the troll taking the fish, Otis eating the mint) — never did, so a removed
-item lingered in the visible slots until an arrow click chained `#9`. Not purely visual: the
-slot→object table (`g133+`) is what a slot click commits through, so a stale slot clicks the
-no-longer-owned object. Concrete fingerprint: the pre-fix frontier save carried `g118=3` (past
-clamp) with the destroyed mugs 365/366 still in `g133`. Fixed: `setOwnerOf` runs the inventory
-script with arg 0 — keep the current page, `#9` clamps — mirroring `pickupObject`'s arg-1 snap;
-unit test + full walkthrough green, and the regenerated frontier save's table now matches the
-live inventory exactly.
-
-**Lab note 2026-06-11 — object hit-test was draw-ordered; SCUMM's is source-ordered with a
-parent chain (user's in-browser overlay spotted it; fix awaiting in-browser confirmation).**
-The Phase-7 `findObject` preferred drawn objects topmost-first, so the drawn safe (#389)
-permanently shadowed the un-drawn handle (#390) nested inside its box — the safe-crack
-`pushSentence` debt. The room data says otherwise: the handle is declared *before* the safe, with
-CDHD `parent=2` — a **1-based source-order index** pointing at the safe — and flags bit 0x80 is
-the **required parent state** (set → parent non-0/"open", clear → parent 0/"closed"). Corpus: 27
-parent-gated objects across MI1, children always declared before containers, the r29/r37
-nameless zone-parents DOBJ-untouchable so they can't swallow their children's hovers. The old
-code also read flags 0x80 as "untouchable" — which would have made the Sea Monkey cabin's
-"il baule" (flags 0x80, chained to "l'armadio") permanently dead in Part II. Fixed: `findObject`
-scans source order first-hit-wins, draw-agnostic, gated by class-32 untouchability and the
-recursive parent chain (OBJECTS §2/§7a). `crackSafe` now Push/Pulls the handle with real clicks —
-**zero `pushSentence` left in the suite**. Unit witnesses + full walkthrough green; the
-`saves/MI1-safe-crack.websave.json` dev save (gitignored) sits at the cracking window for the
-in-browser hover check.
-
-**Testkit debt — `pushSentence` shortcuts: retired 2026-06-11 (none left).** The walkthrough's
-inventory gestures are now faithful clicks: the testkit resolves a carried target as a slot click in
-the panel's *visible window*, scrolling with the arrow verbs first (INPUT §8 — `g118` row offset,
-`g133..g140` slot table, arrows 208/209 chain `#9`). That one mechanism covered every flagged site —
-the two-inventory combine (petal+meat, mug pours), the one-object verb on a carried item (cake open),
-and the over-window slots (grog fill/lock-melt, chicken ziplines). The "give onto an actor-object
-can't be clicked" finding of 2026-06-09 was **phantom**: the verification itself computed slot ids
-past the visible window (the 9th item's "slot" is the scroll arrow — `verb:208/211` garbage), so the
-give never armed object A. With correct slots, the hover poller resolves both the dogs (#467) and the
-prisoner (#405) into object B per its class-5 give gate (INPUT §2, verb-aware filtering), and `useWith(give, item, objId)`
-drives those gives for real. Pour-race note: the gesture must fit the mug's dying window (`#68`'s
-hard `delay 300` before wad-ification), which is why the slot click consults the visible table
-instead of blind-scrolling from the top. The last holdout — the safe-handle moves — fell with the
-hit-test fix (the lab note above).
+**Recent findings: all folded into the docs (lab-note rule honoured).** The 2026-06-10 camera /
+room-transition fixes live in [engine/camera.md](pages/docs/engine/camera.md) (`VAR_CAMERA_POS_X`
+mirroring, latched follow-pans) and [engine/room-transitions.md](pages/docs/engine/room-transitions.md)
+(entry/exit hook scripts, stale-`ENCD`/`EXCD` purge); the 2026-06-11 inventory-panel refresh and
+window/slot mechanics in [INPUT §8](pages/docs/scumm/input.md) (+ the give/talk hover gates in §2);
+the source-order + parent-chain `findObject` rule in [OBJECTS §2/§7a](pages/docs/scumm/objects.md);
+the testkit's carried-target slot gestures in [engine/harness.md §3](pages/docs/engine/harness.md)
+and AGENTS "The harness". With the hit-test fix, **zero `pushSentence` shortcuts and zero DEBT
+markers remain in the integration suite** — every walkthrough action is a faithful click.
 
 ### Open bug-report saves (reported, not yet fixed)
 
@@ -226,13 +171,6 @@ Priority H/M/L = likelihood of biting current/near play × severity.
 ### Open backlog
 
 Deferred out of earlier phases; none block current play. Detail in the linked docs.
-
-**Input / UI**
-
-- (inventory scrolling + the slot-click gestures landed 2026-06-11 — the
-  walkthrough's grog race exercises the arrows with a 13-item inventory; the
-  safe handle followed via the source-order/parent-chain hit-test fix, so no
-  `pushSentence` shortcut remains anywhere in the suite.)
 
 **Rendering**
 

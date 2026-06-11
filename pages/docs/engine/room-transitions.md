@@ -24,13 +24,23 @@ On a room change, in this exact order:
 
 1. **Clear the draw queue and per-object draw positions.** A fresh room starts
    with nothing queued; its entry script repopulates what should be visible.
-2. **Run the previous room's `EXCD` (exit script), nested.** It runs to
-   completion *before* the transition returns to the caller — not deferred as a
-   normal slot (see §4).
+2. **Run the exit side, nested: the exit hook, the previous room's `EXCD`,
+   the second exit hook.** SCUMM brackets each room's own script with two
+   global *hook scripts* whose ids live in `VAR_EXIT_SCRIPT` /
+   `VAR_EXIT_SCRIPT2`; everything here runs to completion *before* the
+   transition returns to the caller — not deferred as a normal slot (see §4).
+   MI1 points the exit hook at `#7`, which records the room being left in
+   `g101` — entry scripts branch on it (Hook Isle's side-dependent
+   touchability, the Voodoo Lady's entrance choreography that closes the door
+   behind you).
 3. **Stop the old room's local + object/verb scripts.** Room-scoped scripts
    (`WIO_ROOM` / `WIO_FLOBJECT`) die on a room change; only globals survive.
    Without this, an old room's ambient/animation loop keeps running into the
-   new room and tries to start locals that don't exist there.
+   new room and tries to start locals that don't exist there. The same purge
+   covers a previous `ENCD`/`EXCD` still yielded mid-slice: a stale
+   entry-script slice that survives resumes against the *new* room's local
+   table and starts whatever script owns that id there (a previous room's
+   entry script resuming two rooms later is a VM halt, not a glitch).
 4. **Reset per-room box flags** to the new room's on-disk values (the entry
    script re-applies any door locks).
 5. **Set `currentRoom` and `VAR_ROOM`** to the requested id — the *raw* id even
@@ -44,8 +54,11 @@ On a room change, in this exact order:
    re-entry and save/restore).
 7. **Place the entering ego** (`loadRoomWithEgo` only — §3), *between* the
    resource load and the entry script.
-8. **Run the new room's `ENCD` (entry script), nested** to its first
-   `breakHere` (see §4).
+8. **Run the entry side, nested: the entry hook (`VAR_ENTRY_SCRIPT`), the new
+   room's `ENCD` to its first `breakHere` (see §4), then the second entry
+   hook (`VAR_ENTRY_SCRIPT2`).** MI1 boots `#5`/`#6` into the entry hooks;
+   `#6` re-runs the verb-bar scripts and clears pending sentences on every
+   entry, so the verb panel arrives consistent in each room.
 
 Screen-effect fades bracket the transition but render as instant cuts today
 (state modelled, animation deferred) — see [screen effects](../scumm/screen-effect.md).
