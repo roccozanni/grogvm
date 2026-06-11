@@ -86,6 +86,7 @@ function makeDialog(over: Partial<ActiveDialog>): ActiveDialog {
     center: false,
     overhead: false,
     clipped: null,
+    charset: 1,
     ...over,
   };
 }
@@ -425,6 +426,28 @@ describe('composeScreen dialog', () => {
     composeScreen(input);
     expect(px(input, 100, 20)).toBe(INK);
     expect(px(input, 100, 19)).toBe(ROOM_PIXEL);
+  });
+
+  it('renders a line in the charset captured at its print, not the current one', () => {
+    const narrow = makeCharset(4, 'A');
+    const wide = makeCharset(8, 'A');
+    // currentCharsetId stays 1 (narrow) — the recipe close-up restores the
+    // dialogue charset after printing its parchment lines in another.
+    const input = makeInput({
+      getCharset: (id) => (id === 6 ? wide : id === 1 ? narrow : null),
+      systemTexts: [makeDialog({ x: 100, y: 20, color: INK, charset: 6 })],
+    });
+    composeScreen(input);
+    // Ink past a narrow glyph's right edge: only the captured charset is 8 wide.
+    expect(px(input, 106, 20)).toBe(INK);
+  });
+
+  it('falls back to the current charset for a pre-initCharset line (charset 0)', () => {
+    const input = makeInput({
+      activeDialog: makeDialog({ x: 100, y: 20, color: INK, charset: 0 }),
+    });
+    composeScreen(input);
+    expect(px(input, 100, 20)).toBe(INK);
   });
 
   it('anchors overhead talk above the drawn sprite top, falling back to feet−40', () => {

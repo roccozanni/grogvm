@@ -63,8 +63,34 @@ savestate gained a required `boxMatrixRebuilt` bool). Migrated to
 [PATHFINDING §5](pages/docs/engine/pathfinding.md), incl. the empirically-derived neighbor
 predicate and its 82/83-room hop-for-hop validation against the disk BOXMs.
 
+**Recipe close-up (Look at #85) double fix** (2026-06-11, found via beat-save 075; not yet
+in docs) — two root causes behind "text all black + VM hangs":
+
+1. **Carried-object verb scripts survive room changes.** The Look handler runs
+   `cutScene → loadRoom 84 → poll g194 → endCutScene` in ONE verb script; our
+   `stopRoomLocalScripts` killed every `VERB-` slot on room change, so the script died at
+   its own `loadRoom` and nothing was left to end the cutscene → world frozen forever
+   (#18 froze at `freezeScripts 127`, #19's `freezeScripts 0` unreachable). Now a verb
+   slot whose object is carried (owner ≠ 0 ∧ ≠ 15) is spared — its code lives in the
+   inventory, not the departing room. Room-object verb slots still die (door transitions
+   unchanged, walkthrough green).
+2. **Per-line charset capture (like verbs' `charset_nr`).** Room 84's ENCD prints the
+   parchment in charset 1 (8px pitch) then restores charset 2 before the frame composes;
+   the renderer re-rendered every queued line in the *current* charset → tall glyphs on an
+   8px pitch = illegible black smear. `ActiveDialog` now carries a required `charset`
+   captured at print time (savestate field — old saves invalid by policy; beat saves
+   regenerated) and `paintDialog` resolves per line, falling back to current for charset 0.
+
+**Observed divergence candidate, needs the original**: the close-up's two bottom lines
+("Far bollire…", "Servire…") are sticky-LEFT at x=160 per the bytecode; our right-margin
+clamp pushes them to x=102/130 and their black tails land on the parchment's dark torn
+edge (invisible ink). Check how the original lays these lines out before touching the
+clamp (see Tier-2 below).
+
 **Pending in-browser checks** (fixes shipped + folded into docs, look not yet confirmed):
 
+- The recipe close-up from beat-save 075 — Look at the recipe: legible 8px black ink on
+  parchment, click dismisses back to the cabin (headless repro: `scratch/recipe-look.ts`).
 - The fixed intro entry — room 38 used to flash ego top-right at full scale before the
   entry walk rescaled him; `enterRoom` now resolves box + scale on room load (ego at
   scale 215, box 5 from the first frame; headless repro: `scratch/lookout-entry-scale.ts`).
@@ -98,6 +124,11 @@ Priority H/M/L = likelihood of biting current/near play × severity.
 - [ ] **L/M — `print` `clipped` line-wrap bound not modelled** (`vm.ts:~114`,
   the stored SO_CLIPPED bound).
   Long lines may overflow / mis-wrap vs the original's clip-X wrapping.
+- [ ] **L — right-margin clamp for positioned left prints is a guess**
+  (`screen.ts` `paintDialogText`, the non-center clamp citing room 51): the recipe
+  close-up's bottom lines (left at x=160, w=218/190) clamp to x=102/130 and their tails
+  vanish on the parchment's dark edge. Observe the original's layout for these exact
+  lines (room 84) before changing anything.
 - [ ] **M — blast-text (a=254) lifetime: `restoreCharsetBg` approximated by
   cutscene-end / room-change / overwrite / camera scroll, not real screen
   redraws** (`vm.ts eraseTransientSystemText` triggers). Only about a=254:

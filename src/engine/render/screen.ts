@@ -256,13 +256,20 @@ function measureName(
 // No charset → render nothing: better to drop a line than halt the engine
 // on a missing font.
 function paintDialog(input: ComposeScreenInput): void {
-  const charset = input.getCharset(input.currentCharsetId);
-  if (!charset) return;
+  const fallback = input.getCharset(input.currentCharsetId);
+  // Each line renders in the charset captured at its print (like verbs do):
+  // the recipe close-up prints 8px-pitch parchment lines in charset 1, then
+  // restores charset 2 before the frame composes — re-rendering them in the
+  // taller dialogue font smears them illegible.
+  const paint = (d: ActiveDialog): void => {
+    const charset = input.getCharset(d.charset) ?? fallback;
+    if (charset) paintDialogText(input, charset, d);
+  };
   // Two channels coexist: blasted system text underneath (can stack several
   // lines), transient actor speech on top — a sign stays visible while
   // Guybrush talks.
-  for (const line of input.systemTexts) paintDialogText(input, charset, line);
-  if (input.activeDialog) paintDialogText(input, charset, input.activeDialog);
+  for (const line of input.systemTexts) paint(line);
+  if (input.activeDialog) paint(input.activeDialog);
 }
 
 function paintDialogText(

@@ -116,6 +116,13 @@ export interface ActiveDialog {
   /** Max x bound from SO_CLIPPED (informational; no wrap yet). */
   readonly clipped: number | null;
   /**
+   * Charset id captured at print time — like a verb's `charset`, the line
+   * must not re-render in whatever charset a later script selected. The
+   * recipe close-up prints its parchment lines in charset 1 (8px pitch),
+   * then restores charset 2 before the frame ever composes.
+   */
+  readonly charset: number;
+  /**
    * Message carried the `keepText` code (`0xFF 0x02`): persists until an
    * explicit clear or overwrite, NOT when the talk timer drains. See
    * pages/docs/scumm/char.md. Only meaningful for system text.
@@ -1037,13 +1044,25 @@ export class Vm {
    * everything room-scoped on a room change. A yielded previous-room ENCD
    * left alive would resume against the NEW room's locals (room 19's ENCD
    * starting its #205 after the intro moved on to room 7).
+   *
+   * A verb script on a CARRIED object is spared: its code lives in the
+   * inventory, not the departing room. The recipe close-up is the witness —
+   * Look at #85 runs `cutScene → loadRoom 84 → poll g194 → endCutScene` in
+   * one verb script; kill it at its own loadRoom and no script is left to
+   * end the cutscene, so the world stays frozen on the close-up forever.
    */
   private stopRoomLocalScripts(): void {
     for (const s of this.slots) {
       if (s.status === 'dead') continue;
+      if (s.label.startsWith('VERB-')) {
+        // Verb slots carry their object id in scriptId (see startObject).
+        const owner = this.getObjectOwner(s.scriptId);
+        if (owner !== 0 && owner !== OF_OWNER_ROOM) continue;
+        s.kill();
+        continue;
+      }
       if (
         s.scriptId >= Vm.LSCR_THRESHOLD ||
-        s.label.startsWith('VERB-') ||
         s.label.startsWith('ENCD-') ||
         s.label.startsWith('EXCD-')
       ) {

@@ -171,6 +171,7 @@ describe('Vm — talk timer + dialog clearing', () => {
     center: false,
     overhead: false,
     clipped: null,
+    charset: 1,
     keepText,
   });
 
@@ -917,6 +918,36 @@ describe('Vm — enterRoom + ENCD/EXCD', () => {
     // Room-scoped: a stale ENCD resuming against the new room's locals
     // is SCUMM's startScene kill set.
     expect(encd.status).toBe('dead');
+  });
+
+  it("spares a carried object's verb script on a room change; a room object's dies", () => {
+    // Both verb scripts yield at a breakHere so they're alive at the change.
+    const verbCode = () => new Map([[8, new Uint8Array([0x80, 0xa0])]]);
+    const a = roomWithObjects(1, [objWithVerbs(42, verbCode()), objWithVerbs(43, verbCode())]);
+    const b = fakeRoom(2);
+    const vm = new Vm({
+      numVariables: 32,
+      numBitVariables: 64,
+      handlers: new Map<number, OpcodeHandler>([
+        [0x80, (_v, slot) => slot.yield_()],
+        [0xa0, (_v, slot) => slot.kill()],
+      ]),
+      resolveRoom: (id) => (id === 1 ? a : b),
+    });
+    vm.enterRoom(1);
+    vm.objectOwners.set(42, 1); // in actor 1's inventory
+    const carried = vm.startVerbScript(42, 8)!;
+    const roomOwned = vm.startVerbScript(43, 8)!;
+    vm.step(); // each yields at its breakHere
+    vm.step();
+    expect(carried.status).toBe('yielded');
+    expect(roomOwned.status).toBe('yielded');
+
+    vm.enterRoom(2);
+    // Inventory verb code isn't room-scoped: the recipe close-up's Look
+    // script loadRooms to 84 and must live on to end its own cutscene.
+    expect(carried.status).not.toBe('dead');
+    expect(roomOwned.status).toBe('dead');
   });
 
   it('runs ENCD NESTED — its effect is visible the instant enterRoom returns', () => {

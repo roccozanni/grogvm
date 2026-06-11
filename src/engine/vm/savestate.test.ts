@@ -80,7 +80,7 @@ function loadUpState(vm: Vm): void {
   // Dialog / text.
   const dlg: ActiveDialog = {
     actorId: 3, text: 'Sono Guybrush Threepwood', x: 160, y: 40,
-    color: 15, center: true, overhead: true, clipped: null,
+    color: 15, center: true, overhead: true, clipped: null, charset: 2,
   };
   vm.activeDialog = dlg;
   vm.systemTexts = [{ ...dlg, actorId: 0, text: 'Parte Uno', y: 165 }];

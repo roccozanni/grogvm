@@ -750,6 +750,7 @@ function execPrint(vm: Vm, slot: ScriptSlot, actor: number, d: PrintBody): void 
         center: center || isTalk,
         overhead: overhead || isTalk,
         clipped,
+        charset: vm.currentCharset,
         keepText,
       };
       if (isSystem) vm.addSystemText(dlg);
