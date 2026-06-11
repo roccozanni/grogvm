@@ -52,8 +52,10 @@
  * broke; don't cross-reference other beats by number.
  *
  * Data-gated (skipped without the game files). Run: `npm run test:integration`.
+ * With BEAT_SAVES set (`npm run test:integration:beat-saves`) every green beat
+ * also dumps an importable checkpoint save to saves/beats/.
  */
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { describe, expect, it, type TestContext } from 'vitest';
 import { snapshotVm } from '../../src/engine/vm/savestate';
 import {
@@ -101,7 +103,31 @@ let broken = false;
 // beats (which mug is live depends on how many pours the run needed).
 let activeMug = 0;
 let remainingMugs: number[] = [];
-const beat = (name: string, fn: (ctx: TestContext) => void | Promise<void>): void =>
+
+// Per-beat checkpoints, opt-in via BEAT_SAVES (`npm run
+// test:integration:beat-saves`): every green beat also snapshots the VM to
+// saves/beats/<run-order>-<slug>.websave.json — an in-browser import target
+// at each point of the run, for visual spot-checks (the net itself renders no
+// pixels) and for bisecting where a rendering regression starts. The
+// directory is wiped up front so checkpoints from an older engine can't pass
+// as fresh; a beat that ends before full settle (e.g. the troll-bridge
+// crossing) restores exactly there, mid-choreography rather than at idle.
+const beatSavesDir = process.env.BEAT_SAVES ? 'saves/beats' : undefined;
+if (beatSavesDir) {
+  rmSync(beatSavesDir, { recursive: true, force: true });
+  mkdirSync(beatSavesDir, { recursive: true });
+}
+let beatOrdinal = 0;
+const slugify = (name: string): string =>
+  name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+const beat = (name: string, fn: (ctx: TestContext) => void | Promise<void>): void => {
+  const ordinal = ++beatOrdinal;
   it(name, async (ctx) => {
     if (broken) return ctx.skip();
     try {
@@ -110,7 +136,14 @@ const beat = (name: string, fn: (ctx: TestContext) => void | Promise<void>): voi
       broken = true;
       throw e;
     }
+    if (beatSavesDir) {
+      writeFileSync(
+        `${beatSavesDir}/${String(ordinal).padStart(3, '0')}-${slugify(name)}.websave.json`,
+        JSON.stringify(snapshotVm(vm, { game: 'MI1', label: name })),
+      );
+    }
   });
+};
 
 describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
   describe('Part I — The Three Trials', () => {

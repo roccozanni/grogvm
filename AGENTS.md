@@ -369,6 +369,11 @@ bookkeeping) instead of re-deriving the boot boilerplate. Two layers:
     dialog answer's own `name`), don't hardcode a translation.
   - **Run separately:** `npm run test:integration` (own vitest config). NOT
     part of the default `npm test`, which stays fast/synthetic/data-free.
+  - **Per-beat checkpoint saves (opt-in):** `npm run test:integration:beat-saves`
+    runs the walkthrough alone with BEAT_SAVES set — wipes `saves/beats/` up
+    front, then dumps `<run-order>-<slug>.websave.json` after every green beat.
+    Import one in the browser's saves panel to eyeball rendering at any point
+    of the run or to bisect where a visual regression starts.
   - **Data-gated:** each suite self-skips via `describe.skipIf(!hasGame())`
     so a fresh checkout / CI stays green; never commit the copyrighted bytes.
   - **No save-file dependence.** Where regression tests go, by layer:
