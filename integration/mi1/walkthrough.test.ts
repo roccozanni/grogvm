@@ -767,29 +767,23 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     expect(vm.getObjectOwner(petal)).toBe(ego);
     expect(vm.vars.readBit(ROOMS.governorMansion.dogsAsleepBit)).toBe(0);
 
-    // DEBT — both steps commit the sentence directly (`pushSentence`) rather than
-    // through the faithful click flow, because the headless testkit can't reach
-    // either UI gesture: the drug is a TWO-INVENTORY combine (the second item is
-    // picked from the inventory panel, which needs a real cursor hover the
-    // headless harness doesn't model), and the dogs (#467) aren't hit-testable
-    // headlessly for the give-target hover. The committed triples are the exact
-    // `doSentence` the verb-input script would build, so the engine path under
-    // test is identical — only the click-gathering is bypassed. Wire real
-    // gestures here once the testkit models inventory-slot / object hover.
-
-    // Drug the meat: "Use the yellow petal with the meat". The meat's verb-7
-    // (partner #689) sets the drugged class on #566 and runs global #182, which
-    // renames it "la carne condita" and consumes the petal (#689 → owner 0).
-    vm.pushSentence({ verb: VERBS.use, objectA: petal, objectB: meat });
+    // Drug the meat: "Use the yellow petal with the meat" — a TWO-INVENTORY
+    // combine: both clicks land on inventory slots, and the second slot click
+    // itself commits the sentence. The meat's verb-7 (partner #689) sets the
+    // drugged class on #566 and runs global #182, which renames it "la carne
+    // condita" and consumes the petal (#689 → owner 0).
+    useWith(vm, VERBS.use, petal, meat);
     expect(driveUntil(vm, (v) => v.getObjectOwner(petal) === 0, { maxTicks: 12000 })).toBe(true);
 
     // Give the drugged meat to the dogs (#467): runs their verb-80 → room-local
     // #201, which feeds them, checks the drugged class, and sets bit#15 (asleep),
-    // renaming them "i cani piranha che dormono". "Give" (not "Use") is the verb
-    // that reaches the feed branch — its proximity gate is the one the getDist
-    // box-clamp fix unblocked, so the ego can reach the dogs across the locked
-    // sleep-gate boxes. The meat ends consumed (owner → the room, 15).
-    vm.pushSentence({ verb: VERBS.give, objectA: meat, objectB: dogs });
+    // renaming them "i cani piranha che dormono". The dogs are a scene OBJECT
+    // (class 5, a legitimate give target for the hover poller), so the gesture
+    // is Give + the meat's slot + a scene click on them. "Give" (not "Use") is
+    // the verb that reaches the feed branch — its proximity gate is the one the
+    // getDist box-clamp fix unblocked, so the ego can reach the dogs across the
+    // locked sleep-gate boxes. The meat ends consumed (owner → the room, 15).
+    useWith(vm, VERBS.give, meat, dogs);
     expect(
       driveUntil(vm, (v) => v.vars.readBit(ROOMS.governorMansion.dogsAsleepBit) === 1, { maxTicks: 40000 }),
     ).toBe(true);
@@ -910,22 +904,12 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       walkTo(vm, { x: otis.x + 30, y: otis.y });
       waitIdle(vm);
     };
-    // DEBT — the two gives and the cake-open commit via `pushSentence` rather
-    // than the click flow. Otis's receive-handler is verb-80 on the OBJECT #405
-    // (→ room-local #203). The faithful click gestures both miss him (verified
-    // from a clean pre-trade state): `give(item, actor 4)` resolves to the actor
-    // — startObject obj=4 has no verb-80 — and `useWith(item, #405)`'s scene
-    // click doesn't resolve objectB to 405 onto the actor-overlaid object; both
-    // commit a give the engine answers with the generic "Non sembra funzionare"
-    // (global #3), never reaching #203. Only doSentence(give, item, 405) does.
-    // (This is unlike the troll/brother gives, whose actors ARE reachable by the
-    // actor-give path — give() drives those for real.) The cake-open is a
-    // separate gap: "Apri" on a CARRIED item, and the kit has no one-object
-    // inventory-verb gesture (the give/useWith helpers only cover two-object
-    // sentences, where the slot is object A). Each triple is the exact doSentence
-    // the verb input would build, so the engine path under test is identical.
-    // Retire both by teaching the testkit to commit a give onto an actor-object
-    // and a one-object verb onto an inventory slot.
+    // Otis's receive-handler is verb-80 on the OBJECT #405 (→ room-local
+    // #203), not on actor 4 — so the gesture targets the prisoner OBJECT:
+    // Give + the item's slot + a scene click on #405 (class 5, so the hover
+    // poller routes it into object B over the overlaid actor). That's
+    // `useWith` with the Give verb, unlike the troll/brother gives, whose
+    // recipients really are actors (`give()` drives those).
     //
     // Mint first — settles Otis's death-breath so he'll deal; then the rat
     // repellent — he trades Aunt Tillie's carrot cake (#420 → ego).
@@ -936,23 +920,24 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     // is settled (class 6 clear). Wait for the reaction to actually START (the
     // committed sentence isn't picked up the same tick, so waitPlayable alone can
     // return before the cutscene begins) and then for it to end.
-    vm.pushSentence({ verb: VERBS.give, objectA: ROOMS.store.mint, objectB: jail.prisoner });
+    useWith(vm, VERBS.give, ROOMS.store.mint, jail.prisoner);
     expect(driveUntil(vm, (v) => v.activeDialog !== null, { maxTicks: 14000 })).toBe(true);
     expect(waitPlayable(vm, 40000)).toBe(true);
     approach();
     // The repellent trade is a long hand-over cutscene (Otis eats, thanks you,
     // produces the cake) — the cake transfers only at its tail, so wait it out.
-    vm.pushSentence({ verb: VERBS.give, objectA: inside.ratRepellent, objectB: jail.prisoner });
+    useWith(vm, VERBS.give, inside.ratRepellent, jail.prisoner);
     expect(driveUntil(vm, (v) => v.getObjectOwner(jail.cake) === ego, { maxTicks: 40000 })).toBe(true);
     expect(waitPlayable(vm)).toBe(true);
 
-    // Open the cake (the second DEBT case noted above) → it renames to "la lima"
-    // and the verb-2 `actorSetClass` sets class 3 (and clears class 6): that
-    // class flip is the file marker. Assert the class, not the localized name.
+    // Open the cake — "Apri" + its inventory slot (a one-object sentence the
+    // slot click commits) → it renames to "la lima" and the verb-2
+    // `actorSetClass` sets class 3 (and clears class 6): that class flip is
+    // the file marker. Assert the class, not the localized name.
     const isFile = (v: typeof vm) =>
       ((v.objectClasses.get(jail.cake) ?? 0) & (1 << jail.cakeIsFileClassBit)) !== 0;
     expect(isFile(vm)).toBe(false);
-    vm.pushSentence({ verb: VERBS.open, objectA: jail.cake, objectB: 0 });
+    use(vm, VERBS.open, jail.cake);
     expect(driveUntil(vm, isFile, { maxTicks: 6000 })).toBe(true);
     expect(vm.getObjectOwner(jail.cake)).toBe(ego);
     expect(waitPlayable(vm)).toBe(true);
@@ -1077,19 +1062,16 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
   beat('I · SCUMM Bar kitchen — fill a mug at the grog barrel (the melt timer starts)', () => {
     // The kitchen door is shut post-vow (no cook gate anymore): Open it, walk
-    // through. DEBT — the fill (and every grog gesture after it) commits via
-    // `pushSentence`: a mug's inventory slot sits beyond the panel's visible
-    // window with this many items carried, so the faithful slot-click can't
-    // reach it (same gap as the petal+meat combine; retire together when the
-    // testkit models inventory-panel scrolling). The committed triple is the
-    // exact doSentence the verb input would build.
+    // through. With a dozen-plus items carried the mug's slot sits past the
+    // panel's visible window, so the gesture scrolls the panel first — the
+    // testkit's slot click models the arrows.
     const [mug] = ROOMS.scummBar.mugs;
     use(vm, VERBS.open, ROOMS.scummBar.kitchenDoor);
     walkTo(vm, ROOMS.scummBar.kitchenDoor);
     expect(driveToRoom(vm, ROOMS.kitchen.id, { maxTicks: 8000 })).toBe(true);
     expect(waitPlayable(vm)).toBe(true);
     expect(mugHasGrog(vm, mug!)).toBe(false);
-    vm.pushSentence({ verb: VERBS.use, objectA: mug!, objectB: ROOMS.kitchen.barrel });
+    useWith(vm, VERBS.use, mug!, ROOMS.kitchen.barrel);
     expect(driveUntil(vm, (v) => mugHasGrog(v as typeof vm, mug!), { maxTicks: 8000 })).toBe(true);
     expect(vm.haltInfo).toBeNull();
   });
@@ -1104,7 +1086,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     const pourIfDying = (): void => {
       if (!mugDying(vm, active)) return;
       const next = mugs.shift()!;
-      vm.pushSentence({ verb: VERBS.use, objectA: active, objectB: next }); // DEBT (see fill beat)
+      useWith(vm, VERBS.use, active, next); // a two-inventory combine
       expect(driveUntil(vm, (v) => mugHasGrog(v as typeof vm, next), { maxTicks: 6000 })).toBe(true);
       active = next;
     };
@@ -1158,12 +1140,12 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     // friendly join before he heads off "to get his things".
     if (mugDying(vm, activeMug)) {
       const next = remainingMugs.shift()!;
-      vm.pushSentence({ verb: VERBS.use, objectA: activeMug, objectB: next }); // DEBT (see fill beat)
+      useWith(vm, VERBS.use, activeMug, next); // a two-inventory combine
       expect(driveUntil(vm, (v) => mugHasGrog(v as typeof vm, next), { maxTicks: 6000 })).toBe(true);
       activeMug = next;
     }
     expect(vm.vars.readBit(jail.otisFreedBit)).toBe(0);
-    vm.pushSentence({ verb: VERBS.use, objectA: activeMug, objectB: jail.lock }); // DEBT (see fill beat)
+    useWith(vm, VERBS.use, activeMug, jail.lock);
     expect(
       driveUntil(vm, (v) => v.vars.readBit(jail.otisFreedBit) === 1, { maxTicks: 20000 }),
     ).toBe(true);
@@ -1220,7 +1202,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     // the front door — touchable only on this side — into the house.
     walkTo(vm, isle.tower);
     expect(driveUntil(vm, () => ego().walkBox === isle.towerTopBox, { maxTicks: 8000 })).toBe(true);
-    vm.pushSentence({ verb: VERBS.use, objectA: ROOMS.voodooShop.chicken, objectB: isle.cableFromTower }); // DEBT (see fill beat)
+    useWith(vm, VERBS.use, ROOMS.voodooShop.chicken, isle.cableFromTower);
     expect(driveUntil(vm, () => ego().walkBox === isle.houseTopBox, { maxTicks: 8000 })).toBe(true);
     expect(waitPlayable(vm, 10000)).toBe(true);
     // The chicken survives the trip (it's a pulley, not a fare).
@@ -1275,7 +1257,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     // side — up to the map.
     walkTo(vm, isle.housePole);
     expect(driveUntil(vm, () => ego().walkBox === isle.houseTopBox, { maxTicks: 8000 })).toBe(true);
-    vm.pushSentence({ verb: VERBS.use, objectA: ROOMS.voodooShop.chicken, objectB: isle.cableFromHouse }); // DEBT (see fill beat)
+    useWith(vm, VERBS.use, ROOMS.voodooShop.chicken, isle.cableFromHouse);
     expect(driveUntil(vm, () => ego().walkBox === isle.towerTopBox, { maxTicks: 8000 })).toBe(true);
     expect(waitPlayable(vm, 10000)).toBe(true);
     walkTo(vm, isle.tower);

@@ -126,48 +126,104 @@ export function walkTo(vm: Vm, target: Target, settle = VERB_ARM_TICKS): void {
 }
 
 /**
- * The one-object sentence ("Open X"): arm `verb`, hover the target, scene
- * click to commit `doSentence`.
+ * The one-object sentence ("Open X"): arm `verb`, then click the target — a
+ * scene object (hover + scene click) or a carried item (its inventory slot,
+ * which commits the one-object sentence by itself).
  */
 export function use(vm: Vm, verb: number, target: Target): void {
   waitReady(vm);
   vm.handleVerbClick(verb, 1);
   driveTicks(vm, VERB_ARM_TICKS);
+  if (isCarried(vm, target)) {
+    clickInventoryItem(vm, target);
+    return;
+  }
   const { x, y } = pointOf(vm, target);
   hover(vm, x, y);
   vm.handleSceneClick(1);
 }
 
 /**
- * Map a carried item's object id to its live inventory verb-slot — items
- * render as verb slots `invBase`+ in owning order (200 is the v5 inventory
- * slot base). Throws if the item isn't carried.
+ * MI1's inventory panel: 8 visible slots (verbs 200–207, 2 rows × 4) over a
+ * row-scrolled window, arrows 208/209 above/below. An arrow click adjusts the
+ * window offset and chains the inventory layout script, which clamps the
+ * offset and re-lays the slot table — so blind arrow clicks are safe at
+ * either end. Only the visible window is clickable: a slot id past it is a
+ * different verb entirely (208 is the up arrow, not the 9th item).
  */
-function inventorySlot(vm: Vm, item: number, invBase: number): number {
+const INV_SLOT_BASE = 200;
+const INV_SLOTS_VISIBLE = 8;
+const INV_PER_ROW = 4;
+const INV_UP_ARROW = 208;
+const INV_DOWN_ARROW = 209;
+/**
+ * g133..g140 — the live slot→object table the layout script fills, one global
+ * per visible slot. It is what the verb-input script itself resolves a slot
+ * click through, so reading it is authoritative by construction: whatever it
+ * says a slot holds is exactly what clicking that slot commits.
+ */
+const INV_SLOT_TABLE = 133;
+
+/** 1-based `findInventory` index of a carried item. Throws if not carried. */
+function inventoryIndex(vm: Vm, item: number): number {
   const ego = vm.vars.readGlobal(VAR_EGO);
   for (let i = 1, n = vm.inventoryCount(ego); i <= n; i++) {
-    if (vm.findInventory(ego, i) === item) return invBase + (i - 1);
+    if (vm.findInventory(ego, i) === item) return i;
   }
-  throw new Error(`inventorySlot: item ${item} is not in ego's inventory`);
+  throw new Error(`inventory: item ${item} is not in ego's inventory`);
+}
+
+/** Whether `target` is an object id ego is carrying (→ slot, not scene, click). */
+function isCarried(vm: Vm, target: Target): target is number {
+  if (typeof target !== 'number') return false;
+  const ego = vm.vars.readGlobal(VAR_EGO);
+  return ego > 0 && vm.getObjectOwner(target) === ego;
+}
+
+/**
+ * Click a carried item in the inventory panel, exactly as a player: look at
+ * the visible slots, scroll toward the item's row until it shows, click its
+ * slot. The verb-input script maps the slot back to the item and routes it
+ * into the in-progress sentence — object A, or object B once a preposition is
+ * armed — and commits the `doSentence` itself when the sentence is complete.
+ * Scrolling is kept minimal (the mug-pour race budgets ~300 jiffies for the
+ * whole gesture): no clicks at all when the item is already in view.
+ */
+function clickInventoryItem(vm: Vm, item: number): void {
+  const ego = vm.vars.readGlobal(VAR_EGO);
+  const rowOf = (id: number): number => Math.floor((inventoryIndex(vm, id) - 1) / INV_PER_ROW);
+  const targetRow = rowOf(item);
+  const rows = Math.ceil(vm.inventoryCount(ego) / INV_PER_ROW);
+  for (let guard = 0; guard <= 2 * rows + 2; guard++) {
+    for (let k = 0; k < INV_SLOTS_VISIBLE; k++) {
+      if (vm.vars.readGlobal(INV_SLOT_TABLE + k) === item) {
+        vm.handleVerbClick(INV_SLOT_BASE + k, 1);
+        driveTicks(vm, VERB_ARM_TICKS);
+        return;
+      }
+    }
+    // Not in view: scroll toward the item's row, judged from the top-left
+    // visible item. Unresolvable top (a stale table — e.g. its item was just
+    // consumed) → scroll up; the arrow click re-lays the table and clamps,
+    // so the next scan is truthful.
+    const top = vm.vars.readGlobal(INV_SLOT_TABLE);
+    const topCarried = top > 0 && vm.getObjectOwner(top) === ego;
+    const down = topCarried && targetRow > rowOf(top);
+    vm.handleVerbClick(down ? INV_DOWN_ARROW : INV_UP_ARROW, 1);
+    driveTicks(vm, VERB_ARM_TICKS);
+  }
+  throw new Error(`inventory: item ${item} never scrolled into the visible window`);
 }
 
 /**
  * The two-object Give sentence: arm the verb, click the item's inventory slot
  * (object A), then click the actor (object B).
  */
-export function give(
-  vm: Vm,
-  giveVerb: number,
-  item: number,
-  actorId: number,
-  invBase = 200,
-): void {
+export function give(vm: Vm, giveVerb: number, item: number, actorId: number): void {
   waitReady(vm);
-  const slot = inventorySlot(vm, item, invBase);
   vm.handleVerbClick(giveVerb, 1);
   driveTicks(vm, VERB_ARM_TICKS);
-  vm.handleVerbClick(slot, 1); // object A
-  driveTicks(vm, VERB_ARM_TICKS);
+  clickInventoryItem(vm, item); // object A
   const { x, y } = actorPoint(vm, actorId); // object B
   hover(vm, x, y);
   vm.handleSceneClick(1);
@@ -175,21 +231,19 @@ export function give(
 
 /**
  * The two-object Use sentence ("Use X with Y") — the {@link give} sibling
- * whose second object is a scene object instead of an actor.
+ * whose second object is an object instead of an actor: a scene object
+ * (hover + scene click) or another carried item (its inventory slot — the
+ * slot click is what commits a two-inventory combine).
  */
-export function useWith(
-  vm: Vm,
-  useVerb: number,
-  item: number,
-  target: number,
-  invBase = 200,
-): void {
+export function useWith(vm: Vm, useVerb: number, item: number, target: number): void {
   waitReady(vm);
-  const slot = inventorySlot(vm, item, invBase);
   vm.handleVerbClick(useVerb, 1);
   driveTicks(vm, VERB_ARM_TICKS);
-  vm.handleVerbClick(slot, 1); // object A
-  driveTicks(vm, VERB_ARM_TICKS);
+  clickInventoryItem(vm, item); // object A
+  if (isCarried(vm, target)) {
+    clickInventoryItem(vm, target); // object B — this click commits
+    return;
+  }
   const { x, y } = objectPoint(vm, target); // object B
   hover(vm, x, y);
   vm.handleSceneClick(1);

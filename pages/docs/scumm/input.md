@@ -85,15 +85,16 @@ unless (0 < VAR_CURSORSTATE) goto end     // do nothing while the cursor is dead
 Each frame it reads the virtual mouse position from
 **`VAR_VIRT_MOUSE_X` / `VAR_VIRT_MOUSE_Y`** (g20/g21, which the engine
 updates as the mouse moves), hit-tests it with **`findObject(x, y)`**
-for a room object and **`actorFromPos(x, y)`** for an actor — applying
-class filters (e.g. skipping objects/actors the current verb can't
-apply to) — and records the winner in the game's **active-object
-globals** (§4): the hovered object becomes object A, or object B if a
-second object is being gathered. An object hit takes precedence over an
-actor hit: the SCUMM-Bar's important pirates are drawn by actor 3, but
-their hotspot is object 322. The poller also updates the on-screen
-hover highlight, the object's **default verb**, and the **sentence
-line** (§6).
+for a room object and **`actorFromPos(x, y)`** for an actor, and
+records the winner in the game's **active-object globals** (§4): the
+hovered object becomes object A, or object B if a second object is
+being gathered. The object hit normally stands even with an actor drawn
+over it — the SCUMM-Bar's important pirates are drawn by actor 3, but
+their hotspot is object 322 — *unless* the actor under the cursor is
+registered in a per-actor table (the filtering subsection below), in
+which case the actor wins.
+The poller also updates the on-screen hover highlight, the object's
+**default verb**, and the **sentence line** (§6).
 
 The consequence that matters: **by the time the player clicks, the
 object under the cursor is already stored in a game global.** The click
@@ -126,6 +127,25 @@ exactly as on the original single screen. Hovering an item arms the
 item's default verb (`g107` ← Look at) while saving the previously
 armed verb in **`g394`**, restored on hover-out — brushing across the
 inventory doesn't wipe an in-progress command.
+
+### Verb-aware candidate filtering
+
+The raw hit is filtered by the armed verb before it reaches the
+active-object globals (all MI1 bytecode, in `#23`):
+
+- **A registered actor overrides the object hit.** A per-actor table
+  (**`g396[actorId]`**) names a helper script the poller runs to
+  compute that actor's default verb; a non-zero entry also makes the
+  hovered actor *replace* a `findObject` hit. With the entry zero, the
+  object always wins.
+- **Talk to (verb 10) only accepts class-13 candidates.** A candidate
+  without the class is retried as the raw actor under the cursor, and
+  failing that resolves to nothing.
+- **Give (verb 4), while the preposition is armed (§5), only accepts
+  class-5 candidates** for object B — same actor retry. This is why
+  giving to the jailed Otis lands on the prisoner *object* (#405,
+  class 5) even though actor 4 stands drawn on top of it: the actor has
+  no `g396` entry, and the object passes the class gate.
 
 ## 3. The click dispatch (verb-input script)
 
@@ -258,6 +278,12 @@ faithfully gets it for free.
 
 **Fine print (MI1):**
 
+- **The preposition flag is itself a verb id.** For Use, the helper
+  script (`#8`) scans object A for classes 1–3; the matched class picks
+  the preposition verb (129–131 — "in"/"con"/"su"), stored in `g110`,
+  and no match means a one-object "Use X" commits immediately. For
+  Give, `g110` is set unconditionally to verb 132 ("a") once object A
+  is in hand.
 - **Object B can be an actor.** "Give X to <actor>" targets an actor,
   not a CDHD object — e.g. giving the pot to a Fettucini brother
   (actor 3) in room 51. Object A still comes from an inventory verb
@@ -447,6 +473,21 @@ order. Because slots are verbs, clicking an inventory item is just a
 verb click (`clickArea = 1`) with the slot's verb id; the script maps
 the slot back to the object.
 
+The slots are a **scrolled window** over the full inventory, and the
+window state lives in game globals: **`g118`** is the scroll offset in
+rows of 4, and **`g133..g140`** is the slot→object table — `#9` fills
+`g133[k] = findInventory(owner, g118·4 + 1 + k)` for the 8 visible
+slots, clamping the offset (top row at most one above the last, never
+negative) and dimming whichever arrow has nothing left to scroll. The
+verb-input script `#4` closes the loop: a click on **208/209** adjusts
+`g118` by ∓1 and *chains* `#9` to re-lay the table — this branch runs
+*before* any sentence-state logic, so scrolling never disturbs an
+in-progress command — and a click on **200–207** resolves the object
+through the very same table (`g133[slot − 200]`), routes it into
+object A or object B per the preposition flag (§5), and commits the
+sentence itself when complete. With only the walk-to verb armed, a slot
+click is discarded.
+
 **Fine print (MI1):** inventory items render as **object icons, not
 text**. The slots are "image verbs": the script assigns each slot an
 object image (via `verbOps` image sub-ops) drawn from a **global UI
@@ -531,3 +572,7 @@ The traps an implementer hits, in rough order of appearance:
     buffer-naming sub-op both depend on (§6, §7).
 12. **Dialog selection reads the mouse coords, not the verb id** — a
     headless driver must set `g20/g21` before clicking a reply (§7).
+13. **A slot id past the visible inventory window is a different verb**
+    — the 9th carried item is not "verb 208"; that's the scroll arrow,
+    and clicking it scrolls instead of selecting. Resolve items through
+    the slot table after scrolling them into view (§8).

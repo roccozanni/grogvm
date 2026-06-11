@@ -80,29 +80,23 @@ the dock boarding. Routes + mechanics live in the walkthrough beats and `game.ts
   cracking beats commit handle moves via `pushSentence`. Possibly a compositing/hit-test divergence
   in how the dialed handle's state image is drawn — verify against real pixels in the browser.
 
-**Testkit debt — `pushSentence` shortcuts (flagged at each call site).** A few beats commit a
-sentence directly because the faithful click flow can't drive the gesture headlessly. Re-assessed
-2026-06-09 (each verified, not assumed):
-- **Two-inventory combine** (dog beat: Use petal with meat) — both objects are carried; the kit's
-  `useWith` takes object B from the *room*, not a second inventory slot.
-- **Give onto an actor-object** (dog beat: give meat to dogs; Otis: give mint/repellent to #405) —
-  the receive-handler is verb-80 on the OBJECT, but `give(item, actorId)` resolves to the actor (no
-  verb-80 there) and `useWith(item, objId)`'s scene click doesn't resolve object B onto an actor-
-  overlaid object; both hit global #3 "Non sembra funzionare". (Contrast the troll/brother gives,
-  whose actors ARE reachable by the actor-give path — `give()` drives those for real.)
-- **One-object verb on a carried item** (Otis beat: Open the cake) — no kit gesture for arming a verb
-  and clicking an inventory slot to commit a one-object sentence.
-- **Inventory slot beyond the visible panel window** (added 2026-06-10: the grog fill/pours/lock-melt,
-  the chicken-on-cable ziplines) — with a dozen-plus items carried the mug/chicken slot ids land
-  outside the panel's slot-verb range, so the slot click misroutes (`verb:211` garbage observed);
-  needs panel scrolling modelled.
-- **Safe-handle moves after the keeper's dial** (store beats) — the dialed handle no longer
+**Testkit debt — `pushSentence` shortcuts: retired 2026-06-11 (one survivor).** The walkthrough's
+inventory gestures are now faithful clicks: the testkit resolves a carried target as a slot click in
+the panel's *visible window*, scrolling with the arrow verbs first (INPUT §8 — `g118` row offset,
+`g133..g140` slot table, arrows 208/209 chain `#9`). That one mechanism covered every flagged site —
+the two-inventory combine (petal+meat, mug pours), the one-object verb on a carried item (cake open),
+and the over-window slots (grog fill/lock-melt, chicken ziplines). The "give onto an actor-object
+can't be clicked" finding of 2026-06-09 was **phantom**: the verification itself computed slot ids
+past the visible window (the 9th item's "slot" is the scroll arrow — `verb:208/211` garbage), so the
+give never armed object A. With correct slots, the hover poller resolves both the dogs (#467) and the
+prisoner (#405) into object B per its class-5 give gate (INPUT §2, verb-aware filtering), and `useWith(give, item, objId)`
+drives those gives for real. Pour-race note: the gesture must fit the mug's dying window (`#68`'s
+hard `delay 300` before wad-ification), which is why the slot click consults the visible table
+instead of blind-scrolling from the top.
+- **Survivor: safe-handle moves after the keeper's dial** (store beats) — the dialed handle no longer
   hover-resolves headlessly (every box point resolves the safe body); possible hit-test/compositing
-  divergence, flagged for an in-browser check in the lab notes above.
-Each `pushSentence` is the exact `doSentence` the verb input would build, so the engine path under
-test is identical. Retire them by teaching the testkit: two-inventory object B, a give committed onto
-an actor-object, a one-object inventory-slot verb, and panel scrolling. (Backlog item under Input / UI
-below.)
+  divergence, flagged for an in-browser check in the lab notes above. Its `pushSentence` is the exact
+  `doSentence` the verb input would build, so the engine path under test is identical.
 
 ### Open bug-report saves (reported, not yet fixed)
 
@@ -210,12 +204,10 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
 
 **Input / UI**
 
-- **Inventory scroll arrows** (verbs 208/209) for >8 items — needs a full
-  inventory to exercise.
-- **Testkit gestures to retire the `pushSentence` debt** (see the debt note in
-  Current): a two-inventory combine (object B from a second inventory slot), a
-  give committed onto an actor-object (verb-80 receiver), and a one-object verb
-  on an inventory slot. Each would let a flagged shortcut become a real click.
+- (inventory scrolling + the slot-click gestures landed 2026-06-11 — the
+  walkthrough's grog race exercises the arrows with a 13-item inventory; the
+  one remaining `pushSentence` shortcut is the safe handle, tracked in the
+  debt note under Current.)
 
 **Rendering**
 

@@ -312,7 +312,14 @@ bookkeeping) instead of re-deriving the boot boilerplate. Two layers:
     **actor** targets (Talk-to / Give-to-actor) from the sprite-box center
     (`actorPoint` → `Vm.actorHitBounds`, which works headless via
     `prepareActorDraw` — see [INPUT §5](pages/docs/scumm/input.md)), so the suite
-    stays coord-free. `pickDialogAnswer(vm, verbId)` walks a conversation tree
+    stays coord-free. **Carried** targets (object A, a carried object B —
+    the two-inventory combine — or a one-object verb on a carried item)
+    resolve as inventory-slot clicks in the panel's *visible window*:
+    `use`/`useWith`/`give` scan the live slot table (g133+) and click the
+    arrow verbs 208/209 until the item shows. Never compute a slot as
+    `200 + inventoryIndex` — past the window that's a different verb
+    (208 IS the up arrow), the bug that faked the give-target debt
+    (INPUT §8). `pickDialogAnswer(vm, verbId)` walks a conversation tree
     (wait-arm → pick → wait-dismiss; throws if the option never arms), since
     dialog answers are verbs whose ids recur per menu. The caller supplies the
     game's verb/object ids. Split from `drive.ts` (which is pure/synthetic-

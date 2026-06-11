@@ -62,7 +62,7 @@ from there — with **no sentence injected directly.** A playthrough built on th
 vocabulary therefore guards the real input machinery, not a parallel,
 test-only path.
 
-Two consequences keep the suite **coordinate-free**:
+Three consequences keep the suite **coordinate-free**:
 
 - Object targets resolve their hover point from the object's hit-box center, so
   a test names an object by id, never by pixel.
@@ -70,6 +70,15 @@ Two consequences keep the suite **coordinate-free**:
   sprite-box center. That requires hit-testing an actor **headless** — computing
   where its sprite would land without drawing it — which the engine supports by
   sharing the very same sprite-box computation the compositor uses to draw.
+- **Carried targets resolve as inventory-slot clicks.** The inventory panel
+  shows a scrolled window of slot verbs ([INPUT §8](../scumm/input.md)), and
+  only the visible window is clickable — a slot id past it is a different verb
+  entirely (the scroll arrow, say). So an action on a carried item plays the
+  panel like a player: consult the visible slots, click an arrow toward the
+  item's row until it shows, then click its slot. That covers a carried object
+  on *either* side of a sentence — a one-object verb on a carried item, and
+  the two-inventory combine, where the second slot click is itself what
+  commits the sentence.
 
 Dialogue is a special case. A conversation's answers are presented as **verbs
 whose ids recur from one menu to the next**, so there is no stable per-answer id
