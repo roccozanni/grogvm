@@ -1460,6 +1460,11 @@ defineOp({
     // Grab the name now, while the room owning its OBNA is still resolvable.
     if (d.owner.value !== 0) vm.captureInventoryName(d.obj.value, 0);
     vm.objectOwners.set(d.obj.value, d.owner.value);
+    // The inventory panel only re-lays when the inventory script runs, so
+    // every owner change must refresh it — or a consumed item lingers in the
+    // visible slots until something else scrolls the panel. Arg 0 = keep the
+    // current page (the script clamps it), unlike pickupObject's snap-to-end.
+    vm.runInventoryScript(0);
     vm.annotate(`setOwnerOf obj=${d.obj.value} owner=${d.owner.value}`);
   },
   format: (d) => `setOwnerOf obj=${d.obj} owner=${d.owner}`,

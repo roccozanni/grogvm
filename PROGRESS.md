@@ -80,6 +80,19 @@ the dock boarding. Routes + mechanics live in the walkthrough beats and `game.ts
   cracking beats commit handle moves via `pushSentence`. Possibly a compositing/hit-test divergence
   in how the dialed handle's state image is drawn — verify against real pixels in the browser.
 
+**Lab note 2026-06-11 — stale inventory panel on owner changes (user-reported in-browser,
+root-caused; fix awaiting in-browser confirmation).** The panel re-lays only when the inventory
+script `#9` runs. `pickupObject` ran it (arg 1, snap to the end so the new item shows) but
+`setOwnerOf` — the path every script-driven consumption takes (the pour `#69`, the mug
+wad-ification `#68`, the troll taking the fish, Otis eating the mint) — never did, so a removed
+item lingered in the visible slots until an arrow click chained `#9`. Not purely visual: the
+slot→object table (`g133+`) is what a slot click commits through, so a stale slot clicks the
+no-longer-owned object. Concrete fingerprint: the pre-fix frontier save carried `g118=3` (past
+clamp) with the destroyed mugs 365/366 still in `g133`. Fixed: `setOwnerOf` runs the inventory
+script with arg 0 — keep the current page, `#9` clamps — mirroring `pickupObject`'s arg-1 snap;
+unit test + full walkthrough green, and the regenerated frontier save's table now matches the
+live inventory exactly.
+
 **Testkit debt — `pushSentence` shortcuts: retired 2026-06-11 (one survivor).** The walkthrough's
 inventory gestures are now faithful clicks: the testkit resolves a carried target as a slot click in
 the panel's *visible window*, scrolling with the arrow verbs first (INPUT §8 — `g118` row offset,

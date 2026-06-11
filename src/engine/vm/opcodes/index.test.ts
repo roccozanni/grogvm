@@ -1789,6 +1789,28 @@ describe('intro-cutscene opcodes', () => {
     expect(vm.vars.readGlobal(0)).toBe(5);
   });
 
+  it('setOwnerOf refreshes the inventory panel, keeping the page (arg 0)', () => {
+    // The panel re-lays only when the inventory script runs; a consumed item
+    // (setOwnerOf away from ego) must not linger in the visible slots. The
+    // script is run with arg 0 — keep the current page — unlike pickupObject,
+    // which passes 1 (snap to the end so the new item shows).
+    const invRuns: number[] = [];
+    const vm = new Vm({
+      numVariables: 800,
+      numBitVariables: 2048,
+      handlers: new Map([
+        ...SEED_OPCODES,
+        [0x01, (v: Vm, s: { locals: Int32Array; kill(): void }) => { invRuns.push(s.locals[0]!); s.kill(); }],
+      ]) as typeof SEED_OPCODES,
+      resolveGlobalScript: () => ({ bytecode: bytes(0x01), room: 0 }),
+    });
+    vm.vars.writeGlobal(34, 9); // VAR_INVENTORY_SCRIPT
+    // setOwnerOf obj=42 owner=0 (a consumption); stop.
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x29, 0x2a, 0x00, 0x00, 0xa0) });
+    for (let i = 0; i < 10; i++) vm.step();
+    expect(invRuns).toEqual([0]);
+  });
+
   it('setState queues a current-room object for redraw (so an opened door renders)', () => {
     const vm = makeVm();
     // A loaded room with object 42 (has a state-1 image).
