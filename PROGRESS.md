@@ -75,10 +75,8 @@ the dock boarding. Routes + mechanics live in the walkthrough beats and `game.ts
   left-room in g101 — entry scripts branch on it (Hook Isle's side-touchability, the Voodoo Lady's
   entrance choreography which now correctly closes the door behind you). Wired into `enterRoom`
   (`runHookScript`); #6 also re-runs the verb-bar scripts and clears pending sentences per entry.
-- **Open question (in-browser check):** after the storekeeper dials the safe, the handle (#390)
-  no longer hover-resolves headlessly (every point in its hit-box resolves the safe #389), so the
-  cracking beats commit handle moves via `pushSentence`. Possibly a compositing/hit-test divergence
-  in how the dialed handle's state image is drawn — verify against real pixels in the browser.
+- ~~**Open question (in-browser check):** the safe handle (#390) doesn't hover-resolve~~ —
+  resolved 2026-06-11; see the *object hit-test was draw-ordered* lab note below.
 
 **Lab note 2026-06-11 — stale inventory panel on owner changes (user-reported in-browser,
 root-caused; fix awaiting in-browser confirmation).** The panel re-lays only when the inventory
@@ -93,7 +91,24 @@ script with arg 0 — keep the current page, `#9` clamps — mirroring `pickupOb
 unit test + full walkthrough green, and the regenerated frontier save's table now matches the
 live inventory exactly.
 
-**Testkit debt — `pushSentence` shortcuts: retired 2026-06-11 (one survivor).** The walkthrough's
+**Lab note 2026-06-11 — object hit-test was draw-ordered; SCUMM's is source-ordered with a
+parent chain (user's in-browser overlay spotted it; fix awaiting in-browser confirmation).**
+The Phase-7 `findObject` preferred drawn objects topmost-first, so the drawn safe (#389)
+permanently shadowed the un-drawn handle (#390) nested inside its box — the safe-crack
+`pushSentence` debt. The room data says otherwise: the handle is declared *before* the safe, with
+CDHD `parent=2` — a **1-based source-order index** pointing at the safe — and flags bit 0x80 is
+the **required parent state** (set → parent non-0/"open", clear → parent 0/"closed"). Corpus: 27
+parent-gated objects across MI1, children always declared before containers, the r29/r37
+nameless zone-parents DOBJ-untouchable so they can't swallow their children's hovers. The old
+code also read flags 0x80 as "untouchable" — which would have made the Sea Monkey cabin's
+"il baule" (flags 0x80, chained to "l'armadio") permanently dead in Part II. Fixed: `findObject`
+scans source order first-hit-wins, draw-agnostic, gated by class-32 untouchability and the
+recursive parent chain (OBJECTS §2/§7a). `crackSafe` now Push/Pulls the handle with real clicks —
+**zero `pushSentence` left in the suite**. Unit witnesses + full walkthrough green; the
+`saves/MI1-safe-crack.websave.json` dev save (gitignored) sits at the cracking window for the
+in-browser hover check.
+
+**Testkit debt — `pushSentence` shortcuts: retired 2026-06-11 (none left).** The walkthrough's
 inventory gestures are now faithful clicks: the testkit resolves a carried target as a slot click in
 the panel's *visible window*, scrolling with the arrow verbs first (INPUT §8 — `g118` row offset,
 `g133..g140` slot table, arrows 208/209 chain `#9`). That one mechanism covered every flagged site —
@@ -105,11 +120,8 @@ give never armed object A. With correct slots, the hover poller resolves both th
 prisoner (#405) into object B per its class-5 give gate (INPUT §2, verb-aware filtering), and `useWith(give, item, objId)`
 drives those gives for real. Pour-race note: the gesture must fit the mug's dying window (`#68`'s
 hard `delay 300` before wad-ification), which is why the slot click consults the visible table
-instead of blind-scrolling from the top.
-- **Survivor: safe-handle moves after the keeper's dial** (store beats) — the dialed handle no longer
-  hover-resolves headlessly (every box point resolves the safe body); possible hit-test/compositing
-  divergence, flagged for an in-browser check in the lab notes above. Its `pushSentence` is the exact
-  `doSentence` the verb input would build, so the engine path under test is identical.
+instead of blind-scrolling from the top. The last holdout — the safe-handle moves — fell with the
+hit-test fix (the lab note above).
 
 ### Open bug-report saves (reported, not yet fixed)
 
@@ -219,8 +231,8 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
 
 - (inventory scrolling + the slot-click gestures landed 2026-06-11 — the
   walkthrough's grog race exercises the arrows with a 13-item inventory; the
-  one remaining `pushSentence` shortcut is the safe handle, tracked in the
-  debt note under Current.)
+  safe handle followed via the source-order/parent-chain hit-test fix, so no
+  `pushSentence` shortcut remains anywhere in the suite.)
 
 **Rendering**
 

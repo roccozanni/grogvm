@@ -1350,9 +1350,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       driveUntil(vm, (v) => v.actors.get(store.keeperActor).room !== store.id, { maxTicks: 40000 }),
     ).toBe(true);
     expect(waitPlayable(vm, 20000)).toBe(true);
-    // DEBT — the handle moves commit via `pushSentence` (the keeper's own dial
-    // leaves the handle's drawn state hover-resolving under the safe body
-    // headlessly; flagged in PROGRESS for an in-browser hit-test check).
+    // The handle (#390) is a parent-gated hotspot — clickable exactly while
+    // its safe (#389) sits shut, which it is again now that the keeper's gone.
     expect(vm.getObjectOwner(store.creditNote)).not.toBe(ego);
     expect(crackSafe(vm)).toBe(true);
     expect(vm.getObjectOwner(store.creditNote)).toBe(ego);

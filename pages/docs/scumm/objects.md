@@ -78,8 +78,8 @@ A fixed 13-byte header at the start of every OBCD's payload:
 | 3      | u8   | `y`          | Room y in 8-pixel units.                                         |
 | 4      | u8   | `width`      | Bounding-box width in 8-pixel units.                             |
 | 5      | u8   | `height`     | Bounding-box height in 8-pixel units.                            |
-| 6      | u8   | `flags`      | Per-object flags. Bit 0x80 = "untouchable".                      |
-| 7      | u8   | `parent`     | Parent object id (0 = no parent). Used for inventory groupings.  |
+| 6      | u8   | `flags`      | Bit 0x80 = required **parent state**: set → parent must be non-0 ("open"), clear → parent must be 0 ("closed"). Only meaningful with `parent` ≠ 0 (§7a). |
+| 7      | u8   | `parent`     | **1-based source-order index** (not an object id) of the container object in this room's OBCD sequence; 0 = no parent. Gates hit-testing on the container's state (§7a). |
 | 8      | i16  | `walkX`      | "Walk to" target x in **pixels**, **signed**. Where an actor stands to use this object — an edge exit's walk-to point can be *off-screen* (e.g. x = −25), so reading it unsigned (→ 65511) marches the actor off into space. |
 | 10     | i16  | `walkY`      | "Walk to" target y in pixels, signed.                            |
 | 12     | u8   | `actorDir`   | Suggested actor facing on interaction (N/S/E/W encoding).        |
@@ -300,6 +300,29 @@ Three per-object attributes drive interaction, seeded from the index
 non-default rows (owner≠15 / state≠0 / class≠0). The seeded maps are
 captured in the save snapshot and re-applied on restore.
 
+**`findObject` selection: source order + the parent chain, never draw
+order.** Among the objects whose box contains the point, the **first in
+OBCD source order** wins — rooms author nested hotspots *before* their
+containers (MI1's store declares "la maniglia" #390 right before its
+safe #389, the jail declares each "la serratura" before its cell). Two
+gates filter candidates:
+
+- the runtime **Untouchable class** (32), as above — this is how the
+  nameless full-shelf "zone" parents (the voodoo shop's #383–385) sit
+  early in source order without swallowing their children's hovers;
+- the **parent chain**: an object with CDHD `parent` ≠ 0 is hit-testable
+  only while its container — the parent-th object *in source order* —
+  sits in the required state (`flags` 0x80: set → non-0, clear → 0),
+  recursively up the chain. The closed-safe handle (flags clear)
+  vanishes the moment the safe opens; the cabin's "il baule" (flags
+  set, chained through an untouchable interior zone to "l'armadio")
+  appears only once the cupboard opens. An untouchable link still
+  *gates* — untouchability hides it from hits, not from being a state
+  switch.
+
+Drawn-ness plays no part: a hotspot needs no image, and a drawn
+container must not shadow the un-drawn hotspot nested inside it.
+
 **Distance uses the walk-to point, not the image.** `getObjectXYPos`
 (and the proximity gate for "is the ego close enough to act?") reads the
 object's **walk-to point** (`walkX/walkY` from the OBCD) — the exact spot
@@ -356,3 +379,11 @@ room/walk-to branch.
 10. **Measuring object distance to the image instead of the walk-to
     point** — the ego arrives and still reads "too far"; held items
     measure to their holder (§7a).
+11. **Reading CDHD flags 0x80 as "untouchable", or `parent` as an
+    object id** — 0x80 is the *required parent state* and `parent` a
+    1-based source-order index; misread them and the cabin's chest is
+    permanently dead and the safe's handle never resolves (§2, §7a).
+12. **Letting draw order drive the object hit-test** — a drawn
+    container shadows the un-drawn hotspot nested inside it (the safe
+    over its handle); selection is source order + the parent chain,
+    draw-agnostic (§7a).

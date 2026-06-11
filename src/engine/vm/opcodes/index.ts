@@ -1151,11 +1151,12 @@ defineOp({
     if (vm.loadedRoom) {
       const hit = pickObject({
         objects: vm.loadedRoom.objects,
-        drawQueue: vm.objectDrawQueue,
         x: d.x.value,
         y: d.y.value,
         // Untouchable class (32, bit 31) → not hit-testable (objects.md §7a).
         isUntouchable: (id) => ((vm.objectClasses.get(id) ?? 0) & (1 << 31)) !== 0,
+        // Parent-chain gate reads live object states (objects.md §7a).
+        getObjectState: (id) => vm.objectStates.get(id),
         // The hotspot follows a SO_AT reposition (objects.md §7).
         getObjectPosition: (id) => vm.objectDrawPositions.get(id),
       });

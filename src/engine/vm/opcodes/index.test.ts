@@ -1320,7 +1320,6 @@ describe('inventory subsystem', () => {
     const at = (x: number, y: number) =>
       pickObject({
         objects: vm.loadedRoom!.objects,
-        drawQueue: vm.objectDrawQueue,
         x, y,
         isUntouchable: (id) => ((vm.objectClasses.get(id) ?? 0) & (1 << 31)) !== 0,
       });

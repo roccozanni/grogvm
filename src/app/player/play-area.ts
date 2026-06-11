@@ -233,11 +233,11 @@ export function mountPlayArea(args: PlayAreaArgs): PlayAreaHandles {
     // nameless actor must not mask it.
     const objHit = pickObject({
       objects: room.objects,
-      drawQueue: vm.objectDrawQueue,
       x: roomX,
       y: roomY,
       // Untouchable class (32) → not hoverable; matches the engine's findObject.
       isUntouchable: (id) => ((vm.objectClasses.get(id) ?? 0) & (1 << 31)) !== 0,
+      getObjectState: (id) => vm.objectStates.get(id),
       getObjectPosition: (id) => vm.objectDrawPositions.get(id),
     });
     if (objHit !== null) return objHit;

@@ -1372,9 +1372,9 @@ export const mugDying = (vm: Vm, mug: number): boolean => hasClass(vm, mug, 6);
  * digits (g221..g224) and the dial state the keeper's own opening left
  * behind (g228 = his last direction, which the first group must continue),
  * then feeds the handle the four alternating-direction groups. Each move is
- * a committed sentence (see the beat's DEBT note) and waits for the matcher
- * to register before the next. Returns whether the note (#397) landed in
- * ego's inventory.
+ * a real Push/Pull click on the handle (#390 — a hotspot only while its
+ * parent safe is shut, which it is) and waits for the matcher to register
+ * before the next. Returns whether the note (#397) landed in ego's inventory.
  */
 export function crackSafe(vm: Vm): boolean {
   const ego = vm.vars.readGlobal(VAR_EGO);
@@ -1388,7 +1388,7 @@ export function crackSafe(vm: Vm): boolean {
     const push = group % 2 === 0 ? firstPush : !firstPush;
     for (let k = 0; k < combo[group]!; k++) {
       const before = state();
-      vm.pushSentence({ verb: push ? VERBS.push : VERBS.pull, objectA: ROOMS.store.handle, objectB: 0 });
+      use(vm, push ? VERBS.push : VERBS.pull, ROOMS.store.handle);
       driveUntil(vm, (v) => state() !== before || v.getObjectOwner(ROOMS.store.creditNote) === ego, {
         maxTicks: 6000,
       });
