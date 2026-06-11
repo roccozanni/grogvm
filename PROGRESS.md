@@ -47,57 +47,19 @@ secured, Part II just begun.
 
 **Frontier: Part I is FINISHED and Part II has begun — the crew is recruited (Otis bit#76,
 Carla bit#89, Meathook bit#88), the Sea Monkey bought (bit#51), and the boarding/departure plays
-through to the captain's cabin (room 7), playable, all from boot.** The clean fast-forward save now
-sits aboard the Sea Monkey. The crew/ship arc added 2026-06-10: grog mugs → Otis's lock-melt, the
-Carla and Meathook recruits (Hook Isle zipline both ways), Stan's credit referral, the store
-credit-interview + Sword-Master errand + safe-crack (the 4-digit combination lives in g221..g224 —
-random per game, the beats read it from the vars), the walk-away/offer-ladder haggle to 5000, and
-the dock boarding. Routes + mechanics live in the walkthrough beats and `game.ts`
+through to the captain's cabin (room 7), playable, all from boot.** The clean fast-forward save
+sits aboard the Sea Monkey. Routes + mechanics live in the walkthrough beats and `game.ts`
 (`crackSafe`/`buySeaMonkey`/`townToMap` helpers), not here.
 
 > **NEXT SESSION — Part II proper (The Journey).** Aboard the Sea Monkey: the cabin (room 7), the
 > hold/galley below decks, the voyage to Monkey Island (the navigation recipe). Restore the frontier
 > save to start in the cabin; same loop — disassemble first, drive headless, assert mechanics.
 
-**Recent findings: all folded into the docs (lab-note rule honoured).** The 2026-06-10 camera /
-room-transition fixes live in [engine/camera.md](pages/docs/engine/camera.md) (`VAR_CAMERA_POS_X`
-mirroring, latched follow-pans) and [engine/room-transitions.md](pages/docs/engine/room-transitions.md)
-(entry/exit hook scripts, stale-`ENCD`/`EXCD` purge); the 2026-06-11 inventory-panel refresh and
-window/slot mechanics in [INPUT §8](pages/docs/scumm/input.md) (+ the give/talk hover gates in §2);
-the source-order + parent-chain `findObject` rule in [OBJECTS §2/§7a](pages/docs/scumm/objects.md);
-the testkit's carried-target slot gestures in [engine/harness.md §3](pages/docs/engine/harness.md)
-and AGENTS "The harness". With the hit-test fix, **zero `pushSentence` shortcuts and zero DEBT
-markers remain in the integration suite** — every walkthrough action is a faithful click.
-The 2026-06-11 line-following walker (per-leg `calcMovementFactor` factors, 16.16 sub-pixel
-accumulation, serialized mid-leg state) closed the last Pathfinding backlog item, and the same
-day's **scale-throttled walk step** (`factor × scale/255` — apparent speed tracks apparent size;
-derived from the user report that ego raced across the far-view store street, room 34, whose
-boxes scale to 33–75/255; probe: `scratch/store-street-scale.ts`) closed the speed half; both in
-[PATHFINDING §9](pages/docs/engine/pathfinding.md). Each shifted the seeded RNG stream, so the
-duel grind's `SWORD_MASTER_NEEDED` set was re-derived (its `game.ts` comment records the
-recipe). Verified in-browser 2026-06-11: walk speed timed against the original on the store
-street — pretty similar. Same day, the intro's **room-38 full-size-ego flash** (user-reported:
-ego pops in top-right at scale 255, snaps down when the entry walk starts) — root cause: the
-boot script `putActor`s ego into room 38 while room 10 is still current, so the placement
-rescale has no boxes to resolve against, and nothing re-resolved at load; fix: **the room load
-is itself a placement event** — `enterRoom` resolves box + scale for every actor already in
-the arriving room, before the entry scripts (ego now enters at scale 215, box 5, from the
-first frame; headless repro: `scratch/lookout-entry-scale.ts`). Folded into
-[room-transitions §1 step 7](pages/docs/engine/room-transitions.md) and
-[walk-boxes §"Perspective-scale recompute timing"](pages/docs/scumm/walk-boxes.md); the
-in-browser look at the fixed intro is still pending.
+**Pending in-browser checks** (fixes shipped + folded into docs, look not yet confirmed):
 
-**Verb panel lost its purple (user-reported 2026-06-11, side-by-side vs ScummVM).** A
-regression FROM the entry-hook work above: wiring `VAR_ENTRY_SCRIPT` made MI1's `#6` run on
-every room load, and `#6` branches on `g49` (`VAR_VIDEOMODE`) — `== 19` (VGA mode 0x13)
-re-applies the boot purples from `g377–g388` (slots 1/2/3/6: `(23,0,23)/(83,0,83)/
-(223,83,223)/(127,47,127)`), anything else takes an EGA fallback that blacks slots 1/2 and
-sets slot 3 to `(255,0,255)`. We never seeded `g49`, so the panel's box-grid sprites (room 99
-objs 1030/1032/1033 — fill is CLUT 1/2) went black and the verb ink turned hot magenta.
-Fix: seed `VAR_VIDEOMODE = 19` in `seedEngineVariables`; pixel probe
-`scratch/verb-band-probe.ts` renders the band and now matches the ScummVM reference
-(box grid `(23,0,23)`, ink `(223,83,223)`). Fact folded into
-[boot.md §1](pages/docs/scumm/boot.md); in-browser confirmation pending.
+- The fixed intro entry — room 38 used to flash ego top-right at full scale before the
+  entry walk rescaled him; `enterRoom` now resolves box + scale on room load (ego at
+  scale 215, box 5 from the first frame; headless repro: `scratch/lookout-entry-scale.ts`).
 
 ### Open bug-report saves (reported, not yet fixed)
 
@@ -205,10 +167,6 @@ Deferred out of earlier phases; none block current play. Detail in the linked do
 
 **Rendering**
 
-- **Testkit screenshots are room-scene only** — `testkit/screenshot.ts` /
-  mugshot still compose via `composeFrame`; adopting `composeScreen` would
-  make debug PNGs show dialog + verbs. Natural follow-up, take it when a
-  probe needs text pixels in a PNG.
 - **Screen-shake waveform is an approximation** — SCUMM's shake table is
   engine-internal (not in the bytecode), so only the on/off state is
   faithful; the renderer's vertical jolt is hand-rolled. Tune in-browser.
@@ -269,13 +227,6 @@ play — maintainability/quality, not bugs. File:line refs are point-in-time.
 
 ### Out of scope (their own phases)
 
-- **Audio timing — DONE (2026-06-09).** `AudioBackend` seam +
-  `SilentTimingBackend`; sound durations from the real resources (SBL VOC
-  time-constant, MIDI tempo×ticks, CD-track audio headers read partially at
-  load). Writeups: [engine/audio.md](pages/docs/engine/audio.md) +
-  [scumm/sound.md](pages/docs/scumm/sound.md). Actual audio **OUTPUT**
-  (`WebAudioBackend`) is its own later phase behind the same interface (see
-  Next).
 - **Resource-heap management** — `resourceRoutines` stay no-ops (resources load
   lazily; there's no managed heap to model).
 
