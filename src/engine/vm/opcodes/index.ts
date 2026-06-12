@@ -1503,6 +1503,10 @@ defineOp({
   format: (d) => `startObject obj=${d.obj} script=${d.verb} [${d.args.join(',')}]`,
 });
 
+/** OBCD `actorDir` → facing (NOT the costume old-dir order; see the
+ *  loadRoomWithEgo comment for the four observed pins). */
+const ACTOR_DIR_FACING: readonly ('E' | 'W' | 'N' | 'S')[] = ['E', 'W', 'N', 'S'];
+
 // Placement point for loadRoomWithEgo / putActorAtObject: the walk-to
 // point clamped into the boxes (adjustXYToBeInBox) — placement is instant.
 // walkActorToObject deliberately doesn't clamp; its pathfinder copes.
@@ -1540,6 +1544,17 @@ defineOp({
         ego.x = walk.x;
         ego.y = walk.y;
         ego.walkLeg = null;
+      }
+      // Face the entry object's actorDir (OBCD byte 12) and stand. Without
+      // this ego keeps his pre-transition walk facing. The byte's mapping is
+      // the pairwise OPPOSITE of the costume old-dir table — all four codes
+      // pinned by reference-playthrough screenshots: bar interior #315 (0)
+      // rests E, jail #400 (1) rests W, cliff steps #486 (2) rests N, bar
+      // doorway #428 (3) rests front (S).
+      const entryObj = vm.loadedRoom?.objects.get(objId);
+      if (entryObj) {
+        ego.facing = ACTOR_DIR_FACING[entryObj.cdhd.actorDir & 3]!;
+        applyStandPose(vm, ego);
       }
       // Rescale so ego renders at floor scale on the first frame.
       rescaleActorForPosition(vm, ego);
