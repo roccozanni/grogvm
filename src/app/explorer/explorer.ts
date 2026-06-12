@@ -12,10 +12,15 @@ import { listRooms, extractRoom, referencedGlobalScripts } from '../../engine/ro
 import { currentRoomParam, searchWithRoom } from '../../platform/routing/routing';
 import { walkCostumes } from '../../engine/graphics/costume';
 import { walkCharsets } from '../../engine/graphics/charset';
+import { parseSound } from '../../engine/sound/resource';
+import { loadSound } from '../../engine/vm/scripts';
+import { isPreviewable, SoundPreview } from '../../platform/audio/preview';
+import { cdTrackFileResolver, readCdTrackDurations } from '../../platform/storage/game-files';
 import { signal, effect, el, clear, createRoot } from '../reactive';
 import { backgroundPanel, objectsPanel, scriptsPanel, roomRail } from './panels';
 import { costumesPanel } from './costume-panel';
 import { charsetsPanel } from './charset-panel';
+import { soundsPanel, type RoomSound } from './sounds-panel';
 
 export function renderExplorer(game: StoredGame): HTMLElement {
   const container = el('div', { class: 'player' });
@@ -37,9 +42,10 @@ async function loadAndRender(game: StoredGame, target: HTMLElement): Promise<voi
   try {
     const indexName = indexFilenameFor(game.gameId);
     const resourcesName = resourcesFilenameFor(game.gameId);
-    const [indexFile, resourcesFile] = await Promise.all([
+    const [indexFile, resourcesFile, cdTrackDurations] = await Promise.all([
       findFile(game.directoryHandle, indexName),
       findFile(game.directoryHandle, resourcesName),
+      readCdTrackDurations(game.directoryHandle),
     ]);
     if (!indexFile) throw new Error(`Could not find ${indexName} in "${game.directoryHandle.name}".`);
     if (!resourcesFile) throw new Error(`Could not find ${resourcesName} in "${game.directoryHandle.name}".`);
@@ -60,6 +66,18 @@ async function loadAndRender(game: StoredGame, target: HTMLElement): Promise<voi
     const costumesByLflf = byLflf(walkCostumes(resourceBundle));
     const charsetsByLflf = byLflf(walkCharsets(resourceBundle));
 
+    // Sounds resolve by room number through the index's DSOU lane — the same
+    // path the VM takes — and audition through one preview player (one sound
+    // at a time; the play click is the autoplay-policy gesture).
+    const preview = new SoundPreview(cdTrackFileResolver(game.directoryHandle));
+    const cdJiffies = (track: number): number => cdTrackDurations.get(track) ?? 0;
+    const soundsInRoom = (roomId: number): RoomSound[] =>
+      index.sounds.flatMap((entry, soundId) =>
+        entry.room === roomId
+          ? [{ id: soundId, res: parseSound(loadSound(resourceBundle, index, loff, soundId), cdJiffies) }]
+          : [],
+      );
+
     const requested = currentRoomParam();
     const startRoom = requested != null && rooms.some((r) => r.roomId === requested) ? requested : rooms[0]!.roomId;
 
@@ -69,6 +87,7 @@ async function loadAndRender(game: StoredGame, target: HTMLElement): Promise<voi
 
       effect(() => {
         const id = currentRoomId();
+        preview.stop(); // leaving a room ends its audition
         history.replaceState(null, '', searchWithRoom(location.search, id));
         const ref = rooms.find((r) => r.roomId === id)!;
         const d = extractRoom(resourceBundle, ref);
@@ -85,6 +104,7 @@ async function loadAndRender(game: StoredGame, target: HTMLElement): Promise<voi
           objectsPanel(d.objects, selected, roomPalette, transparentIndex),
           costumesPanel(costumesByLflf.get(ref.lflfIndex) ?? [], resourceBundle, roomPalette),
           charsetsPanel(charsetsByLflf.get(ref.lflfIndex) ?? [], resourceBundle, roomPalette),
+          soundsPanel(soundsInRoom(id), isPreviewable, preview),
           scriptsPanel(d.scripts, referencedGlobalScripts(d, resourceBundle, index, loff)),
         ].filter((p): p is HTMLElement => p !== null);
         clear(dossier);

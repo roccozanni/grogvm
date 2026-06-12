@@ -1036,3 +1036,47 @@ code {
   font-size: 0.75em;
 }
 
+
+/* Sounds panel — one row per DSOU entry, play/stop audition button. */
+.sound-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.sound-row {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  font-size: 0.85em;
+}
+
+.sound-play-btn {
+  margin: 0;
+  width: 2.2rem;
+  padding: 0.15rem 0;
+  text-align: center;
+}
+
+.sound-play-btn.is-on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #000;
+}
+
+.sound-play-btn.is-on:hover {
+  background: var(--accent);
+}
+
+.sound-id {
+  min-width: 3.2rem;
+  color: var(--accent);
+}
+
+.sound-kind {
+  min-width: 13rem;
+}
+
+.sound-duration {
+  color: var(--muted);
+}

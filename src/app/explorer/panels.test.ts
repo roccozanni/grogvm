@@ -9,9 +9,11 @@ import { describe, it, expect } from 'vitest';
 import { signal, createRoot } from '../reactive';
 import { roomRail, scriptsPanel, objectsPanel, backgroundPanel } from './panels';
 import { costumesPanel } from './costume-panel';
+import { soundsPanel, type SoundPlayer } from './sounds-panel';
 import type { RoomRef } from '../../engine/room/extract';
 import type { LoadedObject } from '../../engine/object/loader';
 import type { ResourceFile } from '../../engine/resources/tree';
+import type { SoundResource } from '../../engine/sound/resource';
 
 const refs: RoomRef[] = [
   { roomId: 5, lflfIndex: 0, roomBlock: {} as never },
@@ -149,5 +151,83 @@ describe('section errors', () => {
   it('renders a decode error instead of throwing', () => {
     const panel = backgroundPanel({ ok: false, error: 'no CLUT' }, [], [], [], signal<number | null>(null));
     expect(panel.querySelector('.dossier-error')!.textContent).toContain('no CLUT');
+  });
+});
+
+describe('soundsPanel', () => {
+  const pcm = (jiffies: number): SoundResource => ({
+    durationJiffies: jiffies,
+    looping: false,
+    rendition: { kind: 'pcm', samples: new Uint8Array(8), rate: 10000 },
+  });
+  const silent: SoundResource = { durationJiffies: 0, looping: false, rendition: { kind: 'silent' } };
+  const playablePcm = (res: SoundResource): boolean => res.rendition.kind === 'pcm';
+
+  /** A SoundPreview stand-in that flips its playing key like the real one. */
+  const stubPlayer = (): SoundPlayer & { toggled: number[] } => {
+    const player = {
+      toggled: [] as number[],
+      onChange: (() => {}) as (playing: number | null) => void,
+      playing: null as number | null,
+      toggle(key: number) {
+        this.toggled.push(key);
+        this.playing = this.playing === key ? null : key;
+        this.onChange(this.playing);
+      },
+    };
+    return player;
+  };
+
+  it('returns null for a room with no sounds', () => {
+    expect(soundsPanel([], playablePcm, stubPlayer())).toBeNull();
+  });
+
+  it('lists rows with id, kind, and duration', () => {
+    createRoot(() => {
+      const panel = soundsPanel(
+        [
+          { id: 28, res: pcm(164) },
+          { id: 7, res: silent },
+        ],
+        playablePcm,
+        stubPlayer(),
+      )!;
+      const rows = [...panel.querySelectorAll('.sound-row')];
+      expect(rows).toHaveLength(2);
+      expect(rows[0]!.querySelector('.sound-id')!.textContent).toBe('#28');
+      expect(rows[0]!.querySelector('.sound-kind')!.textContent).toContain('digitized');
+      expect(rows[0]!.querySelector('.sound-duration')!.textContent).toBe('2.7 s');
+    });
+  });
+
+  it('play toggles through the player and tracks the playing row', () => {
+    createRoot(() => {
+      const player = stubPlayer();
+      const panel = soundsPanel(
+        [
+          { id: 1, res: pcm(60) },
+          { id: 2, res: pcm(60) },
+        ],
+        playablePcm,
+        player,
+      )!;
+      const [a, b] = [...panel.querySelectorAll('.sound-play-btn')] as HTMLButtonElement[];
+      expect(a!.textContent).toBe('►');
+      a!.click();
+      expect(player.toggled).toEqual([1]);
+      expect(a!.textContent).toBe('■');
+      expect(a!.classList.contains('is-on')).toBe(true);
+      expect(b!.textContent).toBe('►');
+      a!.click(); // stop
+      expect(a!.textContent).toBe('►');
+    });
+  });
+
+  it('disables the button for unplayable renditions', () => {
+    createRoot(() => {
+      const panel = soundsPanel([{ id: 7, res: silent }], playablePcm, stubPlayer())!;
+      const btn = panel.querySelector('.sound-play-btn') as HTMLButtonElement;
+      expect(btn.disabled).toBe(true);
+    });
   });
 });

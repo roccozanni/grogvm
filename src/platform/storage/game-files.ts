@@ -33,7 +33,7 @@ const CD_TRACK_HEADER_BYTES = 2048;
  * CD-trigger sounds. Only the header is sliced, never the whole multi-MB
  * track; `file.size` feeds the MP3 CBR fallback.
  */
-async function readCdTrackDurations(
+export async function readCdTrackDurations(
   dir: FileSystemDirectoryHandle,
 ): Promise<Map<number, number>> {
   const durations = new Map<number, number>();
