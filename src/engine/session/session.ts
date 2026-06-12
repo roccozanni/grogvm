@@ -1,6 +1,7 @@
 /** EngineSession — the game loop and runtime control surface. See pages/docs/engine/session.md. */
 
 import { bootGame } from '../vm/boot';
+import type { AudioBackend } from '../sound/backend';
 import type { Vm } from '../vm/vm';
 import { snapshotVm, restoreVm, type SaveState } from '../vm/savestate';
 import { composeFrame } from '../render/compositor';
@@ -50,11 +51,18 @@ export function createSession(
   game: SessionGame,
   renderer: Renderer,
   clock: Clock,
-  opts?: { bootParam?: number; tickRateHz?: number; autoPauseOnIdle?: boolean },
+  opts?: {
+    bootParam?: number;
+    tickRateHz?: number;
+    autoPauseOnIdle?: boolean;
+    /** Output backend, reused across restore/reboot VM swaps (it owns the AudioContext). */
+    audio?: AudioBackend;
+  },
 ): EngineSession {
   // Play sets this false (a self-pause would soft-lock the clean player); all-dead
   // and halt pauses always apply. See session.md §3.
   const autoPauseOnIdle = opts?.autoPauseOnIdle ?? true;
+  const audio = opts?.audio;
   let vm: Vm = bootGame(
     game.resourceFile,
     game.index,
@@ -63,6 +71,7 @@ export function createSession(
     opts?.bootParam,
     undefined,
     game.cdTrackDurations,
+    audio,
   ).vm;
 
   let tickCount = 0;
@@ -343,11 +352,17 @@ export function createSession(
     const minIntervalMs = 1000 / tickRateHz;
     const elapsed = now - lastTickAt;
     if (elapsed < minIntervalMs - 0.5) return; // not time yet; wait for next clock tick
-    lastTickAt = now;
     const batch = Math.min(
       MAX_TICKS_PER_FRAME,
       Math.max(1, Math.floor(elapsed / minIntervalMs)),
     );
+    // Carry the sub-interval remainder into the next time base — discarding
+    // it (lastTickAt = now) leaked every callback's fractional leftover, so
+    // VM time ran 1-3% slow against wall time and real-time audio drifted
+    // audibly. Cap the carry at one interval: a long stall (hidden tab) is
+    // dropped, not replayed as a fast-forward backlog.
+    const remainder = elapsed - batch * minIntervalMs;
+    lastTickAt = now - Math.min(remainder, minIntervalMs);
     runBatch(batch);
   };
 
@@ -450,7 +465,7 @@ export function createSession(
         clock.stop();
       }
       const fresh = bootGame(
-        game.resourceFile, game.index, game.loff, game.gameId, undefined, undefined, game.cdTrackDurations,
+        game.resourceFile, game.index, game.loff, game.gameId, undefined, undefined, game.cdTrackDurations, audio,
       ).vm;
       restoreVm(fresh, state);
       adopt(fresh);
@@ -468,8 +483,11 @@ export function createSession(
         playing = false;
         clock.stop();
       }
+      // restore() flows through backend.restore (which silences voices); a
+      // fresh boot doesn't, so silence the shared backend explicitly.
+      vm.audio.stopAll();
       adopt(bootGame(
-        game.resourceFile, game.index, game.loff, game.gameId, undefined, undefined, game.cdTrackDurations,
+        game.resourceFile, game.index, game.loff, game.gameId, undefined, undefined, game.cdTrackDurations, audio,
       ).vm);
       composeAndPresent(false);
       if (wasPlaying) this.play();
@@ -540,6 +558,7 @@ export function createSession(
     dispose(): void {
       playing = false;
       clock.stop();
+      vm.audio.dispose();
       renderer.dispose();
       frameSubs.clear();
     },
