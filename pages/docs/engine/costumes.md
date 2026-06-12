@@ -36,12 +36,23 @@ showing.
 
 ## Scaled drawing
 
-When an actor draws below full size, frames are resampled with **centered
-nearest-neighbour** sampling: each destination cell reads its source *middle*,
-`(p + 0.5) · src / dst`, rather than its leading edge. Dropped rows and columns
-are thereby distributed evenly across the sprite instead of bunching at one
-side, so thin features — Guybrush's eyes — survive downscaling. Scale 255 is an
-exact identity: no resampling, pixel for pixel.
+When an actor draws below full size, frames are resampled with
+**phase-tuned nearest-neighbour** sampling: each destination cell reads
+`(p + φ) · src / dst`, with per-axis phases φ chosen empirically
+(`PHASE_Y = 11/16`, `PHASE_X = 3/8` in `composite.ts`). The phase decides
+*which* rows and columns drop, and one-pixel features live or die by it:
+centered sampling (φ = 0.5) — the obvious-looking choice — erased Guybrush's
+eyes for the entire lookout dialogue of MI1's intro (scale 241, the talking
+face is an 11-px overlay limb). The shipped phases came from a 16×16 grid
+search with two hard constraints (every draw of that cutscene keeps an eye;
+the town-dock resting pose at fixed box scale 210 keeps its eye in both
+mirror senses), ranked by misses across every scale MI1's boxes and scale
+slots actually use. This is *not* the original interpreter's row selection —
+that pattern is still unrecovered (PROGRESS.md Tier-2), and it shows: at the
+dock's scale 210 the original draws a visibly fuller sprite (shirt one column
+wider, socks intact) from the same 14×39 budget, because it drops different
+columns. At some scales features genuinely vanish in the original too. Scale
+255 is an exact identity for any phase: no resampling, pixel for pixel.
 
 ## Transparent pixels
 

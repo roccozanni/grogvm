@@ -10,6 +10,25 @@ import type { LoadedCostume } from './costume-loader';
 import type { Actor } from '../actor/actor';
 import type { DecodedZPlane } from './zplane';
 
+/**
+ * Downscale sampling phases, `sy = floor((py + PHASE_Y) * src / draw)` (and
+ * the X analogue). NOT the original interpreter's row selection (that
+ * pattern is unrecovered — PROGRESS.md Tier-2) and NOT centered (0.5):
+ * centered sampling dropped Guybrush's one-pixel eye row through the whole
+ * lookout dialogue (scale 241 talking face, intro cutscene). These values
+ * came from an empirical 16×16 phase grid with two hard constraints — every
+ * draw of that cutscene keeps an eye, AND the town-dock resting pose (room
+ * 33, standing at fixed box scale 210) keeps its eye in both mirror senses
+ * (a first pick of PHASE_X = 13/16 satisfied the cutscene but blinded the
+ * dock) — then ranked by eye misses across every scale MI1's walk boxes and
+ * scale slots actually use. At scale 255 any phase < 1 is identity.
+ * (A bit-reversal scale-table variant was trialled and reverted: better
+ * static fidelity vs the oracle, but its count-based sizes fluctuate ±1
+ * across walk frames — visible strut. See PROGRESS.md Tier-2.)
+ */
+const PHASE_Y = 11 / 16;
+const PHASE_X = 3 / 8;
+
 export interface CompositeActorOptions {
   /** Output framebuffer (`fbWidth × fbHeight` indexed bytes), mutated in place. */
   readonly framebuffer: Uint8Array;
@@ -225,14 +244,11 @@ export function compositeActor(opts: CompositeActorOptions): void {
 
   for (let py = startY; py < endY; py++) {
     const ry = top + py;
-    // The +0.5 is CENTERED nearest-neighbour: sampling each destination
-    // cell's middle drops rows/columns evenly, so thin features (Guybrush's
-    // eyes) survive downscaling. At scale 255 it's still exactly `py`.
-    const sy = Math.min(frame.height - 1, Math.floor(((py + 0.5) * frame.height) / drawH));
+    const sy = Math.min(frame.height - 1, Math.floor(((py + PHASE_Y) * frame.height) / drawH));
     const frameRowBase = sy * frame.width;
     const fbRowBase = ry * fbWidth;
     for (let px = startX; px < endX; px++) {
-      const sx = Math.min(frame.width - 1, Math.floor(((px + 0.5) * frame.width) / drawW));
+      const sx = Math.min(frame.width - 1, Math.floor(((px + PHASE_X) * frame.width) / drawW));
       const srcPx = mirror ? frame.width - 1 - sx : sx;
       const idx = frame.pixels[frameRowBase + srcPx]!;
       if (idx === COSTUME_FRAME_TRANSPARENT) continue;
