@@ -276,6 +276,13 @@ who sets a var).
   `ENCD/EXCD <room>`, or `SCAN grep=<term>` to sweep every script) —
   lives in `tools/disgrogate.ts` (see `## Command-line tools`). The CLI
   is just file-loading; the decode logic + tests live in the module.
+- **Script ids ≥ 200 are room-LOCAL** (`startScript 203` inside room 38
+  means `L203 38`) — querying them as globals returns nothing, silently.
+  `SCAN` sweeps global scripts only.
+- **`override BEGIN (then jump N)` prints the RAW jump delta**, not a
+  resolved offset — the engine lands at `pc + N`. Resolving N against
+  script start sends you mid-instruction into garbage (this bit during
+  the title-music trace: 2082 looked like it pointed inside a print).
 - **One operand layout per opcode, by construction.** Each family is a
   single `defineOp` in `opcodes/index.ts` carrying opcode bytes,
   `decode` (the layout, written once against the `OperandReader` in

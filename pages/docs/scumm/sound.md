@@ -68,6 +68,16 @@ Sound ids **100–129** are not `SOU ` containers but 24-byte commands
 
 - **byte 16** = CD track number (1–24).
 - **byte 17** = loop flag: `0x01` one-shot, `0xff` looping.
+- **bytes 18–20** = start position within the track, **binary MSF**
+  (minutes, seconds, frames at 75/s) — a trigger can cue mid-track. A
+  one-shot's playback length is then the track's **remainder** after the
+  cue, not the whole track.
+
+**Fine print (MI1):** one trigger uses the cue — #108 = track 17 from
+`01 23 30` (1 m 35 s 48 f ≈ 95.6 s, see §4). Bytes 8/9 look like a volume
+pair (`0xc8 c8` everywhere except `0xff ff` on the two track-17 triggers);
+bytes 21–23 are always zero (presumably an end position, unused — playback
+runs to the track's end).
 
 The track audio is **not** in `MONKEY.001` — it ships as separate
 `TrackN.*` files (the IT CD-DOS-VGA rip uses FLAC `TrackN.fla`, the EN rip
@@ -86,7 +96,29 @@ piece (#50, ~4.8 s), or a **one-shot** CD track (#104–107 = track 6, the
 a looping sound, so none can hang. Looping CD music (byte 17 = `0xff`)
 plays until explicitly stopped and never gates a wait.
 
-## 4. Beyond timing — the audio payload
+## 4. A worked example — the title → lookout music handoff
+
+The opening of MI1 shows how the pieces compose. CD **track 17 holds two
+musical segments back to back**: the title theme, then the lookout piece
+from ≈ 95.6 s in. Two different triggers play the two halves:
+
+1. The credits/title cutscene (global #152, room 10) starts **#110** —
+   track 17 from the top, one-shot — and stops it on **both** exits: the
+   natural end waits on `VAR_MUSIC_TIMER > 5700` (≈ 95 s, the length of the
+   title segment), and the ESC override path runs the same
+   `stopSound 110; endCutScene`. The theme never survives the title.
+2. Boot then proceeds to the lookout (room 38). Its ENCD starts the
+   room's AdLib bed #98 only when the boot script is **not** running
+   (`getScriptRunning(1)` gate) — i.e. on later revisits (room 37 starts
+   #98 unconditionally). On the boot path the lookout cutscene (room-local
+   #203, via local #200) instead starts **#108** — track 17 again, cued at
+   `01 23 30`: the lookout segment.
+
+So the 5700-jiffy gate and the #108 cue point to the **same seam** inside
+one CD track; the music "changes" at the lookout because playback jumps to
+the track's second half.
+
+## 5. Beyond timing — the audio payload
 
 Beyond the timing above, a `SOUN` also fully describes its *audio* — the
 SBL samples, the MIDI note stream for each device, the iMUSE control data

@@ -57,6 +57,14 @@ own cadence — the loop **batches** jiffies to catch up: it runs
 `floor(elapsed / interval)` ticks, **capped at 64** per callback so a long
 stall can never trigger an unbounded catch-up spiral.
 
+The **sub-interval remainder carries** into the next time base. Discarding it
+(resetting the base to "now" each callback) loses a fraction of an interval
+per callback to timing jitter, which compounds: VM time runs a few percent
+slow against wall time, and anything genuinely real-time — audible CD audio,
+most visibly — drifts steadily ahead of the simulation. The carry is capped
+at **one interval**, so a long stall (a hidden tab stops the browser clock
+outright) is dropped rather than replayed as a capped-batch fast-forward.
+
 Two control knobs sit on top of the model:
 
 - **`step`** advances exactly one jiffy and produces a frame — the primitive
