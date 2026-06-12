@@ -56,8 +56,7 @@ if violated:
   block-tree dump, the per-strip method bar, the histogram chip list,
   any future inspection view — these all stay. GrogVM doubles as a
   learning tool, and removing inspection capability degrades that
-  goal. Memory note:
-  `~/.claude/projects/-Users-rocco-Developer-grogvm/memory/feedback-keep-debug-ui.md`.
+  goal.
 - **No judgmental phrasing about other people's work.** Refer to
   reverse-engineering notes neutrally ("long-circulating notes"), not
   as "amateur" or "wrong".
@@ -506,10 +505,7 @@ summary in chat. Do this before stopping:
    PROGRESS. Git keeps the blow-by-blow, so it never belongs in docs.
    Follow the ## Documentation rules (facts-only, no phases, no fragile code
    pointers) — and verify any "we do/defer X" claim against the code first.
-3. Once a finding lives in a doc, condense its PROGRESS.md note to **1–2
-   sentences max** — a pointer + the `[DOC §N]` link, like the existing
-   "Migrated to [ROOM §6]" entries — so **Current** stays lean and free of
-   clutter.
+3. Once a finding lives in a doc, remove it from PROGRESS.md.
 
 This is the lab-notebook → docs flow PROGRESS.md's own header describes: a
 finding stays in Current only until it is written into docs, *then* it is
