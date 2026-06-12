@@ -7,7 +7,8 @@ import { Canvas2DRenderer } from '../../../platform/render/canvas2d';
 import { createSession, type FrameInfo } from '../../../engine/session';
 import { el } from '../../reactive';
 import type { StoredGame } from '../../../platform/storage/games';
-import { loadSessionGame } from '../../../platform/storage/game-files';
+import { cdTrackFileResolver, loadSessionGame } from '../../../platform/storage/game-files';
+import { WebAudioBackend } from '../../../platform/audio/web-audio-backend';
 import { readSave, writeSave } from '../../../platform/storage/savegames';
 import { mountPlayArea, type PlayAreaHandles } from '../play-area';
 import { mountScreenInput } from '../input';
@@ -43,6 +44,12 @@ const SAVE_ICON_SVG = `<svg viewBox="0 0 24 24" ${ICON_ATTRS}>
 </svg>`;
 const LOAD_ICON_SVG = `<svg viewBox="0 0 24 24" ${ICON_ATTRS}>
   <path d="M4 6h5l2 2h7v3H4z" /><path d="M4 11h17l-2 7H6z" />
+</svg>`;
+const SOUND_ON_SVG = `<svg viewBox="0 0 24 24" ${ICON_ATTRS}>
+  <path d="M11 5 6 9H3v6h3l5 4z" /><path d="M15.5 8.5a5 5 0 0 1 0 7" /><path d="M18 6a8.5 8.5 0 0 1 0 12" />
+</svg>`;
+const SOUND_OFF_SVG = `<svg viewBox="0 0 24 24" ${ICON_ATTRS}>
+  <path d="M11 5 6 9H3v6h3l5 4z" /><line x1="16" y1="9" x2="22" y2="15" /><line x1="22" y1="9" x2="16" y2="15" />
 </svg>`;
 const BUG_ICON_SVG = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
   <line x1="10" y1="4" x2="11.5" y2="6.5" /><line x1="14" y1="4" x2="12.5" y2="6.5" />
@@ -87,7 +94,15 @@ async function mountGame(game: StoredGame, main: HTMLElement, onBack: () => void
   const roomCanvas = document.createElement('canvas');
   const renderer = new Canvas2DRenderer(roomCanvas, 320, 200);
   const clock = new RafClock();
-  const session = createSession(sessionGame, renderer, clock, { autoPauseOnIdle: false });
+  const audio = new WebAudioBackend(cdTrackFileResolver(game.directoryHandle));
+  const session = createSession(sessionGame, renderer, clock, { autoPauseOnIdle: false, audio });
+
+  // A hidden tab freezes the whole session (rAF stops the clock, audio
+  // suspends with it) — surface that in the tab strip while it lasts.
+  const baseTitle = document.title;
+  document.addEventListener('visibilitychange', () => {
+    document.title = document.hidden ? `⏸ ${baseTitle}` : baseTitle;
+  });
 
   const gameArea = el('div', { class: 'play-game' });
   // Current screen surface dimensions (native pixels), set on each remount.
@@ -204,11 +219,31 @@ async function mountGame(game: StoredGame, main: HTMLElement, onBack: () => void
     session.restore(snap);
   };
 
+  // Sound toggle — always starts muted (autoplay rules block sound pre-
+  // gesture anyway; the unmute click IS the gesture). Mute keeps playback
+  // rolling silently, so unmuting joins the music mid-stream on the virtual
+  // clock. Icon-only: a text label made the controls bar wrap to two lines.
+  const soundBtn = el('button', { class: 'secondary play-toggle' });
+  const refreshSoundToggle = (): void => {
+    const muted = audio.isMuted();
+    soundBtn.replaceChildren(iconEl(muted ? SOUND_OFF_SVG : SOUND_ON_SVG));
+    soundBtn.title = muted ? 'Unmute' : 'Mute';
+    soundBtn.setAttribute('aria-label', soundBtn.title);
+    // Highlighted while MUTED — the lit button is the "click me to unmute" cue.
+    soundBtn.classList.toggle('is-on', muted);
+  };
+  soundBtn.addEventListener('click', () => {
+    audio.setMuted(!audio.isMuted());
+    refreshSoundToggle();
+  });
+  refreshSoundToggle();
+
   const gameGroup = el(
     'div',
     { class: 'play-controls-group play-controls-game' },
     el('button', { class: 'secondary', onClick: save }, iconEl(SAVE_ICON_SVG), 'Quick save'),
     el('button', { class: 'secondary', onClick: load }, iconEl(LOAD_ICON_SVG), 'Quick load'),
+    soundBtn,
   );
 
   const toggle = (label: string, key: string, get: () => boolean, set: (v: boolean) => void): HTMLElement => {

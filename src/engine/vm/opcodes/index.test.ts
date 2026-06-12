@@ -1169,11 +1169,11 @@ describe('room-entry opcodes', () => {
 
   it('isSoundRunning reads 1 while a sound plays and 0 once it drains', () => {
     const playing = makeVm();
-    playing.audio.startSound(9, { durationJiffies: 2, looping: false });
+    playing.audio.startSound(9, { durationJiffies: 2, looping: false, rendition: { kind: 'silent' } });
     expect(pollSound9(playing)).toBe(1);
 
     const drained = makeVm();
-    drained.audio.startSound(9, { durationJiffies: 2, looping: false });
+    drained.audio.startSound(9, { durationJiffies: 2, looping: false, rendition: { kind: 'silent' } });
     drained.audio.advance(2);
     expect(pollSound9(drained)).toBe(0);
   });
@@ -1201,7 +1201,7 @@ describe('room-entry opcodes', () => {
 
   it('stopSound clears the backend entry', () => {
     const vm = makeVm();
-    vm.audio.startSound(9, { durationJiffies: 100, looping: false });
+    vm.audio.startSound(9, { durationJiffies: 100, looping: false, rendition: { kind: 'silent' } });
     // stopSound #9 (0x3c, p8=9).
     vm.startScript({ scriptId: 1, bytecode: bytes(0x3c, 0x09) });
     vm.step();

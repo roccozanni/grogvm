@@ -87,6 +87,38 @@ clamp pushes them to x=102/130 and their black tails land on the parchment's dar
 edge (invisible ink). Check how the original lays these lines out before touching the
 clamp (see Tier-2 below).
 
+**Title → lookout music handoff, corrected** (2026-06-11, bytecode + observed original;
+not yet in docs — supersedes an earlier wrong carry-over reading): the title theme is
+sound #110 = CD track 17 one-shot, started by credits script #152; BOTH exits stop it —
+the natural end (after the music-timer 5700 gate ≈ 95 s) and the ESC override path
+(`stopSound 110; endCutScene`) — before the boot proceeds to room 38. There the ENCD
+skips its AdLib bed #98 while boot #1 runs (`getScriptRunning(1)` gate; #98 is the
+lookout/room-37 revisit theme, ADL-only → silent until the OPL2 phase), and local #203
+(the lookout cutscene, via L200) plays **#108 = track 17 cued mid-track**: CD-trigger
+bytes 18-20 are a binary-MSF start position (`01 23 30` = 1m 35s 48f = 95.64 s — the
+title segment and lookout segment share one track, and the 5700-jiffy gate matches the
+seam). Engine now parses the cue (`rendition.startSec`, one-shot gate = remaining
+track) and the CD voice seeks before playing. Other trigger-format observations:
+bytes 8/9 look like volume (0xc8 default, 0xff for the theme; unused by us), bytes
+21-23 always zero in MI1. Two tool/format gotchas: ids ≥ 200 are room-LOCAL scripts
+(`disgrogate L<id> <room>`), and the disasm renders `override BEGIN (then jump N)`
+with N = the RAW delta, not the resolved target (vm resolves `pc + delta`).
+
+**Deferred (Tier-2 candidate): single CD transport not modeled** — real redbook
+hardware can play one track at a time, so a CD start would cut any playing CD sound;
+our backend would mix them. No observable MI1 consumer: every script seen stops its
+CD sound explicitly before the next starts (#152 both exits, L203's own stop).
+Revisit if a scene surfaces an overlap.
+
+**Session clock leaked sub-interval remainders** (2026-06-12, found via audible CD
+seek-glitches; not yet in docs): `onClockTick` reset `lastTickAt = now` after each
+batch, discarding the fractional leftover (elapsed − batch×interval) every rAF
+callback — under normal rAF jitter the VM ran ~1-3% SLOW against wall time. Surfaced
+as the audio drift-corrector snapping the (real-time) CD element back every 10-60 s,
+but it skewed everything real-time-paced. Fix: carry the remainder into the next time
+base, capped at one interval so a long stall (hidden tab) is dropped rather than
+replayed as a 64×-batch fast-forward backlog.
+
 **Pending in-browser checks** (fixes shipped + folded into docs, look not yet confirmed):
 
 - The fixed intro entry — room 38 used to flash ego top-right at full scale before the
@@ -269,14 +301,165 @@ play — maintainability/quality, not bugs. File:line refs are point-in-time.
 
 ---
 
+## Planned — audio output, first cut (`WebAudioBackend`)
+
+Plan drafted 2026-06-11; tasks 1–4 implemented same day (typecheck + unit +
+build + integration green, incl. a new rendition-coverage integration test
+pinning the 62-pcm/15-ADL-only split). **Verified in-browser 2026-06-12
+(task 5): SBL effects, title theme, the track-17 lookout cue, mute toggle,
+tab-hidden freeze/resume — user-confirmed. Ready to commit.** Grounded in a
+rendition inventory of MI1's 105 SOUN blocks (probe:
+`scratch/soun-rendition-inventory.ts`):
+
+| shape | count | notes |
+|---|---|---|
+| `SOU` with an `SBL` rendition | 62 | digitized PCM, playable via Web Audio |
+| CD trigger (looping music) | 16 | audio in `TrackN.{fla,mp3}` |
+| CD trigger (one-shot) | 12 | ditto; these are the CD-gated waits |
+| `SOU` with only `ADL`(+`SPK`) | 15 | ids 4,5,30,32,36,45,48,59,60,66,68,70,74,76,98 — need OPL2 FM synthesis |
+
+So **SBL + CD playback covers 90/105 sounds with no synthesizer**, including
+*every* wait-gated sound (#28 = SBL, #50 carries an SBL rendition, the rest are
+CD one-shots — [SOUND §3](pages/docs/scumm/sound.md)). `ROL` never appears
+without an `SBL` sibling, so MT-32 synthesis buys nothing. That's the phase
+split: this cut plays PCM + CD tracks; the 15 ADL-only effects stay silent
+(exactly as silent as today) until an OPL2 phase.
+
+### Goal
+
+Hear MI1 in the browser: digitized effects and CD music behind the existing
+`AudioBackend` seam ([AUDIO](pages/docs/engine/audio.md)), with the timing
+authority — gating, saves, determinism — bit-identical to the silent build.
+
+### Definition of done
+
+In-browser, real MI1 data:
+
+1. SBL effects audible in play (door creaks, the title stings).
+2. Looping CD music: attract/title theme plays (after the first user gesture —
+   autoplay policy), room themes switch on room change, `stopMusic` silences.
+3. A CD-gated transition (the voyage theme, track 6) is audible AND still
+   paces its cutscene correctly.
+4. Quick-save / quick-load / reboot leave no dangling audio.
+5. Cutscene skip / fast-forward kill expired voices (no audio outliving its
+   virtual clock).
+6. `npm run typecheck` + full unit suite green; the integration walkthrough is
+   untouched (headless stays on `SilentTimingBackend`).
+
+### Tasks
+
+**1. Rendition extraction — `src/engine/sound/resource.ts` (+ `duration.ts`)**
+
+- [x] `SoundRendition` union on `SoundResource` — the extension point
+      [AUDIO §4](pages/docs/engine/audio.md) reserved:
+      `pcm {samples, rate}` | `midi {device, data}` | `cd {track}` | `silent`.
+- [x] Factor the VOC block-1 parse out of `sblDurationJiffies` into an
+      exported `sblPcm` (samples subarray + rate from the time-constant);
+      duration becomes `samples.length / rate`.
+- [x] `parseSound` walks ALL `SOU` renditions: timing stays first-recognized
+      (unchanged semantics); output rendition picked by SoundBlaster-machine
+      preference `SBL > ADL > ROL > SPK`. CD triggers (both kinds) yield
+      `cd {track}`.
+- [x] Unit tests over the existing synthetic SOU fixtures: preference order,
+      PCM extraction (rate + bytes), CD both kinds, unrecognized → `silent`.
+
+**2. `WebAudioBackend` — `src/platform/audio/web-audio-backend.ts`** (new dir;
+engine stays DOM-free, so the backend lives in platform)
+
+- [x] Wraps a `SilentTimingBackend`: `isRunning` / `advance` / `serialize` /
+      `restore` delegate — the virtual clock stays the single authority.
+      Output is a side effect of start/stop.
+- [x] PCM voices: 8-bit unsigned → Float32 `AudioBuffer`, linear-resampled to
+      `ctx.sampleRate` at decode time (the Web Audio spec only guarantees
+      buffer rates ≥ 8000 Hz; MI1's SBL runs ~6849 Hz), cached per sound id;
+      one `AudioBufferSourceNode` per start.
+- [x] CD voices: one `HTMLAudioElement` per active track over an object URL
+      from the `TrackN.{fla,mp3}` `File` — streams instead of decoding a
+      multi-minute track into ~50 MB of PCM; `el.loop` for looping triggers;
+      the async File fetch is cancellable (stop-before-resolve race).
+- [x] The `advance()` sweep: any voice whose id the timing core no longer
+      reports running is stopped and dropped — this is what keeps skip /
+      fast-forward from leaving audio dangling.
+- [x] Autoplay handled by ALWAYS-START-MUTED + a VIRTUAL-CLOCK-anchored
+      media position (converged 2026-06-12 over three in-browser feedback
+      rounds): browsers refuse audible output pre-gesture on every fresh
+      page load, so the backend simply starts muted and the unmute click IS
+      the gesture — no preference persistence, no policy detection
+      (`navigator.getAutoplayPolicy` tried and dropped: Firefox-only), no
+      forced-mute fallback. Mute never stops playback (`el.muted`, zero
+      master gain); a CD voice tracks elapsed jiffies off the timing core's
+      `advance` and the element is SEEKED to `cue + elapsed/60`
+      (loop-wrapped) at every resume point — playback start, unmute, and a
+      1 s drift check (0.35 s tolerance, also catching hidden-tab drift
+      where the rAF-driven VM clock freezes but the element keeps rolling).
+      Music position derives from the script timeline, never from when
+      playback physically began. Tab visibility freezes output WITH the VM
+      clock (elements pause, context suspends, `visibilitychange`): a hidden
+      tab is silent and returning resumes in sync instead of snap-seeking.
+- [x] Hygiene: `stopAll` / `restore` kill all voices; `dispose` closes the
+      context and revokes object URLs.
+
+**3. CD track file resolver — `src/platform/storage/game-files.ts`**
+
+- [x] `(track: number) => Promise<File | null>` over the game's
+      `FileSystemDirectoryHandle` (same filename regex the duration scan uses).
+      MI2 resolves nothing → CD voices never start (its SBL effects still play).
+
+**4. Wiring**
+
+- [x] `bootGame` gains an optional `audio: AudioBackend` param (drops its
+      hardcoded `SilentTimingBackend`; the `Vm` default already covers
+      headless).
+- [x] `createSession` opts gain `audio?`, threaded through boot / `restore` /
+      `reboot` — ONE backend instance across VM swaps (it owns the
+      `AudioContext`); `reboot` calls `stopAll` (`restore` already flows
+      through `backend.restore`, which kills voices).
+- [x] `play.ts`: construct the backend with the track resolver, pass it in;
+      an icon-only speaker toggle in the save/load controls group,
+      HIGHLIGHTED while muted (the lit button is the unmute cue, and every
+      session starts muted by design).
+
+**5. Verify in-browser with the user** (the checklist above is aural, not
+unit-testable), then docs via the wrap flow — rewrite
+[AUDIO §4](pages/docs/engine/audio.md) to describe the shipped backend.
+
+### Design notes
+
+- **Timed rendition ≠ played rendition, by design.** Timing keeps the
+  first-listed (primary) rendition; output prefers SBL. For the 13
+  `[ROL SBL …]` sounds the gate length comes from the ROL piece while the SBL
+  rendition is what's heard — same sound, lengths agree closely; worst case
+  output ends slightly off the gate, never affecting pacing.
+- **Restart semantics mirror the timing core**: `startSound` on an
+  already-active id restarts its voice (the core overwrites the countdown).
+- **A loaded save resumes silent** until the game next starts a sound — the
+  snapshot stores ids, not renditions, and the restored music slot is already
+  a heuristic (the open item L above). Music returns on the next room change.
+  Acceptable for the first cut; revisit with item L.
+- **Why not `decodeAudioData` for CD tracks**: 28 tracks × minutes × 44.1 kHz
+  stereo floats is hundreds of MB; the element streams from the File and
+  loops natively.
+
+### Out of scope (this cut)
+
+- **OPL2/AdLib synthesis** for the 15 ADL-only effects (its own phase: an
+  AudioWorklet OPL2 + the ADL MIDI event stream — none of these sounds gates).
+- MT-32 (`ROL`) and PC-speaker (`SPK`) rendering — never the only rendition.
+- iMUSE / `soundKludge` — 0 MI1 uses, stays loud-halt.
+- Volume / mute UI; pause-suspend (only debug-surface pauses can leave music
+  running — the player surface never pauses mid-play).
+- Gapless CD loop seams (`HTMLAudioElement.loop` has a small seam gap).
+
+---
+
 ## Next
 
 Three items ahead, one of which — keep playing MI1 — is the Current section
 above. We no longer track by phase number; the numbered-phase roadmap (and
 each finished task's closure record) is history — git keeps it.
 
-- **Audio OUTPUT** (`WebAudioBackend`) — actual synthesis (AdLib/MT-32 MIDI,
-  SBL samples, CD redbook) behind the existing `AudioBackend` seam.
+- **Audio OUTPUT** (`WebAudioBackend`) — first cut planned above (SBL + CD);
+  OPL2 synthesis for the ADL-only effects is the follow-on phase.
 - **MI2** — full support for the v5-but-slightly-different edge cases. Sanity
   so far (2026-06-09): boots and runs 3000+ ticks with no halt; its 199 SOUN
   blocks are all `SOU ` containers (no CD triggers) and parse cleanly via the

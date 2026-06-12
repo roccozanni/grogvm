@@ -47,6 +47,23 @@ async function readCdTrackDurations(
   return durations;
 }
 
+/**
+ * Lazy resolver for a CD track's audio File, for the output backend. Scans
+ * the directory per call — entries are few and CD starts are rare (room
+ * changes); only the duration scan above needs the up-front pass.
+ */
+export function cdTrackFileResolver(
+  dir: FileSystemDirectoryHandle,
+): (track: number) => Promise<File | null> {
+  return async (track) => {
+    for await (const [entryName, entry] of dir.entries()) {
+      const match = CD_TRACK_RE.exec(entryName);
+      if (match && entry.kind === 'file' && Number(match[1]) === track) return entry.getFile();
+    }
+    return null;
+  };
+}
+
 export async function loadSessionGame(game: StoredGame): Promise<SessionGame> {
   const indexName = indexFilenameFor(game.gameId);
   const resourcesName = resourcesFilenameFor(game.gameId);

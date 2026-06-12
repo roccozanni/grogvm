@@ -5,6 +5,7 @@ import {
   midiDurationJiffies,
   mp3DurationJiffies,
   sblDurationJiffies,
+  sblPcm,
 } from './duration';
 
 /** A SCUMM/RIFF-style block: 4-char tag + big-endian size + payload. */
@@ -88,16 +89,31 @@ describe('audioDurationJiffies — dispatch by content', () => {
   });
 });
 
-describe('sblDurationJiffies', () => {
+describe('sblDurationJiffies / sblPcm', () => {
+  // tc 156 → 10000 Hz; VOC length 20002 → 20000 sample bytes → 2.0 s.
+  const voc = [0x01, ...le24(20002), 156, 0x00, ...new Array<number>(20000).fill(0x80)];
+  const sbl = new Uint8Array([...chunk('AUhd', [0, 0, 0x80]), ...chunk('AUdt', voc)]);
+
   it('reads the rate from the VOC time-constant (1e6 / (256 - tc))', () => {
-    // tc 156 → 10000 Hz; VOC length 20002 → 20000 sample bytes → 2.0 s.
-    const voc = [0x01, ...le24(20002), 156, 0x00];
-    const sbl = new Uint8Array([...chunk('AUhd', [0, 0, 0x80]), ...chunk('AUdt', voc)]);
     expect(sblDurationJiffies(sbl)).toBe(120);
   });
 
-  it('returns 0 without an AUdt chunk', () => {
+  it('exposes the raw samples + rate for output backends', () => {
+    const pcm = sblPcm(sbl)!;
+    expect(pcm.rate).toBe(10000);
+    expect(pcm.samples.length).toBe(20000);
+    expect(pcm.samples[0]).toBe(0x80);
+  });
+
+  it('clamps a declared length that overruns the AUdt chunk', () => {
+    const overrun = [0x01, ...le24(50000), 156, 0x00, ...new Array<number>(100).fill(0x80)];
+    const pcm = sblPcm(new Uint8Array(chunk('AUdt', overrun)))!;
+    expect(pcm.samples.length).toBe(100);
+  });
+
+  it('returns 0 / null without an AUdt chunk', () => {
     expect(sblDurationJiffies(new Uint8Array(chunk('AUhd', [0, 0, 0x80])))).toBe(0);
+    expect(sblPcm(new Uint8Array(chunk('AUhd', [0, 0, 0x80])))).toBeNull();
   });
 });
 

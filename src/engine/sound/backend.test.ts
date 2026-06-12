@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { SilentTimingBackend } from './backend';
 import type { SoundResource } from './resource';
 
-const oneShot = (jiffies: number): SoundResource => ({ durationJiffies: jiffies, looping: false });
+const oneShot = (jiffies: number): SoundResource => ({
+  durationJiffies: jiffies,
+  looping: false,
+  rendition: { kind: 'silent' },
+});
 
 describe('SilentTimingBackend', () => {
   it('counts a one-shot down and flips isRunning false at zero', () => {
@@ -17,7 +21,7 @@ describe('SilentTimingBackend', () => {
 
   it('never drains a looping sound', () => {
     const a = new SilentTimingBackend();
-    a.startSound(7, { durationJiffies: 0, looping: true });
+    a.startSound(7, { durationJiffies: 0, looping: true, rendition: { kind: 'silent' } });
     a.advance(10_000);
     expect(a.isRunning(7)).toBe(true);
   });

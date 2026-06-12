@@ -122,24 +122,36 @@ function findChunk(
   return null;
 }
 
+/** Digitized payload of an `SBL` block: 8-bit unsigned PCM + its VOC sample rate. */
+export interface SblPcm {
+  readonly samples: Uint8Array;
+  readonly rate: number;
+}
+
 /**
- * Duration of a digitized `SBL` block (VOC block-1 inside `AUdt` — layout in
- * sound.md). The sample rate comes from the per-sound time-constant; never
- * assume a fixed rate.
+ * Samples + rate of a digitized `SBL` block (VOC block-1 inside `AUdt` —
+ * layout in sound.md). The sample rate comes from the per-sound
+ * time-constant; never assume a fixed rate. Null when absent or empty.
  */
-export function sblDurationJiffies(sblPayload: Uint8Array): number {
+export function sblPcm(sblPayload: Uint8Array): SblPcm | null {
   const audt = findChunk(sblPayload, 0, sblPayload.length, 'AUdt');
-  if (!audt) return 0;
+  if (!audt) return null;
   const v = sblPayload;
   const o = audt.start;
-  const blockType = v[o]!;
-  if (blockType !== 0x01) return 0; // only block-1 (sound data) seen in MI1
+  if (v[o]! !== 0x01) return null; // only block-1 (sound data) seen in MI1
   const vocLen = v[o + 1]! | (v[o + 2]! << 8) | (v[o + 3]! << 16); // 24-bit LE
   const timeConstant = v[o + 4]!;
-  const sampleRate = 1_000_000 / (256 - timeConstant);
   const sampleBytes = vocLen - 2; // length covers tc + codec byte + PCM
-  if (sampleBytes <= 0) return 0;
-  return secToJiffies(sampleBytes / sampleRate);
+  if (sampleBytes <= 0) return null;
+  const samples = v.subarray(o + 6, Math.min(o + 6 + sampleBytes, audt.end));
+  if (samples.length === 0) return null;
+  return { samples, rate: 1_000_000 / (256 - timeConstant) };
+}
+
+/** Playback length of a digitized `SBL` block; 0 (non-gating) when it has no samples. */
+export function sblDurationJiffies(sblPayload: Uint8Array): number {
+  const pcm = sblPcm(sblPayload);
+  return pcm ? secToJiffies(pcm.samples.length / pcm.rate) : 0;
 }
 
 /** Read a MIDI variable-length quantity at `pos`; returns value + bytes read. */

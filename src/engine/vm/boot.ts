@@ -14,7 +14,7 @@ import { SEED_OPCODES } from './opcodes';
 import { loadGlobalScript, loadSound } from './scripts';
 import { VAR_CURRENT_LIGHTS, VAR_VIDEOMODE } from './vars';
 import { Vm } from './vm';
-import { SilentTimingBackend } from '../sound/backend';
+import type { AudioBackend } from '../sound/backend';
 
 export type GameId = 'MI1' | 'MI2';
 
@@ -42,6 +42,8 @@ export function bootGame(
   random?: () => number,
   /** CD track durations in jiffies (from the `TrackN.fla` headers); absent → CD-gated waits fall through. */
   cdTrackDurations?: ReadonlyMap<number, number>,
+  /** Output backend; omitted → the Vm's default SilentTimingBackend (headless / tests). */
+  audio?: AudioBackend,
 ): BootResult {
   // Lazy object-id → home-room index: object ids are globally unique, so the
   // first room seen owning an id is its home. Built once on first miss
@@ -80,7 +82,7 @@ export function bootGame(
     resolveObjectRoom,
     resolveSound: (id) => loadSound(resourceFile, index, loff, id),
     cdTrackDurations,
-    audio: new SilentTimingBackend(),
+    audio,
     random,
   });
 
