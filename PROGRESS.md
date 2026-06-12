@@ -128,6 +128,20 @@ Priority H/M/L = likelihood of biting current/near play × severity.
   handled** in the talk path (`decodeScummStringPages` sets keepText →
   `addSystemText` accumulates it) — only static `decodeScummString` strips it,
   correctly; actor-name `0xFF0A` only matters in dialogue text.
+- [ ] **M — actor downscaling drops different pixels than the original**
+  (`graphics/composite.ts` `compositeActor`, the centered-NN sampling — our
+  invention, not the original's row/column selection). User-reported from the
+  intro cliff-path cutscene (room 38, ego walks scale 215→252): Guybrush's
+  eyes vanish at scales ≈222–232 (gone in profile at 222/226/229 AND
+  front-facing at 232; back at 237+), while the original keeps them through
+  the same walk (user-observed in ScummVM playback). Repro:
+  `scratch/lookout-eyes.ts` writes per-scale head crops + forced-255
+  references. The `compositeActor` comment / costumes.md claim that centered
+  sampling lets the eyes survive downscaling is DISPROVEN at these scales —
+  amend both when fixing. A faithful fix needs the original interpreter's
+  scale-pattern (which source rows/cols draw per scale value), grounded in
+  observed original behaviour (e.g. DOSBox frame captures at known scales) —
+  NOT ScummVM source.
 - [ ] **L/M — `print` `clipped` line-wrap bound not modelled** (`vm.ts:~114`,
   the stored SO_CLIPPED bound).
   Long lines may overflow / mis-wrap vs the original's clip-X wrapping.
