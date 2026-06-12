@@ -16,6 +16,11 @@ import { mountDebugPanel } from '../debug/debug';
 import { RafClock } from '../raf-clock';
 
 const SCALE = 2.5;
+// VGA mode 13h filled a 4:3 monitor with 320×200, so its pixels were 1.2×
+// taller than wide and the art was drawn for that; height-only stretch
+// restores the intended proportions. Input is unaffected — the CSS unscale
+// derives X and Y factors independently from the canvas rect.
+const ASPECT_Y = 1.2;
 const QUICK_SLOT = 'quicksave';
 
 const WALK_PATHS_KEY = 'grogvm:debug:walk-paths';
@@ -142,7 +147,7 @@ async function mountGame(game: StoredGame, main: HTMLElement, onBack: () => void
     screenCanvas.width = screenW;
     screenCanvas.height = screenH;
     screenCanvas.style.width = `${screenW * SCALE}px`;
-    screenCanvas.style.height = `${screenH * SCALE}px`;
+    screenCanvas.style.height = `${screenH * SCALE * ASPECT_Y}px`;
     // Resizing the canvas resets context state — re-apply the pixel-art flag.
     screenCtx.imageSmoothingEnabled = false;
     const play = mountPlayArea({
