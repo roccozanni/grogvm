@@ -956,6 +956,184 @@ export const ROOMS = {
    *  voyage props (rope, powder, key, pots, recipe…) on landing. */
   monkeyBeach: {
     id: 20,
+    /**
+     * Ego lands lying face-down (costume 72) with the next click routed to the
+     * get-up wakeup: the room ENCD leaves g32 (VAR_VERB_SCRIPT) = 201, so a bare
+     * floor click runs local #201 — ego stands (costume → 1) and g32 is restored
+     * to 4. The first interaction of Part III is just getting up.
+     */
+    wakeupVerbScript: 201,
+    /** "la banana" (#265) — a single banana on the sand; Pick up (verb 9). */
+    banana: 265,
+    /**
+     * "il foglio di carta" (#271) — the public-assembly notice by the tree.
+     * Look at (verb 8) runs local #203, which reads the LeChuck "occupazione
+     * della Testa Sacra di Scimmia" announcement and hands control back.
+     */
+    assemblyNote: 271,
+    /**
+     * "la giungla" (#261) — the jungle. Walk-to (verb 11) doesn't load a room
+     * the usual way: it `putActorInRoom`s ego into the overhead map (room 2)
+     * and `actorFollowCamera`s — the camera-follows-a-relocated-ego path that
+     * makes room 2 the current room. The way up onto the island map.
+     */
+    jungle: 261,
+    /** "le banane" (#270) — the cluster the catapult knocks off the tree onto
+     *  the beach; state flips to 1 when the catapult hits. Picked up later with
+     *  the banana-picker (the village supplies the rest, to five). */
+    fallenBananas: 270,
+  },
+
+  /**
+   * The Monkey Island overhead map — several walkable screens (rooms 2–6) you
+   * cross as a small figure (ego costume 3), not a node-travel hub like Mêlée's.
+   * Locations are entered by walking the figure ONTO their marker; edge objects
+   * carry the figure between adjacent screens (via global #34). From the beach's
+   * jungle you arrive on screen 2 (room 2); the Fort sits on screen 3 (room 3).
+   */
+  monkeyMap: {
+    id: 2,
+    /** Screen-2 top-left edge connector (#28) — its verb-11 runs global #34,
+     *  crossing the figure to the Fort screen (room 3). */
+    toFortScreen: 28,
+    fortScreen: 3,
+    /**
+     * "la fortezza" marker (#44 on screen 3 — it carries no verbs of its own).
+     * Walking the figure within distance 2 of it trips room-3 local #200, which
+     * `doSentence STOP`s the walk and `loadRoomWithEgo room=80` — into the Fort.
+     * Walk to its on-screen spot to enter.
+     */
+    fortApproach: { x: 119, y: 57 },
+    /** Screen-3 → screen-4 edge connector (#39, "the path"), via global #34. The
+     *  Fort exits onto screen 3; the River Fork sits on screen 4. */
+    fortScreenToRiver: 39,
+    riverScreen: 4,
+    /** "la biforcazione del fiume" marker (#51, on screen 4): its verb-11 is a
+     *  straight loadRoomWithEgo room=15 — into the River Fork. */
+    riverForkMarker: 51,
+  },
+
+  /**
+   * The abandoned Fort on the volcano rim (room 80) — the rope, the spyglass,
+   * and the rusty cannon whose spill yields the gunpowder + cannonball. Herman
+   * Toothrot (actor 7) haunts the place.
+   */
+  fort: {
+    id: 80,
+    /** "la corda" (#881) — a rope; plain Pick up (verb 9). One of the two ropes
+     *  the Crack descent needs (the pond's is the other). */
+    rope: 881,
+    /** "il cannocchiale" (#882) — the spyglass; Pick up (verb 9). */
+    spyglass: 882,
+    /**
+     * The spyglass becomes the lens IN PLACE: Open (verb 2) renames #882
+     * "la lente" and flips its class — bit 1 (value 2) goes ON (and class 6
+     * OFF). Assert {@link lensClassBit}, not the localized name. The lens
+     * focuses the sun on the dam (the flint+cannonball-free igniting route).
+     */
+    lensClassBit: 1,
+    /**
+     * "il cannone" (#883) — the rusty cannon. Push (verb 5 → local #200): it
+     * tips and spills the gunpowder pile (#887) + cannonball (#885) onto the
+     * floor (state 1, touchable), setting bit#137. Herman (actor 7) then wanders
+     * in to confront you over his spyglass — the spill is only reachable once
+     * he's gone.
+     */
+    cannon: 883,
+    /** Herman Toothrot — ACTOR 7. After the cannon spill his watcher (local #202)
+     *  walks him in to complain; a conversation answer sends him off and he
+     *  leaves room 80. */
+    hermanActor: 7,
+    /** Dialog answer "Lasciami in pace, dai?" (#122) — sends Herman away. */
+    dismissHerman: 122,
+    /** "la polvere da sparo" pile (#887) — Pick up (verb 9 → local #201) pockets
+     *  the gunpowder object {@link gunpowder} #884 (the dam charge). Spilled by
+     *  the cannon push. */
+    gunpowderPile: 887,
+    /** "la polvere da sparo" (#884) — the gunpowder that lands in inventory. */
+    gunpowder: 884,
+    /** "la palla da cannone" (#885) — the cannonball; Pick up (verb 9 → #201).
+     *  Spilled by the cannon push; the dam's igniter together with the flint. */
+    cannonball: 885,
+    /** "il sentiero" (#886) — the path out, back onto the overhead map (screen 3,
+     *  near the fortezza marker but clear of its re-entry watcher). */
+    path: 886,
+  },
+
+  /**
+   * The River Fork (room 15) — the dam, and the climb up to the catapult. The
+   * dry riverbed runs through; blowing the dam floods it and fills the pond.
+   */
+  riverFork: {
+    id: 15,
+    /**
+     * "la pietra sopra al biglietto" (#169) — the rock sitting on a note. Pick
+     * up (verb 9 → global #167) pockets it, renamed "la pietra focaia" (the
+     * flint), AND reads the note (#231) underneath in the same gesture. Later
+     * the dam igniter — Use it with the cannonball (#885) for a flint-and-steel
+     * spark by the dam.
+     */
+    flint: 169,
+    /** "il biglietto sotto la pietra" (#231) — the note under the rock, read as
+     *  part of taking the flint. */
+    note: 231,
+    /** "i punti d'appoggio" (#170) — the footholds. Walk-to (verb 11 → local
+     *  #203) climbs up to the catapult platform ({@link catapult}, room 16). */
+    footholds: 170,
+    /**
+     * "la diga" (#176; #177 is its twin hot-region) — the dam. Use the Fort
+     * gunpowder ({@link fort}'s `gunpowder` #884) with it → the powder is placed
+     * on the dam (#178 drawn, the gunpowder consumed). Then a flint-and-cannonball
+     * spark beside it ignites it (global #44): the dam blows, the river floods,
+     * the pond fills, and ego is washed back onto the overhead map (room 4).
+     */
+    dam: 176,
+  },
+
+  /**
+   * The catapult ("l'arte primitiva", a cannibal contraption) — two stacked
+   * rooms: the aiming platform (room 16) and the firing ledge above it (room 11),
+   * reached by a further climb. Aimed right and fired, it lobs a rock across the
+   * island and knocks the bananas off the beach tree.
+   */
+  catapult: {
+    /** The aiming platform (room 16), reached up {@link riverFork}'s `footholds`. */
+    platform: 16,
+    /** The firing ledge above (room 11), reached up {@link upToLedge}. */
+    ledge: 11,
+    /**
+     * "l'arte primitiva" (#235; #234 is its other end) — the catapult arm. Pull
+     * (verb 6 → local #200) raises the aim ({@link aimVar} g242) by 1 per pull
+     * (#234 lowers it); it caps with "Non va oltre". A hit lands only at
+     * g242=={@link aimTarget} — it rests at 2, so two pulls aim it.
+     */
+    crank: 235,
+    aimVar: 242,
+    aimTarget: 4,
+    /** "gli appoggi per i piedi" (#232) — footholds up to the firing ledge (11). */
+    upToLedge: 232,
+    /**
+     * "la pietra" (#116) — a rock ALREADY seated in the catapult on the ledge
+     * (no need to take one from the pile #120). Push (verb 5 → local #200) fires
+     * it; with the aim right (g242==4) it hits the beach banana tree, dropping
+     * bananas there and latching {@link hitBit}. Herman may wander in to complain
+     * (he comes on his own when ego nears the catapult) — shoo him with
+     * {@link dismissHerman}.
+     */
+    seatedRock: 116,
+    /** Dialog answer "Lasciami in pace, dai?" (#122) — shoo Herman, same as the
+     *  Fort. */
+    dismissHerman: 122,
+    /** bit#530 — set once the catapult has hit the beach banana tree. It's a
+     *  one-shot: a later shot just says it won't hit again. */
+    hitBit: 530,
+    /** The catapult ledge can't path straight to the down-path object; stage ego
+     *  onto box 1 here first. */
+    ledgeDownStage: { x: 114, y: 134 },
+    /** "il sentiero in basso" (#115, on the ledge) — down to the platform (16). */
+    ledgeDown: 115,
+    /** "il sentiero in basso" (#233, on the platform) — down to the River Fork (15). */
+    platformDown: 233,
   },
 
   /**

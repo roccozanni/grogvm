@@ -14,11 +14,12 @@ Lean tracker. Two buckets:
 
 Playing MI1 from boot and fixing each blocker engine-faithfully (committed on
 `main`). **Unit suite green + tsc clean**, plus a data-gated, from-boot
-integration playthrough (`npm run test:integration`). **Parts I AND II now play
+integration playthrough (`npm run test:integration`). **Parts I AND II play
 end-to-end from boot — the three trials, the crew and the Sea Monkey, then the
 whole Journey: the ship rooms looted, the navigation broth cooked, and the
-cannon shot onto Monkey Island's beach: Part III opens ashore** (see Frontier
-below).
+cannon shot onto Monkey Island's beach. Part III now plays from boot through its
+first half: the beach opening, the Fort loot, the catapult shot, and the dam
+flood** (see Frontier below).
 
 **Working principle (agreed 2026-06-02):** engine-faithful, no hacks/shortcuts —
 confirm the real mechanism first (**never consult ScummVM source, in any form**),
@@ -37,19 +38,47 @@ a raw `driveUntil` only for bespoke predicates). Named `<Part> · <Room> — <wh
 proves>`, file order = run order; per-game ids/vars in `game.ts` (`ROOMS`/`VERBS`/`VARS`).
 A clean fast-forward save (`saves/MI1-walkthrough-frontier.websave.json`, gitignored,
 written by the ALWAYS-LAST `frontier` beat and regenerated each green run) sits at the furthest
-clean state — currently on Monkey Island's beach (room 20), Part II complete.
+clean state — currently on the Monkey Island overhead map (room 4), washed there by the dam
+flood; Part III's first half plays from boot.
 
-**Frontier: Parts I and II are FINISHED — after the crew/ship finale, the Journey plays through
-from boot: the cabin loot (pen/ink/book), the Jolly Roger off the crow's nest, the hold
-(gunpowder/rope/wine), the cereal-prize key, the cabinet chest (recipe + cinnamon), all eight
-ingredients into the galley pot (the voyage cooks itself, g259 1→2), the flaming-mass fuse, and
-the cannon launch onto Monkey Island's beach (room 20), playable.** Ship-room ids + mechanics live
-in `game.ts` (`shipCabin`/`shipDeck`/`shipHold`/`shipGalley`/`crowsNest`/`monkeyBeach`), not here.
+**Frontier: Parts I and II are FINISHED, and Part III plays from boot through the dam flood —
+after the cannon launch, ego gets up off the beach (the g32=201 wakeup), pockets a banana and
+reads the assembly notice (room 20), walks into the jungle onto the walkable overhead map (room 2
+→ screen 3), and enters the Fort (room 80) by walking the map figure onto the fortezza marker. In
+the Fort: rope + spyglass taken, the spyglass opened into the lens (class bit 1), the rusty cannon
+pushed (it spills the gunpowder + cannonball), Herman Toothrot sent off, gunpowder + cannonball
+pocketed. Then across the map to the River Fork (room 15): take the flint (#169, reads the note
+under it), climb the footholds to the catapult (room 16), aim it (g242→4, pull twice), climb to
+the firing ledge (room 11) and push the pre-seated rock (#116) — it knocks the bananas onto the
+beach (bit#530); climb back down and blow the dam (gunpowder + a flint/cannonball spark → global
+#44): the river floods and washes ego onto the overhead map (room 4).** Part-III room ids +
+mechanics live in `game.ts` (`monkeyBeach`/`monkeyMap`/`fort`/`riverFork`/`catapult`), not here.
+The overhead map (rooms 2–6) is WALKABLE (ego a small figure, costume 3), not a node hub: edge
+connectors cross screens (global #34); locations are entered by walking onto their marker.
+Dev caveat (cost a session-internal debug cycle): the engine RNG is NOT serialized in the
+frontier save, so a frontier-restore drive diverges from the full from-boot run (the catapult-fire
+end-position, Herman's arrival timing, etc. shift) — develop against the save for speed, but the
+from-boot run (`npm run test:integration`, ~1.6s) is the real check; make RNG-touchy beats robust
+(e.g. the catapult down-climb retries the exit rather than asserting an exact intermediate box).
 
-> **NEXT SESSION — Part III (Under Monkey Island).** Ashore at the beach (room 20): the bananas,
-> the rowboat, the island map (room 11), the cannibals' village, Herman Toothrot. Restore the
-> frontier save to start on the beach; same loop — disassemble first, drive headless, assert
-> mechanics.
+> **NEXT SESSION — Part III, the Pond, the Crack & the row to the north beach.** From the map
+> (room 4, post-flood): the Pond (room 40, the map's "il laghetto" #59/#67 → `loadRoomWithEgo
+> room=40`) — take the second rope from the unhealthy man (the rope #561 is touchable now that the
+> flood filled the pond; #562 is the other). Then the Crack (room 18, the map's "il crepaccio" #35
+> → room 18): tie one rope to the strong branch (#248) and climb down, tie the other to the sturdy
+> trunk (#249), climb to the bottom → the oars (#245). Back to the south beach (room 20): pick up
+> the dropped bananas with the banana-picker (see below), then Use the oars on the rowboat (#263,
+> verb 7 → local #200) → row to the north beach.
+>
+> **Banana harvest (verified from bytecode 2026-06-13).** The catapult (already done) just made the
+> high beach bananas reachable; the FIVE are HARVESTED with Herman's banana-picker ("il
+> raccoglibanane" #314, room 27 — still to be obtained): its Use-verb acts on #266/#267 (beach) and
+> #282/#283 (cannibal village, room 25), and reports #265 "già raccolta". So the five = beach
+> (#265 + #266 + #267) + village (#282 + #283); the fifth comes from the VILLAGE, not a second rock
+> (the catapult is a one-shot — `bit#530`). (Not yet driven: where the picker is obtained, and the
+> exact consumer that requires 5 — likely the monkey you lure; confirm when driving it.) Restore the
+> frontier save to start on the map (room 4); same loop — disassemble first, drive headless, assert
+> mechanics. NB the frontier save's RNG caveat above — the from-boot run is the real check.
 
 **Pending in-browser checks** (fixes shipped + folded into docs, look not yet confirmed):
 

@@ -1736,6 +1736,226 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     });
   });
 
+  describe('Part III — Under Monkey Island', () => {
+    beat('⚙️ Monkey beach — get up off the sand, pocket a banana, read the assembly notice', () => {
+      const beach = ROOMS.monkeyBeach;
+      // The cannon launch dropped ego face-down on the sand with the next click
+      // routed to the get-up wakeup (g32 = 201 → local #201). A bare floor click
+      // stands him up and restores the normal verb script (g32 → 4).
+      expect(vm.vars.readGlobal(VAR_VERB_SCRIPT)).toBe(beach.wakeupVerbScript);
+      walkTo(vm, { x: 200, y: 120 });
+      expect(driveUntil(vm, (v) => v.vars.readGlobal(VAR_VERB_SCRIPT) === 4, { maxTicks: 8000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+
+      // A banana off the beach (#265, Pick up).
+      use(vm, VERBS.pickUp, beach.banana);
+      expect(waitPickedUp(vm, beach.banana)).toBe(true);
+
+      // Read the public-assembly notice by the tree (#271, Look at → local #203):
+      // the LeChuck "occupazione della Testa Sacra" announcement. The text-as-data
+      // proves the read ran; control then returns.
+      use(vm, VERBS.look, beach.assemblyNote);
+      expect(driveUntil(vm, (v) => (v.activeDialog?.text ?? '').length > 0, { maxTicks: 8000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('🚶‍➡️ Monkey beach — into the jungle and across the overhead map to the Fort (80)', () => {
+      const map = ROOMS.monkeyMap;
+      // "la giungla" (#261, Walk-to): putActorInRoom 2 + actorFollowCamera carries
+      // ego onto the walkable overhead map (room 2) as a small figure.
+      walkTo(vm, ROOMS.monkeyBeach.jungle);
+      expect(driveToRoom(vm, map.id, { maxTicks: 12000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+
+      // The map is several walkable screens; the screen-2 top-left edge (#28)
+      // crosses to the Fort screen (room 3) via global #34.
+      walkTo(vm, map.toFortScreen);
+      expect(driveToRoom(vm, map.fortScreen, { maxTicks: 12000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+
+      // Walk the figure onto the fortezza marker: room-3 local #200 watches ego's
+      // distance and at ≤2 runs loadRoomWithEgo room=80 — into the Fort.
+      walkTo(vm, map.fortApproach);
+      expect(driveToRoom(vm, ROOMS.fort.id, { maxTicks: 16000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('⚙️ Fort — take the rope & spyglass; open the spyglass into a lens', () => {
+      const ego = vm.vars.readGlobal(VAR_EGO);
+      const fort = ROOMS.fort;
+      for (const obj of [fort.rope, fort.spyglass]) {
+        use(vm, VERBS.pickUp, obj);
+        expect(waitPickedUp(vm, obj)).toBe(true);
+      }
+
+      // Open (verb 2) the spyglass: its verb-2 renames it "la lente" and flips
+      // the lens class bit (value 2) on — the same id #882 becomes the lens.
+      // Assert the class flip, not the localized name.
+      const isLens = (v: typeof vm) =>
+        ((v.objectClasses.get(fort.spyglass) ?? 0) & (1 << fort.lensClassBit)) !== 0;
+      expect(isLens(vm)).toBe(false);
+      use(vm, VERBS.open, fort.spyglass);
+      expect(driveUntil(vm, isLens, { maxTicks: 8000 })).toBe(true);
+      expect(vm.getObjectOwner(fort.spyglass)).toBe(ego);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('⚙️ Fort — push the cannon (it spills); send Herman off, then pocket the gunpowder & cannonball', () => {
+      const ego = vm.vars.readGlobal(VAR_EGO);
+      const fort = ROOMS.fort;
+      const herman = () => vm.actors.get(fort.hermanActor);
+      expect(vm.getObjectOwner(fort.gunpowder)).not.toBe(ego);
+      expect(vm.getObjectOwner(fort.cannonball)).not.toBe(ego);
+
+      // Push the rusty cannon (#883 → local #200): it tips and spills the
+      // gunpowder pile + cannonball onto the floor (state 1, touchable). Herman
+      // Toothrot (actor 7) then wanders in to confront you over his spyglass.
+      use(vm, VERBS.push, fort.cannon);
+      expect(driveUntil(vm, () => herman().room === fort.id, { maxTicks: 12000 })).toBe(true);
+
+      // Send Herman off (#122 "Lasciami in pace, dai?"). The spill is only
+      // reachable once he's gone, so wait for him to clear room 80.
+      const armed = () => vm.verbs.get(fort.dismissHerman)?.state === 'on';
+      expect(driveUntil(vm, () => armed(), { maxTicks: 16000 })).toBe(true);
+      pickAnswer(vm, fort.dismissHerman);
+      expect(driveUntil(vm, () => herman().room !== fort.id, { maxTicks: 30000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+
+      // The gunpowder pile (#887 → #884) and cannonball (#885) on the floor go
+      // into the pack — the dam's charge and one of its two igniters.
+      use(vm, VERBS.pickUp, fort.gunpowderPile);
+      expect(waitPickedUp(vm, fort.gunpowder)).toBe(true);
+      use(vm, VERBS.pickUp, fort.cannonball);
+      expect(waitPickedUp(vm, fort.cannonball)).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('🚶‍➡️ Fort — back across the overhead map to the River Fork (15)', () => {
+      const map = ROOMS.monkeyMap;
+      // The Fort path (#886) drops ego back on screen 3 (near the fortezza, but
+      // clear of its re-entry watcher).
+      walkTo(vm, ROOMS.fort.path);
+      expect(driveToRoom(vm, map.fortScreen, { maxTicks: 12000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      // Screen 3 → screen 4 (the edge connector #39), then the river-fork marker
+      // (#51) loads the River Fork (room 15).
+      walkTo(vm, map.fortScreenToRiver);
+      expect(driveToRoom(vm, map.riverScreen, { maxTicks: 12000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      walkTo(vm, map.riverForkMarker);
+      expect(driveToRoom(vm, ROOMS.riverFork.id, { maxTicks: 16000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('⚙️ River Fork — take the flint (and read the note beneath it)', () => {
+      const ego = vm.vars.readGlobal(VAR_EGO);
+      const river = ROOMS.riverFork;
+      // The rock IS a flint (#169); taking it (Pick up → global #167) pockets it
+      // and reads the assembly-meeting note (#231) underneath in one gesture.
+      expect(vm.getObjectOwner(river.flint)).not.toBe(ego);
+      use(vm, VERBS.pickUp, river.flint);
+      expect(waitPickedUp(vm, river.flint)).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('🚶‍➡️ River Fork — up the footholds to the catapult platform (16)', () => {
+      // "i punti d'appoggio" (#170, Walk-to → local #203) climbs ego up to the
+      // catapult platform (room 16).
+      walkTo(vm, ROOMS.riverFork.footholds);
+      expect(driveToRoom(vm, ROOMS.catapult.platform, { maxTicks: 16000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('⚙️ Catapult — aim at the beach banana tree, climb to the ledge and fire; two bananas drop', () => {
+      const cat = ROOMS.catapult;
+      const answers = () => [...vm.verbs.entries()].filter(([k, v]) => k >= 120 && k <= 132 && v.state === 'on');
+      const playable = () =>
+        vm.cursor.userput > 0 && vm.activeDialog === null && [...vm.verbs.values()].some((v) => v.state === 'on');
+
+      // Aim: pull the catapult arm (#235) — each pull raises g242 by 1 (it rests
+      // at 2); a hit lands only at g242==4, so two effective pulls. Bounded loop
+      // (some pulls land mid-animation and don't register).
+      for (let i = 0; i < 8 && vm.vars.readGlobal(cat.aimVar) !== cat.aimTarget; i++) {
+        use(vm, VERBS.pull, cat.crank);
+        driveUntil(vm, () => playable(), { maxTicks: 8000 });
+        waitPlayable(vm, 4000);
+      }
+      expect(vm.vars.readGlobal(cat.aimVar)).toBe(cat.aimTarget);
+
+      // Up to the firing ledge (room 11), where a rock (#116) is already seated.
+      walkTo(vm, cat.upToLedge);
+      expect(driveToRoom(vm, cat.ledge, { maxTicks: 16000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+
+      // Push the seated rock to fire. Herman wanders in to complain (he comes on
+      // his own as ego nears the catapult); shoo him (#122) if he opens a menu.
+      // The hit knocks bananas onto the beach and latches bit#530.
+      expect(vm.vars.readBit(cat.hitBit)).toBe(0);
+      use(vm, VERBS.push, cat.seatedRock);
+      for (let i = 0; i < 60 && vm.vars.readBit(cat.hitBit) === 0; i++) {
+        driveUntil(vm, () => answers().length > 0 || vm.vars.readBit(cat.hitBit) === 1, { maxTicks: 4000 });
+        const a = answers();
+        if (a.length > 0) pickAnswer(vm, a[a.length - 1]![0]);
+      }
+      expect(vm.vars.readBit(cat.hitBit)).toBe(1);
+      // The hit cutscene continues a few ticks past the bit#530 latch (shake →
+      // the bananas drop → "Wow!"); let it finish before checking the drop.
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.objectStates.get(ROOMS.monkeyBeach.fallenBananas)).toBe(1); // the dropped cluster
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('🚶‍➡️ Catapult — back down to the River Fork (15)', () => {
+      const cat = ROOMS.catapult;
+      // Down the two "il sentiero in basso" exits: ledge → platform (16) → River
+      // Fork (15). The firing ledge can't always path straight to the down-path
+      // object (depends on where the launch left ego), so nudge ego toward it
+      // (box 1) between attempts.
+      for (let i = 0; i < 5 && vm.currentRoom === cat.ledge; i++) {
+        walkTo(vm, cat.ledgeDown);
+        if (driveToRoom(vm, cat.platform, { maxTicks: 10000 })) break;
+        walkTo(vm, cat.ledgeDownStage);
+        waitPlayable(vm, 6000);
+      }
+      expect(vm.currentRoom).toBe(cat.platform);
+      expect(waitPlayable(vm)).toBe(true);
+      walkTo(vm, cat.platformDown);
+      expect(driveToRoom(vm, ROOMS.riverFork.id, { maxTicks: 14000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('⚙️ River Fork — pack the dam with gunpowder, spark it with flint & cannonball; the pond floods', () => {
+      const ego = vm.vars.readGlobal(VAR_EGO);
+      const river = ROOMS.riverFork;
+      const fort = ROOMS.fort;
+
+      // Use the Fort gunpowder on the dam (#176): it's packed on (object #178
+      // drawn) and the gunpowder consumed (owner → the room).
+      expect(vm.getObjectOwner(fort.gunpowder)).toBe(ego);
+      useWith(vm, VERBS.use, fort.gunpowder, river.dam);
+      expect(driveUntil(vm, (v) => v.getObjectOwner(fort.gunpowder) !== ego, { maxTicks: 10000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+
+      // Stand at the dam, then strike the flint against the cannonball (steel) for
+      // a spark → global #44: the dam blows, the river floods, and the wash carries
+      // ego back onto the overhead map (room 4).
+      walkTo(vm, river.dam);
+      waitPlayable(vm, 6000);
+      useWith(vm, VERBS.use, river.flint, fort.cannonball);
+      expect(driveToRoom(vm, ROOMS.monkeyMap.riverScreen, { maxTicks: 30000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+  });
+
   // ALWAYS THE LAST GROUP: snapshot the furthest clean playable state to a save
   // so the NEXT frontier's beats can be developed by fast-forwarding here
   // (restoreSave) instead of re-driving from boot — the regression net itself
@@ -1748,12 +1968,14 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
         'saves/MI1-walkthrough-frontier.websave.json',
         JSON.stringify(snapshotVm(vm, { game: 'MI1', label: 'walkthrough-frontier' })),
       );
-      // Furthest clean point so far: shot out of the Sea Monkey's cannon onto
-      // Monkey Island's beach (room 20), the voyage played out (g259=2 — the
-      // post-voyage deck arrival look ran) — Part II complete, Part III begun.
-      expect(vm.currentRoom).toBe(ROOMS.monkeyBeach.id);
+      // Furthest clean point so far: deep into Part III — the beach opening, the
+      // Fort loot (rope/spyglass/lens/gunpowder/cannonball), the catapult fired
+      // (bananas knocked onto the beach), and the dam blown — the flood washed
+      // ego back onto the overhead map (screen 4, room 4).
+      expect(vm.currentRoom).toBe(ROOMS.monkeyMap.riverScreen);
       expect(vm.vars.readGlobal(VARS.voyageStage)).toBe(2);
-      expect(vm.vars.readBit(ROOMS.stan.shipBoughtBit)).toBe(1);
+      expect(vm.vars.readBit(ROOMS.catapult.hitBit)).toBe(1);
+      expect(vm.getObjectOwner(ROOMS.fort.gunpowder)).not.toBe(vm.vars.readGlobal(VAR_EGO));
     });
   });
 });
