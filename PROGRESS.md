@@ -17,10 +17,10 @@ Playing MI1 from boot and fixing each blocker engine-faithfully (committed on
 integration playthrough (`npm run test:integration`). **Parts I AND II play
 end-to-end from boot — the three trials, the crew and the Sea Monkey, then the
 whole Journey: the ship rooms looted, the navigation broth cooked, and the
-cannon shot onto Monkey Island's beach. Part III now plays from boot through its
-surface puzzles: the beach opening, the Fort loot, the catapult shot, the dam
-flood, the Pond's rope, and the Crack's oars — only the final row remains** (see
-Frontier below).
+cannon shot onto Monkey Island's beach. Part III's whole surface now plays from
+boot: the beach opening, the Fort loot, the catapult shot, the dam flood, the
+Pond's rope, the Crack's oars, and the row around the coast to the north beach**
+(see Frontier below).
 
 **Working principle (agreed 2026-06-02):** engine-faithful, no hacks/shortcuts —
 confirm the real mechanism first (**never consult ScummVM source, in any form**),
@@ -39,8 +39,8 @@ a raw `driveUntil` only for bespoke predicates). Named `<Part> · <Room> — <wh
 proves>`, file order = run order; per-game ids/vars in `game.ts` (`ROOMS`/`VERBS`/`VARS`).
 A clean fast-forward save (`saves/MI1-walkthrough-frontier.websave.json`, gitignored,
 written by the ALWAYS-LAST `frontier` beat and regenerated each green run) sits at the furthest
-clean state — currently on the Monkey Island overhead map (room 2), oars in hand after the Crack
-descent; Part III's surface puzzles (bar the final row) play from boot.
+clean state — currently on Monkey Island's north beach (room 132), rowed there around the coast;
+Part III's whole surface plays from boot.
 
 **Frontier: Parts I and II are FINISHED, and Part III plays from boot through the dam flood —
 after the cannon launch, ego gets up off the beach (the g32=201 wakeup), pockets a banana and
@@ -55,36 +55,43 @@ beach (bit#530); climb back down and blow the dam (gunpowder + a flint/cannonbal
 #44): the river floods and washes ego onto the overhead map (room 4). Then down to the Pond
 (room 40) for the second rope (#561, reachable now the flood filled the pond), and into the Crack
 (room 18): tie the Fort rope to the branch (#248) and the Pond rope to the trunk (#249), climbing
-down each stage to the oars (#245) at the bottom — back onto the map (room 2) with the oars.**
-Part-III room ids + mechanics live in `game.ts`
-(`monkeyBeach`/`monkeyMap`/`fort`/`riverFork`/`catapult`/`pond`/`crack`), not here.
-The overhead map (rooms 2–6) is WALKABLE (ego a small figure, costume 3), not a node hub: edge
-connectors cross screens (global #34); locations are entered by walking onto their marker.
+down each stage to the oars (#245) at the bottom. Finally back to the south beach, oars on the
+rowboat (#263) → row out as the boat (costume 4) and circumnavigate the map's water clockwise
+(screen 2 → 5 → 6), landing at "la spiaggia" on the north beach (room 132).** Part-III room ids +
+mechanics live in `game.ts`
+(`monkeyBeach`/`monkeyMap`/`fort`/`riverFork`/`catapult`/`pond`/`crack`/`northBeach`), not here.
+The overhead map (rooms 2–6) is WALKABLE (ego a small figure, costume 3 walking / costume 4 the
+boat), not a node hub: edge connectors cross screens (global #34); locations are entered by
+walking onto their marker.
+**Engine fix this session (shipped, committed `742f1cb`):** the boat-crossing softlock — a
+relative screen-crossing lands the boat just off a screen edge, and `findBoxAtOrNearest` /
+`clampPointToBoxes` ranked the nearest walkbox by BOUNDING RECT, so a slanted land box whose bbox
+dipped 2px lower than the adjacent water box won and stranded ego as the walking figure on land.
+Now they rank by true EDGE distance (SCUMM `adjustXYToBeInBox`, via `closestPointInBox` moved into
+`pathfinding/boxes.ts`); synthetic guard in `boxes.test.ts`. Found via a user repro save and the
+edge-vs-bbox divergence at the room 2↔5 crossing.
 Dev caveat (cost a session-internal debug cycle): the engine RNG is NOT serialized in the
 frontier save, so a frontier-restore drive diverges from the full from-boot run (the catapult-fire
 end-position, Herman's arrival timing, etc. shift) — develop against the save for speed, but the
 from-boot run (`npm run test:integration`, ~1.6s) is the real check; make RNG-touchy beats robust
 (e.g. the catapult down-climb retries the exit rather than asserting an exact intermediate box).
 
-> **NEXT SESSION — Part III, the row to the north beach (OPEN QUESTION) + the banana harvest.**
-> The oars are in hand. The last surface step is: from the south beach (room 20), Use the oars on
-> the rowboat (#263, verb 7 → room-20 local #200). **Open question for the user (they've played it
-> in-browser):** #200 only relocates ego onto the overhead map (room 2 at 156,168, a "water" walk
-> box 17) — it does NOT load a north-beach room, and clicking the map's beach marker from there just
-> returns to the south beach (room 20). None of the beaches (130/131/132) or the giant monkey head
-> (room 12 "la zona disboscata", a normal walkable map marker on screen 5) is boat-gated. So HOW
-> does the boat reach + land at the north beach? — ask before driving it.
+> **NEXT SESSION — Part III proper ("Under Monkey Island"), beyond the north beach (132).** Ego is
+> ashore on the north shore with the rowboat. From here the jungle paths lead inland to the cannibal
+> village (room 25 — the navigator's head #293, the cannibals, the village bananas #282/#283) and
+> the giant monkey head (room 12 "la zona disboscata"; close-up room 69). The arc: get Herman's
+> banana-picker ("il raccoglibanane" #314, room 27 — source not yet driven), harvest the five
+> bananas, deal with the cannibals/navigator's head, and get under the monkey head. Restore the
+> frontier save to start on the north beach (room 132); same loop — disassemble first, drive
+> headless, assert mechanics. NB the frontier save's RNG caveat above — the from-boot run is the
+> real check.
 >
 > **Banana harvest (verified from bytecode 2026-06-13).** The catapult (done) just made the high
-> beach bananas reachable; the FIVE are HARVESTED with Herman's banana-picker ("il raccoglibanane"
-> #314, room 27 — still to be obtained): its Use-verb acts on #266/#267 (beach) and #282/#283
-> (cannibal village, room 25), and reports #265 "già raccolta". So the five = beach (#265 + #266 +
-> #267) + village (#282 + #283); the fifth comes from the VILLAGE, not a second rock (the catapult
-> is a one-shot — `bit#530`). NB a plain Pick up of the dropped cluster (#270) did NOT take #266 in
-> a headless drive — likely the picker is required. (Not yet driven: where the picker is obtained,
-> and the exact consumer that requires 5 — likely the monkey you lure.) Restore the frontier save to
-> start on the map (room 2); same loop — disassemble first, drive headless, assert mechanics. NB the
-> frontier save's RNG caveat above — the from-boot run is the real check.
+> beach bananas reachable; the FIVE are HARVESTED with Herman's banana-picker (#314): its Use-verb
+> acts on #266/#267 (beach) and #282/#283 (cannibal village, room 25), and reports #265 "già
+> raccolta". So the five = beach (#265 + #266 + #267) + village (#282 + #283); a plain Pick up of
+> the dropped cluster (#270) did NOT take a banana headless — the picker is required. (Not yet
+> driven: where the picker is obtained, and the exact consumer that needs 5 — likely the monkey.)
 
 **Pending in-browser checks** (fixes shipped + folded into docs, look not yet confirmed):
 

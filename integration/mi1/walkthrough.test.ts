@@ -52,7 +52,7 @@
  * broke; don't cross-reference other beats by number.
  *
  * Data-gated (skipped without the game files). Run: `npm run test:integration`.
- * With BEAT_SAVES set (`npm run test:integration:beat-saves`) every green beat
+ * With BEAT_SAVES set (`npm run test:integration:save`) every green beat
  * also dumps an importable checkpoint save to saves/beats/.
  */
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -105,7 +105,7 @@ let activeMug = 0;
 let remainingMugs: number[] = [];
 
 // Per-beat checkpoints, opt-in via BEAT_SAVES (`npm run
-// test:integration:beat-saves`): every green beat also snapshots the VM to
+// test:integration:save`): every green beat also snapshots the VM to
 // saves/beats/<run-order>-<slug>.websave.json — an in-browser import target
 // at each point of the run, for visual spot-checks (the net itself renders no
 // pixels) and for bisecting where a rendering regression starts. The
@@ -2018,6 +2018,43 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(waitPlayable(vm)).toBe(true);
       expect(vm.haltInfo).toBeNull();
     });
+
+    beat('🚶‍➡️ Monkey map — down to the south beach (20) for the rowboat', () => {
+      walkTo(vm, ROOMS.monkeyMap.beachMarker);
+      expect(driveToRoom(vm, ROOMS.monkeyBeach.id, { maxTicks: 16000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('🚶‍➡️ South beach — oars on the rowboat, row around the island to the north beach (132)', () => {
+      const ego = vm.vars.readGlobal(VAR_EGO);
+      const map = ROOMS.monkeyMap;
+      const inBoat = () => vm.actors.get(vm.vars.readGlobal(VAR_EGO)).costume === 4;
+
+      // Use the oars on the rowboat (#263 → local #200): ego rows out onto the
+      // overhead-map water (room 2) as the boat figure (costume 4).
+      expect(vm.getObjectOwner(ROOMS.crack.oars)).toBe(ego);
+      useWith(vm, VERBS.use, ROOMS.crack.oars, ROOMS.monkeyBeach.rowboat);
+      expect(driveToRoom(vm, map.id, { maxTicks: 16000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(inBoat()).toBe(true);
+
+      // Circumnavigate clockwise in the boat: screen 2's water exit → screen 5 →
+      // screen 6, staying in the boat across each edge (the edge-distance box snap
+      // keeps the relative crossing on water, not stranded on a land box). "La
+      // spiaggia" then lands ego on the north beach (132), disembarking him (back
+      // to the walking figure).
+      walkTo(vm, map.boatScreen2to5);
+      expect(driveToRoom(vm, 5, { maxTicks: 14000 })).toBe(true); // map screen 5 (east)
+      expect(inBoat()).toBe(true);
+      walkTo(vm, map.boatScreen5to6);
+      expect(driveToRoom(vm, 6, { maxTicks: 14000 })).toBe(true); // map screen 6 (north)
+      expect(inBoat()).toBe(true);
+      walkTo(vm, map.northBeachLanding);
+      expect(driveToRoom(vm, ROOMS.northBeach.id, { maxTicks: 14000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
   });
 
   // ALWAYS THE LAST GROUP: snapshot the furthest clean playable state to a save
@@ -2032,15 +2069,14 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
         'saves/MI1-walkthrough-frontier.websave.json',
         JSON.stringify(snapshotVm(vm, { game: 'MI1', label: 'walkthrough-frontier' })),
       );
-      // Furthest clean point so far: deep into Part III — the beach opening, the
-      // Fort loot, the catapult fired (bananas knocked onto the beach), the dam
-      // blown, the Pond's second rope taken, and the Crack descended for the oars
-      // — back on the overhead map (screen 2) with the oars in hand, ready to row.
-      const ego = vm.vars.readGlobal(VAR_EGO);
-      expect(vm.currentRoom).toBe(ROOMS.monkeyMap.crackScreen);
+      // Furthest clean point so far: Part III's surface DONE — the beach opening,
+      // the Fort loot, the catapult fired (bananas knocked onto the beach), the
+      // dam blown, the Pond's second rope, the Crack descended for the oars, and
+      // the rowboat rowed clockwise around the island to land on the north beach
+      // (room 132). "Under Monkey Island" proper begins beyond.
+      expect(vm.currentRoom).toBe(ROOMS.northBeach.id);
       expect(vm.vars.readGlobal(VARS.voyageStage)).toBe(2);
       expect(vm.vars.readBit(ROOMS.catapult.hitBit)).toBe(1);
-      expect(vm.getObjectOwner(ROOMS.crack.oars)).toBe(ego);
     });
   });
 });

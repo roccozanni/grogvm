@@ -982,6 +982,10 @@ export const ROOMS = {
      *  the beach; state flips to 1 when the catapult hits. Picked up later with
      *  the banana-picker (the village supplies the rest, to five). */
     fallenBananas: 270,
+    /** "la barca a remi" (#263) — the rowboat. Use the oars ({@link crack}'s
+     *  `oars` #245) on it (verb 7 → local #200): ego rows out onto the overhead
+     *  map's water (room 2) as the boat figure (costume 4). */
+    rowboat: 263,
   },
 
   /**
@@ -1023,6 +1027,27 @@ export const ROOMS = {
     crackMarker: 35,
     /** "la spiaggia" marker (#30, on screen 2): → the south beach (room 20). */
     beachMarker: 30,
+    /**
+     * The boat route around the island. In the boat (costume 4) the water exits
+     * are touchable: screen 2's #33 → screen 5, screen 5's #64 → screen 6, and
+     * screen 6's "la spiaggia" #71 lands ego at the north beach ({@link
+     * northBeach}, room 132). The relative-crossing placement depends on the
+     * fixed edge-distance box snapping (see `pathfinding/boxes.ts`) to keep the
+     * boat on water across each edge rather than stranding it on a land box.
+     */
+    boatScreen2to5: 33,
+    boatScreen5to6: 64,
+    northBeachLanding: 71,
+  },
+
+  /**
+   * Monkey Island's north beach (room 132) — where the rowboat lands after
+   * circumnavigating the island. The rowboat (#17) beaches here and jungle
+   * paths lead inland (toward the cannibal village). Part III's surface ends
+   * here; "Under Monkey Island" proper begins beyond.
+   */
+  northBeach: {
+    id: 132,
   },
 
   /**
