@@ -2394,6 +2394,40 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(waitPlayable(vm)).toBe(true);
       expect(vm.haltInfo).toBeNull();
     });
+
+    beat('⚙️ Cannibal village — give Herman the banana-picker for the Monkey-Head key (269)', () => {
+      const ego = vm.vars.readGlobal(VAR_EGO);
+      const village = ROOMS.cannibalVillage;
+      const hut = ROOMS.cannibalHut;
+      const A = () => vm.actors.get(ego);
+      const scriptLive = (id: number) => vm.slots.some((s) => s.status !== 'dead' && s.scriptId === id);
+
+      // Out of the hut (door #307) back to the village. Carrying the picker with
+      // bit#548 still unset, room 25's ENCD summons Herman Toothrot (actor 7) —
+      // he's been hunting the cannibals to get his banana-picker back.
+      walkTo(vm, hut.door);
+      expect(driveToRoom(vm, village.id, { maxTicks: 12000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.actors.get(village.herman).room).toBe(village.id);
+
+      // Walk east toward Herman (scrolls the camera so he's on-screen) and give
+      // him the picker (#314). Global #96: he takes it and hands ego the key.
+      walkTo(vm, village.hermanSpot);
+      expect(driveUntil(vm, () => A().x >= 440, { maxTicks: 14000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      give(vm, VERBS.give, hut.picker, village.herman);
+
+      // Picker consumed; the Monkey-Head key (#269) is now ego's (g411 → 8742).
+      expect(
+        driveUntil(vm, (v) => v.getObjectOwner(village.monkeyHeadKey) === ego, { maxTicks: 14000 }),
+      ).toBe(true);
+      expect(driveUntil(vm, (v) => !scriptLive(95) && !scriptLive(96) && v.cursor.userput > 0, { maxTicks: 16000 })).toBe(
+        true,
+      );
+      expect(vm.getObjectOwner(hut.picker)).not.toBe(ego);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
   });
 
   // ALWAYS THE LAST GROUP: snapshot the furthest clean playable state to a save
@@ -2412,15 +2446,18 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       // surface, the cannibal village (bowl bananas, capture, hut escape), the row
       // back to the south side, the wandering monkey caught and fed (it follows),
       // the clearing's totem/Giant-Monkey-Head idol, then the row BACK to the
-      // village to give the cannibals the idol (they turn friendly, "LEMONHEAD!")
-      // and into the now-open hut for the banana-picker. Picker → Herman is next.
-      expect(vm.currentRoom).toBe(ROOMS.cannibalHut.id);
+      // village to give the cannibals the idol (they turn friendly, "LEMONHEAD!"),
+      // into the now-open hut for the banana-picker, and back out to give the
+      // picker to Herman for the Monkey-Head key. Cannibals + the key are next.
+      expect(vm.currentRoom).toBe(ROOMS.cannibalVillage.id);
       expect(vm.vars.readGlobal(VARS.voyageStage)).toBe(2);
       expect(vm.vars.readBit(ROOMS.catapult.hitBit)).toBe(1);
       expect(vm.vars.readGlobal(ROOMS.monkey.fedVar)).toBe(5);
-      // The idol was given (no longer held) and the banana-picker is in hand.
+      // The idol and picker were given away (no longer held); the Monkey-Head key
+      // (the picker→Herman trade) is in hand.
       expect(vm.getObjectOwner(ROOMS.idolChamber.wimpyIdol)).not.toBe(vm.vars.readGlobal(VAR_EGO));
-      expect(vm.getObjectOwner(ROOMS.cannibalHut.picker)).toBe(vm.vars.readGlobal(VAR_EGO));
+      expect(vm.getObjectOwner(ROOMS.cannibalHut.picker)).not.toBe(vm.vars.readGlobal(VAR_EGO));
+      expect(vm.getObjectOwner(ROOMS.cannibalVillage.monkeyHeadKey)).toBe(vm.vars.readGlobal(VAR_EGO));
     });
   });
 });

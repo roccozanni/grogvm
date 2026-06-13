@@ -1147,6 +1147,21 @@ export const ROOMS = {
     /** "la porta" (#285) — the hut door; locked on the first visit, OPEN once
      *  the idol wins the cannibals over. Open + walk through → the hut (room 27). */
     hutDoor: 285,
+    /**
+     * Herman Toothrot — ACTOR 7. Re-entering the village holding the picker (and
+     * with bit#548 still unset) makes room 25's ENCD summon him (`startScript 218`):
+     * he's been hunting the cannibals to get his banana-picker back, parked at the
+     * right edge (x≈521). Walking east scrolls the camera so he's on-screen.
+     */
+    herman: 7,
+    /** Walk target that scrolls the camera right to Herman before the give. */
+    hermanSpot: { x: 470, y: 138 },
+    /**
+     * "la chiave della Testa di Scimmia" (#269) — the Monkey-Head key. Giving the
+     * picker (#314) to Herman runs global #96: he takes it and hands ego this key
+     * (and sets g411 = 8742). Used later on the Giant Monkey Head's ear.
+     */
+    monkeyHeadKey: 269,
   },
 
   /**
@@ -1176,6 +1191,8 @@ export const ROOMS = {
      * friendly.
      */
     picker: 314,
+    /** "la porta" (#307) — the hut's door back out to the village (room 25). */
+    door: 307,
   },
 
   /**
