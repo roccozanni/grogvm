@@ -56,6 +56,7 @@ ${urls}
   };
 
   const robots = (): string => `User-agent: *
+Content-Signal: ai-train=yes, search=yes, ai-input=yes
 Allow: /
 
 Sitemap: ${SITE_URL}/sitemap.xml
