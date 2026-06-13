@@ -1011,6 +1011,18 @@ export const ROOMS = {
     /** "la biforcazione del fiume" marker (#51, on screen 4): its verb-11 is a
      *  straight loadRoomWithEgo room=15 — into the River Fork. */
     riverForkMarker: 51,
+    /** "il laghetto" marker (#59, on screen 4): verb-11 loadRoomWithEgo room=40 —
+     *  the Pond. */
+    pondMarker: 59,
+    /** Screen-4 → screen-2 edge connector (#46), via global #34. The Crack sits
+     *  on screen 2 ({@link crackScreen}). */
+    riverScreenToCrackScreen: 46,
+    crackScreen: 2,
+    /** "il crepaccio" marker (#35, on screen 2): verb-11 putActorInRoom 18 +
+     *  follow — into the Crack. */
+    crackMarker: 35,
+    /** "la spiaggia" marker (#30, on screen 2): → the south beach (room 20). */
+    beachMarker: 30,
   },
 
   /**
@@ -1134,6 +1146,41 @@ export const ROOMS = {
     ledgeDown: 115,
     /** "il sentiero in basso" (#233, on the platform) — down to the River Fork (15). */
     platformDown: 233,
+  },
+
+  /**
+   * The Pond (room 40) — filled by the dam flood. A battered man (#563) sits by
+   * a rope; a corpse dangles above on another. The rope by the man is the second
+   * rope the Crack descent needs.
+   */
+  pond: {
+    id: 40,
+    /** "la corda" (#561) — the second rope, by the unhealthy man (#563). The
+     *  flood (global #44) made it touchable; a plain Pick up (verb 9) takes it. */
+    secondRope: 561,
+    /** "la giungla" (#554) — the exit, back onto the overhead map (screen 4). */
+    exit: 554,
+  },
+
+  /**
+   * The Crack (room 18) — a cleft you descend in two roped stages to the oars at
+   * the bottom. Reached from the map's "il crepaccio" ({@link monkeyMap}'s
+   * `crackMarker`).
+   */
+  crack: {
+    id: 18,
+    /** "il ramo robusto" (#248) — the sturdy branch (upper). Use a rope with it
+     *  (verb 7 → local #202): it ties on and ego climbs down a level. Gated on
+     *  ego's walkbox (≥5), which the Use-walk satisfies. */
+    branch: 248,
+    /** "il tronco robusto" (#249) — the sturdy trunk (lower). Use the other rope
+     *  with it → ego climbs to the bottom, by the oars. */
+    trunk: 249,
+    /** "i remi" (#245) — the oars at the bottom; Pick up (verb 9). The rowboat's
+     *  propulsion (Use them on the boat back at the south beach). */
+    oars: 245,
+    /** "la giungla" (#244) — the exit, back onto the overhead map (screen 2). */
+    exit: 244,
   },
 
   /**

@@ -1954,6 +1954,70 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(waitPlayable(vm)).toBe(true);
       expect(vm.haltInfo).toBeNull();
     });
+
+    beat('🚶‍➡️ Monkey map — down to the Pond (40)', () => {
+      // The flood left ego on screen 4, where "il laghetto" (#59) loads the Pond.
+      walkTo(vm, ROOMS.monkeyMap.pondMarker);
+      expect(driveToRoom(vm, ROOMS.pond.id, { maxTicks: 16000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('⚙️ Pond — take the second rope by the unhealthy man', () => {
+      const ego = vm.vars.readGlobal(VAR_EGO);
+      // The flood filled the pond, so the rope (#561) by the unhealthy man is
+      // reachable now — a plain Pick up takes it. With the Fort rope, that's the
+      // two the Crack descent needs.
+      expect(vm.getObjectOwner(ROOMS.pond.secondRope)).not.toBe(ego);
+      use(vm, VERBS.pickUp, ROOMS.pond.secondRope);
+      expect(waitPickedUp(vm, ROOMS.pond.secondRope)).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('🚶‍➡️ Pond — back across the map to the Crack (18)', () => {
+      const map = ROOMS.monkeyMap;
+      // Out of the Pond (#554) onto screen 4, cross to screen 2 (#46), then "il
+      // crepaccio" (#35) drops into the Crack.
+      walkTo(vm, ROOMS.pond.exit);
+      expect(driveToRoom(vm, map.riverScreen, { maxTicks: 14000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      walkTo(vm, map.riverScreenToCrackScreen);
+      expect(driveToRoom(vm, map.crackScreen, { maxTicks: 14000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      walkTo(vm, map.crackMarker);
+      expect(driveToRoom(vm, ROOMS.crack.id, { maxTicks: 16000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('⚙️ The Crack — tie both ropes and climb down to the oars', () => {
+      const ego = vm.vars.readGlobal(VAR_EGO);
+      const crack = ROOMS.crack;
+      // Tie the Fort rope to the branch (Use → local #202): ego climbs down a
+      // level. Then the Pond rope to the trunk: ego climbs to the bottom. Each
+      // tie consumes its rope (owner → the room). The Use-walk puts ego in the
+      // walkbox each tie gates on.
+      expect(vm.getObjectOwner(crack.oars)).not.toBe(ego);
+      useWith(vm, VERBS.use, ROOMS.fort.rope, crack.branch);
+      expect(driveUntil(vm, (v) => v.getObjectOwner(ROOMS.fort.rope) !== ego, { maxTicks: 12000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      useWith(vm, VERBS.use, ROOMS.pond.secondRope, crack.trunk);
+      expect(driveUntil(vm, (v) => v.getObjectOwner(ROOMS.pond.secondRope) !== ego, { maxTicks: 12000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      // The oars at the bottom.
+      use(vm, VERBS.pickUp, crack.oars);
+      expect(waitPickedUp(vm, crack.oars)).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('🚶‍➡️ The Crack — back out onto the overhead map (2)', () => {
+      walkTo(vm, ROOMS.crack.exit);
+      expect(driveToRoom(vm, ROOMS.monkeyMap.crackScreen, { maxTicks: 14000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
   });
 
   // ALWAYS THE LAST GROUP: snapshot the furthest clean playable state to a save
@@ -1969,13 +2033,14 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
         JSON.stringify(snapshotVm(vm, { game: 'MI1', label: 'walkthrough-frontier' })),
       );
       // Furthest clean point so far: deep into Part III — the beach opening, the
-      // Fort loot (rope/spyglass/lens/gunpowder/cannonball), the catapult fired
-      // (bananas knocked onto the beach), and the dam blown — the flood washed
-      // ego back onto the overhead map (screen 4, room 4).
-      expect(vm.currentRoom).toBe(ROOMS.monkeyMap.riverScreen);
+      // Fort loot, the catapult fired (bananas knocked onto the beach), the dam
+      // blown, the Pond's second rope taken, and the Crack descended for the oars
+      // — back on the overhead map (screen 2) with the oars in hand, ready to row.
+      const ego = vm.vars.readGlobal(VAR_EGO);
+      expect(vm.currentRoom).toBe(ROOMS.monkeyMap.crackScreen);
       expect(vm.vars.readGlobal(VARS.voyageStage)).toBe(2);
       expect(vm.vars.readBit(ROOMS.catapult.hitBit)).toBe(1);
-      expect(vm.getObjectOwner(ROOMS.fort.gunpowder)).not.toBe(vm.vars.readGlobal(VAR_EGO));
+      expect(vm.getObjectOwner(ROOMS.crack.oars)).toBe(ego);
     });
   });
 });
