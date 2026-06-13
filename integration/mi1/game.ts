@@ -1046,20 +1046,134 @@ export const ROOMS = {
      * northBeach}, room 132). The relative-crossing placement depends on the
      * fixed edge-distance box snapping (see `pathfinding/boxes.ts`) to keep the
      * boat on water across each edge rather than stranding it on a land box.
+     * The REVERSE leg (north beach back to the monkey's side) rows screen 6 → 5
+     * (#70) → 2 (#65) then lands at the south beach via {@link beachMarker} #30:
+     * the walking figure can't path screen 6 → 2 (the inland map's two halves
+     * only join by boat), so this is how you get back to the monkey/clearing.
      */
     boatScreen2to5: 33,
     boatScreen5to6: 64,
     northBeachLanding: 71,
+    boatScreen6to5: 70,
+    boatScreen5to2: 65,
+    /**
+     * Screen 6 (the north screen) also carries the way INLAND: "il villaggio"
+     * marker (#72) — its verb-11 is `loadRoomWithEgo room=25`, into the cannibal
+     * village ({@link cannibalVillage}). The hut escape (room 27) also dumps ego
+     * back onto this screen.
+     */
+    villageScreen: 6,
+    villageMarker: 72,
   },
 
   /**
-   * Monkey Island's north beach (room 132) — where the rowboat lands after
-   * circumnavigating the island. The rowboat (#17) beaches here and jungle
-   * paths lead inland (toward the cannibal village). Part III's surface ends
-   * here; "Under Monkey Island" proper begins beyond.
+   * Monkey Island's north beach (room 132, a pseudo-room backing room 1 — the
+   * three-screen beach cluster 130/131/132, `g4` holds which) — where the rowboat
+   * lands after circumnavigating the island. Jungle paths lead inland to the
+   * cannibal village. Part III's surface ended here; "Under Monkey Island" proper
+   * begins beyond.
    */
   northBeach: {
     id: 132,
+    /** "la giungla" (#16, a room-1 object) — from screen 132 its Walk-to
+     *  `putActorInRoom`s ego onto overhead-map screen 6 (room 6) and follows.
+     *  The way inland toward the cannibal village. */
+    jungle: 16,
+    /** "la barca ed i remi" (#17) — the beached rowboat (oars included). Use
+     *  (verb 7) re-launches ego onto the map water as the boat (costume 4), on
+     *  the adjacent screen — the way back to the monkey's side. */
+    rowboat: 17,
+  },
+
+  /**
+   * The cannibal village (room 25) — reached from overhead-map screen 6's "il
+   * villaggio" marker (#72). Stealing the bowl bananas triggers the cannibals'
+   * capture (#202); they escort ego to the guest hut ({@link cannibalHut},
+   * room 27). Later the navigator's head (#293) and the idol-offer play out here.
+   */
+  cannibalVillage: {
+    id: 25,
+    /**
+     * "le banane" (#291) in the fruit bowl. Pick up (verb 9) pockets the two
+     * village bananas ({@link bowlBananaA} #282 + {@link bowlBananaB} #283) and
+     * starts the capture cutscene (#202). The basket "il cesto di frutta" (#304)
+     * just forwards here when bananas are present.
+     */
+    bowlBananas: 291,
+    bowlBananaA: 282,
+    bowlBananaB: 283,
+    /**
+     * After the bowl take, #202 parks until the camera pans back RIGHT toward
+     * the cannibals (g2 > 270) — NOT a softlock; walking toward this spot springs
+     * the confrontation cutscene. (Grab-and-go: you steal, then turn back.)
+     */
+    confrontSpot: { x: 400, y: 138 },
+    /**
+     * Confrontation menu (the cannibals threaten to eat you). "E va bene,
+     * mangiami." (#122) chains global #105 — the natives escort ego to the guest
+     * hut (`putActorInRoom room=27`). The other options loop "Allora?" (no offer
+     * yet) or fail the three-headed-monkey trick (#207).
+     */
+    fineEatMe: 122,
+  },
+
+  /**
+   * The cannibal guest hut (room 27) — where #105 drops ego after the capture.
+   * The escape: take the skull (it hides the loose board), open the board into a
+   * hole, crawl out onto the map. The banana-picker is here too but can't fit
+   * through the hole — it's retrieved later through the (now-locked) door.
+   */
+  cannibalHut: {
+    id: 27,
+    /**
+     * "il teschio" (#310) — the skull on the wall. Pick up (verb 9) pockets it
+     * and REVEALS the loose board ({@link looseBoard} #309, its child — Open does
+     * nothing until the skull is taken). Otherwise inert ("Non è successo niente").
+     */
+    skull: 310,
+    /**
+     * "la tavola lenta" (#309) — the loose board. Open (verb 2) turns it into
+     * "il buco" (the hole, state 1); then a bare click (verb 11) crawls ego
+     * through onto overhead-map screen 6 (room 6, `putActorInRoom`).
+     */
+    looseBoard: 309,
+    /**
+     * "il raccoglibanane" (#314) — the banana-picker. NOT taken on the escape:
+     * it won't fit through the hole (local #200 has ego drop it back to the room),
+     * so it's retrieved later through the door once the idol makes the cannibals
+     * friendly.
+     */
+    picker: 314,
+  },
+
+  /**
+   * The wandering monkey — ACTOR 2, "la scimmia" (costume 73 on the map). It
+   * paces overhead-map screen 2; clicking it (its catch handler, room-2 local
+   * #203) walks ego over and runs #201 → `loadRoomWithEgo room=21`, the monkey
+   * close-up. There you FEED it bananas: each Give (verb 4, banana → the monkey
+   * actor) routes through close-up local #202 → #203, which consumes the banana
+   * (owner → 14) and bumps {@link fedVar} g145. Global #43 (the follow
+   * controller, kicked off on the first feed) then makes the monkey trail ego —
+   * including ACROSS map screens (global #34 carries it along). It follows from
+   * g145 ≥ 1; the g145 > 5 "sated" branches are unreachable (only five bananas
+   * exist), so feeding never stops the follow. The five = beach #265/#266/#267 +
+   * village #282/#283.
+   */
+  monkey: {
+    actor: 2,
+    /** Close-up room the catch loads (room 21); feeding happens here. */
+    closeup: 21,
+    /** "la giungla" (#274) — the close-up's exit back onto the map (screen 2);
+     *  the monkey follows ego out. */
+    closeupExit: 274,
+    /** The monkey must be "down" (costume 6) in the close-up to accept a banana;
+     *  feeding mid-animation is refused ("Non prima che scenda lui"), so wait for
+     *  this costume between feeds. */
+    receptiveCostume: 6,
+    /** g145 — bananas fed to the monkey (each feed +1). */
+    fedVar: 145,
+    /** The five bananas to feed, in inventory by now. */
+    bananas: [265, 266, 267, 282, 283],
   },
 
   /**

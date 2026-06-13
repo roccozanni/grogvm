@@ -59,6 +59,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { describe, expect, it, type TestContext } from 'vitest';
 import { snapshotVm } from '../../src/engine/vm/savestate';
 import {
+  actorPoint,
   driveToRoom,
   driveUntil,
   give,
@@ -2073,6 +2074,163 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(waitPlayable(vm)).toBe(true);
       expect(vm.haltInfo).toBeNull();
     });
+
+    beat('🚶‍➡️ North beach — into the jungle, across the map to the cannibal village (25)', () => {
+      // The north beach (132) backs room 1; its jungle exit (#16) carries ego
+      // onto overhead-map screen 6 (room 6).
+      walkTo(vm, ROOMS.northBeach.jungle);
+      expect(driveToRoom(vm, ROOMS.monkeyMap.villageScreen, { maxTicks: 14000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      // Walk the figure onto "il villaggio" (#72): verb-11 loadRoomWithEgo room=25
+      // → into the cannibal village.
+      walkTo(vm, ROOMS.monkeyMap.villageMarker);
+      expect(driveToRoom(vm, ROOMS.cannibalVillage.id, { maxTicks: 16000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('⚙️ Cannibal village — steal the bowl bananas; the cannibals haul ego to the hut (27)', () => {
+      const ego = vm.vars.readGlobal(VAR_EGO);
+      const village = ROOMS.cannibalVillage;
+      expect(vm.getObjectOwner(village.bowlBananaA)).not.toBe(ego);
+
+      // Take the bowl bananas (#291 Pick up): pockets the two village bananas
+      // (#282/#283) — the last two of the monkey's five — and arms the capture
+      // cutscene (#202).
+      use(vm, VERBS.pickUp, village.bowlBananas);
+      expect(waitPickedUp(vm, village.bowlBananaA)).toBe(true);
+      expect(waitPickedUp(vm, village.bowlBananaB)).toBe(true);
+
+      // The capture parks until ego turns back toward the cannibals (the camera
+      // pans right past g2>270); walking to the confront spot springs it. Then
+      // the threat menu arms — pick "E va bene, mangiami." (#122): the natives
+      // escort ego to the guest hut (global #105 → room 27).
+      walkTo(vm, village.confrontSpot);
+      expect(
+        driveUntil(vm, (v) => v.verbs.get(village.fineEatMe)?.state === 'on', { maxTicks: 16000 }),
+      ).toBe(true);
+      pickAnswer(vm, village.fineEatMe);
+      expect(driveToRoom(vm, ROOMS.cannibalHut.id, { maxTicks: 16000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('⚙️ Cannibal hut — take the skull, open the loose board, crawl out to the map (6)', () => {
+      const ego = vm.vars.readGlobal(VAR_EGO);
+      const hut = ROOMS.cannibalHut;
+
+      // The skull (#310) hides the loose board (#309 is its child): Pick up the
+      // skull and the board becomes openable (without it, Open #309 does nothing).
+      use(vm, VERBS.pickUp, hut.skull);
+      expect(waitPickedUp(vm, hut.skull)).toBe(true);
+
+      // Open the loose board → "il buco" (the hole), state 1.
+      use(vm, VERBS.open, hut.looseBoard);
+      expect(
+        driveUntil(vm, (v) => v.objectStates.get(hut.looseBoard) === 1, { maxTicks: 8000 }),
+      ).toBe(true);
+
+      // Crawl through the hole (verb 11, a bare click) → out onto overhead-map
+      // screen 6. The banana-picker (#314) is deliberately left behind — it won't
+      // fit through the hole (local #200 makes ego drop it); it's retrieved later
+      // through the door once the idol wins the cannibals over.
+      walkTo(vm, hut.looseBoard);
+      expect(driveToRoom(vm, ROOMS.monkeyMap.villageScreen, { maxTicks: 14000 })).toBe(true);
+      expect(vm.getObjectOwner(hut.picker)).not.toBe(ego);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat("🚶‍➡️ Map screen 6 — row the boat back to the south beach, in through the jungle to the monkey (2)", () => {
+      const map = ROOMS.monkeyMap;
+      const inBoat = () => vm.actors.get(vm.vars.readGlobal(VAR_EGO)).costume === 4;
+      // The walking figure can't path screen 6 → 2 (the inland map's two halves
+      // only join by boat). Drop to the north beach (#71 "la spiaggia") and
+      // re-launch the rowboat (#17): ego rows out as the boat figure (costume 4).
+      walkTo(vm, map.northBeachLanding);
+      expect(driveToRoom(vm, ROOMS.northBeach.id, { maxTicks: 12000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      use(vm, VERBS.use, ROOMS.northBeach.rowboat);
+      expect(driveUntil(vm, () => inBoat(), { maxTicks: 10000 })).toBe(true);
+
+      // Row 6 → 5 → 2 (water connectors), then beach at the south shore (#30 →
+      // room 20). Each crossing stays in the boat (the edge-distance box snap).
+      walkTo(vm, map.boatScreen6to5);
+      expect(driveToRoom(vm, 5, { maxTicks: 12000 })).toBe(true);
+      expect(inBoat()).toBe(true);
+      walkTo(vm, map.boatScreen5to2);
+      expect(driveToRoom(vm, ROOMS.monkeyMap.id, { maxTicks: 12000 })).toBe(true);
+      expect(inBoat()).toBe(true);
+      walkTo(vm, map.beachMarker);
+      expect(driveToRoom(vm, ROOMS.monkeyBeach.id, { maxTicks: 12000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+
+      // South beach → jungle (#261) → overhead-map screen 2, on foot, where the
+      // monkey paces.
+      walkTo(vm, ROOMS.monkeyBeach.jungle);
+      expect(driveToRoom(vm, ROOMS.monkeyMap.id, { maxTicks: 12000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('⚙️ Map screen 2 — catch the wandering monkey, feed it the five bananas (it follows)', () => {
+      const ego = vm.vars.readGlobal(VAR_EGO);
+      const m = ROOMS.monkey;
+      const monkeyActor = () => vm.actors.get(m.actor);
+      const scriptLive = (id: number) => vm.slots.some((s) => s.status !== 'dead' && s.scriptId === id);
+      const held = (b: number) => vm.getObjectOwner(b) === ego;
+
+      // Catch it: the monkey paces, so click where it is and retry until the
+      // close-up (room 21) loads. (RNG-touchy — its path differs from boot, so
+      // this is a bounded retry, not an exact click.)
+      let caught = false;
+      for (let i = 0; i < 20 && !caught; i++) {
+        try {
+          walkTo(vm, actorPoint(vm, m.actor));
+        } catch {
+          // monkey momentarily mid-transition / off the loaded screen
+        }
+        caught = driveToRoom(vm, m.closeup, { maxTicks: 4000 });
+      }
+      expect(caught).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+
+      // Feed all five: the monkey must be "down" (costume 6) to take a banana, so
+      // wait for that and for the feed scripts (#202/#203) to settle between
+      // gives; one that lands mid-animation is refused ("Non prima che scenda
+      // lui"), so retry each banana until it's consumed (owner → 14).
+      for (const banana of m.bananas) {
+        for (let tries = 0; held(banana) && tries < 5 && vm.currentRoom === m.closeup; tries++) {
+          driveUntil(
+            vm,
+            (v) =>
+              monkeyActor().costume === m.receptiveCostume &&
+              !scriptLive(202) &&
+              !scriptLive(203) &&
+              v.cursor.userput > 0,
+            { maxTicks: 8000 },
+          );
+          give(vm, VERBS.give, banana, m.actor);
+          driveUntil(
+            vm,
+            (v) => !held(banana) || (!scriptLive(202) && !scriptLive(203) && v.cursor.userput > 0),
+            { maxTicks: 10000 },
+          );
+          waitPlayable(vm, 4000);
+        }
+        expect(held(banana)).toBe(false);
+      }
+      // All five fed; the follow controller (#43) is running.
+      expect(vm.vars.readGlobal(m.fedVar)).toBe(5);
+
+      // Leave the close-up (jungle #274) → back onto the map; the monkey trails
+      // ego out (global #34 carries it across the screen change).
+      walkTo(vm, m.closeupExit);
+      expect(driveToRoom(vm, ROOMS.monkeyMap.id, { maxTicks: 12000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(driveUntil(vm, () => monkeyActor().room === vm.currentRoom, { maxTicks: 6000 })).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
   });
 
   // ALWAYS THE LAST GROUP: snapshot the furthest clean playable state to a save
@@ -2087,14 +2245,18 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
         'saves/MI1-walkthrough-frontier.websave.json',
         JSON.stringify(snapshotVm(vm, { game: 'MI1', label: 'walkthrough-frontier' })),
       );
-      // Furthest clean point so far: Part III's surface DONE — the beach opening,
-      // the Fort loot, the catapult fired (bananas knocked onto the beach), the
-      // dam blown, the Pond's second rope, the Crack descended for the oars, and
-      // the rowboat rowed clockwise around the island to land on the north beach
-      // (room 132). "Under Monkey Island" proper begins beyond.
-      expect(vm.currentRoom).toBe(ROOMS.northBeach.id);
+      // Furthest clean point so far: into "Under Monkey Island" — Part III's
+      // surface (beach, Fort, catapult, dam, Pond, Crack, the row to the north
+      // beach), the cannibal village (bowl bananas stolen, the capture, the hut
+      // escape via skull + loose board), then the row BACK to the south side and
+      // the wandering monkey caught and fed all five bananas — it now follows ego
+      // around the overhead map (screen 2). The totem / Giant Monkey Head is next.
+      expect(vm.currentRoom).toBe(ROOMS.monkeyMap.id);
       expect(vm.vars.readGlobal(VARS.voyageStage)).toBe(2);
       expect(vm.vars.readBit(ROOMS.catapult.hitBit)).toBe(1);
+      // All five bananas fed to the monkey, which follows in ego's room.
+      expect(vm.vars.readGlobal(ROOMS.monkey.fedVar)).toBe(5);
+      expect(vm.actors.get(ROOMS.monkey.actor).room).toBe(vm.currentRoom);
     });
   });
 });
