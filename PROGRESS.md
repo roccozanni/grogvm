@@ -14,19 +14,16 @@ Lean tracker. Two buckets:
 
 Playing MI1 from boot and fixing each blocker engine-faithfully (committed on
 `main`). **Unit suite green + tsc clean**, plus a data-gated, from-boot
-integration playthrough (`npm run test:integration`). **Parts I AND II play
-end-to-end from boot — the three trials, the crew and the Sea Monkey, then the
-whole Journey: the ship rooms looted, the navigation broth cooked, and the
-cannon shot onto Monkey Island's beach. Part III plays from boot well into "Under
-Monkey Island": the beach opening, the Fort loot, the catapult shot, the dam flood,
-the Pond's rope, the Crack's oars, the row around the coast to the north beach, then
-inland to the cannibal village (bowl bananas stolen, the capture, the hut escape),
-the row BACK to the south side, the wandering monkey caught and fed (it follows), and across to
-the clearing — the totem nose pulled, the monkey holding the gate, the wimpy little idol taken in
-the Giant Monkey Head, then the row BACK to the village to give the cannibals the idol (provoke the
-ambush, hand it over before they re-jail you) and into the now-friendly hut for the banana-picker,
-then back out to give the picker to Herman Toothrot for the Monkey-Head key, and through the cannibals'
-"how to beat LeChuck" talk to trade the navigation leaflet for the navigator's head** (see Frontier below).
+integration playthrough (`npm run test:integration`, ~1.6s). **Parts I and II are
+FINISHED; Part III plays from boot well into "Under Monkey Island" — through the
+cannibal village, the monkey, the idol, the idol-for-picker and picker-for-key
+trades, and the "beat LeChuck" talk that trades the navigation leaflet for the
+navigator's head.** The beat-by-beat sequence IS the test
+(`integration/mi1/walkthrough.test.ts`, in run order); Part-III room ids +
+mechanics live in `game.ts` (`monkeyBeach`/`monkeyMap`/`fort`/`riverFork`/
+`catapult`/`pond`/`crack`/`northBeach`/`cannibalVillage`/`cannibalHut`/`monkey`/
+`monkeyClearing`/`idolChamber`), not here. Next blocker is step 8, the catacombs
+(see below).
 
 **Working principle (agreed 2026-06-02):** engine-faithful, no hacks/shortcuts —
 confirm the real mechanism first (**never consult ScummVM source, in any form**),
@@ -45,116 +42,19 @@ a raw `driveUntil` only for bespoke predicates). Named `<Part> · <Room> — <wh
 proves>`, file order = run order; per-game ids/vars in `game.ts` (`ROOMS`/`VERBS`/`VARS`).
 A clean fast-forward save (`saves/MI1-walkthrough-frontier.websave.json`, gitignored,
 written by the ALWAYS-LAST `frontier` beat and regenerated each green run) sits at the furthest
-clean state — currently in the cannibal village (room 25) holding the Monkey-Head key (#269) and the
-navigator's head (#293); idol, picker, and leaflet all given away. Part III plays from boot through
-the village, the monkey, the idol, the idol-for-picker trade, the picker-for-key trade with Herman,
-and the LeChuck talk that trades the navigation leaflet for the navigator's head.
+clean state (currently room 25; see NEXT below).
 
-**Frontier: Parts I and II are FINISHED, and Part III plays from boot through the dam flood —
-after the cannon launch, ego gets up off the beach (the g32=201 wakeup), pockets a banana and
-reads the assembly notice (room 20), walks into the jungle onto the walkable overhead map (room 2
-→ screen 3), and enters the Fort (room 80) by walking the map figure onto the fortezza marker. In
-the Fort: rope + spyglass taken, the spyglass opened into the lens (class bit 1), the rusty cannon
-pushed (it spills the gunpowder + cannonball), Herman Toothrot sent off, gunpowder + cannonball
-pocketed. Then across the map to the River Fork (room 15): take the flint (#169, reads the note
-under it), climb the footholds to the catapult (room 16), aim it (g242→4, pull twice), climb to
-the firing ledge (room 11) and push the pre-seated rock (#116) — it knocks the bananas onto the
-beach (bit#530); climb back down and blow the dam (gunpowder + a flint/cannonball spark → global
-#44): the river floods and washes ego onto the overhead map (room 4). Then down to the Pond
-(room 40) for the second rope (#561, reachable now the flood filled the pond), and into the Crack
-(room 18): tie the Fort rope to the branch (#248) and the Pond rope to the trunk (#249), climbing
-down each stage to the oars (#245) at the bottom. Finally back to the south beach, oars on the
-rowboat (#263) → row out as the boat (costume 4) and circumnavigate the map's water clockwise
-(screen 2 → 5 → 6), landing at "la spiaggia" on the north beach (room 132). Then INLAND: jungle #16
-→ screen 6 → "il villaggio" #72 → cannibal village (room 25); steal the bowl bananas (#291, pocketing
-#282/#283) → capture (#202) → pick "mangiami" (#122) → global #105 escorts ego to the guest hut
-(room 27); take the skull (#310, which reveals the loose board #309), open the board into a hole,
-crawl out to screen 6. Then ROW BACK (the inland map's two halves only join by boat): north beach →
-rowboat #17 → screen 6→5→2 → south beach → jungle #261 → screen 2; catch the wandering monkey
-(actor 2 → close-up room 21), feed it the five bananas (g145→5, follow-controller #43), and it
-follows ego across the map. Finally across to the clearing (room 12 "la zona disboscata", via
-screen 2→4→5 and marker #63): Pull the totem nose (#144) → the following monkey holds the gate
-open (obj #142→1) → walk through the gate (#155) into the Giant Monkey Head's idol chamber (room
-69) and take the wimpy little idol (#761, among decoys). Then row BACK to the village and GIVE the
-idol: it looks empty, so provoke the ambush (walk far west then back east — the camera-crossing
-watcher #200/#202 confronts you), pick "Ti darò qualsiasi cosa" (#121), and in the brief window
-where the cannibals turn touchable (their class bit 31 clears, g32=206) hand over the idol → #205
-("LEMONHEAD!"): friendly, the hut door (#285) opens → enter and take the banana-picker (#314). Then
-back out the hut door (#307) to the village: carrying the picker (bit#548 unset) makes room 25's ENCD
-summon Herman Toothrot (actor 7), and GIVING him the picker → global #96 hands ego the Monkey-Head
-key (#269, g411→8742). Finally re-enter the village FROM the map (jungle #290 → screen 6 → marker #72,
-g101==6) to make the friendly cannibals reappear into a forced "beat LeChuck" talk (#214→#213); drive
-it (answer #120 ×6 to learn the potion needs LeChuck's stolen root [bit#510] and his hideout [bit#511],
-then #124 "I'll go get the root" → bit#513, then #120 to end it), and GIVE them the navigation leaflet
-(#902) → #203 → global #104 trades it for the navigator's head (#293, bit#358, g411→4313).**
-Part-III room ids + mechanics live in `game.ts`
-(`monkeyBeach`/`monkeyMap`/`fort`/`riverFork`/`catapult`/`pond`/`crack`/`northBeach`/`cannibalVillage`/`cannibalHut`/`monkey`/`monkeyClearing`/`idolChamber`), not here.
-The overhead map (rooms 2–6) is WALKABLE (ego a small figure, costume 3 walking / costume 4 the
-boat), not a node hub: edge connectors cross screens (global #34); locations are entered by
-walking onto their marker.
-**Engine fix this session (shipped, committed `742f1cb`):** the boat-crossing softlock — a
-relative screen-crossing lands the boat just off a screen edge, and `findBoxAtOrNearest` /
-`clampPointToBoxes` ranked the nearest walkbox by BOUNDING RECT, so a slanted land box whose bbox
-dipped 2px lower than the adjacent water box won and stranded ego as the walking figure on land.
-Now they rank by true EDGE distance (SCUMM `adjustXYToBeInBox`, via `closestPointInBox` moved into
-`pathfinding/boxes.ts`); synthetic guard in `boxes.test.ts`. Found via a user repro save and the
-edge-vs-bbox divergence at the room 2↔5 crossing.
-Dev caveat (cost a session-internal debug cycle): the engine RNG is NOT serialized in the
-frontier save, so a frontier-restore drive diverges from the full from-boot run (the catapult-fire
-end-position, Herman's arrival timing, etc. shift) — develop against the save for speed, but the
-from-boot run (`npm run test:integration`, ~1.6s) is the real check; make RNG-touchy beats robust
-(e.g. the catapult down-climb retries the exit rather than asserting an exact intermediate box).
+**The overhead map (rooms 2–6) is WALKABLE** (ego a small figure, costume 3 walking / costume 4 the
+boat), not a node hub: edge connectors cross screens (global #34); locations are entered by walking
+onto their marker.
 
-> **Shipped — Part III "Under Monkey Island" steps 1–7 (village, monkey, idol, idol-for-picker, picker-for-key, leaflet-for-head).**
-> From the north beach: jungle #16 → screen 6 → "il villaggio" #72 → cannibal village (room 25).
-> Stealing the bowl bananas (#291, which pockets the village pair #282/#283) arms the capture (#202);
-> the confrontation fires as ego walks back RIGHT toward the cannibals (it parks on a `g2`/camera-X
-> > 270 wait until then — NOT a softlock), and menu option **#122** ("mangiami") chains global #105 →
-> the natives escort ego into the guest hut (room 27). Hut escape: take the skull (#310 — it hides
-> the loose board #309, un-openable until the skull is taken), Open the board into "il buco", crawl
-> out (verb 11) to screen 6. Then ROW BACK to the monkey's side (the inland map's two halves ONLY
-> join by boat — the walking figure can't path screen 6 → 2): north beach → re-launch rowboat #17 →
-> screen 6→5→2 → south beach → jungle #261 → screen 2. Catch the wandering monkey (actor 2 →
-> close-up room 21), feed it the five bananas (each Give → close-up #202/#203, `g145++`; the monkey
-> must be "down"/costume 6 to accept, so feed = wait-for-receptive + retry), and it follows ego —
-> across screens too (global #34 carries it). It follows from **g145 ≥ 1**; the `g145 > 5` "sated"
-> branches are unreachable (only five bananas), so feeding never stops the follow. Ids/mechanics in
-> `game.ts` (`cannibalVillage`/`cannibalHut`/`monkey`, + `monkeyMap`'s boat-back connectors).
-> The banana note was CORRECTED: the catapult cluster #270 is a plain `Pick up` of #266/#267 (no
-> picker), taken on the south beach before the row; the picker (#314, in the hut) can't fit through
-> the escape hole (#200 drops it) — it's a door-only retrieval after the idol. Step 4 (the clearing):
-> screen 2→4 (#29) → 5 (#47) → marker #63 → room 12; Pull the totem nose (#144 verb 6 → local #204),
-> the following monkey (#43) holds the gate (gate-held obj #142→1), walk to the head and through the
-> gate #155 → idol chamber (room 69), take the wimpy idol #761. Step 5 (idol-for-picker): row BACK
-> to the village (idol chamber #756 → clearing → screen 5→4 [left edge #62] →2 [#46] → south beach
-> #30 → re-launch rowboat #263 → boat 2→5→6 → north beach → jungle #16 → screen 6 → village #72).
-> The village looks empty; provoke the ambush (walk far west then back east — watcher #200/#202),
-> pick #121 ("Ti darò qualsiasi cosa"), and in the brief window where the cannibals turn touchable
-> (class bit 31 clears, g32=206) GIVE the idol → #205: friendly, hut door #285 opens → enter, take
-> the banana-picker (#314). Step 6 (picker-for-key): out of the hut (door #307) BACK to the village
-> (room 25). Carrying the picker with bit#548 unset, room 25's ENCD summons Herman Toothrot (actor 7,
-> `startScript 218`, parked at x≈521 — he's hunting the cannibals to get his picker back); the
-> ownership gate is `getObjectOwner #314 == g1` (so the FIRST picker-holding entry summons him and
-> latches bit#548). Walk east to scroll him on-screen, GIVE the picker (#314) to Herman → global #95
-> → #96: he takes it and hands ego the Monkey-Head key (**#269**, owner→ego, g411→8742), then wanders
-> off (#97 → `putActorInRoom 0`). Ids in `game.ts` (`cannibalVillage.herman`/`hermanSpot`/
-> `monkeyHeadKey`, `cannibalHut.door`).
-> Step 7 (leaflet → navigator's head): the friendly cannibals (actors 3/4/5; object #292 "indigeni
-> amichevoli", the give-target) are absent at rest and only reappear when you ENTER room 25 *from the
-> map* (g101==6) — leave via the jungle (#290) to screen 6, re-enter via marker #72. That entry opens
-> a FORCED conversation (#200 → #214 → **#213**) about beating LeChuck; you must drive it to the end
-> before the natives go idle/giveable (#215). The drive (pick by verb id — `pickDialogAnswer`; the
-> menu RNG only moves on-screen position): answer **#120** ("tell me more") six times walks the menu
-> chain — it sets bit#510 (potion needs LeChuck's stolen root) then bit#511 (where he hides), threading
-> a #511-side sub-menu (offset 4344) that loops back — until **#124** ("Vado a cercare LeChuck e mi
-> prendo la radice!") arms; #124 sets **bit#513**, the natives offer the head, one more #120 ends the
-> talk. (#120 recurs and #124 is an unrelated "you've done enough, bye" in the FIRST menu, so the beat
-> gates the #124 pick on bit#510 && bit#511.) Then GIVE the navigation leaflet (**#902**) to #292 →
-> room-25 #203 (`isEqual L0==902 → startScript 104`) → global #104 takes the leaflet, plays the room-86
-> "magic necklace" close-up, and hands ego the navigator's head (**#293**, owner→ego; sets bit#358 +
-> g411→4313); the natives leave. Ids in `game.ts` (`cannibalVillage.jungleExit`/`friendlyNatives`/
-> `lechuckTalk`/`navigatorHead`/`leaflet`/`navHeadGivenBit`).
->
+**Dev caveat (still live):** the engine RNG is a test-only seam, NOT serialized in saves
+([HARNESS §4](pages/docs/engine/harness.md)), so a frontier-restore drive diverges from the full
+from-boot run (catapult-fire end-position, Herman's arrival timing, etc. shift) — develop against
+the save for speed, but the from-boot run is the real check. Keep RNG-touchy beats robust: dynamic
+stop-conditions and condition-waiters, not exact intermediate asserts (the duel grind and monkey
+feed were hardened this way 2026-06-13 when the village walk-speed fix shifted the stream).
+
 > **NEXT SESSION — Part III step 8 (the catacombs).** Frontier sits in the cannibal village (room 25)
 > holding the Monkey-Head key (#269) and the navigator's head (#293); idol, picker, and leaflet all
 > given away. Next: use the key in the monkey-head's ear (close-up room 65) → mouth opens → the
@@ -165,24 +65,11 @@ from-boot run (`npm run test:integration`, ~1.6s) is the real check; make RNG-to
 > key + head in hand); RNG caveat above still applies — the from-boot run (`npm run test:integration`)
 > is the real check.
 
-> **Two cannibal-village bugs reported in-browser 2026-06-13.**
->
-> 1. **Ego crawls in the cannibal village (room 25) — FIXED & confirmed in-browser.** `actorOps
->    {init}` (opcodes/index.ts, subop 0x08) reset costume/scale/frames/walkbox but NOT `walkSpeedX/Y`,
->    so ego — arriving from the overhead map as the tiny figure (`stepDist 1,1`) — kept 1,1 when room
->    25's ENCD inited him and crawled. The `init` handler now restores the `initActor` walk-speed
->    default (8, 2). Guarded by a synthetic engine unit test in `opcodes/index.test.ts` (per
->    [HARNESS §8](pages/docs/engine/harness.md) — the fast suite, not the playthrough). The walk-timing
->    change shifted the seeded from-boot RNG stream; rather than re-derive the old fixed
->    `SWORD_MASTER_NEEDED` set, the duel grind now stops DYNAMICALLY (`grindForSwordMaster` in
->    `game.ts` — grind until the comeback pool plateaus with the g282>3 gate clear; `GRIND_DEBUG=1`
->    logs the curve) and the monkey feed is driven by the g145 counter (feed any still-held banana
->    until five register, waiting each feed out so no `give` races a banana out of inventory
->    mid-gesture) — both RNG-robust, so future tick-dynamics changes no longer force a hand re-derive.
-> 2. **The 3 cannibals sometimes all render as "Lemonhead" (one mask)** instead of three distinct
->    masks — intermittent, a costume-decode/limb issue on actors 3/4/5 (costume 9) in room 25.
->    Not yet investigated. A real-pixel (in-browser) issue; the headless net renders nothing, so it
->    doesn't fail the suite.
+> **Cannibal-village bug, still open (reported in-browser 2026-06-13).** The 3 cannibals sometimes
+> all render as "Lemonhead" (one mask) instead of three distinct masks — intermittent, a
+> costume-decode/limb issue on actors 3/4/5 (costume 9) in room 25. Not yet investigated; a
+> real-pixel (in-browser) issue, so the headless net (which renders nothing) doesn't catch it.
+> (The room-25 walk-speed crawl reported the same day is FIXED — commit `0bd87c9`.)
 
 **Pending in-browser checks** (fixes shipped + folded into docs, look not yet confirmed):
 
