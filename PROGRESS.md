@@ -25,7 +25,8 @@ the row BACK to the south side, the wandering monkey caught and fed (it follows)
 the clearing — the totem nose pulled, the monkey holding the gate, the wimpy little idol taken in
 the Giant Monkey Head, then the row BACK to the village to give the cannibals the idol (provoke the
 ambush, hand it over before they re-jail you) and into the now-friendly hut for the banana-picker,
-then back out to give the picker to Herman Toothrot for the Monkey-Head key** (see Frontier below).
+then back out to give the picker to Herman Toothrot for the Monkey-Head key, and through the cannibals'
+"how to beat LeChuck" talk to trade the navigation leaflet for the navigator's head** (see Frontier below).
 
 **Working principle (agreed 2026-06-02):** engine-faithful, no hacks/shortcuts —
 confirm the real mechanism first (**never consult ScummVM source, in any form**),
@@ -44,9 +45,10 @@ a raw `driveUntil` only for bespoke predicates). Named `<Part> · <Room> — <wh
 proves>`, file order = run order; per-game ids/vars in `game.ts` (`ROOMS`/`VERBS`/`VARS`).
 A clean fast-forward save (`saves/MI1-walkthrough-frontier.websave.json`, gitignored,
 written by the ALWAYS-LAST `frontier` beat and regenerated each green run) sits at the furthest
-clean state — currently in the cannibal village (room 25) holding the Monkey-Head key (#269), the
-idol and picker both given away; Part III plays from boot through the village, the monkey, the idol,
-the idol-for-picker trade, and the picker-for-Monkey-Head-key trade with Herman.
+clean state — currently in the cannibal village (room 25) holding the Monkey-Head key (#269) and the
+navigator's head (#293); idol, picker, and leaflet all given away. Part III plays from boot through
+the village, the monkey, the idol, the idol-for-picker trade, the picker-for-key trade with Herman,
+and the LeChuck talk that trades the navigation leaflet for the navigator's head.
 
 **Frontier: Parts I and II are FINISHED, and Part III plays from boot through the dam flood —
 after the cannon launch, ego gets up off the beach (the g32=201 wakeup), pockets a banana and
@@ -80,7 +82,11 @@ where the cannibals turn touchable (their class bit 31 clears, g32=206) hand ove
 ("LEMONHEAD!"): friendly, the hut door (#285) opens → enter and take the banana-picker (#314). Then
 back out the hut door (#307) to the village: carrying the picker (bit#548 unset) makes room 25's ENCD
 summon Herman Toothrot (actor 7), and GIVING him the picker → global #96 hands ego the Monkey-Head
-key (#269, g411→8742).**
+key (#269, g411→8742). Finally re-enter the village FROM the map (jungle #290 → screen 6 → marker #72,
+g101==6) to make the friendly cannibals reappear into a forced "beat LeChuck" talk (#214→#213); drive
+it (answer #120 ×6 to learn the potion needs LeChuck's stolen root [bit#510] and his hideout [bit#511],
+then #124 "I'll go get the root" → bit#513, then #120 to end it), and GIVE them the navigation leaflet
+(#902) → #203 → global #104 trades it for the navigator's head (#293, bit#358, g411→4313).**
 Part-III room ids + mechanics live in `game.ts`
 (`monkeyBeach`/`monkeyMap`/`fort`/`riverFork`/`catapult`/`pond`/`crack`/`northBeach`/`cannibalVillage`/`cannibalHut`/`monkey`/`monkeyClearing`/`idolChamber`), not here.
 The overhead map (rooms 2–6) is WALKABLE (ego a small figure, costume 3 walking / costume 4 the
@@ -99,7 +105,7 @@ end-position, Herman's arrival timing, etc. shift) — develop against the save 
 from-boot run (`npm run test:integration`, ~1.6s) is the real check; make RNG-touchy beats robust
 (e.g. the catapult down-climb retries the exit rather than asserting an exact intermediate box).
 
-> **Shipped — Part III "Under Monkey Island" steps 1–6 (village, monkey, idol, idol-for-picker, picker-for-key).**
+> **Shipped — Part III "Under Monkey Island" steps 1–7 (village, monkey, idol, idol-for-picker, picker-for-key, leaflet-for-head).**
 > From the north beach: jungle #16 → screen 6 → "il villaggio" #72 → cannibal village (room 25).
 > Stealing the bowl bananas (#291, which pockets the village pair #282/#283) arms the capture (#202);
 > the confrontation fires as ego walks back RIGHT toward the cannibals (it parks on a `g2`/camera-X
@@ -133,30 +139,31 @@ from-boot run (`npm run test:integration`, ~1.6s) is the real check; make RNG-to
 > → #96: he takes it and hands ego the Monkey-Head key (**#269**, owner→ego, g411→8742), then wanders
 > off (#97 → `putActorInRoom 0`). Ids in `game.ts` (`cannibalVillage.herman`/`hermanSpot`/
 > `monkeyHeadKey`, `cannibalHut.door`).
+> Step 7 (leaflet → navigator's head): the friendly cannibals (actors 3/4/5; object #292 "indigeni
+> amichevoli", the give-target) are absent at rest and only reappear when you ENTER room 25 *from the
+> map* (g101==6) — leave via the jungle (#290) to screen 6, re-enter via marker #72. That entry opens
+> a FORCED conversation (#200 → #214 → **#213**) about beating LeChuck; you must drive it to the end
+> before the natives go idle/giveable (#215). The drive (pick by verb id — `pickDialogAnswer`; the
+> menu RNG only moves on-screen position): answer **#120** ("tell me more") six times walks the menu
+> chain — it sets bit#510 (potion needs LeChuck's stolen root) then bit#511 (where he hides), threading
+> a #511-side sub-menu (offset 4344) that loops back — until **#124** ("Vado a cercare LeChuck e mi
+> prendo la radice!") arms; #124 sets **bit#513**, the natives offer the head, one more #120 ends the
+> talk. (#120 recurs and #124 is an unrelated "you've done enough, bye" in the FIRST menu, so the beat
+> gates the #124 pick on bit#510 && bit#511.) Then GIVE the navigation leaflet (**#902**) to #292 →
+> room-25 #203 (`isEqual L0==902 → startScript 104`) → global #104 takes the leaflet, plays the room-86
+> "magic necklace" close-up, and hands ego the navigator's head (**#293**, owner→ego; sets bit#358 +
+> g411→4313); the natives leave. Ids in `game.ts` (`cannibalVillage.jungleExit`/`friendlyNatives`/
+> `lechuckTalk`/`navigatorHead`/`leaflet`/`navHeadGivenBit`).
 >
-> **NEXT SESSION — Part III steps 7–8.** Frontier sits in the cannibal village (room 25) holding the
-> Monkey-Head key (#269), picker + idol both given away. **Step 7 (leaflet → navigator's head) — RECON
-> DONE, not yet driven; it's a deep dialog grind, budget for it.** The friendly cannibals (actors
-> 3/4/5, object #292 "indigeni amichevoli" / #303 "i cannibali") are NOT present at the frontier — they
-> only reappear when you ENTER room 25 *from the map* (g101==6): leave via the jungle #290 → screen 6,
-> re-enter via marker #72. Room-25 main script #200 then branches on bit#513: with bit#513==0 it runs
-> #214 → **#213, the forced "defeating LeChuck" dialog** (cutScene-locked, menu-only); once bit#513 is
-> set it runs #217 → #215, the **idle/giveable** state. The leaflet give only works in that idle state:
-> GIVE #902 to the natives → room-25 local #203 (`isEqual L0==902 → startScript 104`) → global #104
-> takes the leaflet, sets bit#358, plays the room-86 "magic necklace" close-up, and hands ego the
-> navigator's head (#293 owner→ego, g411→4313). So the blocker is **driving #213 to set bit#513**:
-> the verb that sets it is option **124** ("Vado a cercare LeChuck e mi prendo la radice!", offset
-> 3887→5007), but it only arms once bit#510 AND bit#511 are both set, and the menus re-present through
-> SUB-menus, not a flat list. Verified path so far (pick by verb id — `pickDialogAnswer`, RNG only
-> moves on-screen position): 120 ("ci sarebbe qualcosa") → 120 ("cerco una persona") → 120 ("non sono
-> viventi") → 120 ("perché non lo fate adesso?", sets bit#510) → 120 ("Dove si nasconde?", sets bit#511
-> but drops you into the offset-4344 "what happened to the attraction" sub-menu, NOT back to menu-5).
-> OPEN: map the sub-menu traversal back to menu-5 so option 124 arms (then bit#513), re-enter for the
-> idle state, give the leaflet. Probes: `scratch/p3-step7-*.ts`. Then **step 8**: use the key in the
-> monkey-head's ear (close-up room 65) → mouth opens → the catacombs maze, where holding out the
-> navigator's head points the way (pause at junctions to let it reorient) → LeChuck's ghost ship.
-> Restore the frontier save (room 25, key in hand); RNG caveat above still applies — the from-boot
-> run (`npm run test:integration`) is the real check.
+> **NEXT SESSION — Part III step 8 (the catacombs).** Frontier sits in the cannibal village (room 25)
+> holding the Monkey-Head key (#269) and the navigator's head (#293); idol, picker, and leaflet all
+> given away. Next: use the key in the monkey-head's ear (close-up room 65) → mouth opens → the
+> catacombs maze, where holding out the navigator's head points the way (pause at junctions to let it
+> reorient) → LeChuck's ghost ship. The monkey-head entrance is the Great Stone Head (#284) on the
+> village's east side (the cannibals say "è la grande testa di scimmia sul lato est"); bit#358 (set by
+> the leaflet trade) arms the room-25 re-confrontation #214/#217. Restore the frontier save (room 25,
+> key + head in hand); RNG caveat above still applies — the from-boot run (`npm run test:integration`)
+> is the real check.
 
 > **Two cannibal-village bugs reported in-browser 2026-06-13.**
 >

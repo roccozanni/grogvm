@@ -2428,6 +2428,59 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(waitPlayable(vm)).toBe(true);
       expect(vm.haltInfo).toBeNull();
     });
+
+    beat('⚙️ Cannibal village — talk the cannibals through beating LeChuck, trade the leaflet for the navigator\'s head', () => {
+      const ego = vm.vars.readGlobal(VAR_EGO);
+      const village = ROOMS.cannibalVillage;
+      const map = ROOMS.monkeyMap;
+      const talk = village.lechuckTalk;
+      const scriptLive = (id: number) => vm.slots.some((s) => s.status !== 'dead' && s.scriptId === id);
+      const nativesTouchable = () => ((vm.objectClasses.get(village.friendlyNatives) ?? 0) & 0x80000000) === 0;
+      const dialogUp = () => [...vm.verbs.entries()].some(([k, v]) => k >= 120 && k <= 135 && v.state === 'on');
+      const convoOver = () => vm.cursor.userput > 0 && !dialogUp() && !scriptLive(213);
+
+      // The friendly cannibals aren't standing around — they only reappear when
+      // ego ENTERS the village FROM the map (g101==6). Step out the jungle (#290)
+      // to overhead-map screen 6, then back in via the village marker (#72).
+      walkTo(vm, village.jungleExit);
+      expect(driveToRoom(vm, map.villageScreen, { maxTicks: 14000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      walkTo(vm, map.villageMarker);
+      expect(driveToRoom(vm, village.id, { maxTicks: 14000 })).toBe(true);
+
+      // Re-entry opens a forced conversation (#214 → #213). Dig into beating
+      // LeChuck: each "tell me more" (#120) advances a menu — the cannibals reveal
+      // their exorcist potion needs a rare root LeChuck stole (#510) and where he
+      // hides (#511). Only then does "I'll go get the root!" (#124) arm; it sets
+      // #513 and makes them offer the head. (#120 recurs across menus and #124 is
+      // an unrelated "bye" in the first menu, so gate the goGetRoot pick on the
+      // #510/#511 progress bits.) A final probe ends the talk → the natives go idle.
+      expect(driveUntil(vm, () => dialogUp(), { maxTicks: 12000 })).toBe(true);
+      for (let i = 0; i < 12 && !convoOver(); i++) {
+        if (!dialogUp()) {
+          driveUntil(vm, () => dialogUp() || convoOver(), { maxTicks: 9000 });
+          continue;
+        }
+        const rootReady =
+          vm.vars.readBit(talk.rootStolenBit) && vm.vars.readBit(talk.hideoutBit) && !vm.vars.readBit(talk.committedBit);
+        const pick = rootReady && vm.verbs.get(talk.goGetRoot)?.state === 'on' ? talk.goGetRoot : talk.probe;
+        pickDialogAnswer(vm, pick, { armTicks: 16000 });
+        driveUntil(vm, () => dialogUp() || convoOver(), { maxTicks: 9000 });
+      }
+      expect(vm.vars.readBit(talk.committedBit)).toBe(1);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(nativesTouchable()).toBe(true);
+
+      // Idle natives are giveable now: hand them the navigation leaflet (#902) →
+      // room-25 #203 → global #104 takes it, plays the "magic necklace" close-up,
+      // and gives ego the navigator's head (#293; sets bit#358, g411 → 4313).
+      useWith(vm, VERBS.give, village.leaflet, village.friendlyNatives);
+      expect(driveUntil(vm, (v) => v.getObjectOwner(village.navigatorHead) === ego, { maxTicks: 50000 })).toBe(true);
+      expect(vm.getObjectOwner(village.leaflet)).not.toBe(ego);
+      expect(vm.vars.readBit(village.navHeadGivenBit)).toBe(1);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
   });
 
   // ALWAYS THE LAST GROUP: snapshot the furthest clean playable state to a save
@@ -2447,17 +2500,20 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       // back to the south side, the wandering monkey caught and fed (it follows),
       // the clearing's totem/Giant-Monkey-Head idol, then the row BACK to the
       // village to give the cannibals the idol (they turn friendly, "LEMONHEAD!"),
-      // into the now-open hut for the banana-picker, and back out to give the
-      // picker to Herman for the Monkey-Head key. Cannibals + the key are next.
+      // into the now-open hut for the banana-picker, back out to give the picker to
+      // Herman for the Monkey-Head key, and through the LeChuck talk to trade the
+      // navigation leaflet for the navigator's head. The catacombs are next.
       expect(vm.currentRoom).toBe(ROOMS.cannibalVillage.id);
       expect(vm.vars.readGlobal(VARS.voyageStage)).toBe(2);
       expect(vm.vars.readBit(ROOMS.catapult.hitBit)).toBe(1);
       expect(vm.vars.readGlobal(ROOMS.monkey.fedVar)).toBe(5);
-      // The idol and picker were given away (no longer held); the Monkey-Head key
-      // (the picker→Herman trade) is in hand.
+      // The idol, picker, and leaflet were given away; the Monkey-Head key (from
+      // Herman) and the navigator's head (from the cannibals) are both in hand.
       expect(vm.getObjectOwner(ROOMS.idolChamber.wimpyIdol)).not.toBe(vm.vars.readGlobal(VAR_EGO));
       expect(vm.getObjectOwner(ROOMS.cannibalHut.picker)).not.toBe(vm.vars.readGlobal(VAR_EGO));
+      expect(vm.getObjectOwner(ROOMS.cannibalVillage.leaflet)).not.toBe(vm.vars.readGlobal(VAR_EGO));
       expect(vm.getObjectOwner(ROOMS.cannibalVillage.monkeyHeadKey)).toBe(vm.vars.readGlobal(VAR_EGO));
+      expect(vm.getObjectOwner(ROOMS.cannibalVillage.navigatorHead)).toBe(vm.vars.readGlobal(VAR_EGO));
     });
   });
 });

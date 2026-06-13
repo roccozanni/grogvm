@@ -1162,6 +1162,50 @@ export const ROOMS = {
      * (and sets g411 = 8742). Used later on the Giant Monkey Head's ear.
      */
     monkeyHeadKey: 269,
+    /** "la giungla" (#290) — the village's exit edge back out to overhead-map
+     *  screen 6 ({@link monkeyMap}.villageScreen). */
+    jungleExit: 290,
+    /**
+     * "gli indigeni amichevoli" (#292) — the friendly natives, the give-target
+     * once the LeChuck talk ({@link lechuckTalk}) finishes and they go idle
+     * (#215). They're absent at rest and only reappear on entry FROM the map
+     * (g101==6); see {@link jungleExit}/{@link monkeyMap}.villageMarker.
+     */
+    friendlyNatives: 292,
+    /**
+     * The forced "how to defeat LeChuck" conversation (#214 → #213) that opens
+     * when you re-enter the village from the map. Driving it to the end is the
+     * gate for the navigator's head: each {@link probe} (answer #120) digs into
+     * a fresh menu until the cannibals have explained their exorcist potion needs
+     * a rare root LeChuck stole ({@link rootStolenBit} #510) and where he hides
+     * ({@link hideoutBit} #511) — only THEN does {@link goGetRoot} (answer #124,
+     * "Vado a cercare LeChuck e mi prendo la radice!") arm; picking it sets
+     * {@link committedBit} #513, makes them offer the head, and turns the natives
+     * idle/giveable. (Answer #120 recurs across menus; #124 is an unrelated
+     * "you've done enough, bye" exit in the FIRST menu, so gate the goGetRoot
+     * pick on #510 && #511 to tell them apart.)
+     */
+    lechuckTalk: {
+      probe: 120,
+      goGetRoot: 124,
+      rootStolenBit: 510,
+      hideoutBit: 511,
+      committedBit: 513,
+    },
+    /**
+     * "la testa del navigatore" (#293) — the navigator's head. GIVE the
+     * navigation leaflet (#902) to {@link friendlyNatives}: room-25 #203 chains
+     * global #104, which takes the leaflet, plays the room-86 "magic necklace"
+     * close-up, and hands ego the head (sets bit#358 + g411 = 4313). Held out in
+     * the catacombs it points the way to LeChuck.
+     */
+    navigatorHead: 293,
+    /** "il dépliant" (#902) — the navigation leaflet (the Sea Monkey's how-to),
+     *  traded to the cannibals for {@link navigatorHead}. */
+    leaflet: 902,
+    /** Set by global #104 when the head is handed over; arms the room-25
+     *  re-confrontation (#214/#217) for the catacombs return. */
+    navHeadGivenBit: 358,
   },
 
   /**
