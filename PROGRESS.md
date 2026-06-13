@@ -135,9 +135,24 @@ from-boot run (`npm run test:integration`, ~1.6s) is the real check; make RNG-to
 > `monkeyHeadKey`, `cannibalHut.door`).
 >
 > **NEXT SESSION — Part III steps 7–8.** Frontier sits in the cannibal village (room 25) holding the
-> Monkey-Head key (#269), picker + idol both given away. Next: talk to the cannibals about defeating
-> LeChuck, then give them the navigation leaflet (#902) → #104 → the navigator's head (#293) [#104
-> sets bit#358, which arms the room-25 re-confrontation #214/#217]; finally use the key in the
+> Monkey-Head key (#269), picker + idol both given away. **Step 7 (leaflet → navigator's head) — RECON
+> DONE, not yet driven; it's a deep dialog grind, budget for it.** The friendly cannibals (actors
+> 3/4/5, object #292 "indigeni amichevoli" / #303 "i cannibali") are NOT present at the frontier — they
+> only reappear when you ENTER room 25 *from the map* (g101==6): leave via the jungle #290 → screen 6,
+> re-enter via marker #72. Room-25 main script #200 then branches on bit#513: with bit#513==0 it runs
+> #214 → **#213, the forced "defeating LeChuck" dialog** (cutScene-locked, menu-only); once bit#513 is
+> set it runs #217 → #215, the **idle/giveable** state. The leaflet give only works in that idle state:
+> GIVE #902 to the natives → room-25 local #203 (`isEqual L0==902 → startScript 104`) → global #104
+> takes the leaflet, sets bit#358, plays the room-86 "magic necklace" close-up, and hands ego the
+> navigator's head (#293 owner→ego, g411→4313). So the blocker is **driving #213 to set bit#513**:
+> the verb that sets it is option **124** ("Vado a cercare LeChuck e mi prendo la radice!", offset
+> 3887→5007), but it only arms once bit#510 AND bit#511 are both set, and the menus re-present through
+> SUB-menus, not a flat list. Verified path so far (pick by verb id — `pickDialogAnswer`, RNG only
+> moves on-screen position): 120 ("ci sarebbe qualcosa") → 120 ("cerco una persona") → 120 ("non sono
+> viventi") → 120 ("perché non lo fate adesso?", sets bit#510) → 120 ("Dove si nasconde?", sets bit#511
+> but drops you into the offset-4344 "what happened to the attraction" sub-menu, NOT back to menu-5).
+> OPEN: map the sub-menu traversal back to menu-5 so option 124 arms (then bit#513), re-enter for the
+> idle state, give the leaflet. Probes: `scratch/p3-step7-*.ts`. Then **step 8**: use the key in the
 > monkey-head's ear (close-up room 65) → mouth opens → the catacombs maze, where holding out the
 > navigator's head points the way (pause at junctions to let it reorient) → LeChuck's ghost ship.
 > Restore the frontier save (room 25, key in hand); RNG caveat above still applies — the from-boot
