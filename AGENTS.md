@@ -160,7 +160,7 @@ of copy-pasting a resource preamble or decoder chain. **What to import:**
 config — NOT the default `npm test`, which stays fast/synthetic/data-free).
 Data-gated: self-skips with no game data, so a fresh checkout / CI stays green;
 never commit the copyrighted bytes. Per-beat checkpoint saves (opt-in):
-`npm run test:integration:beat-saves` dumps `saves/beats/<order>-<slug>.websave.json`
+`npm run test:integration:save` dumps `saves/beats/<order>-<slug>.websave.json`
 after every green beat — import one in the browser's saves panel to eyeball
 rendering or bisect a visual regression. (Dead probes predating the
 `games/MI1` → `games/MI1-IT-CD-DOS-VGA` rename live in `scratch/archive/`.)
