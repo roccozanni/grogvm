@@ -117,6 +117,18 @@ Operational handles:
   `defineRawOp` (nested opcodes execute mid-decode). The corpus net
   (`integration/mi1/disasm.test.ts`) pins zero misalignments — run it after
   any decode change.
+- **The executing table is not axiomatic.** When the disassembler and the
+  executing handler disagree on an operand size, the tie-breaker is the **real
+  game bytecode**, never the engine — a cold path can carry the same bug as
+  either side (`stringOps loadString` once read raw-scan-to-NUL @443 when the
+  escape-aware `cstr` @445 was right; the next `loadString`s are the wheel
+  locations, which settled it). Read the bytes two ways: (1) **downstream
+  alignment** — the correctly-sized opcode lands the linear sweep on the next
+  obviously-real instruction (a clean `loadString "Jamaica"`, a closing
+  `stopObjectCode`); a wrong size garbles everything after. (2) **operand
+  plausibility** — `drawBox color=117 coords 9984` or `putActor a=114 x=L354`
+  (local #354 when locals are 0–24) means you're decoding misaligned data, not
+  code. Concept → [verification.md](pages/docs/agent/verification.md).
 
 ## Harness & playthroughs (`src/testkit/`, `integration/`)
 
@@ -156,6 +168,14 @@ of copy-pasting a resource preamble or decoder chain. **What to import:**
   compute a slot as `200 + inventoryIndex` — past the window that's a different
   verb (208 IS the up arrow). See [input.md §8](pages/docs/scumm/input.md).
 
+**Probes:** throwaway investigation scripts (render dumps, one-off decoders)
+go in `scratch/` — gitignored, NEVER `integration/` or any `*.test.ts` (that
+dir is the regression net). Run with `npx vite-node scratch/<name>.ts`, and
+build on the testkit (`bootScummV5` / `restoreSave` from `src/testkit/`)
+rather than a hand-rolled resource preamble; see `scratch/render-save.ts` for
+the PNG-encoder pattern. A probe that proves reusable graduates to a committed
+`tools/` CLI.
+
 **Run the playthroughs separately:** `npm run test:integration` (own vitest
 config — NOT the default `npm test`, which stays fast/synthetic/data-free).
 Data-gated: self-skips with no game data, so a fresh checkout / CI stays green;
@@ -180,6 +200,26 @@ rendering or bisect a visual regression. (Dead probes predating the
   opaque, but the explorer and any direct renderer user can present with a
   transparent index — the clear keeps those pixels exposing the canvas
   background (the CSS checkerboard) rather than compositing the previous frame.
+- **`src/site/og.png` is a generated raster of `src/site/grogvm.svg`** (the
+  1200×630 social card, checked in) — editing the SVG without regenerating
+  silently desyncs the card. No rasterizer deps on this machine (no
+  rsvg/magick/inkscape; PIL absent); recipe: wrap the SVG in a 1200×1200 canvas
+  with the content translated down 285px (`<g transform="translate(0,285)">`,
+  extend the bg rect to match), `qlmanage -t -s 1200 -o /tmp wrapper.svg`, then
+  `sips --cropToHeightWidth 630 1200` (sips ignores the crop offset and
+  center-crops — the 285px translate makes it exact). Verify by Reading the PNG.
+
+## Site look & feel
+
+The site's visual direction is **retrogaming / terminal**: a dark theme +
+monospace, applied across both the markdown content pages and the app screens
+(library/explore/play). Monospace is deliberate everywhere — chosen over a
+proportional sans even for long-form prose, for aesthetic consistency; prose
+stays full-width (~100ch) with generous line-height (~1.75) rather than a
+capped reading measure. Shared theme + chrome live in `src/site/site.css`
+(served as `/site.css` on every page); typography is scoped to `.prose` so it
+doesn't leak onto the app screens. Prefer styling choices that reinforce the
+retro look.
 
 ## Quick health checks
 
