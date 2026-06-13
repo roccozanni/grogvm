@@ -4,6 +4,8 @@ import {
   pageTitle,
   renderBody,
   routeForFile,
+  routeToMarkdownPath,
+  publishMarkdown,
   composeIslandBody,
   ISLAND_MARKER,
 } from './generate';
@@ -70,6 +72,61 @@ describe('renderBody', () => {
   });
   it('leaves .md links untouched without file context', () => {
     expect(renderBody('[x](smap.md)')).toContain('href="smap.md"');
+  });
+});
+
+describe('routeToMarkdownPath (append .md to the page path)', () => {
+  it('publishes the home page at index.md', () => {
+    expect(routeToMarkdownPath('/')).toBe('index.md');
+  });
+  it('appends .md to a top-level page', () => {
+    expect(routeToMarkdownPath('/library/')).toBe('library.md');
+  });
+  it('appends .md to a directory-index route (no trailing /index)', () => {
+    expect(routeToMarkdownPath('/docs/')).toBe('docs.md');
+  });
+  it('appends .md to a deeply nested page', () => {
+    expect(routeToMarkdownPath('/docs/scumm/room/')).toBe('docs/scumm/room.md');
+  });
+});
+
+describe('publishMarkdown (relative .md links → absolute .md URLs)', () => {
+  const root = '/repo/pages';
+  const room = '/repo/pages/docs/scumm/room.md';
+  const docsIndex = '/repo/pages/docs/index.md';
+
+  it('rewrites a sibling .md link to its absolute .md URL', () => {
+    expect(publishMarkdown('[smap](smap.md)', room, root)).toBe('[smap](/docs/scumm/smap.md)');
+  });
+  it('resolves a parent-dir .md link', () => {
+    expect(publishMarkdown('[pf](../pathfinding.md)', room, root)).toBe('[pf](/docs/pathfinding.md)');
+  });
+  it('resolves a child link from a directory-index page (the base-shift case)', () => {
+    // docs/index.md publishes to /docs.md, so the raw relative link would
+    // otherwise resolve from the root — it must become absolute.
+    expect(publishMarkdown('[arch](engine/architecture.md)', docsIndex, root)).toBe(
+      '[arch](/docs/engine/architecture.md)',
+    );
+  });
+  it('preserves the anchor on rewritten links', () => {
+    expect(publishMarkdown('[x](boot.md#vars)', room, root)).toBe('[x](/docs/scumm/boot.md#vars)');
+  });
+  it('leaves external links untouched', () => {
+    expect(publishMarkdown('[ext](https://example.com/a.md)', room, root)).toBe(
+      '[ext](https://example.com/a.md)',
+    );
+  });
+  it('leaves absolute-path links untouched', () => {
+    expect(publishMarkdown('[a](/docs/scumm/smap/)', room, root)).toBe('[a](/docs/scumm/smap/)');
+  });
+  it('leaves non-.md links untouched', () => {
+    expect(publishMarkdown('![pic](diagram.png)', room, root)).toBe('![pic](diagram.png)');
+  });
+  it('keeps frontmatter and leaves .md links inside fenced code untouched', () => {
+    const src = '---\ntitle: x\n---\n```\n[c](smap.md)\n```\n[a](smap.md)';
+    expect(publishMarkdown(src, room, root)).toBe(
+      '---\ntitle: x\n---\n```\n[c](smap.md)\n```\n[a](/docs/scumm/smap.md)',
+    );
   });
 });
 

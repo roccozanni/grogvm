@@ -99,8 +99,11 @@ What each layer in the stack owns:
 
 **Fine print — the static build.** The site is a multi-page static build:
 each page is a real HTML file, so refresh and deep links work and the content
-pages are crawler-indexable with no server and no SPA fallback. Per-page
-bundles mean the engine chunk loads only on the screens that run it.
+pages are crawler-indexable with no server and no SPA fallback. Each page also
+publishes its markdown beside the HTML at `<page url>.md` (append `.md` to the
+path), with relative `.md` links rewritten to absolute so the markdown stands
+on its own. Per-page bundles mean the engine chunk loads only on the screens
+that run it.
 Client-only parameters — which *installed* game to open — ride the query
 string, since they are IndexedDB keys local to one browser profile and not
 meaningful to share.

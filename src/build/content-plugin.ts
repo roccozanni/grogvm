@@ -4,7 +4,14 @@
 import type { Plugin } from 'vite';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { loadPages, renderBody, routeToOutputPath, type Page } from './generate';
+import {
+  loadPages,
+  renderBody,
+  routeToOutputPath,
+  routeToMarkdownPath,
+  publishMarkdown,
+  type Page,
+} from './generate';
 import { renderDocument, SITE_URL } from '../site/layout';
 import { writeAppPages } from './app-pages';
 
@@ -91,6 +98,15 @@ Sitemap: ${SITE_URL}/sitemap.xml
           res.end(asset[1]());
           return;
         }
+        if (raw && raw.toLowerCase().endsWith('.md')) {
+          const rel = raw.replace(/^\/+/, '').toLowerCase();
+          const page = loadPages(pagesDir).find((p) => routeToMarkdownPath(p.route) === rel);
+          if (page) {
+            res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+            res.end(publishMarkdown(readFileSync(page.file, 'utf8'), page.file, pagesDir));
+            return;
+          }
+        }
         const url = normalize(req.url ?? '');
         const page = contentPages().find((p) => p.route === url);
         if (page) {
@@ -129,6 +145,9 @@ Sitemap: ${SITE_URL}/sitemap.xml
       write('sitemap.xml', sitemap());
       write('404.html', notFoundHtml());
       for (const page of contentPages()) write(routeToOutputPath(page.route), pageHtml(page));
+      // The markdown companion of every page (content + app) at `<page url>.md`.
+      for (const page of loadPages(pagesDir))
+        write(routeToMarkdownPath(page.route), publishMarkdown(readFileSync(page.file, 'utf8'), page.file, pagesDir));
     },
   };
 }

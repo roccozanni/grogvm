@@ -83,6 +83,43 @@ export function routeToOutputPath(route: string): string {
   return clean === '' ? 'index.html' : `${clean}/index.html`;
 }
 
+/**
+ * The markdown companion published beside each page: append `.md` to the page
+ * path (`/docs/scumm/room/` → `docs/scumm/room.md`, `/docs/` → `docs.md`, `/` →
+ * `index.md`) — the "append .md to the URL" convention.
+ */
+export function routeToMarkdownPath(route: string): string {
+  const clean = route.replace(/^\/+|\/+$/g, '');
+  return clean === '' ? 'index.md' : `${clean}.md`;
+}
+
+/**
+ * The markdown body to publish at `<page url>.md`: the source verbatim, except
+ * relative `.md` links are rewritten to absolute `.md` URLs. A page can publish
+ * at a different directory depth than its source (a directory index like
+ * `docs/index.md` lands at `/docs.md`), so relative targets would otherwise
+ * resolve from the wrong base. This is the markdown analog of the HTML build's
+ * link rule — md links to md, so the published corpus is self-consistent.
+ * Fenced code blocks are left untouched.
+ */
+export function publishMarkdown(source: string, file: string, pagesDir: string): string {
+  let inFence = false;
+  return source
+    .split('\n')
+    .map((line) => {
+      if (/^\s*(```|~~~)/.test(line)) inFence = !inFence;
+      if (inFence) return line;
+      return line.replace(/(\]\()([^)\s]+?)(\s+"[^"]*")?(\))/g, (whole, open, target, title, close) => {
+        const m = /^([^#]+\.md)(#.*)?$/i.exec(target);
+        // Skip schemes (https:, mailto:) and absolute paths — only relative .md links.
+        if (!m || /^([a-z][a-z0-9+.-]*:|\/)/i.test(target)) return whole;
+        const route = routeForFile(pagesDir, resolve(dirname(file), m[1]!));
+        return `${open}/${routeToMarkdownPath(route)}${m[2] ?? ''}${title ?? ''}${close}`;
+      });
+    })
+    .join('\n');
+}
+
 function markdownFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
     const full = join(dir, e.name);
