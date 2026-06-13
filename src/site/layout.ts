@@ -1,9 +1,9 @@
 // The shared HTML shell wrapped around every page. Pure strings, primitives
 // only — `site` imports neither engine, platform, nor build.
 
-const SITE = 'GrogVM';
+export const SITE = 'GrogVM';
 export const SITE_URL = 'https://grogvm.dev';
-const DEFAULT_DESCRIPTION =
+export const DEFAULT_DESCRIPTION =
   'A from-scratch TypeScript reimplementation of the SCUMM v5 engine — the one ' +
   'behind The Secret of Monkey Island and Monkey Island 2 — running in the ' +
   'browser, with no server and no emulator.';
@@ -72,9 +72,10 @@ ${discovery}    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 ${opts.bodyHtml ?? ''}
 ${mount}    </main>
     <footer class="site-footer">
-      Free software under <a href="https://www.gnu.org/licenses/gpl-3.0.html">GPL-3.0-or-later</a> ·
+      <a href="https://www.gnu.org/licenses/gpl-3.0.html">GPL-3.0-or-later</a> ·
       <a href="https://github.com/roccozanni/grogvm">source</a> ·
-      bring your own MI1 / MI2 — no game assets bundled ·
+      by <a href="https://roccozanni.com">Rocco Zanni</a> ·
+      bring your own MI1 / MI2 ·
       <a href="/privacy/">privacy &amp; terms</a>
     </footer>
   </body>

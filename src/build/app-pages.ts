@@ -41,6 +41,7 @@ export function writeAppPages(pagesDir: string, stagingRoot: string): void {
         title: page.title,
         route: page.route,
         description: page.description ?? undefined,
+        index: !page.noindex,
         entrySrc: './entry.ts',
         bodyHtml,
       }),

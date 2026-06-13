@@ -6,8 +6,10 @@ import {
   routeForFile,
   routeToMarkdownPath,
   publishMarkdown,
+  llmsTxt,
   composeIslandBody,
   ISLAND_MARKER,
+  type Page,
 } from './generate';
 
 describe('routeForFile (file path = route)', () => {
@@ -127,6 +129,50 @@ describe('publishMarkdown (relative .md links → absolute .md URLs)', () => {
     expect(publishMarkdown(src, room, root)).toBe(
       '---\ntitle: x\n---\n```\n[c](smap.md)\n```\n[a](/docs/scumm/smap.md)',
     );
+  });
+});
+
+describe('llmsTxt (the /llms.txt navigation map)', () => {
+  const page = (over: Partial<Page>): Page => ({
+    slug: 'x',
+    route: '/x/',
+    title: 'X',
+    description: null,
+    island: null,
+    noindex: false,
+    file: '/repo/pages/x.md',
+    ...over,
+  });
+  const pages: Page[] = [
+    page({ route: '/docs/scumm/room/', title: 'ROOM' }),
+    page({ route: '/docs/engine/architecture/', title: 'Architecture' }),
+    page({ route: '/docs/', title: 'Documentation', description: 'How it is built.' }),
+    page({ route: '/', title: 'GrogVM', description: 'A SCUMM v5 engine.' }),
+    page({ route: '/why/', title: 'Why' }),
+    page({ route: '/library/', title: 'Library', island: 'app/library', description: 'Install a game.' }),
+    page({ route: '/privacy/', title: 'Privacy' }),
+  ];
+  const out = llmsTxt(pages, { siteName: 'GrogVM', summary: 'Sum.', siteUrl: 'https://grogvm.dev' });
+
+  it('opens with the H1 site name and a blockquote summary', () => {
+    expect(out.startsWith('# GrogVM\n\n> Sum.\n')).toBe(true);
+  });
+  it('links each page to its markdown companion, with the description when present', () => {
+    expect(out).toContain('- [GrogVM](https://grogvm.dev/index.md): A SCUMM v5 engine.');
+    expect(out).toContain('- [ROOM](https://grogvm.dev/docs/scumm/room.md)\n');
+  });
+  it('groups docs under their section headings', () => {
+    expect(out).toMatch(/## Engine[^\n]*\n\n- \[Architecture\]\(https:\/\/grogvm\.dev\/docs\/engine\/architecture\.md\)/);
+    expect(out).toContain('## SCUMM v5 reference');
+  });
+  it('sends app tools and uncategorised pages to a skippable Optional section', () => {
+    const optional = out.slice(out.indexOf('## Optional'));
+    expect(optional).toContain('- [Library](https://grogvm.dev/library.md): Install a game.');
+    expect(optional).toContain('- [Privacy](https://grogvm.dev/privacy.md)');
+  });
+  it('lists every page exactly once', () => {
+    const links = out.match(/^- \[/gm) ?? [];
+    expect(links.length).toBe(pages.length);
   });
 });
 

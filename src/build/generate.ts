@@ -11,6 +11,7 @@ export interface Page {
   title: string;
   description: string | null; // frontmatter `description` → meta/OG; else site default
   island: string | null; // frontmatter `script` (e.g. 'app/library') → app page; else content
+  noindex: boolean; // frontmatter `noindex: true` → meta robots noindex + dropped from the sitemap
   file: string; //   absolute source path
 }
 
@@ -120,6 +121,54 @@ export function publishMarkdown(source: string, file: string, pagesDir: string):
     .join('\n');
 }
 
+/**
+ * The `/llms.txt` navigation map (llmstxt.org): an H1 with the site name, a
+ * blockquote summary, then `##` sections of `- [title](url): description` links.
+ * Every link points at the page's markdown companion (`<page url>.md`), as the
+ * spec recommends. Doc pages are grouped; app tools and anything uncategorised
+ * fall to the skippable `Optional` section, so no page is silently dropped.
+ */
+export function llmsTxt(
+  pages: Page[],
+  { siteName, summary, siteUrl }: { siteName: string; summary: string; siteUrl: string },
+): string {
+  const byRoute = new Map(pages.map((p) => [p.route, p]));
+  const link = (p: Page): string =>
+    `- [${p.title}](${siteUrl}/${routeToMarkdownPath(p.route)})${p.description ? `: ${p.description}` : ''}`;
+
+  const sections: Array<{ title: string; pages: Page[] }> = [
+    {
+      title: 'Start here',
+      pages: ['/', '/why/', '/docs/'].map((r) => byRoute.get(r)).filter((p): p is Page => !!p),
+    },
+    { title: 'Engine — how GrogVM is built', pages: pages.filter((p) => p.route.startsWith('/docs/engine/')) },
+    {
+      title: 'SCUMM v5 reference — the reverse-engineered engine & file formats',
+      pages: pages.filter((p) => p.route.startsWith('/docs/scumm/')),
+    },
+    { title: 'Working method — how the work gets done', pages: pages.filter((p) => p.route.startsWith('/docs/agent/')) },
+  ];
+  const covered = new Set(sections.flatMap((s) => s.pages));
+  const optional = pages.filter((p) => !covered.has(p));
+  if (optional.length) sections.push({ title: 'Optional', pages: optional });
+
+  const blocks = sections
+    .filter((s) => s.pages.length)
+    .map((s) => `## ${s.title}\n\n${s.pages.map(link).join('\n')}`)
+    .join('\n\n');
+
+  return `# ${siteName}
+
+> ${summary}
+
+Every page is also available as clean markdown — append \`.md\` to any page path
+(e.g. \`/docs/scumm/room/\` → \`/docs/scumm/room.md\`). The links below point to
+those markdown files.
+
+${blocks}
+`;
+}
+
 function markdownFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
     const full = join(dir, e.name);
@@ -145,13 +194,14 @@ export function loadPages(pagesDir: string): Page[] {
     .map((file) => {
       const source = readFileSync(file, 'utf8');
       const slug = slugFor(file);
-      const { script, description } = matter(source).data;
+      const { script, description, noindex } = matter(source).data;
       return {
         slug,
         route: routeForFile(pagesDir, file),
         title: pageTitle(source, slug),
         description: typeof description === 'string' && description.trim() ? description.trim() : null,
         island: typeof script === 'string' ? script : null,
+        noindex: noindex === true,
         file,
       };
     });

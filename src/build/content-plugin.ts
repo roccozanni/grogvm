@@ -1,6 +1,6 @@
 // Vite plugin for the content pages (pages/*.md without a `script:`): static
 // HTML served by middleware in dev, emitted into dist/ on build. Also owns the
-// site-wide statics (/site.css, favicon, robots, sitemap, 404.html).
+// site-wide statics (/site.css, favicon, robots, sitemap, llms.txt, 404.html).
 import type { Plugin } from 'vite';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -10,9 +10,10 @@ import {
   routeToOutputPath,
   routeToMarkdownPath,
   publishMarkdown,
+  llmsTxt,
   type Page,
 } from './generate';
-import { renderDocument, SITE_URL } from '../site/layout';
+import { renderDocument, SITE, SITE_URL, DEFAULT_DESCRIPTION } from '../site/layout';
 import { writeAppPages } from './app-pages';
 
 export interface ContentPluginOptions {
@@ -36,12 +37,15 @@ export function contentPlugin({ pagesDir, siteCssPath, stagingRoot }: ContentPlu
       title: page.title,
       route: page.route,
       description: page.description ?? undefined,
+      index: !page.noindex,
       bodyHtml: renderBody(readFileSync(page.file, 'utf8'), page.file, pagesDir),
     });
 
-  // Every real route (content + app islands), in stable order, for the sitemap.
+  // Every indexable route (content + app islands), in stable order, for the
+  // sitemap — noindex pages are omitted (listing a noindex URL is contradictory).
   const sitemap = (): string => {
     const urls = loadPages(pagesDir)
+      .filter((p) => !p.noindex)
       .map((p) => `  <url><loc>${SITE_URL}${p.route}</loc></url>`)
       .join('\n');
     return `<?xml version="1.0" encoding="UTF-8"?>
@@ -56,6 +60,11 @@ Allow: /
 
 Sitemap: ${SITE_URL}/sitemap.xml
 `;
+
+  // The /llms.txt navigation map for agents (llmstxt.org), linking the markdown
+  // companion of each page.
+  const llms = (): string =>
+    llmsTxt(loadPages(pagesDir), { siteName: SITE, summary: DEFAULT_DESCRIPTION, siteUrl: SITE_URL });
 
   const notFoundHtml = (): string =>
     renderDocument({
@@ -84,13 +93,16 @@ Sitemap: ${SITE_URL}/sitemap.xml
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const raw = (req.url ?? '').split('?')[0];
+        // Text responses carry charset=utf-8 — the content (em-dashes, arrows) is
+        // UTF-8, and without the charset browsers fall back to Latin-1 (mojibake).
         const statics: Record<string, [string, () => string | Buffer]> = {
-          '/site.css': ['text/css', siteCss],
-          '/favicon.svg': ['image/svg+xml', favicon],
-          '/grogvm.svg': ['image/svg+xml', heroSvg],
+          '/site.css': ['text/css; charset=utf-8', siteCss],
+          '/favicon.svg': ['image/svg+xml; charset=utf-8', favicon],
+          '/grogvm.svg': ['image/svg+xml; charset=utf-8', heroSvg],
           '/og.png': ['image/png', ogImage],
-          '/robots.txt': ['text/plain', robots],
-          '/sitemap.xml': ['application/xml', sitemap],
+          '/robots.txt': ['text/plain; charset=utf-8', robots],
+          '/sitemap.xml': ['application/xml; charset=utf-8', sitemap],
+          '/llms.txt': ['text/plain; charset=utf-8', llms],
         };
         const asset = raw ? statics[raw] : undefined;
         if (asset) {
@@ -110,7 +122,7 @@ Sitemap: ${SITE_URL}/sitemap.xml
         const url = normalize(req.url ?? '');
         const page = contentPages().find((p) => p.route === url);
         if (page) {
-          res.setHeader('Content-Type', 'text/html');
+          res.setHeader('Content-Type', 'text/html; charset=utf-8');
           res.end(pageHtml(page));
           return;
         }
@@ -143,6 +155,7 @@ Sitemap: ${SITE_URL}/sitemap.xml
       write('og.png', ogImage());
       write('robots.txt', robots());
       write('sitemap.xml', sitemap());
+      write('llms.txt', llms());
       write('404.html', notFoundHtml());
       for (const page of contentPages()) write(routeToOutputPath(page.route), pageHtml(page));
       // The markdown companion of every page (content + app) at `<page url>.md`.
