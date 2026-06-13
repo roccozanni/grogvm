@@ -225,6 +225,21 @@ describe('findBoxAtOrNearest', () => {
       findBoxAtOrNearest([wb([0, 0, 10, 0, 10, 10, 0, 10], { id: 0, flags: 0x80 })], 99, 99),
     ).toBeNull();
   });
+
+  it('ranks by true edge distance, not bounding rect (the room 2↔5 boat crossing)', () => {
+    // A slanted quad whose bounding rect dips far below its real lower edge,
+    // beside a near-square box. For a point just past the bottom, the slanted
+    // box's bbox is "closer" (its bbox bottom is lower) yet its real edge is far
+    // away — SCUMM `adjustXYToBeInBox` ranks by edge distance, so the square box
+    // wins. Mirrors room 5's slanted land box (2) vs water box (15): a boat
+    // crossing that lands just off the bottom must snap to 15 (water), not 2
+    // (land) — bounding-rect ranking wrongly chose 2 and stranded ego on land.
+    const slantedLand = wb([34, 142, 106, 124, 106, 134, 34, 198], { id: 2 });
+    const squareWater = wb([114, 142, 163, 129, 163, 196, 63, 196], { id: 15 });
+    // (86,202): bbox dist → box 2 (its bbox bottom y=198); edge dist → box 15
+    // (real lower edge y=196; box 2's real edge at x=86 is up at y≈152).
+    expect(findBoxAtOrNearest([slantedLand, squareWater], 86, 202)?.id).toBe(15);
+  });
 });
 
 describe('parseBoxMatrix + getNextBox', () => {

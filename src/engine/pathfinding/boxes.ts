@@ -76,10 +76,87 @@ export function findBoxAt(
   return null;
 }
 
+type Pt = { x: number; y: number };
+
+/** Corners of a box as a closed 4-point loop (UL → UR → LR → LL). */
+export function corners(b: WalkBox): Pt[] {
+  return [
+    { x: b.ulx, y: b.uly },
+    { x: b.urx, y: b.ury },
+    { x: b.lrx, y: b.lry },
+    { x: b.llx, y: b.lly },
+  ];
+}
+
+export function clamp(v: number, lo: number, hi: number): number {
+  return v < lo ? lo : v > hi ? hi : v;
+}
+
+/**
+ * Closest pair of points between segments p1p2 and p3p4 (Ericson, Real-Time
+ * Collision Detection, ClosestPtSegmentSegment). Handles degenerate
+ * point/line segments — MI1's "line" boxes collapse to a segment or a point.
+ */
+export function closestSeg(p1: Pt, p2: Pt, p3: Pt, p4: Pt): [Pt, Pt] {
+  const d1x = p2.x - p1.x, d1y = p2.y - p1.y;
+  const d2x = p4.x - p3.x, d2y = p4.y - p3.y;
+  const rx = p1.x - p3.x, ry = p1.y - p3.y;
+  const a = d1x * d1x + d1y * d1y;
+  const e = d2x * d2x + d2y * d2y;
+  const f = d2x * rx + d2y * ry;
+  let s: number, t: number;
+  if (a <= 1e-9 && e <= 1e-9) {
+    s = t = 0;
+  } else if (a <= 1e-9) {
+    s = 0;
+    t = clamp(f / e, 0, 1);
+  } else {
+    const c = d1x * rx + d1y * ry;
+    if (e <= 1e-9) {
+      t = 0;
+      s = clamp(-c / a, 0, 1);
+    } else {
+      const bdot = d1x * d2x + d1y * d2y;
+      const denom = a * e - bdot * bdot;
+      s = denom > 1e-9 ? clamp((bdot * f - c * e) / denom, 0, 1) : 0;
+      t = (bdot * s + f) / e;
+      if (t < 0) { t = 0; s = clamp(-c / a, 0, 1); }
+      else if (t > 1) { t = 1; s = clamp((bdot - c) / a, 0, 1); }
+    }
+  }
+  return [
+    { x: p1.x + d1x * s, y: p1.y + d1y * s },
+    { x: p3.x + d2x * t, y: p3.y + d2y * t },
+  ];
+}
+
+/**
+ * SCUMM `adjustXYToBeInBox`: the point of box `b` closest to `(x, y)`, by true
+ * EDGE distance (not the bounding rect) — a slanted box's bbox can dip far past
+ * its real edge, which would mis-rank it as "nearest" against a square box and
+ * snap an off-box placement into the wrong walkbox (the room 2↔5 boat crossing
+ * landing on land instead of water). Returns integer pixels.
+ */
+export function closestPointInBox(b: WalkBox, x: number, y: number): Pt {
+  if (pointInBox(b, x, y)) return { x, y };
+  const c = corners(b);
+  const p: Pt = { x, y };
+  let best: Pt = c[0]!;
+  let bestDist = Infinity;
+  for (let i = 0; i < 4; i++) {
+    const [, q] = closestSeg(p, p, c[i]!, c[(i + 1) % 4]!);
+    const d = (q.x - x) ** 2 + (q.y - y) ** 2;
+    if (d < bestDist) { bestDist = d; best = q; }
+  }
+  return { x: Math.round(best.x), y: Math.round(best.y) };
+}
+
 /**
  * SCUMM `adjustXYToBeInBox` for placement: a point already in a box is
- * unchanged, else clamp to the nearest visible box's bounding rect — MI1
- * object walk-to points sit just past box edges. Unchanged when no boxes.
+ * unchanged, else snap to the closest point on the nearest visible box — MI1
+ * object walk-to points sit just past box edges. Nearness is by true edge
+ * distance ({@link closestPointInBox}), not bounding rect. Unchanged when no
+ * boxes.
  */
 export function clampPointToBoxes(
   boxes: ReadonlyArray<WalkBox>,
@@ -87,20 +164,15 @@ export function clampPointToBoxes(
   y: number,
 ): { x: number; y: number } {
   if (findBoxAt(boxes, x, y)) return { x, y };
-  let best: { x: number; y: number } | null = null;
+  let best: Pt | null = null;
   let bestDist = Infinity;
   for (const box of boxes) {
     if (isInvisibleBox(box)) continue;
-    const minX = Math.min(box.ulx, box.urx, box.lrx, box.llx);
-    const maxX = Math.max(box.ulx, box.urx, box.lrx, box.llx);
-    const minY = Math.min(box.uly, box.ury, box.lry, box.lly);
-    const maxY = Math.max(box.uly, box.ury, box.lry, box.lly);
-    const cx = Math.max(minX, Math.min(maxX, x));
-    const cy = Math.max(minY, Math.min(maxY, y));
-    const dist = (x - cx) ** 2 + (y - cy) ** 2;
+    const q = closestPointInBox(box, x, y);
+    const dist = (x - q.x) ** 2 + (y - q.y) ** 2;
     if (dist < bestDist) {
       bestDist = dist;
-      best = { x: cx, y: cy };
+      best = q;
     }
   }
   return best ?? { x, y };
@@ -110,6 +182,9 @@ export function clampPointToBoxes(
  * {@link findBoxAt}, falling back to the nearest visible box — MI1's thin
  * cliff boxes leave a standing actor strictly inside no box, which would stick
  * its perspective scale. Kept separate so findBoxAt's z-clip use is unchanged.
+ * Nearness is by true edge distance ({@link closestPointInBox}), matching
+ * SCUMM — a slanted box's bounding rect can otherwise win against a square box
+ * it doesn't really reach.
  */
 export function findBoxAtOrNearest(
   boxes: ReadonlyArray<WalkBox>,
@@ -122,13 +197,8 @@ export function findBoxAtOrNearest(
   let bestDist = Infinity;
   for (const box of boxes) {
     if (isInvisibleBox(box)) continue;
-    const minX = Math.min(box.ulx, box.urx, box.lrx, box.llx);
-    const maxX = Math.max(box.ulx, box.urx, box.lrx, box.llx);
-    const minY = Math.min(box.uly, box.ury, box.lry, box.lly);
-    const maxY = Math.max(box.uly, box.ury, box.lry, box.lly);
-    const cx = Math.max(minX, Math.min(maxX, x));
-    const cy = Math.max(minY, Math.min(maxY, y));
-    const dist = (x - cx) ** 2 + (y - cy) ** 2;
+    const q = closestPointInBox(box, x, y);
+    const dist = (x - q.x) ** 2 + (y - q.y) ** 2;
     if (dist < bestDist) {
       bestDist = dist;
       best = box;

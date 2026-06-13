@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { areBoxesNeighbors, buildBoxMatrix, routeThroughBoxes, gateBetween, closestPointInBox } from './boxgraph';
-import { getNextBox, parseBoxMatrix, type WalkBox } from './boxes';
+import { areBoxesNeighbors, buildBoxMatrix, routeThroughBoxes, gateBetween } from './boxgraph';
+import { closestPointInBox, getNextBox, parseBoxMatrix, type WalkBox } from './boxes';
 
 /** Build a WalkBox from corners; id defaults to its intended array index. */
 function wb(

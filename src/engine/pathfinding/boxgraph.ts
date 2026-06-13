@@ -1,6 +1,10 @@
 /** Box-graph routing over BOXM. Model and rationale: pages/docs/engine/pathfinding.md. */
 
 import {
+  clamp,
+  closestPointInBox,
+  closestSeg,
+  corners,
   findBoxAtOrNearest,
   getNextBox,
   isInvisibleBox,
@@ -171,16 +175,6 @@ export function buildBoxMatrix(boxes: ReadonlyArray<WalkBox>): BoxMatrix {
   return rows;
 }
 
-/** Corners of a box as a closed 4-point loop (UL → UR → LR → LL). */
-function corners(b: WalkBox): Point[] {
-  return [
-    { x: b.ulx, y: b.uly },
-    { x: b.urx, y: b.ury },
-    { x: b.lrx, y: b.lry },
-    { x: b.llx, y: b.lly },
-  ];
-}
-
 /**
  * The point an actor crosses from box `a` into adjacent box `b`.
  * Gate-point model: pages/docs/engine/pathfinding.md §4.
@@ -236,59 +230,3 @@ export function gateBetween(a: WalkBox, b: WalkBox, dest: Point): Point {
   return mid;
 }
 
-function clamp(v: number, lo: number, hi: number): number {
-  return v < lo ? lo : v > hi ? hi : v;
-}
-
-/** SCUMM `adjustXYToBeInBox`: the point of box `b` closest to `(x, y)`, in integer pixels. */
-export function closestPointInBox(b: WalkBox, x: number, y: number): Point {
-  if (pointInBox(b, x, y)) return { x, y };
-  const c = corners(b);
-  const p: Point = { x, y };
-  let best: Point = c[0]!;
-  let bestDist = Infinity;
-  for (let i = 0; i < 4; i++) {
-    const [, q] = closestSeg(p, p, c[i]!, c[(i + 1) % 4]!);
-    const d = (q.x - x) ** 2 + (q.y - y) ** 2;
-    if (d < bestDist) { bestDist = d; best = q; }
-  }
-  return { x: Math.round(best.x), y: Math.round(best.y) };
-}
-
-/**
- * Closest pair of points between segments p1p2 and p3p4 (Ericson, Real-Time
- * Collision Detection, ClosestPtSegmentSegment). Handles degenerate
- * point/line segments — MI1's "line" boxes collapse to a segment or a point.
- */
-function closestSeg(p1: Point, p2: Point, p3: Point, p4: Point): [Point, Point] {
-  const d1x = p2.x - p1.x, d1y = p2.y - p1.y;
-  const d2x = p4.x - p3.x, d2y = p4.y - p3.y;
-  const rx = p1.x - p3.x, ry = p1.y - p3.y;
-  const a = d1x * d1x + d1y * d1y;
-  const e = d2x * d2x + d2y * d2y;
-  const f = d2x * rx + d2y * ry;
-  let s: number, t: number;
-  if (a <= 1e-9 && e <= 1e-9) {
-    s = t = 0;
-  } else if (a <= 1e-9) {
-    s = 0;
-    t = clamp(f / e, 0, 1);
-  } else {
-    const c = d1x * rx + d1y * ry;
-    if (e <= 1e-9) {
-      t = 0;
-      s = clamp(-c / a, 0, 1);
-    } else {
-      const bdot = d1x * d2x + d1y * d2y;
-      const denom = a * e - bdot * bdot;
-      s = denom > 1e-9 ? clamp((bdot * f - c * e) / denom, 0, 1) : 0;
-      t = (bdot * s + f) / e;
-      if (t < 0) { t = 0; s = clamp(-c / a, 0, 1); }
-      else if (t > 1) { t = 1; s = clamp((bdot - c) / a, 0, 1); }
-    }
-  }
-  return [
-    { x: p1.x + d1x * s, y: p1.y + d1y * s },
-    { x: p3.x + d2x * t, y: p3.y + d2y * t },
-  ];
-}
