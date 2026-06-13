@@ -90,6 +90,12 @@ cells. Most renderers don't actually use these — the **IMHD's**
 pixel-precise position drives compositing — but the engine reads
 CDHD for parent / walk-to / verb routing.
 
+**Fine print — `actorDir` values.** The four codes map `0 → E`, `1 → W`,
+`2 → N`, `3 → S` — the pairwise *opposite* of the costume old-direction
+order, so the byte can't be handed straight to the costume layer unmapped.
+Pinned against observed entries (a bar interior rests facing E, a jail W,
+cliff steps N, a doorway front/S).
+
 ## 3. IMHD — object image header
 
 A variable-length header. The first 16 bytes are consistent across

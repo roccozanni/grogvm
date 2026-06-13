@@ -51,8 +51,13 @@ slots actually use. This is *not* the original interpreter's row selection —
 that pattern is still unrecovered (PROGRESS.md Tier-2), and it shows: at the
 dock's scale 210 the original draws a visibly fuller sprite (shirt one column
 wider, socks intact) from the same 14×39 budget, because it drops different
-columns. At some scales features genuinely vanish in the original too. Scale
-255 is an exact identity for any phase: no resampling, pixel for pixel.
+columns. At some scales features genuinely vanish in the original too. Its
+dropped rows and columns *bunch* in the sprite's low-content margins rather than
+spreading evenly, so no single sampling phase can reproduce them — the selection
+is a per-scale pattern, not a decimation rate — and whatever the pattern is, it
+holds a walking actor's drawn size steady frame to frame (a count-based scheme
+that lets the size wobble by a pixel makes the ego visibly strut). Scale 255 is
+an exact identity for any phase: no resampling, pixel for pixel.
 
 ## Transparent pixels
 

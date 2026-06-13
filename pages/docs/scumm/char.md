@@ -287,6 +287,15 @@ Newlines reset the cursor to column 0 and advance Y by the declared
 Word wrap, alignment (centered / right-justified), and dialog text-
 box geometry are downstream concerns.
 
+**Charset is captured per print, not read live.** The charset in force is part
+of a printed string's saved state — as a verb caption keeps its own charset — so
+consecutive messages can each render in a different font, and a script routinely
+switches charset between prints (a parchment close-up prints its body in a tight
+8-pixel charset, then restores the dialogue charset before the frame draws). A
+renderer that lays every queued line out in the *current* charset rather than the
+one captured at its print collapses an 8-pixel-pitch line drawn through a tall
+font into an illegible smear.
+
 ### The message channels + the blast model
 
 A `print` opcode targets a channel by its actor id, and the channels coexist

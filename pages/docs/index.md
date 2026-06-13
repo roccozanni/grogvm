@@ -5,14 +5,15 @@ description: How GrogVM is built, plus the reverse-engineering notes behind it �
 
 # Documentation
 
-Two halves: notes on how GrogVM is built, and the reverse-engineered SCUMM v5
-reference it is built against.
+Three parts: notes on how GrogVM is built, the reverse-engineered SCUMM v5
+reference it is built against, and the method the work is done by.
 
 > **Status** — in active development. *The Secret of Monkey Island* plays
-> from boot through the end of Part I — verbs, inventory, dialogue,
-> cutscenes, saves — and every resource in its files is browsable in the
-> explorer. Still ahead: audio (silent today), Part II onward, Monkey
-> Island 2, and a few visual effects.
+> from boot through the end of Part II — verbs, inventory, dialogue,
+> cutscenes, saves, digital sound effects and CD-audio music — and every
+> resource in its files is browsable in the explorer. Still ahead: Part III
+> onward, OPL2 synthesis for the few AdLib-only effects, Monkey Island 2,
+> and a few visual effects.
 
 ## Engine notes
 
@@ -64,3 +65,12 @@ from real game data.
 - [Screen Effects](scumm/screen-effect.md)
 - [Timing — Jiffy vs. Frame](scumm/timing.md)
 - [Sound (`SOUN`) & Sound-Gated Waits](scumm/sound.md)
+
+## How the work gets done
+
+GrogVM is built in collaboration with an AI agent. These pages document the
+method — and double as the agent's own briefing.
+
+- [How We Collaborate — The Working Contract](agent/collaboration.md)
+- [Where Knowledge Lives — Lab Notebook → Docs](agent/knowledge.md)
+- [Verification — Behaviour, Not Bookkeeping](agent/verification.md)

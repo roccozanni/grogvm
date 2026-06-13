@@ -34,9 +34,14 @@ On a room change, in this exact order:
    touchability, the Voodoo Lady's entrance choreography that closes the door
    behind you).
 3. **Stop the old room's local + object/verb scripts.** Room-scoped scripts
-   (`WIO_ROOM` / `WIO_FLOBJECT`) die on a room change; only globals survive.
-   Without this, an old room's ambient/animation loop keeps running into the
-   new room and tries to start locals that don't exist there. The same purge
+   (`WIO_ROOM` / `WIO_FLOBJECT`) die on a room change; globals survive — and so
+   do the verb scripts of *carried* objects, which belong to the inventory item,
+   not the departing room. (A Look/Use handler on an inventory object can itself
+   swap rooms — a parchment close-up loads its own room, polls, then returns and
+   ends the cutscene — so purging it at its own `loadRoom` would strand the
+   cutscene unended and hang the VM.) Without this purge, an old room's
+   ambient/animation loop keeps running into the new room and tries to start
+   locals that don't exist there. The same purge
    covers a previous `ENCD`/`EXCD` still yielded mid-slice: a stale
    entry-script slice that survives resumes against the *new* room's local
    table and starts whatever script owns that id there (a previous room's
@@ -95,6 +100,11 @@ lets the new room's entry script walk it the rest of the way:
   script's first slice has run (step 9 begins the script; the placement reads
   the now-repositioned object), so the ego lands at the screen *edge* the entry
   object occupies — not at the object's design coordinates.
+- **The ego is turned to face the room.** Right after placement it is faced per
+  the entry object's `actorDir` (CDHD byte 12, [objects §2](../scumm/objects.md))
+  and dropped into its stand pose. Without this it keeps whatever direction it was
+  walking when the transition fired, resting side-on where the room expects it
+  facing front or back.
 - **The entry script walks the ego in.** Gated on `VAR_WALKTO_OBJ`, the `ENCD`
   issues a `walkActorTo` after its first `breakHere`, pulling the ego from the
   edge to its resting spot. So the ego *enters walking* rather than snapping
