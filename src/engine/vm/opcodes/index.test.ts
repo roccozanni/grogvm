@@ -730,6 +730,35 @@ describe('seed opcodes — actorOps init (SO_DEFAULT)', () => {
     expect(vm.actors.get(3).scale).toBe(0xff);
   });
 
+  it('init restores the default walk speed (initActor)', () => {
+    // An actor left slow by a prior scene must walk at full speed again after
+    // init. Ego reaches the cannibal village (room 25) as the tiny overhead-map
+    // figure at walkSpeed 1,1; room 25's ENCD inits him expecting initActor to
+    // restore the default — without this he kept 1,1 and crawled.
+    const vm = makeVm();
+    const a = vm.actors.get(3);
+    a.walkSpeedX = 1; // tiny overhead-map figure left slow
+    a.walkSpeedY = 1;
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x13, 0x03, 0x08, 0xff, 0x00) });
+    vm.step();
+    expect(vm.actors.get(3).walkSpeedX).toBe(8);
+    expect(vm.actors.get(3).walkSpeedY).toBe(2);
+  });
+
+  it('a later setWalkSpeed subop still wins over the init reset', () => {
+    // Same one-instruction ordering guarantee as ignoreBoxes/scale: an explicit
+    // setWalkSpeed after init in the same actorOps must survive the reset.
+    const vm = makeVm();
+    // actorOps 3 { init(0x08); setWalkSpeed 3,1 (0x02, two byte args) }, 0xFF.
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(0x13, 0x03, 0x08, 0x02, 0x03, 0x01, 0xff, 0x00),
+    });
+    vm.step();
+    expect(vm.actors.get(3).walkSpeedX).toBe(3);
+    expect(vm.actors.get(3).walkSpeedY).toBe(1);
+  });
+
   it('a later ignoreBoxes/scale subop still wins over the init reset', () => {
     // Room 51's cannon flight actor is `init; ...; ignoreBoxes; scale 255,255`
     // in one actorOps — the init reset must not clobber the explicit ops that

@@ -167,28 +167,22 @@ from-boot run (`npm run test:integration`, ~1.6s) is the real check; make RNG-to
 
 > **Two cannibal-village bugs reported in-browser 2026-06-13.**
 >
-> 1. **Ego crawls in the cannibal village (room 25) — DIAGNOSED, fix DEFERRED to a dedicated
->    session.** Legs animate at full rate but ground barely moves (~0.17 px/tick). **Root cause:**
->    `actorOps {init}` (opcodes/index.ts, subop 0x08) resets costume/scale/frames/walkbox but NOT
->    `walkSpeedX/Y`. Room 25's ENCD does `actorOps a=g1 {init; costume=1}` and relies on `init` to
->    restore the walk speed; ego arrives from the overhead map as the tiny figure (`stepDist 1,1`),
->    so it keeps 1,1 and crawls. (The clearing, room 12, is fine only because its ENCD sets
->    `stepDist 8,2` EXPLICITLY — that's why only the village is slow. Affects from-boot too, via the
->    map→village path; not just restore.) Repro save: `saves/MI1-Italiano-slow-walk.websave.json`
->    (room 25, ego ws=(1,1)). **The fix (verified, then reverted):** in the `init` handler reset
->    `walkSpeedX=DEFAULT_WALK_SPEED_X (8)`, `walkSpeedY=DEFAULT_WALK_SPEED_Y (2)` — SCUMM's
->    `initActor` default, the same `createActor` uses. Re-entering the village then gives ws=(8,2),
->    walk 0.17→1.62 px/tick; unit suite stays green. **Why deferred:** the walk-timing change shifts
->    the SEEDED from-boot RNG stream (the documented `SWORD_MASTER_NEEDED` fragility) — the Part-I
->    duel grind no longer converges within CAP=60, and bumping the cap CASCADES into the Part-III
->    monkey-catch beat. Landing it cleanly needs the seeded net re-stabilized across Parts I–III.
->    **Recommended first step:** harden the duel grind to a dynamic "can win the Sword Master"
->    stop-condition with a generous cap (instead of the fixed `SWORD_MASTER_NEEDED` set), so this and
->    future tick-dynamics changes stop forcing a re-derive — THEN land the 2-line engine fix.
+> 1. **Ego crawls in the cannibal village (room 25) — FIXED & confirmed in-browser.** `actorOps
+>    {init}` (opcodes/index.ts, subop 0x08) reset costume/scale/frames/walkbox but NOT `walkSpeedX/Y`,
+>    so ego — arriving from the overhead map as the tiny figure (`stepDist 1,1`) — kept 1,1 when room
+>    25's ENCD inited him and crawled. The `init` handler now restores the `initActor` walk-speed
+>    default (8, 2). Guarded by a synthetic engine unit test in `opcodes/index.test.ts` (per
+>    [HARNESS §8](pages/docs/engine/harness.md) — the fast suite, not the playthrough). The walk-timing
+>    change shifted the seeded from-boot RNG stream; rather than re-derive the old fixed
+>    `SWORD_MASTER_NEEDED` set, the duel grind now stops DYNAMICALLY (`grindForSwordMaster` in
+>    `game.ts` — grind until the comeback pool plateaus with the g282>3 gate clear; `GRIND_DEBUG=1`
+>    logs the curve) and the monkey feed is driven by the g145 counter (feed any still-held banana
+>    until five register, waiting each feed out so no `give` races a banana out of inventory
+>    mid-gesture) — both RNG-robust, so future tick-dynamics changes no longer force a hand re-derive.
 > 2. **The 3 cannibals sometimes all render as "Lemonhead" (one mask)** instead of three distinct
 >    masks — intermittent, a costume-decode/limb issue on actors 3/4/5 (costume 9) in room 25.
->    Not yet investigated. Both are real-pixel (in-browser) issues; the headless net renders nothing,
->    so neither fails the suite.
+>    Not yet investigated. A real-pixel (in-browser) issue; the headless net renders nothing, so it
+>    doesn't fail the suite.
 
 **Pending in-browser checks** (fixes shipped + folded into docs, look not yet confirmed):
 

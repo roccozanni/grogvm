@@ -14,6 +14,8 @@ import {
   DEFAULT_INIT_FRAME,
   DEFAULT_TALK_START_FRAME,
   DEFAULT_TALK_STOP_FRAME,
+  DEFAULT_WALK_SPEED_X,
+  DEFAULT_WALK_SPEED_Y,
   type Actor,
 } from '../../actor/actor';
 import { startWalk, startActorChore, applyStandPose, reapplyChoreForFacing, FACING_FROM_OLD, rescaleActorForPosition, effectiveBoxes } from '../../actor/walk';
@@ -1818,6 +1820,12 @@ function actorOpsApply(
         // box into the next scene (room-51 cannon actor).
         actor.walkBox = -1;
         actor.scale = DEFAULT_SCALE;
+        // SCUMM initActor restores the default walk speed. Without this a slow
+        // figure stays slow across an init: ego arrives on the overhead map as
+        // the tiny (stepDist 1,1) walker, and room 25's ENCD inits him expecting
+        // the speed to come back — so he'd crawl in the cannibal village.
+        actor.walkSpeedX = DEFAULT_WALK_SPEED_X;
+        actor.walkSpeedY = DEFAULT_WALK_SPEED_Y;
         // forceClip 0 = "not forced" — depth falls back to the NeverClip
         // class / box mask; a stale alwaysZclip would otherwise survive a
         // plain init (room-51 Fettucini brothers).

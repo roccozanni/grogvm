@@ -2024,24 +2024,51 @@ export function grindOneDuel(vm: Vm): boolean {
   return vm.currentRoom === ROOMS.meleeMap.id;
 }
 
-/** Readiness floor for the Sword Master. She only throws ~5 insults (the duel is
- *  best-of-5), so the *minimum* we'd need is just those comebacks — but we can't
- *  pin them: the gate's stop-point shifts the RNG at her duel, which changes
- *  which insults she draws (the grind & duel share the seeded stream). So this is
- *  a deliberately generous, LATE-tripping set: every comeback the pirate pool
- *  teaches *promptly* on the current stream — all of 1..16 except 12, which the
- *  pool teaches very late or never (she must not draw a missing one more than
- *  the loss margin allows; the walkthrough's win is the proof she doesn't).
- *  Trips around duel 42 of the grind. Any engine change that shifts tick dynamics moves the seeded stream,
- *  relocating the stragglers/unlearnable holes and the trip point — re-derive
- *  this set from the grind's learning order when that happens. */
-const SWORD_MASTER_NEEDED: readonly number[] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16];
-/** Ready to face the Sword Master: every comeback her seeded duel demands is
- *  learned AND the readiness gate (`g282 > 3`, four duels won) is clear. */
-export const enoughForSwordMaster = (vm: Vm): boolean => {
-  const have = new Set(learnedComebacks(vm));
-  return SWORD_MASTER_NEEDED.every((c) => have.has(c)) && vm.vars.readGlobal(VARS.fightsWon) > 3;
-};
+/** Grind pirate duels lose-to-learn until ready to face the Sword Master, and
+ *  return the number of duels fought. The Sword Master's insults (16..33) demand
+ *  comebacks 1..16, but we can't pin WHICH she'll draw — her duel shares the
+ *  seeded RNG stream with the grind, so the stop-point shifts her draw. We also
+ *  can't pin the *learning order*: any engine change that moves tick dynamics
+ *  relocates which comebacks the pirate pool teaches and when. A fixed
+ *  "needed set" therefore has to be hand-re-derived every time the stream moves.
+ *
+ *  Instead this stops DYNAMICALLY: keep grinding until the pool PLATEAUS — no new
+ *  comeback learned in `plateau` consecutive duels — with the readiness gate
+ *  (`g282 > 3`, four duels won) clear, or every demandable comeback (1..16) known.
+ *  That converges on the maximal defensible set the stream offers (comeback 12 is
+ *  the perennial straggler — the pool teaches it very late or never), which is
+ *  the most-ready the grind can get without simulating her draw; the proof of
+ *  sufficiency is the Sword-Master win that follows. `cap` only backstops a
+ *  broken gate so the caller's assertion fails loud instead of looping forever.
+ *  Set `GRIND_DEBUG=1` to log the per-duel learning curve. */
+export function grindForSwordMaster(vm: Vm, cap = 90, plateau = 12): number {
+  const debug = !!process.env.GRIND_DEBUG;
+  let fought = 0;
+  let sinceNew = 0;
+  let known = learnedComebacks(vm).length;
+  for (;;) {
+    const gateClear = vm.vars.readGlobal(VARS.fightsWon) > 3;
+    if (gateClear && (known >= 16 || sinceNew >= plateau)) break;
+    if (fought >= cap) break;
+    if (!grindOneDuel(vm)) break; // no pirate found / duel didn't resolve to the map
+    fought++;
+    const now = learnedComebacks(vm).length;
+    if (now > known) {
+      known = now;
+      sinceNew = 0;
+    } else {
+      sinceNew++;
+    }
+    if (debug) {
+      console.error(
+        `[grind] duel ${fought}: comebacks(${now})=[${learnedComebacks(vm).join(',')}] ` +
+          `insults=[${learnedInsults(vm).join(',')}] g282=${vm.vars.readGlobal(VARS.fightsWon)} ` +
+          `sinceNew=${sinceNew}`,
+      );
+    }
+  }
+  return fought;
+}
 
 /** Defense pick for the Sword Master: page the 6-wide comeback window (scroll
  *  verbs) until the needed comeback is visible, then pick it and let the

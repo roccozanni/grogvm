@@ -79,9 +79,8 @@ import {
   boot,
   buySeaMonkey,
   crackSafe,
-  enoughForSwordMaster,
   fightSwordMaster,
-  grindOneDuel,
+  grindForSwordMaster,
   hasGame,
   mugDying,
   mugHasGrog,
@@ -690,32 +689,20 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     });
 
     beat('⚙️ Mêlée map — grind pirate duels lose-to-learn until ready for the Sword Master', () => {
-      // ONE beat for the whole grind (per-duel beats were too noisy). Each
-      // `grindOneDuel` plays one provoked duel to completion lose-to-learn: a duel
-      // is full-mode (g285=3) and the turn flips on who won the last exchange, so
-      // throwing a known insult and letting the pirate counter it both teaches that
-      // comeback (#82) AND flips us to defense, where the pirate insults us and we
-      // learn a new insult (#83). (Winning every exchange — the old picker — stays
-      // on attack and learns almost nothing.) We loop until `enoughForSwordMaster`:
-      // the comebacks Carla's seeded duel needs PLUS the gate g282>3. The seed is
-      // fixed so this is deterministic — ~42 duels every run. The exact count (and
-      // which comebacks the pirate pool teaches late or never) shifts whenever an
-      // engine change moves tick dynamics — the audio timing seam, the
-      // line-following walker, and its scale throttle all did — because the
-      // ambient RNG stream advances differently; when that happens, re-derive
-      // SWORD_MASTER_NEEDED (game.ts) from the grind's learning order. CAP is
-      // only a runaway-loop backstop (a broken gate fails the assertion below
-      // instead of hanging), set comfortably above the real count — not the
-      // exact count — so a benign RNG nudge still passes.
-      const CAP = 60;
-      let fought = 0;
-      for (; fought < CAP && !enoughForSwordMaster(vm); fought++) {
-        expect(grindOneDuel(vm)).toBe(true);
-        // `grindOneDuel` only returns true once back on the map (global #114).
-        expect(vm.currentRoom).toBe(ROOMS.meleeMap.id);
-        expect(vm.haltInfo).toBeNull();
-      }
-      expect(enoughForSwordMaster(vm)).toBe(true);
+      // ONE beat for the whole grind (per-duel beats were too noisy). Each duel
+      // `grindForSwordMaster` plays is full-mode (g285=3) lose-to-learn: the turn
+      // flips on who won the last exchange, so throwing a known insult and letting
+      // the pirate counter it both teaches that comeback (#82) AND flips us to
+      // defense, where the pirate insults us and we learn a new insult (#83).
+      // (Winning every exchange — the old picker — stays on attack and learns
+      // almost nothing.) The stop is DYNAMIC, not a hardcoded comeback set: it
+      // grinds until the pool plateaus (no new comeback for N duels) with the
+      // gate g282>3 clear, so an engine change that moves the seeded stream
+      // re-converges on its own instead of forcing a hand re-derive. The proof
+      // that it learned enough is the Sword-Master win in the next beat.
+      grindForSwordMaster(vm);
+      expect(vm.currentRoom).toBe(ROOMS.meleeMap.id);
+      expect(vm.haltInfo).toBeNull();
       expect(vm.vars.readGlobal(VARS.fightsWon)).toBeGreaterThan(3);
     });
 
@@ -2195,33 +2182,51 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(caught).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
 
-      // Feed all five: the monkey must be "down" (costume 6) to take a banana, so
-      // wait for that and for the feed scripts (#202/#203) to settle between
-      // gives; one that lands mid-animation is refused ("Non prima che scenda
-      // lui"), so retry each banana until it's consumed (owner → 14).
-      for (const banana of m.bananas) {
-        for (let tries = 0; held(banana) && tries < 5 && vm.currentRoom === m.closeup; tries++) {
-          driveUntil(
-            vm,
-            (v) =>
-              monkeyActor().costume === m.receptiveCostume &&
-              !scriptLive(202) &&
-              !scriptLive(203) &&
-              v.cursor.userput > 0,
-            { maxTicks: 8000 },
-          );
+      // Feed all five, driven by the authoritative success signal g145 (each
+      // accepted give +1), NOT by banana id: the monkey only accepts while "down"
+      // (costume 6) and one given mid-animation is refused ("Non prima che scenda
+      // lui"), so a give can land OR bounce. Each round wait for the monkey to be
+      // receptive AND the prior feed (#202/#203) fully settled — feeding any still-
+      // held banana and waiting for g145 to tick before the next give — so no feed
+      // is ever in flight during the next give's arm (that race used to consume a
+      // banana mid-gesture and strand the picker). The try/catch absorbs the rare
+      // case where a banana leaves inventory during the give itself; g145 is the
+      // truth and the loop just re-picks. Order-independent and timing-robust.
+      const heldBanana = (): number | undefined => m.bananas.find((b) => held(b));
+      for (
+        let guard = 0;
+        vm.vars.readGlobal(m.fedVar) < 5 && guard < 40 && vm.currentRoom === m.closeup;
+        guard++
+      ) {
+        const fedBefore = vm.vars.readGlobal(m.fedVar);
+        driveUntil(
+          vm,
+          (v) =>
+            monkeyActor().costume === m.receptiveCostume &&
+            !scriptLive(202) &&
+            !scriptLive(203) &&
+            v.cursor.userput > 0,
+          { maxTicks: 8000 },
+        );
+        const banana = heldBanana();
+        if (banana === undefined) break; // nothing left to give
+        try {
           give(vm, VERBS.give, banana, m.actor);
-          driveUntil(
-            vm,
-            (v) => !held(banana) || (!scriptLive(202) && !scriptLive(203) && v.cursor.userput > 0),
-            { maxTicks: 10000 },
-          );
-          waitPlayable(vm, 4000);
+        } catch {
+          // banana consumed mid-gesture — g145 already moved; re-pick next round
         }
-        expect(held(banana)).toBe(false);
+        driveUntil(
+          vm,
+          (v) =>
+            v.vars.readGlobal(m.fedVar) > fedBefore ||
+            (!scriptLive(202) && !scriptLive(203) && v.cursor.userput > 0),
+          { maxTicks: 10000 },
+        );
+        waitPlayable(vm, 4000);
       }
-      // All five fed; the follow controller (#43) is running.
+      // All five fed (owner → 14) and the follow controller (#43) is running.
       expect(vm.vars.readGlobal(m.fedVar)).toBe(5);
+      for (const banana of m.bananas) expect(held(banana)).toBe(false);
 
       // Leave the close-up (jungle #274) → back onto the map; the monkey trails
       // ego out (global #34 carries it across the screen change).
