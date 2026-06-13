@@ -1064,6 +1064,16 @@ export const ROOMS = {
      */
     villageScreen: 6,
     villageMarker: 72,
+    /**
+     * Walking route to the clearing (the boat-side inland, screens 2–5): the
+     * figure can't reach screen 5 directly from screen 2 (#33 is a water edge),
+     * so go screen 2 → 4 (#29, top edge) → 5 (#47, right edge), then screen 5's
+     * "la zona disboscata" marker (#63) → the clearing ({@link monkeyClearing},
+     * room 12).
+     */
+    screen2toScreen4: 29,
+    screen4toScreen5: 47,
+    clearingMarker: 63,
   },
 
   /**
@@ -1174,6 +1184,45 @@ export const ROOMS = {
     fedVar: 145,
     /** The five bananas to feed, in inventory by now. */
     bananas: [265, 266, 267, 282, 283],
+  },
+
+  /**
+   * The clearing ("la zona disboscata", room 12) — the totem poles and the Giant
+   * Monkey Head, reached from screen 5's marker {@link monkeyMap}'s `clearingMarker`.
+   * With the fed monkey following, Pull the totem's nose; the monkey holds the
+   * gate open so ego can walk the length of the clearing and through the gate into
+   * the idol chamber ({@link idolChamber}, room 69). (Part I's circus clearing is
+   * the SEPARATE {@link clearing}, room 52.)
+   */
+  monkeyClearing: {
+    id: 12,
+    /** "il naso" (#144) — the totem's nose. Pull (verb 6 → local #204): ego yanks
+     *  it and, with the monkey still following (#43), local #205 sets the monkey
+     *  to hold the gate. */
+    totemNose: 144,
+    /** "la testa di scimmia gigante" (#133) — the Giant Monkey Head at the far
+     *  right (x≈813). Walking up to it (after the nose-pull) lets the following
+     *  monkey grab and hold the gate — {@link gateHeldObj} #142 flips to 1. */
+    head: 133,
+    /** The gate entrance at the head (#155): once the gate is held, its verb-11
+     *  `putActorInRoom room=69` — into the idol chamber. */
+    headGate: 155,
+    /** obj #142 — the gate-held flag (state 1 once the monkey holds it open). */
+    gateHeldObj: 142,
+  },
+
+  /**
+   * The idol chamber inside the Giant Monkey Head (room 69) — a shelf of look-alike
+   * idols. Take "il piccolo idolo insignificante" (#761, the wimpy little idol);
+   * the rest are decoys. Exit "il luogo delle scimmie" (#756) on the far left.
+   */
+  idolChamber: {
+    id: 69,
+    /** "il piccolo idolo insignificante" (#761) — the wimpy little idol. Pick up
+     *  (verb 9 → pickupObject into inventory). The offering for the cannibals. */
+    wimpyIdol: 761,
+    /** "il luogo delle scimmie" (#756) — the exit (Walk-to, far left). */
+    exit: 756,
   },
 
   /**

@@ -2231,6 +2231,63 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(driveUntil(vm, () => monkeyActor().room === vm.currentRoom, { maxTicks: 6000 })).toBe(true);
       expect(vm.haltInfo).toBeNull();
     });
+
+    beat('🚶‍➡️ Map screen 2 — across the map to the clearing (la zona disboscata, 12), the monkey in tow', () => {
+      const map = ROOMS.monkeyMap;
+      // The walking figure can't reach screen 5 straight from screen 2 (#33 is a
+      // water edge), so thread screen 2 → 4 (#29) → 5 (#47), then the "la zona
+      // disboscata" marker (#63) → the clearing (room 12). The monkey trails
+      // across each screen (global #34 carries the follower along).
+      walkTo(vm, map.screen2toScreen4);
+      expect(driveToRoom(vm, map.riverScreen, { maxTicks: 12000 })).toBe(true); // screen 4
+      expect(waitPlayable(vm)).toBe(true);
+      walkTo(vm, map.screen4toScreen5);
+      expect(driveToRoom(vm, 5, { maxTicks: 12000 })).toBe(true); // screen 5
+      expect(waitPlayable(vm)).toBe(true);
+      walkTo(vm, map.clearingMarker);
+      expect(driveToRoom(vm, ROOMS.monkeyClearing.id, { maxTicks: 12000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(
+        driveUntil(vm, () => vm.actors.get(ROOMS.monkey.actor).room === vm.currentRoom, { maxTicks: 6000 }),
+      ).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('⚙️ The clearing — pull the totem nose; the monkey holds the gate, take the wimpy idol in the head (69)', () => {
+      const ego = vm.vars.readGlobal(VAR_EGO);
+      const clr = ROOMS.monkeyClearing;
+      const chamber = ROOMS.idolChamber;
+      const scriptLive = (id: number) => vm.slots.some((s) => s.status !== 'dead' && s.scriptId === id);
+
+      // Pull the totem's nose (#144, verb 6 → local #204): ego yanks it, and with
+      // the monkey following, #205 sets the monkey to hold the gate.
+      use(vm, VERBS.pull, clr.totemNose);
+      expect(driveUntil(vm, (v) => !scriptLive(204) && v.cursor.userput > 0, { maxTicks: 16000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+
+      // Walk the length of the clearing to the Giant Monkey Head; the following
+      // monkey grabs and holds the gate open (gate-held obj #142 → 1).
+      walkTo(vm, clr.head);
+      expect(driveUntil(vm, (v) => v.objectStates.get(clr.gateHeldObj) === 1, { maxTicks: 16000 })).toBe(true);
+
+      // Through the held gate (#155) into the idol chamber (room 69). Reaching the
+      // far-right entrance can take a couple of hops along the wide clearing.
+      let entered = false;
+      for (let i = 0; i < 4 && !entered; i++) {
+        walkTo(vm, clr.headGate);
+        entered = driveToRoom(vm, chamber.id, { maxTicks: 12000 });
+      }
+      expect(entered).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+
+      // Take the wimpy little idol (#761) — the cannibals' offering. The other
+      // shelf idols are decoys.
+      expect(vm.getObjectOwner(chamber.wimpyIdol)).not.toBe(ego);
+      use(vm, VERBS.pickUp, chamber.wimpyIdol);
+      expect(waitPickedUp(vm, chamber.wimpyIdol)).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
   });
 
   // ALWAYS THE LAST GROUP: snapshot the furthest clean playable state to a save
@@ -2246,17 +2303,18 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
         JSON.stringify(snapshotVm(vm, { game: 'MI1', label: 'walkthrough-frontier' })),
       );
       // Furthest clean point so far: into "Under Monkey Island" — Part III's
-      // surface (beach, Fort, catapult, dam, Pond, Crack, the row to the north
-      // beach), the cannibal village (bowl bananas stolen, the capture, the hut
-      // escape via skull + loose board), then the row BACK to the south side and
-      // the wandering monkey caught and fed all five bananas — it now follows ego
-      // around the overhead map (screen 2). The totem / Giant Monkey Head is next.
-      expect(vm.currentRoom).toBe(ROOMS.monkeyMap.id);
+      // surface, the cannibal village (bowl bananas stolen, capture, hut escape),
+      // the row BACK to the south side, the wandering monkey caught and fed all
+      // five bananas (it follows), then across to the clearing where the totem's
+      // nose is pulled, the monkey holds the gate, and ego takes the wimpy little
+      // idol inside the Giant Monkey Head (room 69). Giving the idol to the
+      // cannibals is next.
+      expect(vm.currentRoom).toBe(ROOMS.idolChamber.id);
       expect(vm.vars.readGlobal(VARS.voyageStage)).toBe(2);
       expect(vm.vars.readBit(ROOMS.catapult.hitBit)).toBe(1);
-      // All five bananas fed to the monkey, which follows in ego's room.
       expect(vm.vars.readGlobal(ROOMS.monkey.fedVar)).toBe(5);
-      expect(vm.actors.get(ROOMS.monkey.actor).room).toBe(vm.currentRoom);
+      // The wimpy little idol is in hand.
+      expect(vm.getObjectOwner(ROOMS.idolChamber.wimpyIdol)).toBe(vm.vars.readGlobal(VAR_EGO));
     });
   });
 });

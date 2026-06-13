@@ -21,7 +21,9 @@ cannon shot onto Monkey Island's beach. Part III plays from boot well into "Unde
 Monkey Island": the beach opening, the Fort loot, the catapult shot, the dam flood,
 the Pond's rope, the Crack's oars, the row around the coast to the north beach, then
 inland to the cannibal village (bowl bananas stolen, the capture, the hut escape),
-the row BACK to the south side, and the wandering monkey caught and fed (it follows)**
+the row BACK to the south side, the wandering monkey caught and fed (it follows), and across to
+the clearing — the totem nose pulled, the monkey holding the gate, the wimpy little idol taken in
+the Giant Monkey Head**
 (see Frontier below).
 
 **Working principle (agreed 2026-06-02):** engine-faithful, no hacks/shortcuts —
@@ -41,8 +43,8 @@ a raw `driveUntil` only for bespoke predicates). Named `<Part> · <Room> — <wh
 proves>`, file order = run order; per-game ids/vars in `game.ts` (`ROOMS`/`VERBS`/`VARS`).
 A clean fast-forward save (`saves/MI1-walkthrough-frontier.websave.json`, gitignored,
 written by the ALWAYS-LAST `frontier` beat and regenerated each green run) sits at the furthest
-clean state — currently on overhead-map screen 2 with the just-caught monkey following ego;
-Part III plays from boot through the cannibal village, the hut escape, and the fed monkey.
+clean state — currently inside the Giant Monkey Head (room 69) with the wimpy little idol in hand;
+Part III plays from boot through the village, the monkey, and the idol.
 
 **Frontier: Parts I and II are FINISHED, and Part III plays from boot through the dam flood —
 after the cannon launch, ego gets up off the beach (the g32=201 wakeup), pockets a banana and
@@ -66,8 +68,11 @@ rowboat (#263) → row out as the boat (costume 4) and circumnavigate the map's 
 crawl out to screen 6. Then ROW BACK (the inland map's two halves only join by boat): north beach →
 rowboat #17 → screen 6→5→2 → south beach → jungle #261 → screen 2; catch the wandering monkey
 (actor 2 → close-up room 21), feed it the five bananas (g145→5, follow-controller #43), and it
-follows ego across the map.** Part-III room ids + mechanics live in `game.ts`
-(`monkeyBeach`/`monkeyMap`/`fort`/`riverFork`/`catapult`/`pond`/`crack`/`northBeach`/`cannibalVillage`/`cannibalHut`/`monkey`), not here.
+follows ego across the map. Finally across to the clearing (room 12 "la zona disboscata", via
+screen 2→4→5 and marker #63): Pull the totem nose (#144) → the following monkey holds the gate
+open (obj #142→1) → walk through the gate (#155) into the Giant Monkey Head's idol chamber (room
+69) and take the wimpy little idol (#761, among decoys).** Part-III room ids + mechanics live in
+`game.ts` (`monkeyBeach`/`monkeyMap`/`fort`/`riverFork`/`catapult`/`pond`/`crack`/`northBeach`/`cannibalVillage`/`cannibalHut`/`monkey`/`monkeyClearing`/`idolChamber`), not here.
 The overhead map (rooms 2–6) is WALKABLE (ego a small figure, costume 3 walking / costume 4 the
 boat), not a node hub: edge connectors cross screens (global #34); locations are entered by
 walking onto their marker.
@@ -84,7 +89,7 @@ end-position, Herman's arrival timing, etc. shift) — develop against the save 
 from-boot run (`npm run test:integration`, ~1.6s) is the real check; make RNG-touchy beats robust
 (e.g. the catapult down-climb retries the exit rather than asserting an exact intermediate box).
 
-> **Shipped — Part III "Under Monkey Island" steps 1–3 (the cannibal village + the monkey).**
+> **Shipped — Part III "Under Monkey Island" steps 1–4 (village, monkey, the idol).**
 > From the north beach: jungle #16 → screen 6 → "il villaggio" #72 → cannibal village (room 25).
 > Stealing the bowl bananas (#291, which pockets the village pair #282/#283) arms the capture (#202);
 > the confrontation fires as ego walks back RIGHT toward the cannibals (it parks on a `g2`/camera-X
@@ -101,18 +106,20 @@ from-boot run (`npm run test:integration`, ~1.6s) is the real check; make RNG-to
 > `game.ts` (`cannibalVillage`/`cannibalHut`/`monkey`, + `monkeyMap`'s boat-back connectors).
 > The banana note was CORRECTED: the catapult cluster #270 is a plain `Pick up` of #266/#267 (no
 > picker), taken on the south beach before the row; the picker (#314, in the hut) can't fit through
-> the escape hole (#200 drops it) — it's a door-only retrieval after the idol.
+> the escape hole (#200 drops it) — it's a door-only retrieval after the idol. Step 4 (the clearing):
+> screen 2→4 (#29) → 5 (#47) → marker #63 → room 12; Pull the totem nose (#144 verb 6 → local #204),
+> the following monkey (#43) holds the gate (gate-held obj #142→1), walk to the head and through the
+> gate #155 → idol chamber (room 69), take the wimpy idol #761.
 >
-> **NEXT SESSION — Part III step 4: the clearing / Giant Monkey Head.** Frontier sits on overhead-map
-> screen 2 with the monkey following. Next: navigate to the clearing (room 12 "la zona disboscata",
-> reached via screen 5's marker #63 walk=(231,96)) — the monkey-follows-across-screens is VERIFIED,
-> so it accompanies ego — then pull the totem's nose, the monkey holds the gate open, reach the Giant
-> Monkey Head and take the "wimpy little idol" (close-up room 69 is the monkey-head face #765/#767).
-> The remaining nav piece is the screen-2 → screen-5 → clearing WALKING route (more map-edge
-> crossings; screen 2's top edge → screen 4, so the route is likely 2→4→5 or 2→…→5 — drive it). After
-> that: back to the village to give the idol → re-enter the hut for the banana-picker; and the
-> navigator's head (#293). Restore the frontier save (screen 2, monkey following); RNG caveat above
-> still applies — the from-boot run (`npm run test:integration`) is the real check.
+> **NEXT SESSION — Part III steps 5–8.** Frontier sits inside the Giant Monkey Head (room 69) with
+> the wimpy idol. Next: exit (#756) and row BACK to the village (north) to GIVE the idol to the
+> now-approachable cannibals (the capture #202 menu offered "something to offer the Great Monkey" —
+> the idol is that offering); then re-enter the hut through the door (#285, now passable) to take the
+> banana-picker (#314, left behind earlier). Then: give the picker to Herman → the monkey-head KEY;
+> the navigator's head (#293) + the navigation leaflet; and finally the key in the monkey-head's ear
+> (room 65) → mouth opens → the catacombs maze, where holding out the navigator's head points the way
+> → LeChuck's ghost ship. Restore the frontier save (room 69, idol in hand); RNG caveat above still
+> applies — the from-boot run (`npm run test:integration`) is the real check.
 
 **Pending in-browser checks** (fixes shipped + folded into docs, look not yet confirmed):
 
