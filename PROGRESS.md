@@ -77,21 +77,35 @@ from-boot run (`npm run test:integration`, ~1.6s) is the real check; make RNG-to
 (e.g. the catapult down-climb retries the exit rather than asserting an exact intermediate box).
 
 > **NEXT SESSION — Part III proper ("Under Monkey Island"), beyond the north beach (132).** Ego is
-> ashore on the north shore with the rowboat. From here the jungle paths lead inland to the cannibal
-> village (room 25 — the navigator's head #293, the cannibals, the village bananas #282/#283) and
-> the giant monkey head (room 12 "la zona disboscata"; close-up room 69). The arc: get Herman's
-> banana-picker ("il raccoglibanane" #314, room 27 — source not yet driven), harvest the five
-> bananas, deal with the cannibals/navigator's head, and get under the monkey head. Restore the
-> frontier save to start on the north beach (room 132); same loop — disassemble first, drive
-> headless, assert mechanics. NB the frontier save's RNG caveat above — the from-boot run is the
-> real check.
+> ashore on the north shore with the rowboat. **Route into the village (verified by driving
+> 2026-06-13):** north beach (132, backs room 1) → jungle exit #16 → overhead-map **screen 6**
+> (room 6) → marker **#72 "il villaggio"** → cannibal village (**room 25**). The arc from there:
+> capture/hut/escape, the wandering monkey, the totem/Giant Monkey Head idol, the navigator's head
+> (#293), and getting under the monkey head (close-up room 69 / "la zona disboscata" room 12).
+> Restore the frontier save to start on the north beach (room 132); same loop — disassemble first,
+> drive headless, assert mechanics. NB the frontier save's RNG caveat above — the from-boot run is
+> the real check.
 >
-> **Banana harvest (verified from bytecode 2026-06-13).** The catapult (done) just made the high
-> beach bananas reachable; the FIVE are HARVESTED with Herman's banana-picker (#314): its Use-verb
-> acts on #266/#267 (beach) and #282/#283 (cannibal village, room 25), and reports #265 "già
-> raccolta". So the five = beach (#265 + #266 + #267) + village (#282 + #283); a plain Pick up of
-> the dropped cluster (#270) did NOT take a banana headless — the picker is required. (Not yet
-> driven: where the picker is obtained, and the exact consumer that needs 5 — likely the monkey.)
+> **Banana economy (re-derived from bytecode + headless drive 2026-06-13 — CORRECTS an earlier
+> wrong note).** The five the monkey wants are: **#265** (the single beach banana, pocketed in the
+> Part III opening beat) + **#266/#267** (the catapult-dropped beach cluster) + **#282/#283** (the
+> cannibal-village pair). The dropped cluster **#270** has a plain `Pick up` (verb 9) that hands over
+> BOTH #266 and #267 and clears the cluster — **no picker needed** (the earlier "#270 needs the
+> picker" claim was wrong). It MUST be taken on the south beach BEFORE rowing away (no convenient
+> return to room 20 afterward), so the walkthrough now does — **shipped this session:** new beat
+> `⚙️ South beach — pick up the catapult-dropped banana cluster`, + `beachBananaA`/`beachBananaB`
+> (#266/#267) ids in `game.ts`. The village pair #282/#283 are pocketed by taking the bowl bananas
+> (#291 `Pick up`), which also TRIGGERS the cannibal capture (#202). The banana-picker (#314) lives
+> in the hut (room 27) and acts on #266/#267/#282/#283 as an ALTERNATE harvest route; its required
+> consumer is still unpinned (the five don't need it).
+>
+> **Village capture/hut recon (2026-06-13, not yet beaten into beats).** Grabbing the bowl bananas
+> (#291) starts capture script #202; the confrontation fires as ego walks back RIGHT toward the
+> cannibals (it parks on a `g2`/camera-X > 270 wait until then — NOT a softlock). The cannibals
+> demand something to "offer the Great Monkey" (the idol) and the menu loops until given. **The hut
+> is room 27** (door #285 in room 25, locked "chiusa a chiave"); inside: #310 skull, #309 loose
+> board (escape, verb 11), #314 banana-picker, #305 note, #313 window. OPEN THREAD: what actually
+> throws ego INTO room 27 is unresolved (menu loops, door stays locked) — still digging.
 
 **Pending in-browser checks** (fixes shipped + folded into docs, look not yet confirmed):
 

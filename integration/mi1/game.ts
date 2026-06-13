@@ -978,10 +978,22 @@ export const ROOMS = {
      * makes room 2 the current room. The way up onto the island map.
      */
     jungle: 261,
-    /** "le banane" (#270) — the cluster the catapult knocks off the tree onto
-     *  the beach; state flips to 1 when the catapult hits. Picked up later with
-     *  the banana-picker (the village supplies the rest, to five). */
+    /**
+     * "le banane" (#270) — the cluster the catapult knocks off the tree onto
+     * the beach; state flips to 1 when the catapult hits. A plain Pick up
+     * (verb 9 → its own script) takes BOTH beach bananas ({@link beachBananaA}
+     * #266 + {@link beachBananaB} #267) and clears the cluster (state → 0) — no
+     * banana-picker needed. (#265 was already pocketed in the opening beat.)
+     * These three plus the village pair (#282/#283) are the five the monkey wants,
+     * so the cluster MUST be taken on the south beach before rowing away — there's
+     * no convenient return to room 20 afterward.
+     */
     fallenBananas: 270,
+    /** "la banana" (#266) — a beach banana, handed over by the {@link
+     *  fallenBananas} cluster's Pick up (no own Pick up verb of its own). */
+    beachBananaA: 266,
+    /** "la banana" (#267) — the other beach banana from the cluster pickup. */
+    beachBananaB: 267,
     /** "la barca a remi" (#263) — the rowboat. Use the oars ({@link crack}'s
      *  `oars` #245) on it (verb 7 → local #200): ego rows out onto the overhead
      *  map's water (room 2) as the boat figure (costume 4). */

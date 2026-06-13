@@ -2026,6 +2026,24 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(vm.haltInfo).toBeNull();
     });
 
+    beat('⚙️ South beach — pick up the catapult-dropped banana cluster (two beach bananas)', () => {
+      const ego = vm.vars.readGlobal(VAR_EGO);
+      const beach = ROOMS.monkeyBeach;
+      // The catapult knocked these onto the sand (#270, state 1). A plain Pick up
+      // takes both beach bananas (#266 + #267) and clears the cluster — no picker
+      // needed. They must be collected HERE: after the row there's no convenient
+      // way back to room 20, and the monkey wants five (these two + #265 from the
+      // opening + the village pair #282/#283).
+      expect(vm.objectStates.get(beach.fallenBananas)).toBe(1);
+      expect(vm.getObjectOwner(beach.beachBananaA)).not.toBe(ego);
+      use(vm, VERBS.pickUp, beach.fallenBananas);
+      expect(waitPickedUp(vm, beach.beachBananaA)).toBe(true);
+      expect(waitPickedUp(vm, beach.beachBananaB)).toBe(true);
+      expect(vm.objectStates.get(beach.fallenBananas)).toBe(0);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
     beat('🚶‍➡️ South beach — oars on the rowboat, row around the island to the north beach (132)', () => {
       const ego = vm.vars.readGlobal(VAR_EGO);
       const map = ROOMS.monkeyMap;
