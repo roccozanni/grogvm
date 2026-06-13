@@ -1125,6 +1125,28 @@ export const ROOMS = {
      * yet) or fail the three-headed-monkey trick (#207).
      */
     fineEatMe: 122,
+    /**
+     * "i cannibali" (#303) — the idol's give-target on the RETURN visit. The
+     * village looks empty; provoke the ambush by walking far WEST then back EAST
+     * toward the exit (the camera-crossing watcher, local #200/#202). At the
+     * confront menu pick {@link offerAnything} → the offering speech → a brief
+     * window where #303 turns touchable (its untouchable class bit 31 clears) and
+     * the verb script is g32=206 ("not going anywhere until you give us
+     * something"). Give the wimpy idol then → #203 → #205 ("LEMONHEAD!"): the
+     * idol is consumed, the cannibals turn friendly, and the hut door
+     * ({@link hutDoor}) opens. Too slow and they throw you back in the hut.
+     */
+    cannibals: 303,
+    /** Confront-menu option "Non mangiarmi! Ti darò qualsiasi cosa!" (#121) —
+     *  opens the offering window. */
+    offerAnything: 121,
+    /** Provoke the re-confrontation: the camera must pan left (walk west) then
+     *  back right (walk east toward the exit) past the watcher's threshold. */
+    recaptureWest: { x: 120, y: 139 },
+    recaptureEast: { x: 560, y: 130 },
+    /** "la porta" (#285) — the hut door; locked on the first visit, OPEN once
+     *  the idol wins the cannibals over. Open + walk through → the hut (room 27). */
+    hutDoor: 285,
   },
 
   /**
@@ -1209,6 +1231,8 @@ export const ROOMS = {
     headGate: 155,
     /** obj #142 — the gate-held flag (state 1 once the monkey holds it open). */
     gateHeldObj: 142,
+    /** "la giungla" (#134) — the clearing's exit back onto overhead-map screen 5. */
+    jungleExit: 134,
   },
 
   /**

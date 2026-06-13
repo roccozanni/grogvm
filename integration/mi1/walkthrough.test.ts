@@ -2288,6 +2288,112 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(waitPlayable(vm)).toBe(true);
       expect(vm.haltInfo).toBeNull();
     });
+
+    beat('🚶‍➡️ Giant Monkey Head (69) — row back around the island to the cannibal village (25)', () => {
+      const map = ROOMS.monkeyMap;
+      const ego = () => vm.actors.get(vm.vars.readGlobal(VAR_EGO));
+      const inBoat = () => ego().costume === 4;
+      // Out of the idol chamber (#756 → the clearing), back to overhead-map
+      // screen 5, then down the inland map to the south beach.
+      walkTo(vm, ROOMS.idolChamber.exit);
+      expect(driveToRoom(vm, ROOMS.monkeyClearing.id, { maxTicks: 12000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      walkTo(vm, ROOMS.monkeyClearing.jungleExit);
+      expect(driveToRoom(vm, 5, { maxTicks: 12000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      // Screen 5 → 4 (the left-edge connector #62 has no walk point, so nudge ego
+      // onto the edge), staging down screen 4 to the bottom connector #46 → screen 2.
+      walkTo(vm, { x: 5, y: 160 });
+      expect(driveToRoom(vm, map.riverScreen, { maxTicks: 9000 })).toBe(true); // screen 4
+      expect(waitPlayable(vm)).toBe(true);
+      for (const wp of [{ x: 130, y: 150 }, { x: 128, y: 190 }]) {
+        walkTo(vm, wp);
+        driveUntil(vm, () => Math.abs(ego().y - wp.y) < 16 || vm.currentRoom !== map.riverScreen, { maxTicks: 7000 });
+        if (vm.currentRoom !== map.riverScreen) break;
+      }
+      if (vm.currentRoom === map.riverScreen) walkTo(vm, map.riverScreenToCrackScreen);
+      expect(driveToRoom(vm, map.crackScreen, { maxTicks: 9000 })).toBe(true); // screen 2
+      expect(waitPlayable(vm)).toBe(true);
+      walkTo(vm, map.beachMarker);
+      expect(driveToRoom(vm, ROOMS.monkeyBeach.id, { maxTicks: 12000 })).toBe(true); // south beach (20)
+      expect(waitPlayable(vm)).toBe(true);
+
+      // Re-launch the rowboat (#263) and row NORTH (2 → 5 → 6 → north beach 132).
+      use(vm, VERBS.use, ROOMS.monkeyBeach.rowboat);
+      expect(driveUntil(vm, () => vm.currentRoom === map.crackScreen && inBoat(), { maxTicks: 14000 })).toBe(true);
+      walkTo(vm, map.boatScreen2to5);
+      expect(driveToRoom(vm, 5, { maxTicks: 12000 })).toBe(true);
+      expect(inBoat()).toBe(true);
+      walkTo(vm, map.boatScreen5to6);
+      expect(driveToRoom(vm, map.villageScreen, { maxTicks: 12000 })).toBe(true);
+      expect(inBoat()).toBe(true);
+      walkTo(vm, map.northBeachLanding);
+      expect(driveToRoom(vm, ROOMS.northBeach.id, { maxTicks: 12000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      // North beach → jungle → screen 6 → the village marker (#72) → room 25.
+      walkTo(vm, ROOMS.northBeach.jungle);
+      expect(driveToRoom(vm, map.villageScreen, { maxTicks: 12000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      walkTo(vm, map.villageMarker);
+      expect(driveToRoom(vm, ROOMS.cannibalVillage.id, { maxTicks: 14000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('⚙️ Cannibal village — provoke the cannibals and give them the wimpy idol (they turn friendly)', () => {
+      const ego = vm.vars.readGlobal(VAR_EGO);
+      const village = ROOMS.cannibalVillage;
+      const armed = () => [...vm.verbs.entries()].filter(([k, v]) => k >= 120 && k <= 132 && v.state === 'on');
+      // #303 carries the untouchable class (bit 31) until the offering window opens.
+      const cannibalsTouchable = () => ((vm.objectClasses.get(village.cannibals) ?? 0) & 0x80000000) === 0;
+      const A = () => vm.actors.get(ego);
+
+      // The village looks empty; provoke the ambush by walking far WEST then back
+      // EAST toward the exit (the camera-crossing watcher fires the confrontation).
+      walkTo(vm, village.recaptureWest);
+      expect(driveUntil(vm, () => A().x <= 130, { maxTicks: 9000 })).toBe(true);
+      walkTo(vm, village.recaptureEast);
+      expect(driveUntil(vm, () => armed().length > 0, { maxTicks: 14000 })).toBe(true);
+
+      // Pick "Non mangiarmi! Ti darò qualsiasi cosa!" (#121) → the offering speech.
+      expect(armed().some(([k]) => k === village.offerAnything)).toBe(true);
+      pickAnswer(vm, village.offerAnything);
+
+      // Wait for the brief offering window: the cannibals turn touchable and control
+      // returns — then give the wimpy idol immediately (too slow and they re-jail you).
+      expect(
+        driveUntil(vm, () => cannibalsTouchable() && vm.cursor.userput > 0 && armed().length === 0, { maxTicks: 16000 }),
+      ).toBe(true);
+      useWith(vm, VERBS.give, ROOMS.idolChamber.wimpyIdol, village.cannibals);
+
+      // Accepted (#205 "LEMONHEAD!"): the idol is consumed and the hut door opens.
+      expect(driveUntil(vm, (v) => v.getObjectOwner(ROOMS.idolChamber.wimpyIdol) !== ego, { maxTicks: 10000 })).toBe(true);
+      expect(driveUntil(vm, (v) => v.objectStates.get(village.hutDoor) === 1, { maxTicks: 10000 })).toBe(true);
+      expect(vm.currentRoom).toBe(village.id);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('⚙️ Cannibal hut — slip in through the open door and take the banana-picker', () => {
+      const ego = vm.vars.readGlobal(VAR_EGO);
+      const village = ROOMS.cannibalVillage;
+      const hut = ROOMS.cannibalHut;
+      // The idol made the cannibals friendly, so the hut door (#285) opens now:
+      // Open it and walk through into the hut (room 27).
+      use(vm, VERBS.open, village.hutDoor);
+      driveUntil(vm, () => vm.currentRoom === hut.id, { maxTicks: 8000 });
+      if (vm.currentRoom !== hut.id) {
+        walkTo(vm, village.hutDoor);
+        expect(driveToRoom(vm, hut.id, { maxTicks: 10000 })).toBe(true);
+      }
+      expect(waitPlayable(vm)).toBe(true);
+      // Take the banana-picker (#314) — left behind on the escape, now retrievable.
+      expect(vm.getObjectOwner(hut.picker)).not.toBe(ego);
+      use(vm, VERBS.pickUp, hut.picker);
+      expect(waitPickedUp(vm, hut.picker)).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
   });
 
   // ALWAYS THE LAST GROUP: snapshot the furthest clean playable state to a save
@@ -2303,18 +2409,18 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
         JSON.stringify(snapshotVm(vm, { game: 'MI1', label: 'walkthrough-frontier' })),
       );
       // Furthest clean point so far: into "Under Monkey Island" — Part III's
-      // surface, the cannibal village (bowl bananas stolen, capture, hut escape),
-      // the row BACK to the south side, the wandering monkey caught and fed all
-      // five bananas (it follows), then across to the clearing where the totem's
-      // nose is pulled, the monkey holds the gate, and ego takes the wimpy little
-      // idol inside the Giant Monkey Head (room 69). Giving the idol to the
-      // cannibals is next.
-      expect(vm.currentRoom).toBe(ROOMS.idolChamber.id);
+      // surface, the cannibal village (bowl bananas, capture, hut escape), the row
+      // back to the south side, the wandering monkey caught and fed (it follows),
+      // the clearing's totem/Giant-Monkey-Head idol, then the row BACK to the
+      // village to give the cannibals the idol (they turn friendly, "LEMONHEAD!")
+      // and into the now-open hut for the banana-picker. Picker → Herman is next.
+      expect(vm.currentRoom).toBe(ROOMS.cannibalHut.id);
       expect(vm.vars.readGlobal(VARS.voyageStage)).toBe(2);
       expect(vm.vars.readBit(ROOMS.catapult.hitBit)).toBe(1);
       expect(vm.vars.readGlobal(ROOMS.monkey.fedVar)).toBe(5);
-      // The wimpy little idol is in hand.
-      expect(vm.getObjectOwner(ROOMS.idolChamber.wimpyIdol)).toBe(vm.vars.readGlobal(VAR_EGO));
+      // The idol was given (no longer held) and the banana-picker is in hand.
+      expect(vm.getObjectOwner(ROOMS.idolChamber.wimpyIdol)).not.toBe(vm.vars.readGlobal(VAR_EGO));
+      expect(vm.getObjectOwner(ROOMS.cannibalHut.picker)).toBe(vm.vars.readGlobal(VAR_EGO));
     });
   });
 });

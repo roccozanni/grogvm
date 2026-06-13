@@ -23,7 +23,8 @@ the Pond's rope, the Crack's oars, the row around the coast to the north beach, 
 inland to the cannibal village (bowl bananas stolen, the capture, the hut escape),
 the row BACK to the south side, the wandering monkey caught and fed (it follows), and across to
 the clearing — the totem nose pulled, the monkey holding the gate, the wimpy little idol taken in
-the Giant Monkey Head**
+the Giant Monkey Head, then the row BACK to the village to give the cannibals the idol (provoke the
+ambush, hand it over before they re-jail you) and into the now-friendly hut for the banana-picker**
 (see Frontier below).
 
 **Working principle (agreed 2026-06-02):** engine-faithful, no hacks/shortcuts —
@@ -43,8 +44,8 @@ a raw `driveUntil` only for bespoke predicates). Named `<Part> · <Room> — <wh
 proves>`, file order = run order; per-game ids/vars in `game.ts` (`ROOMS`/`VERBS`/`VARS`).
 A clean fast-forward save (`saves/MI1-walkthrough-frontier.websave.json`, gitignored,
 written by the ALWAYS-LAST `frontier` beat and regenerated each green run) sits at the furthest
-clean state — currently inside the Giant Monkey Head (room 69) with the wimpy little idol in hand;
-Part III plays from boot through the village, the monkey, and the idol.
+clean state — currently in the cannibal hut (room 27) with the banana-picker, the idol given;
+Part III plays from boot through the village, the monkey, the idol, and the idol-for-picker trade.
 
 **Frontier: Parts I and II are FINISHED, and Part III plays from boot through the dam flood —
 after the cannon launch, ego gets up off the beach (the g32=201 wakeup), pockets a banana and
@@ -71,8 +72,13 @@ rowboat #17 → screen 6→5→2 → south beach → jungle #261 → screen 2; c
 follows ego across the map. Finally across to the clearing (room 12 "la zona disboscata", via
 screen 2→4→5 and marker #63): Pull the totem nose (#144) → the following monkey holds the gate
 open (obj #142→1) → walk through the gate (#155) into the Giant Monkey Head's idol chamber (room
-69) and take the wimpy little idol (#761, among decoys).** Part-III room ids + mechanics live in
-`game.ts` (`monkeyBeach`/`monkeyMap`/`fort`/`riverFork`/`catapult`/`pond`/`crack`/`northBeach`/`cannibalVillage`/`cannibalHut`/`monkey`/`monkeyClearing`/`idolChamber`), not here.
+69) and take the wimpy little idol (#761, among decoys). Then row BACK to the village and GIVE the
+idol: it looks empty, so provoke the ambush (walk far west then back east — the camera-crossing
+watcher #200/#202 confronts you), pick "Ti darò qualsiasi cosa" (#121), and in the brief window
+where the cannibals turn touchable (their class bit 31 clears, g32=206) hand over the idol → #205
+("LEMONHEAD!"): friendly, the hut door (#285) opens → enter and take the banana-picker (#314).**
+Part-III room ids + mechanics live in `game.ts`
+(`monkeyBeach`/`monkeyMap`/`fort`/`riverFork`/`catapult`/`pond`/`crack`/`northBeach`/`cannibalVillage`/`cannibalHut`/`monkey`/`monkeyClearing`/`idolChamber`), not here.
 The overhead map (rooms 2–6) is WALKABLE (ego a small figure, costume 3 walking / costume 4 the
 boat), not a node hub: edge connectors cross screens (global #34); locations are entered by
 walking onto their marker.
@@ -89,7 +95,7 @@ end-position, Herman's arrival timing, etc. shift) — develop against the save 
 from-boot run (`npm run test:integration`, ~1.6s) is the real check; make RNG-touchy beats robust
 (e.g. the catapult down-climb retries the exit rather than asserting an exact intermediate box).
 
-> **Shipped — Part III "Under Monkey Island" steps 1–4 (village, monkey, the idol).**
+> **Shipped — Part III "Under Monkey Island" steps 1–5 (village, monkey, idol, idol-for-picker).**
 > From the north beach: jungle #16 → screen 6 → "il villaggio" #72 → cannibal village (room 25).
 > Stealing the bowl bananas (#291, which pockets the village pair #282/#283) arms the capture (#202);
 > the confrontation fires as ego walks back RIGHT toward the cannibals (it parks on a `g2`/camera-X
@@ -109,17 +115,31 @@ from-boot run (`npm run test:integration`, ~1.6s) is the real check; make RNG-to
 > the escape hole (#200 drops it) — it's a door-only retrieval after the idol. Step 4 (the clearing):
 > screen 2→4 (#29) → 5 (#47) → marker #63 → room 12; Pull the totem nose (#144 verb 6 → local #204),
 > the following monkey (#43) holds the gate (gate-held obj #142→1), walk to the head and through the
-> gate #155 → idol chamber (room 69), take the wimpy idol #761.
+> gate #155 → idol chamber (room 69), take the wimpy idol #761. Step 5 (idol-for-picker): row BACK
+> to the village (idol chamber #756 → clearing → screen 5→4 [left edge #62] →2 [#46] → south beach
+> #30 → re-launch rowboat #263 → boat 2→5→6 → north beach → jungle #16 → screen 6 → village #72).
+> The village looks empty; provoke the ambush (walk far west then back east — watcher #200/#202),
+> pick #121 ("Ti darò qualsiasi cosa"), and in the brief window where the cannibals turn touchable
+> (class bit 31 clears, g32=206) GIVE the idol → #205: friendly, hut door #285 opens → enter, take
+> the banana-picker (#314).
 >
-> **NEXT SESSION — Part III steps 5–8.** Frontier sits inside the Giant Monkey Head (room 69) with
-> the wimpy idol. Next: exit (#756) and row BACK to the village (north) to GIVE the idol to the
-> now-approachable cannibals (the capture #202 menu offered "something to offer the Great Monkey" —
-> the idol is that offering); then re-enter the hut through the door (#285, now passable) to take the
-> banana-picker (#314, left behind earlier). Then: give the picker to Herman → the monkey-head KEY;
-> the navigator's head (#293) + the navigation leaflet; and finally the key in the monkey-head's ear
-> (room 65) → mouth opens → the catacombs maze, where holding out the navigator's head points the way
-> → LeChuck's ghost ship. Restore the frontier save (room 69, idol in hand); RNG caveat above still
+> **NEXT SESSION — Part III steps 6–8.** Frontier sits in the cannibal hut (room 27) with the
+> banana-picker. Next: give the picker to Herman Toothrot → the monkey-head KEY; talk to the
+> cannibals about defeating LeChuck, then give them the navigation leaflet (#902) → #104 → the
+> navigator's head (#293) [#104 sets bit#358, which arms the room-25 re-confrontation #214/#217];
+> finally use the key in the monkey-head's ear (close-up room 65) → mouth opens → the catacombs maze,
+> where holding out the navigator's head points the way (pause at junctions to let it reorient) →
+> LeChuck's ghost ship. Restore the frontier save (room 27, picker in hand); RNG caveat above still
 > applies — the from-boot run (`npm run test:integration`) is the real check.
+
+> **Two cannibal-village rendering bugs reported in-browser 2026-06-13 (investigate next).**
+> 1. **Ego walks slowly in the village (room 25):** legs animate at normal speed but he covers far
+>    less ground — a walk-speed/scale mismatch. Seen on a RESTORED save; reportedly fine booting from
+>    scratch (so likely a save/restore gap — an actor scale or walk-speed field not serialized, like
+>    the RNG caveat). The from-boot integration run is unaffected.
+> 2. **The 3 cannibals sometimes all render as "Lemonhead" (one mask)** instead of three distinct
+>    masks — intermittent, a costume-decode/limb issue on actors 3/4/5 in room 25. Both are
+>    real-pixel (in-browser) issues; the headless net renders nothing, so neither fails the suite.
 
 **Pending in-browser checks** (fixes shipped + folded into docs, look not yet confirmed):
 
