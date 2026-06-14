@@ -63,6 +63,22 @@ export function startWalk(
   actor: Actor,
   target: { x: number; y: number },
 ): void {
+  // SCUMM's startWalkActor early-out: standing already ON the destination is
+  // not a walk — leave the actor at rest rather than flagging it moving for a
+  // frame. Scripts run BEFORE the walk step each frame, so a zero-distance
+  // walk would otherwise read as `getActorMoving != 0` for exactly one frame
+  // and satisfy a "fire the moment ego moves" gate. The MI1 LeChuck-finale
+  // punch trigger (global #125) is exactly such a gate: the root beer sits on
+  // ego's own walk-spot, so picking it up must NOT register as movement or the
+  // punch lands and cancels the pickup.
+  if (actor.x === target.x && actor.y === target.y) {
+    actor.walkTarget = null;
+    actor.walkPath = [];
+    actor.walkPathIdx = 0;
+    actor.walkLeg = null;
+    actor.isMoving = false;
+    return;
+  }
   actor.walkTarget = target;
   actor.walkPath = [];
   actor.walkPathIdx = 0;

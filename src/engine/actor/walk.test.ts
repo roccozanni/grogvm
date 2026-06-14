@@ -43,6 +43,21 @@ describe('startWalk — off-screen box targets', () => {
     const last = a.walkPath[a.walkPath.length - 1];
     expect(last).toEqual({ x: -25, y: 90 });
   });
+
+  it('does not flag movement when the target is the actor’s own spot (SCUMM startWalkActor early-out)', () => {
+    // Regression (MI1 LeChuck finale): walking to an object you’re already
+    // standing on (the root beer at ego’s feet) must NOT register as movement,
+    // or a "fire the moment ego moves" gate (punch trigger #125) reads the
+    // one-frame phantom and pre-empts the action. Scripts run before the walk
+    // step each frame, so the actor must already read as at-rest here.
+    const v = vm();
+    const a = v.actors.get(1);
+    a.x = 60; a.y = 95; a.isMoving = false;
+    startWalk(v as never, a, { x: 60, y: 95 });
+    expect(a.isMoving).toBe(false);
+    expect(a.walkTarget).toBeNull();
+    expect(a.walkPath).toEqual([]);
+  });
 });
 
 function walkingActor(opts: {

@@ -1050,10 +1050,19 @@ export class Vm {
    * Look at #85 runs `cutScene → loadRoom 84 → poll g194 → endCutScene` in
    * one verb script; kill it at its own loadRoom and no script is left to
    * end the cutscene, so the world stays frozen on the close-up forever.
+   *
+   * The same trap springs for a verb on a ROOM object: the general-store
+   * exit runs the open-door verb's `cutScene → … → endCutScene` (#387) while
+   * its sibling walk-to-door verb drives `loadRoomWithEgo` — if the room
+   * change kills the still-animating open-door cutscene, its frame is stranded
+   * on the stack and control never returns. So spare ANY slot that owns an
+   * active cutscene frame (it must reach its own `endCutScene`), mirroring the
+   * cutscene-caller spare in {@link freezeScripts}.
    */
   private stopRoomLocalScripts(): void {
     for (const s of this.slots) {
       if (s.status === 'dead') continue;
+      if (this.cutsceneStack.some((f) => f.callerSlot === s.slotIndex)) continue;
       if (s.label.startsWith('VERB-')) {
         // Verb slots carry their object id in scriptId (see startObject).
         const owner = this.getObjectOwner(s.scriptId);
