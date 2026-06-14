@@ -717,6 +717,19 @@ export class Vm {
     this.vars.writeGlobal(VAR_ROOM_INDEX, roomId);
     this.applyRoomResources(roomId);
 
+    // Pull the camera centre back into the NEW room's bounds. SCUMM's
+    // cameraMoved() reclamps the centre against the current room every frame,
+    // so crossing into a narrower room snaps a carried-over centre inward —
+    // and that corrected value is what the next room inherits. We clamp only
+    // at follow/pan/setCameraAt time, so without this a centre stays pinned
+    // across a room change. Witness: the LeChuck-explosion ending (global
+    // #137) walks room 59 (640w, camera ≈ ego's 297) → room 85 (320w) →
+    // room 10 (640w credits) with NO setCameraAt. The original clamps to 160
+    // in the 320-wide blimp room and inherits it into the credits room,
+    // framing the cliff at the left; un-clamped, 297 survives and splits the
+    // credits room down the middle (cliff | LucasArts logo).
+    this.moveCameraTo(this.clampCameraX(this.camera.x));
+
     // Room load is itself a placement event: an actor put into this room
     // while another was current skipped its placement rescale (these boxes
     // weren't loaded), so resolve box + scale for everyone here before the

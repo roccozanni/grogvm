@@ -18,7 +18,8 @@ import { MemoryRenderer } from '../../src/engine/render/memory';
 import type { SessionGame } from '../../src/engine/session/types';
 import type { Vm } from '../../src/engine/vm/vm';
 import { loadScummV5, readCdTrackDurations } from '../../src/testkit/scummv5';
-import { DATA_DIR, hasGame, ROOMS } from './game';
+import { viewportLeft } from '../../src/engine/graphics/viewport';
+import { boot, DATA_DIR, hasGame, ROOMS } from './game';
 
 const LOOKOUT = ROOMS.meleeLookout.id; // 33 — the first interactive room
 
@@ -113,4 +114,30 @@ describe.skipIf(!hasGame())('EngineSession — real MI1', () => {
   // byte-equal re-serialize) is game-agnostic and pinned synthetically in
   // `src/engine/session/session.test.ts`; the real-state round-trip lives in
   // `integration/mi1/savestate.test.ts`. Not duplicated here.
+
+  // A room load reclamps the camera to the NEW room's bounds, the way SCUMM's
+  // per-frame cameraMoved() does. The LeChuck-explosion ending (global #137)
+  // crosses a wide room → the 320-wide blimp room → the 640-wide credits room
+  // with NO setCameraAt; the narrow room must pull a carried-over centre to
+  // 160 so the credits room inherits it and frames the cliff at the left.
+  // Without the reclamp the centre stays pinned mid-room and the credits room
+  // is split down the middle (cliff | LucasArts logo).
+  it('a room load pulls the camera centre into the new room (explosion-ending path)', () => {
+    const vm = boot();
+    const CREDITS = 10;
+
+    vm.enterRoom(ROOMS.stan.id); // 640 wide (where the explosion is triggered)
+    vm.camera.x = 297; // camera parked near ego, as in the bug-report save
+    expect(vm.loadedRoom!.width).toBe(640);
+
+    vm.enterRoom(ROOMS.meleeMap.id); // 320-wide blimp room — clamps centre to 160
+    expect(vm.loadedRoom!.width).toBe(320);
+    expect(vm.camera.x).toBe(160);
+
+    vm.enterRoom(CREDITS); // 640-wide credits room — inherits 160, NOT 297
+    expect(vm.loadedRoom!.width).toBe(640);
+    expect(vm.camera.x).toBe(160);
+    // The visible slice starts at the room's left edge (the cliff), not mid-room.
+    expect(viewportLeft(vm.camera.x, vm.loadedRoom!.width)).toBe(0);
+  });
 });
