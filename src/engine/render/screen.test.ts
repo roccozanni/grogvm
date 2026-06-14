@@ -154,16 +154,21 @@ describe('composeScreen frame assembly', () => {
     expect(px(input, W - 1, SCREEN_HEIGHT - 1)).toBe(0);
   });
 
-  it('a 200-tall room fills the screen — no verb band, verbs unpainted', () => {
+  it('a 200-tall close-up paints dialog verbs OVER the room (no band to drop them into)', () => {
+    // The navigator-head talk (room 86) is a full-height close-up whose dialog
+    // options live at screen rows ≥ 144 — there is no panel band below the room,
+    // so they must overlay the room image, not vanish.
     const input = makeInput({
       roomBand: new Uint8Array(W * SCREEN_HEIGHT).fill(ROOM_PIXEL),
       roomHeight: SCREEN_HEIGHT,
       verbs: [makeVerb({ id: 2, name: 'A', x: 10, y: 152, color: 12 })],
     });
     composeScreen(input);
-    for (let y = 0; y < SCREEN_HEIGHT; y += 7) {
-      expect(px(input, 10, y)).toBe(ROOM_PIXEL);
-    }
+    // The room still fills the top rows…
+    expect(px(input, 10, 10)).toBe(ROOM_PIXEL);
+    // …and the dialog verb paints over the room at its own screen row.
+    expect(px(input, 10, 152)).toBe(12);
+    expect(px(input, 13, 159)).toBe(12);
   });
 
   it('fills columns right of a narrow room band with CLUT 0', () => {

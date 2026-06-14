@@ -120,11 +120,11 @@ function paintVerbBand(input: ComposeScreenInput): void {
   const { framebuffer, screenWidth, screenHeight, roomHeight } = input;
   framebuffer.fill(VERB_BAR_BG_COLOR, roomHeight * screenWidth, screenHeight * screenWidth);
 
-  const verbBarHeight = screenHeight - roomHeight;
-  // Hover only exists where a band exists: a 200-tall cutscene room has no
-  // verb rows, even though script-screen y ≥ 144 still falls inside it.
+  // A hovered dialog/panel row highlights wherever a verb actually sits — the
+  // band below a 144-tall room OR, for a full-height (200) close-up, over the
+  // room itself (the navigator-head talk, room 86).
   const hovered =
-    input.mouse && verbBarHeight > 0 && input.mouse.y >= VERB_BAR_START_Y
+    input.mouse && input.mouse.y >= VERB_BAR_START_Y
       ? verbAt(input, input.mouse.x, input.mouse.y)
       : null;
   const clip: ClipRect = { x0: 0, y0: 0, x1: screenWidth, y1: screenHeight };
@@ -136,10 +136,14 @@ function paintVerbBand(input: ComposeScreenInput): void {
     // a conversation that's the action verbs AND the sentence line (#100) —
     // without this the sentence line draws across the first dialog reply.
     if (input.isVerbArchived(v.id)) continue;
-    // Verb y is screen-space (144+); map into the panel strip.
-    const local = v.y - VERB_BAR_START_Y;
-    if (local < 0 || local >= verbBarHeight) continue;
-    const y = roomHeight + local;
+    // Verb rows are screen-space (the 200-tall surface): the panel band below a
+    // 144-tall room maps row→row, but a conversation in a FULL-HEIGHT (200)
+    // close-up draws its dialog options OVER the room image. Paint any verb at
+    // or below the band start, clipped to the surface — not just the strip
+    // below the room, which is empty for a full-height room. The shell's input
+    // splits band clicks at the same fixed 144, so render and hit-test agree.
+    const y = v.y;
+    if (y < VERB_BAR_START_Y || y >= screenHeight) continue;
     if (v.image) {
       blitVerbImage(input, v.image, v.x, y);
       continue;
