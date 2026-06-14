@@ -19,6 +19,18 @@ A script can narrow this further with `roomOps roomScroll`, which sets
 the default room bounds. Every camera movement — follow, pan, or a direct
 `setCameraAt` — lands inside the active range.
 
+**A room load is itself a clamp.** SCUMM's `cameraMoved` reclamps the centre
+against the *current* room every frame, so crossing into a narrower room snaps
+a carried-over centre inward — and that corrected value is what the next room
+inherits. Clamping only at follow/pan/`setCameraAt` time leaves a gap: a centre
+can survive a plain `loadRoom` and sit outside the new room's bounds. The
+witness is the LeChuck-explosion ending, which uses no `setCameraAt` at all —
+it walks the 640-wide room 59 with the camera near ego's x≈297, through the
+320-wide blimp room (whose bounds clamp the centre to 160), into the 640-wide
+credits room, which inherits 160 and frames the cliff at the left edge. Skip
+the room-load reclamp and 297 survives into the credits room, splitting it down
+the middle — the cliff stranded beside the LucasArts logo.
+
 Every movement also **publishes the new centre into `VAR_CAMERA_POS_X`**.
 Scripts poll that variable constantly — escape-watchers, walk-past-camera
 gates (Meathook's payoff script loops on `meathookX < cameraX − 175`; Stan's

@@ -189,7 +189,10 @@ mid-span (room 58's forest verticals cross the ground line unlinked).
 
 ## 6. Walker integration
 
-When a walk-to command fires for an actor:
+When a walk-to command fires for an actor, the **no-op case comes first**: if
+the actor already stands exactly on the target, SCUMM's `startWalkActor`
+returns early and leaves it at rest — it is *not* flagged moving, not even for
+the single frame the command lands on. Otherwise:
 
 1. The walk routine plans a path from the actor's current position to the
    target.
@@ -200,6 +203,14 @@ When a walk-to command fires for an actor:
    the resulting waypoints become the actor's walk path. The actor's current
    position is *not* prepended — the walker starts from where the actor
    already is.
+
+That zero-distance early-out is load-bearing because **scripts run before the
+walk step each frame**: a walk that flagged the actor moving for even one frame
+would read as `getActorMoving != 0` to a gate polling that same frame. MI1's
+LeChuck-finale punch trigger is exactly such a gate — it fires the instant ego
+moves — and the root beer that ends the fight sits on ego's *own* walk-spot, so
+picking it up must register as no movement or the punch lands and cancels the
+pickup.
 
 Per tick the walker advances the actor toward the active waypoint **along
 the line to it** (§9), bumps the waypoint index on arrival, and stops on

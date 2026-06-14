@@ -34,18 +34,25 @@ On a room change, in this exact order:
    touchability, the Voodoo Lady's entrance choreography that closes the door
    behind you).
 3. **Stop the old room's local + object/verb scripts.** Room-scoped scripts
-   (`WIO_ROOM` / `WIO_FLOBJECT`) die on a room change; globals survive — and so
-   do the verb scripts of *carried* objects, which belong to the inventory item,
-   not the departing room. (A Look/Use handler on an inventory object can itself
-   swap rooms — a parchment close-up loads its own room, polls, then returns and
-   ends the cutscene — so purging it at its own `loadRoom` would strand the
-   cutscene unended and hang the VM.) Without this purge, an old room's
-   ambient/animation loop keeps running into the new room and tries to start
-   locals that don't exist there. The same purge
-   covers a previous `ENCD`/`EXCD` still yielded mid-slice: a stale
-   entry-script slice that survives resumes against the *new* room's local
-   table and starts whatever script owns that id there (a previous room's
-   entry script resuming two rooms later is a VM halt, not a glitch).
+   (`WIO_ROOM` / `WIO_FLOBJECT`) die on a room change; globals survive, as do
+   the verb scripts of *carried* objects (they belong to the inventory item,
+   not the departing room). The purge also **spares any slot that owns an
+   active cutscene frame**, so the cutscene reaches its own `endCutscene`
+   instead of stranding its frame on the stack and freezing control — the same
+   spare `freezeScripts` grants the cutscene's caller
+   ([cutscenes §3](../scumm/cutscenes.md)). Two MI1 shapes ride on it: a
+   Look/Use handler on an *inventory* object that swaps rooms (a parchment
+   close-up loads its own room, polls, then returns and ends the cutscene), and
+   a verb on a *room* object whose sibling drives the change (the general-store
+   exit runs the open-door verb's `cutScene … endCutScene` while the
+   walk-to-door verb calls `loadRoomWithEgo`; kill the still-animating open-door
+   cutscene at the room change and its frame strands). Without the purge
+   itself, an old room's ambient/animation loop keeps running into the new room
+   and tries to start locals that don't exist there. The same purge covers a
+   previous `ENCD`/`EXCD` still yielded mid-slice: a stale entry-script slice
+   that survives resumes against the *new* room's local table and starts
+   whatever script owns that id there (a previous room's entry script resuming
+   two rooms later is a VM halt, not a glitch).
 4. **Reset per-room box flags** to the new room's on-disk values (the entry
    script re-applies any door locks).
 5. **Set `currentRoom` and `VAR_ROOM`** to the requested id — the *raw* id even
@@ -64,8 +71,11 @@ On a room change, in this exact order:
    The intro is the witness: the boot script parks ego on the cliff path
    (room 38) while the title room is still current; the path room's first
    frame must already show him at path scale, not full-size.
-8. **Place the entering ego** (`loadRoomWithEgo` only — §3), *between* the
-   resource load and the entry script.
+8. **Bring the entering ego into the new room** (`loadRoomWithEgo` only — §3).
+   Its *room membership* is set here, before the entry script, so an `ENCD`
+   that branches on `getActorRoom(ego)` sees it already arrived; its *screen
+   position and entry walk* land later, after the entry script's first slice
+   (§3).
 9. **Run the entry side, nested: the entry hook (`VAR_ENTRY_SCRIPT`), the new
    room's `ENCD` to its first `breakHere` (see §4), then the second entry
    hook (`VAR_ENTRY_SCRIPT2`).** MI1 boots `#5`/`#6` into the entry hooks;
@@ -90,6 +100,13 @@ entry script reads to know how the ego arrived.)
 `loadRoomWithEgo obj N x y` places the ego relative to the **entry object** and
 lets the new room's entry script walk it the rest of the way:
 
+- **The ego joins the new room *before* the entry script runs.** SCUMM's
+  `loadRoomWithEgo` sets the ego's room membership ahead of the `ENCD`, so an
+  entry script that gates on the ego having arrived sees it — the
+  captain's-cabin spinning-key setup (room 72) runs its whole draw-the-key
+  block only while `getActorRoom(ego)` is the cabin, and would skip it (leaving
+  no key to take) if membership lagged the room change. Only the ego's
+  *position* waits for the first `breakHere` (next bullet).
 - **`VAR_WALKTO_OBJ` is set to `obj` across the transition**, so the new room's
   `ENCD` can branch on *which object/edge the ego came in through*. It stays set
   through the entry script (the next `loadRoomWithEgo` overwrites it).
