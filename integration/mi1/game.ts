@@ -10,6 +10,7 @@ import {
   driveUntil,
   hasData,
   makeSeededRandom,
+  objectPoint,
   pickAnswer,
   use,
   waitPlayable,
@@ -1200,12 +1201,35 @@ export const ROOMS = {
      * the catacombs it points the way to LeChuck.
      */
     navigatorHead: 293,
+    /** "la collana sul navigatore" (#294) — the magic necklace, ON the navigator's
+     *  head. Begging the head for it ({@link ghostCavern}.headTalk) hands it over;
+     *  wearing it makes ego invisible to ghosts. Pocketed with the head by the
+     *  leaflet trade (global #104). */
+    necklace: 294,
     /** "il dépliant" (#902) — the navigation leaflet (the Sea Monkey's how-to),
      *  traded to the cannibals for {@link navigatorHead}. */
     leaflet: 902,
     /** Set by global #104 when the head is handed over; arms the room-25
      *  re-confrontation (#214/#217) for the catacombs return. */
     navHeadGivenBit: 358,
+    /**
+     * The seltzer is made AUTOMATICALLY on returning to the village with the voodoo
+     * root ({@link ghostGalley}.root #823): the room-25 ENCD starts local #200,
+     * which sees `owner(#823)==ego && bit#383==0` → global #106 — the cannibals'
+     * cutscene that turns the root into magic seltzer (renames #823 → "la bottiglia
+     * di selz magico", sets {@link seltzerBit} #383) and walks ego off to the
+     * overhead map (room 6). No Give verb; just arrive holding the root.
+     */
+    seltzerBit: 383,
+    /**
+     * The lift home — ends Part III. Once the seltzer is made (bit#383), the
+     * village's jungle exit ({@link jungleExit} #290) verb-11 → global #171 (the
+     * "dopo aver corso a tutta velocità…" cutscene) → the ghost-ship cavern
+     * ({@link ghostCavern}, room 70), where the ghost crew greet ego as "Bob" and
+     * give a ride → global #131 → Part IV (room 95 title card → the Mêlée docks,
+     * room 83; sets bit#453). (Pre-seltzer, #290 is the plain exit to map screen 6.)
+     */
+    partFourBit: 453,
   },
 
   /**
@@ -1283,15 +1307,28 @@ export const ROOMS = {
      *  it and, with the monkey still following (#43), local #205 sets the monkey
      *  to hold the gate. */
     totemNose: 144,
-    /** "la testa di scimmia gigante" (#133) — the Giant Monkey Head at the far
-     *  right (x≈813). Walking up to it (after the nose-pull) lets the following
-     *  monkey grab and hold the gate — {@link gateHeldObj} #142 flips to 1. */
+    /**
+     * "la testa di scimmia gigante" (#133) — the Giant Monkey Head at the far
+     * right (x≈813). It is BOTH the idol-chamber gate AND the catacombs gateway.
+     * Walking up to it (after the nose-pull) lets the following monkey grab and
+     * hold the gate — {@link gateHeldObj} #142 flips to 1 — opening the idol
+     * chamber. On the RETURN with the mouth open ({@link mouthOpenObj} #151==1),
+     * walking it again loads the catacombs antechamber instead. Its verb-11 reads:
+     * #142==1 && #151==1 → room 65 (catacombs); #142==1 only → room 69 (idol
+     * chamber, via #155); else nothing. A bare walk-to fires it only once ego has
+     * arrived at the head, so the click is RETRIED until the room changes.
+     */
     head: 133,
     /** The gate entrance at the head (#155): once the gate is held, its verb-11
-     *  `putActorInRoom room=69` — into the idol chamber. */
+     *  `putActorInRoom room=69` — into the idol chamber (only while the mouth is
+     *  still closed, #151==0; inert once the mouth is open). */
     headGate: 155,
     /** obj #142 — the gate-held flag (state 1 once the monkey holds it open). */
     gateHeldObj: 142,
+    /** obj #151 — the mouth-open flag. The key-on-ear ({@link idolChamber}.ear)
+     *  global #94 flips it to 1; with the gate still held, #133 then opens the
+     *  catacombs ({@link catacombsAntechamber}, room 65). */
+    mouthOpenObj: 151,
     /** "la giungla" (#134) — the clearing's exit back onto overhead-map screen 5. */
     jungleExit: 134,
   },
@@ -1308,6 +1345,16 @@ export const ROOMS = {
     wimpyIdol: 761,
     /** "il luogo delle scimmie" (#756) — the exit (Walk-to, far left). */
     exit: 756,
+    /**
+     * "l'orecchio gigante della scimmia" (#767) — the giant ear. On the catacombs
+     * RETURN visit (re-entered through the still-held gate), Use the Monkey-Head
+     * key ({@link cannibalVillage}'s `monkeyHeadKey` #269) on it (verb 7; partner
+     * `L0==269`) → global #94: ego climbs in, the mouth-open animation plays, the
+     * mouth state object #151 flips to 1, and ego is dropped back in the clearing
+     * (room 12, x≈876). The "head" #765 rejects the key ("Non c'è un posto per
+     * ficcarla") — it goes in the *ear*.
+     */
+    ear: 767,
   },
 
   /**
@@ -1839,6 +1886,210 @@ export const ROOMS = {
       { x: 72, y: 100 },
     ],
   },
+
+  // ─── Part III endgame: the catacombs, the ghost ship, the lift ───────────
+
+  /**
+   * The catacombs antechamber (room 65) — reached from the clearing's Giant Monkey
+   * Head ({@link monkeyClearing}.head #133) once the mouth is open. A bare walk-to
+   * on its objects fires only once ego arrives, so clicks are RETRIED.
+   */
+  catacombsAntechamber: {
+    id: 65,
+    /** "la testa di scimmia" (#754) — climb back UP to the clearing (room 12). */
+    headUp: 754,
+    /** "la caverna" (#755, verbs [90,255]) — on into the catacombs maze
+     *  ({@link catacombsMaze}, room 39); with the seltzer made (bit#383) it
+     *  shortcuts straight to the ghost-ship cavern (room 70). A bare walk-to
+     *  falls to the 255 default. */
+    cavern: 755,
+  },
+
+  /**
+   * The catacombs maze (room 39) — procedural, RNG-reseeded per screen. Navigated
+   * with the navigator's head: USE the head ({@link cannibalVillage}.navigatorHead
+   * #293, verb 7 or 8) to RAISE it (bit#426 → 1, ego points), then each junction
+   * walk into the correct cave (the head points at it). Six correct steps reach the
+   * ghost-ship cavern (room 70). The five "la caverna" caves are the screen exits.
+   */
+  catacombsMaze: {
+    id: 39,
+    /** The five direction caves (all "la caverna"). The correct one for the current
+     *  screen is named by {@link correctCaveVar} g164. */
+    caves: [495, 496, 497, 498, 521] as const,
+    /** g164 — the correct (head-pointed) cave object for the current screen, set by
+     *  local #206. Walk into it to advance. */
+    correctCaveVar: 164,
+    /** g265 — the step counter; local #205 increments it per correct move and
+     *  loads the cavern (room 70) once it passes the threshold (≈6). */
+    stepVar: 265,
+    /** g266 — the cave ego ENTERED from (the back-direction); walking into it bounces
+     *  back to the antechamber. */
+    enterCaveVar: 266,
+    /** g274 — the head's direction hint (0=left 1=right 2=forward 3=back); the head
+     *  speaks it ("Credo che voglia che io vada a…") and ego points that way. */
+    hintVar: 274,
+    /** bit#426 — the head is raised/out (ego pointing). Required for the head guidance
+     *  (#207/#212); USE the head to toggle it. */
+    headOutBit: 426,
+  },
+
+  /**
+   * The ghost-ship cavern (room 70) — the maze ends here. Make ego invisible (beg the
+   * head for the necklace, then wear it), board the ship. On the RETURN with the
+   * voodoo root, the cave exit leads back to the village (and post-seltzer this room
+   * becomes the lift's "Bob" greeting → Part IV).
+   */
+  ghostCavern: {
+    id: 70,
+    /**
+     * Talk to the navigator's head (#293, verb 10) → the room-86 close-up. BEG for
+     * the necklace: pick "Posso avere quella collana…" ({@link begTopic} #121), then
+     * the plead line (also #121, its name escalating "Oh, dai…"/"Ti prego!"/…) until
+     * the beg counter {@link begCountVar} g286 passes 4 and the head relents
+     * ("Oh, va bene, piagnucoloso. Puoi averla.") → hands the necklace over. The
+     * dialog options are positioned text verbs resolved by VAR_MOUSE_Y, so the click
+     * must land on the option's row (the testkit's pickAnswer plants the cursor there).
+     */
+    headTalk: { closeup: 86, talk: 10, begTopic: 121, begCountVar: 286 },
+    /** "la collana…" (#294) — once handed over, Use it (verb 7) HERE (where the ghosts
+     *  are) → global #141 → {@link wornBit} bit#357 = 1 (invisible). */
+    necklace: 294,
+    /** bit#357 — the necklace is worn = ego invisible to ghosts (the room-77 ENCD
+     *  ghost-detection gate, global #78, reads it). */
+    wornBit: 357,
+    /** "la nave fantasma" (#769) — board it (verb 11, while invisible) → cutscene
+     *  (`startScript 111` stand-up) → the main deck ({@link ghostDeck}, room 77). */
+    ship: 769,
+    /** "la caverna" (#768) — the exit. With the voodoo root in hand it runs global
+     *  #170 (the "una lunga camminata…" walk) → the cannibal village (room 25);
+     *  without it, back to the antechamber (room 65). */
+    caveExit: 768,
+  },
+
+  /**
+   * The ghost ship's main deck (room 77). Boarding lands ego here (invisible). Doors:
+   * cabin #838, the squeaky door #840 (→ brig, once greased), crew quarters #841,
+   * and the caverna #855 (→ cavern 70). Closed doors need Open (verb 2) then walk.
+   */
+  ghostDeck: {
+    id: 77,
+    /** "la porta" (#838) → the captain's cabin ({@link ghostCabin}, room 72). */
+    cabinDoor: 838,
+    /**
+     * "la porta che cigola" (#840) — the squeaky door → the brig ({@link ghostBrig},
+     * room 71). Opening it while it still squeaks (has class 6) wakes the deck ghost;
+     * GREASE it first — Use the grease glob ({@link ghostBilge}.grease #815) on it →
+     * clears class 6 (silent) — then Open + walk through.
+     */
+    squeakyDoor: 840,
+    /** "il portello" (#841) → the crew quarters ({@link ghostCrewQuarters}, room 73). */
+    crewDoor: 841,
+    /** "la caverna" (#855) → back to the ghost-ship cavern (room 70). */
+    cavern: 855,
+  },
+
+  /**
+   * The captain's cabin (room 72) — the magnetic compass catches the spinning key.
+   * The ENCD draws the key as a spinning actor only on a true entry (`getActorRoom
+   * (ego)==g4`), which needs ego placed in the room before the ENCD runs.
+   */
+  ghostCabin: {
+    id: 72,
+    /** "la chiave" (#799) — the spinning ghost key. Use the magnetic compass
+     *  (#732, carried) on it (verb 7) → local #202 → magnet cutscene → pickupObject
+     *  799. A bare Pick up is refused ("E' una grande chiave fantasma."). */
+    key: 799,
+    /** "la bussola magnetica" (#732) — the carried compass, used on {@link key}. */
+    compass: 732,
+    /** "la porta" (#794) → back to the deck (room 77). */
+    door: 794,
+  },
+
+  /**
+   * The crew quarters (room 73) — a sleeping ghost crew and a jug o' grog. Tickle the
+   * ticklish sleeper with the feather to free the grog.
+   */
+  ghostCrewQuarters: {
+    id: 73,
+    /** "il passaggio" (#800) → the galley ({@link ghostGalley}, room 75). */
+    galleyPassage: 800,
+    /** "la scala" (#801) → up to the deck (room 77). */
+    deckStairs: 801,
+    /**
+     * "l'equipaggio fantasma che dorme" (#804) — the TICKLISH sleeper (the other,
+     * #803, "non soffre il solletico"). Use the feather ({@link ghostGalley}.feather
+     * #820) on it (verb 7 → #820's handler → local #200); it takes TWO tickles
+     * (g237 climbs each) to flip the grog touchable. */
+    ticklishSleeper: 804,
+    /** "il boccale di grog" (#802) — the jug o' grog. Untouchable until the sleeper is
+     *  tickled (class-32 cleared); then Pick up (verb 9 → global #183). */
+    grog: 802,
+  },
+
+  /**
+   * The galley (room 75) — the ghost feather, the locked hatch down to the bilge, and
+   * the glowing crate that holds the voodoo root.
+   */
+  ghostGalley: {
+    id: 75,
+    /** "la piuma fantasma" (#820) — the feather. Pick up (verb 9), then tickle the
+     *  sleeper ({@link ghostCrewQuarters}.ticklishSleeper). */
+    feather: 820,
+    /** "il passaggio" (#822) → back to the crew quarters (room 73). */
+    crewPassage: 822,
+    /**
+     * "il portello" (#824) — the locked hatch → the bilge ({@link ghostBilge}, room
+     * 74). Open (verb 2) gates on the held item being class 6 — the cabin key
+     * ({@link ghostCabin}.key #799) is the class-6 key — then walk through.
+     */
+    hatch: 824,
+    /**
+     * "la cassa risplendente" (#821) — the glowing crate. Use the ghost tools
+     * ({@link ghostBrig}.tools #788) on it (verb 7) → global #25 → opens (state 1).
+     * Then LOOK at the open crate (verb 8) — NOT the root directly — and ego takes
+     * the voodoo root: "Prenderò questa vecchia radice…" → pickupObject 823.
+     */
+    crate: 821,
+    /** "la radice vudù" (#823) — the voodoo root, taken by looking in the open
+     *  {@link crate}. Carried back to the village, it auto-becomes the magic seltzer
+     *  ({@link cannibalVillage}.seltzerBit). */
+    root: 823,
+  },
+
+  /**
+   * The bilge (room 74) — drunk the rats with grog to reach the cooking grease.
+   */
+  ghostBilge: {
+    id: 74,
+    /** "il piatto" (#807) — the rat dish. Pour the grog ({@link ghostCrewQuarters}.grog
+     *  #802) into it (verb 4 or 7) → local #201: the rats get drunk, the chase guard
+     *  stops, {@link ratsFedBit} bit#316 = 1. */
+    ratDish: 807,
+    /** bit#316 — the rats are fed/drunk (the bilge is safe to cross). */
+    ratsFedBit: 316,
+    /** "il grasso per cucinare" (#806) — the grease jar. Pick up (verb 9) → the glob
+     *  {@link grease} #815 lands in inventory. */
+    greaseJar: 806,
+    /** "la noce di grasso" (#815) — the cooking-grease glob; Use it on the squeaky
+     *  door ({@link ghostDeck}.squeakyDoor) to silence it. */
+    grease: 815,
+    /** "la scala" (#811) → up to the galley (room 75). */
+    galleyStairs: 811,
+  },
+
+  /**
+   * The brig (room 71) — past the sleeping guard, the ghost tools that open the crate.
+   * Reached through the squeaky door once it is greased.
+   */
+  ghostBrig: {
+    id: 71,
+    /** "gli attrezzi fantasma" (#788) — the ghost tools. Pick up (verb 9). Used on
+     *  the galley crate ({@link ghostGalley}.crate). */
+    tools: 788,
+    /** "la porta" (#789) → back to the deck (room 77). */
+    door: 789,
+  },
 } as const;
 
 // ── Insult-swordfight driving ─────────────────────────────────────────────
@@ -2115,9 +2366,16 @@ export function townToMap(vm: Vm): void {
   waitPlayable(vm, 10000);
 }
 
-/** Class N is bit N−1 of the runtime class mask. */
-const hasClass = (vm: Vm, obj: number, cls: number): boolean =>
+/** Class N is bit N−1 of the runtime class mask. Class 32 is the engine's
+ *  Untouchable bit ({@link isTouchable}); class 6 is the "guard" bit on
+ *  doors/animals (e.g. the ghost ship's squeaky door, silenced once cleared). */
+export const hasClass = (vm: Vm, obj: number, cls: number): boolean =>
   ((vm.objectClasses.get(obj) ?? 0) & (1 << (cls - 1))) !== 0;
+/** Whether `obj` can be interacted with — its Untouchable class (32) is clear. */
+export const isTouchable = (vm: Vm, obj: number): boolean => !hasClass(vm, obj, 32);
+/** Whether ego is currently aboard the rowboat (boat costume 4). */
+export const egoInBoat = (vm: Vm): boolean =>
+  vm.actors.get(vm.vars.readGlobal(VAR_EGO)).costume === 4;
 /** The mug still works as a container (class 12 — cleared at the wad stage). */
 export const mugUsable = (vm: Vm, mug: number): boolean => hasClass(vm, mug, 12);
 /** The mug currently holds grog (class 18 — set on fill/pour). */
@@ -2240,4 +2498,146 @@ export function fightSwordMaster(vm: Vm): boolean {
     vm.vars.readBit(ROOMS.swordMaster.foughtBit) === 1 &&
     vm.vars.readGlobal(263) > vm.vars.readGlobal(262)
   );
+}
+
+// ── Part III endgame helpers (the catacombs + ghost ship) ────────────────
+
+/** Control returned, ego stopped, no line/cutscene in flight. */
+const egoReady = (vm: Vm): boolean => {
+  const ego = vm.vars.readGlobal(VAR_EGO);
+  return (
+    vm.cursor.userput > 0 &&
+    vm.activeDialog === null &&
+    vm.cutsceneStack.length === 0 &&
+    (ego <= 0 || !vm.actors.get(ego).isMoving)
+  );
+};
+
+/**
+ * Walk through a door/exit into `target` — the playthrough's one room-to-room
+ * move, for the wide-room gates as much as the ghost-ship doors. The sentence
+ * script (#2) walks ego to the exit and fires its verb on arrival (proximity-
+ * gated — see input.md). Two faithful wrinkles, both DETECTED from state rather
+ * than blind-retried:
+ *
+ * - A CLOSED door. A door carries an "open" image-state (state >= 1) and its
+ *   verb-11 only walks ego through when its own state equals that (its script
+ *   reads `getObjectState(VAR_ME)`, and VAR_ME is the door itself). A plain exit
+ *   (passage, cave, gate) has no such image and just transitions — Opening one
+ *   only earns "it's just an opening". So if THIS exit is a door that isn't open
+ *   yet, Open it first; an Open that itself walks ego through ends the loop.
+ * - A wide scrolling room. One walk-to routes ego only to the next walkbox edge,
+ *   so when the exit's walk-point is screens away (e.g. room 65's cave at x=973
+ *   in a 960-wide room) ego stops short. We re-issue the walk while ego KEEPS
+ *   ADVANCING — gated on its x changing, not a fixed count — and stop the moment
+ *   a walk leaves ego where the last one did (a real wall) or the room flips.
+ *
+ * Returns whether the room changed. The hop cap is only a hang-guard.
+ */
+export function enterRoom(
+  vm: Vm,
+  door: number,
+  target: number,
+  { maxTicks = 14000 }: { maxTicks?: number } = {},
+): boolean {
+  if (vm.currentRoom === target) return true;
+  const ego = vm.vars.readGlobal(VAR_EGO);
+  const egoX = (): number => vm.actors.get(ego).x;
+  const obj = vm.loadedRoom?.objects.get(door);
+  const openState = obj ? [...obj.images.keys()].find((s) => s > 0) : undefined;
+  const shutDoor = (): boolean =>
+    openState !== undefined && (vm.objectStates.get(door) ?? 0) !== openState;
+
+  let prevX = NaN;
+  for (let hop = 0; hop < 16 && vm.currentRoom !== target; hop++) {
+    if (shutDoor()) {
+      use(vm, VERBS.open, door); // flip it to its open state; verb-11 then lets ego pass
+      // Wait for the open to actually land (its state flips, or that Open itself
+      // walked ego through) — NOT a bare settle, which can return mid-cutscene.
+      driveUntil(vm, (v) => !shutDoor() || v.currentRoom === target, { maxTicks });
+      if (vm.currentRoom === target) break; // an Open that itself walks ego through
+    }
+    const x = egoX();
+    if (x === prevX && !shutDoor()) break; // the last walk made no progress and nothing to open
+    prevX = x;
+    walkTo(vm, door);
+    driveUntil(vm, (v) => v.currentRoom === target || !v.actors.get(ego).isMoving, { maxTicks });
+  }
+  return vm.currentRoom === target;
+}
+
+/**
+ * Solve the procedural catacombs maze (room 39) → the ghost-ship cavern (room 70).
+ * The head, raised, names the correct cave each screen in `g164`
+ * ({@link ROOMS.catacombsMaze.correctCaveVar}); walking into it climbs the step
+ * counter `g265` to the cavern. RNG-driven, so this is ADAPTIVE — never a fixed
+ * path: read g164, walk into it, and if a step stalls (ego pinned mid-screen, no
+ * progress) force a "turn" by walking to the far edge so the watcher (#202) pans
+ * to a fresh layout. Returns whether the cavern was reached.
+ */
+export function solveMaze(vm: Vm): boolean {
+  const maze = ROOMS.catacombsMaze;
+  const cavern = ROOMS.ghostCavern.id;
+  const ante = ROOMS.catacombsAntechamber.id;
+  const g = (n: number): number => vm.vars.readGlobal(n);
+  const egoX = (): number => vm.actors.get(vm.vars.readGlobal(VAR_EGO)).x;
+  // Raise the navigator's head ONCE: USE it and it stays "in hand", pointing the
+  // way, for the whole maze — it never drops between screens, so there's nothing
+  // to re-raise per step.
+  driveUntil(vm, (v) => egoReady(v), { maxTicks: 4000 });
+  use(vm, VERBS.use, ROOMS.cannibalVillage.navigatorHead);
+  driveUntil(vm, (v) => v.vars.readBit(maze.headOutBit) === 1, { maxTicks: 6000 });
+  for (let iter = 0; iter < 80 && vm.currentRoom !== cavern; iter++) {
+    if (vm.currentRoom === ante) {
+      // bounced out — back into the maze through the antechamber's cave mouth
+      enterRoom(vm, ROOMS.catacombsAntechamber.cavern, maze.id, { maxTicks: 8000 });
+    }
+    if (vm.currentRoom !== maze.id) break;
+    driveUntil(vm, (v) => v.vars.readGlobal(maze.correctCaveVar) !== 0 && egoReady(v), { maxTicks: 8000 });
+    const correct = g(maze.correctCaveVar);
+    let reachable = true;
+    try {
+      objectPoint(vm, correct);
+    } catch {
+      reachable = false;
+    }
+    if (!reachable) {
+      driveUntil(vm, (v) => v.vars.readGlobal(maze.correctCaveVar) !== correct || v.currentRoom !== maze.id, {
+        maxTicks: 3000,
+      });
+      continue;
+    }
+    const before = g(maze.stepVar);
+    const roomBefore = vm.currentRoom;
+    const egoBefore = egoX();
+    walkTo(vm, correct);
+    driveUntil(
+      vm,
+      (v) =>
+        v.currentRoom !== roomBefore ||
+        v.vars.readGlobal(maze.stepVar) !== before ||
+        (v.vars.readGlobal(maze.correctCaveVar) !== correct && v.vars.readGlobal(maze.correctCaveVar) !== 0),
+      { maxTicks: 10000 },
+    );
+    waitPlayable(vm, 2500);
+    const stalled =
+      vm.currentRoom === roomBefore &&
+      g(maze.stepVar) === before &&
+      g(maze.correctCaveVar) === correct &&
+      Math.abs(egoX() - egoBefore) < 24;
+    if (stalled) {
+      // The correct cave is across a wall from where ego entered (it sits on a
+      // ledge by the entry cave and can't path there, nor cross center to "turn").
+      // Walk BACK into the entry cave (g266) — always reachable — to bounce to the
+      // antechamber; the loop then re-enters a freshly-reseeded screen. g265 is
+      // preserved across the bounce, so no progress is lost.
+      const enter = g(maze.enterCaveVar);
+      if (enter !== 0) {
+        walkTo(vm, enter);
+        driveToRoom(vm, ante, { maxTicks: 6000 });
+        waitPlayable(vm, 2000);
+      }
+    }
+  }
+  return vm.currentRoom === cavern;
 }

@@ -79,13 +79,18 @@ import {
   boot,
   buySeaMonkey,
   crackSafe,
+  egoInBoat,
+  enterRoom,
   fightSwordMaster,
   grindForSwordMaster,
+  hasClass,
   hasGame,
+  isTouchable,
   mugDying,
   mugHasGrog,
   mugUsable,
   ROOMS,
+  solveMaze,
   townToMap,
   VARS,
   VERBS,
@@ -2035,7 +2040,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     beat('🚶‍➡️ South beach — oars on the rowboat, row around the island to the north beach (132)', () => {
       const ego = vm.vars.readGlobal(VAR_EGO);
       const map = ROOMS.monkeyMap;
-      const inBoat = () => vm.actors.get(vm.vars.readGlobal(VAR_EGO)).costume === 4;
+      const inBoat = () => egoInBoat(vm);
 
       // Use the oars on the rowboat (#263 → local #200): ego rows out onto the
       // overhead-map water (room 2) as the boat figure (costume 4).
@@ -2130,7 +2135,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
     beat("🚶‍➡️ Map screen 6 — row the boat back to the south beach, in through the jungle to the monkey (2)", () => {
       const map = ROOMS.monkeyMap;
-      const inBoat = () => vm.actors.get(vm.vars.readGlobal(VAR_EGO)).costume === 4;
+      const inBoat = () => egoInBoat(vm);
       // The walking figure can't path screen 6 → 2 (the inland map's two halves
       // only join by boat). Drop to the north beach (#71 "la spiaggia") and
       // re-launch the rowboat (#17): ego rows out as the boat figure (costume 4).
@@ -2297,7 +2302,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     beat('🚶‍➡️ Giant Monkey Head (69) — row back around the island to the cannibal village (25)', () => {
       const map = ROOMS.monkeyMap;
       const ego = () => vm.actors.get(vm.vars.readGlobal(VAR_EGO));
-      const inBoat = () => ego().costume === 4;
+      const inBoat = () => egoInBoat(vm);
       // Out of the idol chamber (#756 → the clearing), back to overhead-map
       // screen 5, then down the inland map to the south beach.
       walkTo(vm, ROOMS.idolChamber.exit);
@@ -2350,7 +2355,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       const village = ROOMS.cannibalVillage;
       const armed = () => [...vm.verbs.entries()].filter(([k, v]) => k >= 120 && k <= 132 && v.state === 'on');
       // #303 carries the untouchable class (bit 31) until the offering window opens.
-      const cannibalsTouchable = () => ((vm.objectClasses.get(village.cannibals) ?? 0) & 0x80000000) === 0;
+      const cannibalsTouchable = () => isTouchable(vm, village.cannibals);
       const A = () => vm.actors.get(ego);
 
       // The village looks empty; provoke the ambush by walking far WEST then back
@@ -2440,7 +2445,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       const map = ROOMS.monkeyMap;
       const talk = village.lechuckTalk;
       const scriptLive = (id: number) => vm.slots.some((s) => s.status !== 'dead' && s.scriptId === id);
-      const nativesTouchable = () => ((vm.objectClasses.get(village.friendlyNatives) ?? 0) & 0x80000000) === 0;
+      const nativesTouchable = () => isTouchable(vm, village.friendlyNatives);
       const dialogUp = () => [...vm.verbs.entries()].some(([k, v]) => k >= 120 && k <= 135 && v.state === 'on');
       const convoOver = () => vm.cursor.userput > 0 && !dialogUp() && !scriptLive(213);
 
@@ -2486,6 +2491,308 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(waitPlayable(vm)).toBe(true);
       expect(vm.haltInfo).toBeNull();
     });
+
+    beat('🚶‍➡️ Cannibal village — row back to the clearing (12), in through the held gate to the idol chamber (69)', () => {
+      const map = ROOMS.monkeyMap;
+      const clr = ROOMS.monkeyClearing;
+      const inBoat = () => egoInBoat(vm);
+      // The reverse of the idol trip: jungle exit → screen 6 → north beach, relaunch
+      // the rowboat, row 6 → 5 → 2, beach at the south shore, then walk the inland
+      // map (2 → 4 → 5) to the clearing.
+      walkTo(vm, ROOMS.cannibalVillage.jungleExit);
+      expect(driveToRoom(vm, map.villageScreen, { maxTicks: 14000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      walkTo(vm, map.northBeachLanding);
+      expect(driveToRoom(vm, ROOMS.northBeach.id, { maxTicks: 14000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      use(vm, VERBS.use, ROOMS.northBeach.rowboat);
+      expect(driveUntil(vm, () => inBoat(), { maxTicks: 12000 })).toBe(true);
+      walkTo(vm, map.boatScreen6to5);
+      expect(driveToRoom(vm, 5, { maxTicks: 14000 })).toBe(true);
+      walkTo(vm, map.boatScreen5to2);
+      expect(driveToRoom(vm, map.crackScreen, { maxTicks: 14000 })).toBe(true);
+      walkTo(vm, map.beachMarker);
+      expect(driveToRoom(vm, ROOMS.monkeyBeach.id, { maxTicks: 14000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      walkTo(vm, ROOMS.monkeyBeach.jungle);
+      expect(driveToRoom(vm, map.id, { maxTicks: 14000 })).toBe(true); // screen 2 on foot
+      expect(waitPlayable(vm)).toBe(true);
+      walkTo(vm, map.screen2toScreen4);
+      expect(driveToRoom(vm, map.riverScreen, { maxTicks: 14000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      walkTo(vm, map.screen4toScreen5);
+      expect(driveToRoom(vm, 5, { maxTicks: 14000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      walkTo(vm, map.clearingMarker);
+      expect(driveToRoom(vm, clr.id, { maxTicks: 14000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+
+      // The monkey is still holding the gate (#142 == 1) from the idol trip, so the
+      // Giant Monkey Head's gate (#155) still leads to the idol chamber.
+      expect(vm.objectStates.get(clr.gateHeldObj)).toBe(1);
+      expect(enterRoom(vm, clr.headGate, ROOMS.idolChamber.id)).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('⚙️ Idol chamber — the Monkey-Head key in the giant ear opens the head\'s mouth', () => {
+      const ego = vm.vars.readGlobal(VAR_EGO);
+      const clr = ROOMS.monkeyClearing;
+      // Use the Monkey-Head key (#269) on the giant ear (#767): global #94 climbs ego
+      // in, the mouth-open animation plays, the mouth flag (#151) flips, and ego is
+      // dropped back in the clearing (room 12). (The "head" #765 rejects the key.)
+      expect(vm.getObjectOwner(ROOMS.cannibalVillage.monkeyHeadKey)).toBe(ego);
+      useWith(vm, VERBS.use, ROOMS.cannibalVillage.monkeyHeadKey, ROOMS.idolChamber.ear);
+      expect(
+        driveUntil(vm, (v) => v.currentRoom === clr.id && v.objectStates.get(clr.mouthOpenObj) === 1, {
+          maxTicks: 20000,
+        }),
+      ).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('🚶‍➡️ The clearing — through the open mouth into the catacombs, the head guiding the maze to the ghost-ship cavern (70)', () => {
+      const clr = ROOMS.monkeyClearing;
+      // With the mouth open AND the gate still held, walking the Giant Monkey Head
+      // (#133) now loads the catacombs antechamber (room 65).
+      expect(enterRoom(vm, clr.head, ROOMS.catacombsAntechamber.id)).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+
+      // Into the maze (room 39) via "la caverna" (#755, far right of room 65), then
+      // let the head guide the maze to the ghost-ship cavern.
+      expect(enterRoom(vm, ROOMS.catacombsAntechamber.cavern, ROOMS.catacombsMaze.id)).toBe(true);
+      expect(solveMaze(vm)).toBe(true);
+      expect(vm.currentRoom).toBe(ROOMS.ghostCavern.id);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('⚙️ Ghost-ship cavern — beg the navigator\'s head for the magic necklace, wear it (invisible to ghosts)', () => {
+      const cavern = ROOMS.ghostCavern;
+      const head = ROOMS.cannibalVillage.navigatorHead;
+      const t = cavern.headTalk;
+      const worn = () => vm.vars.readBit(cavern.wornBit) === 1;
+      // Let the maze head-pointing fully retract (ego back to a normal pose).
+      driveUntil(vm, () => vm.actors.get(vm.vars.readGlobal(VAR_EGO)).costume === 1 && vm.vars.readBit(ROOMS.catacombsMaze.headOutBit) === 0, {
+        maxTicks: 6000,
+      });
+
+      // Talk to the head → the room-86 close-up. Beg: pick the necklace topic, then the
+      // plead line (same verb, escalating name) until the beg-counter (g286) passes 4 and
+      // the head relents and hands it over — the conversation then ends (back to the cavern).
+      use(vm, VERBS.talk, head);
+      expect(driveToRoom(vm, t.closeup, { maxTicks: 10000 })).toBe(true);
+      for (let i = 0; i < 10 && !worn() && vm.currentRoom === t.closeup; i++) {
+        if (!driveUntil(vm, () => vm.verbs.get(t.begTopic)?.state === 'on', { maxTicks: 9000 })) break;
+        pickDialogAnswer(vm, t.begTopic, { armTicks: 9000 });
+        driveUntil(
+          vm,
+          () => vm.verbs.get(t.begTopic)?.state === 'on' || (vm.currentRoom !== t.closeup && vm.cursor.userput > 0),
+          { maxTicks: 9000 },
+        );
+      }
+      expect(driveToRoom(vm, cavern.id, { maxTicks: 9000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.vars.readGlobal(t.begCountVar)).toBeGreaterThanOrEqual(4); // the head relents at g286 >= 4
+
+      // Wear the necklace (Use it, here where the ghosts are) → invisible (bit#357).
+      use(vm, VERBS.use, cavern.necklace);
+      expect(driveUntil(vm, () => worn(), { maxTicks: 9000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('🚶‍➡️ Ghost-ship cavern — board the (invisible) ego onto the main deck (77)', () => {
+      const cavern = ROOMS.ghostCavern;
+      // Board the ghost ship: the deck ENCD's ghost-detection (global #78) passes
+      // because the necklace is worn (bit#357). Without it ego is caught and ejected.
+      expect(enterRoom(vm, cavern.ship, ROOMS.ghostDeck.id, { maxTicks: 16000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.vars.readBit(cavern.wornBit)).toBe(1); // still invisible — not caught
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('⚙️ Captain\'s cabin — the magnetic compass snags the spinning ghost key', () => {
+      const ego = vm.vars.readGlobal(VAR_EGO);
+      const cabin = ROOMS.ghostCabin;
+      // Into the cabin; the spinning ghost key is drawn on a true entry. Use the
+      // magnetic compass on it → magnet cutscene → the key is ego's.
+      expect(enterRoom(vm, ROOMS.ghostDeck.cabinDoor, cabin.id)).toBe(true);
+      useWith(vm, VERBS.use, cabin.compass, cabin.key);
+      expect(driveUntil(vm, (v) => v.getObjectOwner(cabin.key) === ego, { maxTicks: 16000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      // Back out to the deck.
+      expect(enterRoom(vm, cabin.door, ROOMS.ghostDeck.id)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('⚙️ Crew quarters & galley — the ghost feather tickles the crew loose from the jug o\' grog', () => {
+      const ego = vm.vars.readGlobal(VAR_EGO);
+      const crew = ROOMS.ghostCrewQuarters;
+      const galley = ROOMS.ghostGalley;
+      const grogTouchable = () => isTouchable(vm, crew.grog);
+      // The ticklish sleeper #804 sits in a stack of overlapping objects (the other
+      // sleeper #803, the bottle #805): a hover only resolves to IT while its wake-
+      // watcher (room-73 local #201) has it touchable, which it does only when ego
+      // stands right of the wake line (x ≈ 120). #804's own walk-to spot is there,
+      // so park ego on it and wait for the sleeper to actually be hittable before
+      // each tickle — otherwise the feather lands on a neighbour and nothing happens.
+      const sleeperTouchable = () => isTouchable(vm, crew.ticklishSleeper);
+      const sleeperSpot = (): { x: number; y: number } => {
+        const c = vm.loadedRoom!.objects.get(crew.ticklishSleeper)!.cdhd;
+        return { x: c.walkX, y: c.walkY };
+      };
+      // Feather from the galley (through the crew quarters).
+      expect(enterRoom(vm, ROOMS.ghostDeck.crewDoor, crew.id)).toBe(true);
+      expect(enterRoom(vm, crew.galleyPassage, galley.id)).toBe(true);
+      use(vm, VERBS.pickUp, galley.feather);
+      expect(waitPickedUp(vm, galley.feather)).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      // Back to the crew quarters; tickle the ticklish sleeper (it takes two) to free
+      // the grog (clears its untouchable class), then take it.
+      expect(enterRoom(vm, galley.crewPassage, crew.id)).toBe(true);
+      for (let i = 0; i < 6 && !grogTouchable(); i++) {
+        walkTo(vm, sleeperSpot()); // stand on #804's spot, right of the wake line
+        if (!driveUntil(vm, () => sleeperTouchable(), { maxTicks: 9000 })) continue;
+        useWith(vm, VERBS.use, galley.feather, crew.ticklishSleeper);
+        driveUntil(vm, () => grogTouchable(), { maxTicks: 9000 });
+        waitPlayable(vm, 4000);
+      }
+      expect(grogTouchable()).toBe(true);
+      use(vm, VERBS.pickUp, crew.grog);
+      expect(driveUntil(vm, (v) => v.getObjectOwner(crew.grog) === ego, { maxTicks: 9000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('⚙️ Galley → bilge — the class-6 key drops the hatch; grog drunks the rats for the cooking grease', () => {
+      const ego = vm.vars.readGlobal(VAR_EGO);
+      const galley = ROOMS.ghostGalley;
+      const bilge = ROOMS.ghostBilge;
+      // Down to the galley; the locked hatch opens to the class-6 cabin key → bilge.
+      expect(enterRoom(vm, ROOMS.ghostCrewQuarters.galleyPassage, galley.id)).toBe(true);
+      useWith(vm, VERBS.use, ROOMS.ghostCabin.key, galley.hatch);
+      expect(enterRoom(vm, galley.hatch, bilge.id)).toBe(true);
+      // Pour the grog into the rat dish (the rats get drunk, the chase guard stops),
+      // then take the cooking grease.
+      useWith(vm, VERBS.use, ROOMS.ghostCrewQuarters.grog, bilge.ratDish);
+      expect(driveUntil(vm, () => vm.vars.readBit(bilge.ratsFedBit) === 1, { maxTicks: 12000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      use(vm, VERBS.pickUp, bilge.greaseJar);
+      expect(driveUntil(vm, (v) => v.getObjectOwner(bilge.grease) === ego, { maxTicks: 9000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('⚙️ Grease the squeaky door for the brig tools, open the crate for the voodoo root', () => {
+      const ego = vm.vars.readGlobal(VAR_EGO);
+      const galley = ROOMS.ghostGalley;
+      const deck = ROOMS.ghostDeck;
+      const brig = ROOMS.ghostBrig;
+      const doorSilent = () => !hasClass(vm, deck.squeakyDoor, 6);
+      // Up to the deck (bilge → galley → crew quarters → deck). Grease the squeaky door
+      // (clears its class 6 → silent) so it opens without waking the ghost, then through
+      // it to the brig for the tools.
+      expect(enterRoom(vm, ROOMS.ghostBilge.galleyStairs, galley.id)).toBe(true);
+      expect(enterRoom(vm, galley.crewPassage, ROOMS.ghostCrewQuarters.id)).toBe(true);
+      expect(enterRoom(vm, ROOMS.ghostCrewQuarters.deckStairs, deck.id)).toBe(true);
+      useWith(vm, VERBS.use, ROOMS.ghostBilge.grease, deck.squeakyDoor);
+      expect(driveUntil(vm, () => doorSilent(), { maxTicks: 9000 })).toBe(true);
+      waitPlayable(vm, 4000);
+      expect(enterRoom(vm, deck.squeakyDoor, brig.id)).toBe(true);
+      use(vm, VERBS.pickUp, brig.tools);
+      expect(waitPickedUp(vm, brig.tools)).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      // Back to the galley; the tools open the glowing crate, and LOOKING in the open
+      // crate takes the voodoo root.
+      expect(enterRoom(vm, brig.door, deck.id)).toBe(true);
+      expect(enterRoom(vm, deck.crewDoor, ROOMS.ghostCrewQuarters.id)).toBe(true);
+      expect(enterRoom(vm, ROOMS.ghostCrewQuarters.galleyPassage, galley.id)).toBe(true);
+      useWith(vm, VERBS.use, brig.tools, galley.crate);
+      expect(driveUntil(vm, (v) => v.objectStates.get(galley.crate) === 1, { maxTicks: 12000 })).toBe(true);
+      waitPlayable(vm, 4000);
+      use(vm, VERBS.look, galley.crate); // "Prenderò questa vecchia radice…" → take the root
+      expect(driveUntil(vm, (v) => v.getObjectOwner(galley.root) === ego, { maxTicks: 12000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('🚶‍➡️ Out of the catacombs to the cannibal village — the voodoo root becomes magic seltzer', () => {
+      const galley = ROOMS.ghostGalley;
+      const village = ROOMS.cannibalVillage;
+      // Off the ship (galley → crew → deck → cavern), then the cave exit — gated on
+      // owning the root — runs the long-walk cutscene back to the village.
+      expect(enterRoom(vm, galley.crewPassage, ROOMS.ghostCrewQuarters.id)).toBe(true);
+      expect(enterRoom(vm, ROOMS.ghostCrewQuarters.deckStairs, ROOMS.ghostDeck.id)).toBe(true);
+      walkTo(vm, ROOMS.ghostDeck.cavern);
+      expect(driveToRoom(vm, ROOMS.ghostCavern.id, { maxTicks: 14000 })).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      walkTo(vm, ROOMS.ghostCavern.caveExit);
+      expect(driveToRoom(vm, village.id, { maxTicks: 20000 })).toBe(true);
+      // The village heartbeat sees the root in hand and runs the seltzer cutscene
+      // (#106): the cannibals gather and offer a parting dialog — pick a reply (any
+      // converges), then they turn the root into magic seltzer (bit#383) and walk ego
+      // off to the overhead map.
+      const seltzerMade = () => vm.vars.readBit(village.seltzerBit) === 1;
+      const dialogOpt = (): number | undefined =>
+        [...vm.verbs.entries()]
+          .filter(([k, v]) => k >= 119 && k <= 135 && v.state === 'on')
+          .map(([k]) => k)
+          .sort((p, q) => p - q)[0];
+      for (let i = 0; i < 8 && !seltzerMade(); i++) {
+        driveUntil(vm, () => dialogOpt() !== undefined || seltzerMade(), { maxTicks: 14000 });
+        if (seltzerMade()) break;
+        const opt = dialogOpt();
+        if (opt === undefined) break;
+        pickDialogAnswer(vm, opt, { armTicks: 12000 });
+      }
+      expect(driveUntil(vm, () => seltzerMade(), { maxTicks: 16000 })).toBe(true);
+      expect(waitPlayable(vm, 12000)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('🚶‍➡️ The lift home — the ghost crew ferry "Bob" off Monkey Island into Part IV (Mêlée docks, 83)', () => {
+      const village = ROOMS.cannibalVillage;
+      // The seltzer cutscene left ego on the overhead map; back into the village.
+      if (vm.currentRoom !== village.id) {
+        walkTo(vm, ROOMS.monkeyMap.villageMarker);
+        expect(driveToRoom(vm, village.id, { maxTicks: 16000 })).toBe(true);
+        expect(waitPlayable(vm)).toBe(true);
+      }
+      // With the seltzer made, the jungle exit now runs the lift: the ghost crew greet
+      // ego as "Bob" and ferry him off → the Part III→IV transition (global #131) →
+      // the "Parte Quattro" title card → the Mêlée docks (room 83).
+      walkTo(vm, village.jungleExit);
+      // The lift drops ego in the ghost-ship cavern (70), where whoever ferried in
+      // (Herman Toothrot, or the three sunburn-hunting ghost pirates — room-70 local
+      // #204 branches on bit#436 into #205/#206) greets "Bob" and strikes up a parting
+      // conversation. They are THEMSELVES bound for Mêlée, so no answer dead-ends: the
+      // ride option always sits at the lowest live answer id (#206's "back to Mêlée" is
+      // verb 120 and leaves straight away; #205's "would you take me?" is verb 122, and
+      // the lower small-talk answers self-gate — each sets its own bit#443/445/451/444
+      // so it stops being offered next menu). So pick the lowest armed answer BY ID (the
+      // localized text differs per build) until they ferry ego off → global #131 → the
+      // "Parte Quattro" card → the Mêlée docks (83). The answer ids are 119+N for the
+      // Nth menu line; both endings call startScript 131 once the ride is accepted.
+      const atPartFour = () => vm.currentRoom === 83 || vm.vars.readBit(village.partFourBit) === 1;
+      const dialogOpt = (): number | undefined =>
+        [...vm.verbs.entries()]
+          .filter(([k, v]) => k >= 119 && k <= 135 && v.state === 'on')
+          .map(([k]) => k)
+          .sort((p, q) => p - q)[0];
+      for (let i = 0; i < 16 && !atPartFour(); i++) {
+        driveUntil(vm, () => dialogOpt() !== undefined || atPartFour(), { maxTicks: 14000 });
+        if (atPartFour()) break;
+        const opt = dialogOpt();
+        if (opt === undefined) break;
+        pickDialogAnswer(vm, opt, { armTicks: 12000 });
+      }
+      expect(driveUntil(vm, () => atPartFour(), { maxTicks: 16000 })).toBe(true);
+      expect(driveUntil(vm, () => vm.vars.readBit(village.partFourBit) === 1, { maxTicks: 16000 })).toBe(true);
+      expect(waitPlayable(vm, 14000)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
   });
 
   // ALWAYS THE LAST GROUP: snapshot the furthest clean playable state to a save
@@ -2500,25 +2807,19 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
         'saves/MI1-walkthrough-frontier.websave.json',
         JSON.stringify(snapshotVm(vm, { game: 'MI1', label: 'walkthrough-frontier' })),
       );
-      // Furthest clean point so far: into "Under Monkey Island" — Part III's
-      // surface, the cannibal village (bowl bananas, capture, hut escape), the row
-      // back to the south side, the wandering monkey caught and fed (it follows),
-      // the clearing's totem/Giant-Monkey-Head idol, then the row BACK to the
-      // village to give the cannibals the idol (they turn friendly, "LEMONHEAD!"),
-      // into the now-open hut for the banana-picker, back out to give the picker to
-      // Herman for the Monkey-Head key, and through the LeChuck talk to trade the
-      // navigation leaflet for the navigator's head. The catacombs are next.
-      expect(vm.currentRoom).toBe(ROOMS.cannibalVillage.id);
-      expect(vm.vars.readGlobal(VARS.voyageStage)).toBe(2);
-      expect(vm.vars.readBit(ROOMS.catapult.hitBit)).toBe(1);
-      expect(vm.vars.readGlobal(ROOMS.monkey.fedVar)).toBe(5);
-      // The idol, picker, and leaflet were given away; the Monkey-Head key (from
-      // Herman) and the navigator's head (from the cannibals) are both in hand.
+      // Furthest clean point so far: ALL of Part III done. Through "Under Monkey
+      // Island" — the cannibal village, the idol/picker/key/head trades, the LeChuck
+      // talk — then the catacombs (key-on-ear opens the head's mouth, the navigator's
+      // head guides the maze), the ghost ship (necklace → invisible, board, cabin
+      // key, grog, grease, the voodoo root), the auto-seltzer back in the village, and
+      // the lift that ferries "Bob" off the island. Ego now stands on the Mêlée docks
+      // (room 83) with Part IV ("Il Finale") begun — the next frontier.
+      expect(vm.currentRoom).toBe(83); // the Mêlée docks
+      expect(vm.vars.readBit(ROOMS.cannibalVillage.partFourBit)).toBe(1); // Part IV begun
+      expect(vm.vars.readBit(ROOMS.cannibalVillage.seltzerBit)).toBe(1); // the root was made into seltzer
+      expect(vm.vars.readGlobal(VARS.voyageStage)).toBe(2); // Part III's voyage flag carried through
+      // The catacombs idol was given to the cannibals long ago (still not ego's).
       expect(vm.getObjectOwner(ROOMS.idolChamber.wimpyIdol)).not.toBe(vm.vars.readGlobal(VAR_EGO));
-      expect(vm.getObjectOwner(ROOMS.cannibalHut.picker)).not.toBe(vm.vars.readGlobal(VAR_EGO));
-      expect(vm.getObjectOwner(ROOMS.cannibalVillage.leaflet)).not.toBe(vm.vars.readGlobal(VAR_EGO));
-      expect(vm.getObjectOwner(ROOMS.cannibalVillage.monkeyHeadKey)).toBe(vm.vars.readGlobal(VAR_EGO));
-      expect(vm.getObjectOwner(ROOMS.cannibalVillage.navigatorHead)).toBe(vm.vars.readGlobal(VAR_EGO));
     });
   });
 });

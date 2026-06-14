@@ -6,7 +6,7 @@
  * the caller drives until its own assertion holds. See
  * pages/docs/engine/harness.md.
  */
-import { driveTicks, driveUntil, hover } from './drive';
+import { driveTicks, driveUntil, hover, setMouse } from './drive';
 import { objectHitBox } from '../engine/object/hittest';
 import { VAR_EGO } from '../engine/vm/vars';
 import type { Vm } from '../engine/vm/vm';
@@ -249,8 +249,17 @@ export function useWith(vm: Vm, useVerb: number, item: number, target: number): 
   vm.handleSceneClick(1);
 }
 
-/** Pick a dialog answer — answers are live verbs whose `name` is the localized line. */
+/**
+ * Pick a dialog answer — answers are live verbs whose `name` is the localized
+ * line. Plant the cursor on the option's own row first: a real click lands on
+ * the text, and some conversations (the navigator-head talk, room 86) resolve
+ * which line was picked from `VAR_MOUSE_Y`, not the verb id — so a position-less
+ * click would register as the wrong answer (or none). Harmless for the
+ * verb-id-driven menus (the cursor just sits where the click is).
+ */
 export function pickAnswer(vm: Vm, answerVerb: number): void {
+  const v = vm.verbs.get(answerVerb);
+  if (v) setMouse(vm, v.x, v.y);
   vm.handleVerbClick(answerVerb, 1);
 }
 

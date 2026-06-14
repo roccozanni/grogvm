@@ -14,18 +14,47 @@ Lean tracker. Two buckets:
 
 Playing MI1 from boot and fixing each blocker engine-faithfully (committed on
 `main`). **Unit suite green + tsc clean**, plus a data-gated, from-boot
-integration playthrough (`npm run test:integration`, ~1.6s). **Parts I and II are
-FINISHED; Part III plays from boot well into "Under Monkey Island" — through the
-cannibal village, the monkey, the idol, the idol-for-picker and picker-for-key
-trades, and the "beat LeChuck" talk that trades the navigation leaflet for the
-navigator's head.** The beat-by-beat sequence IS the test
-(`integration/mi1/walkthrough.test.ts`, in run order); Part-III room ids +
-mechanics live in `game.ts` (`monkeyBeach`/`monkeyMap`/`fort`/`riverFork`/
-`catapult`/`pond`/`crack`/`northBeach`/`cannibalVillage`/`cannibalHut`/`monkey`/
-`monkeyClearing`/`idolChamber`), not here. The remaining content — the catacombs,
-LeChuck's ghost ship, the seltzer trade, and the lift that ends Part III — is fully
-probed and mapped below (**Part III endgame map**, 2026-06-14); writing the beats +
-the new `game.ts` room ids is now mechanical.
+integration playthrough (`npm run test:integration`, ~2.4s). **Parts I, II, and III
+are FINISHED — the from-boot walkthrough now plays the WHOLE of "Under Monkey
+Island" and lands in Part IV** (the cannibal village, the catacombs — key-on-ear
+opens the head's mouth, the navigator's head guides the procedural maze — LeChuck's
+ghost ship — necklace→invisible, board, cabin key, grog, grease, voodoo root — the
+auto-seltzer back in the village, and the lift that ferries "Bob" off the island).
+The frontier save now sits at the **Mêlée docks (room 83), Part IV begun**. The
+beat-by-beat sequence IS the test (`integration/mi1/walkthrough.test.ts`, in run
+order); Part-III room ids + mechanics live in `game.ts` (`monkeyBeach`/`monkeyMap`/
+`fort`/`riverFork`/`catapult`/`pond`/`crack`/`northBeach`/`cannibalVillage`/
+`cannibalHut`/`monkey`/`monkeyClearing`/`idolChamber`/`catacombsAntechamber`/
+`catacombsMaze`/`ghostCavern`/`ghostDeck`/`ghostCabin`/`ghostCrewQuarters`/
+`ghostGalley`/`ghostBilge`/`ghostBrig`), not here. The maze solver + the unified
+room-to-room move (`solveMaze`/`enterRoom`) also live in `game.ts`.
+
+**Post-completion no-shortcuts pass (2026-06-14):** the endgame beats were
+de-shortcutted (the prior session bruteforced to reach the end; this session made
+each step faithful). (1) The lift's ghost-crew dialog is now driven by **answer
+id** (pick the lowest armed option, which is the ride) — not by regex-matching the
+localized Italian text (a harness §7 violation that would break the EN build). (2)
+A `/tmp` maze-debug probe was removed from the committed helper (probes belong in
+`scratch/`). (3) **Blind retry loops → a single state-driven `enterRoom`**: it
+walks ego in and watches for the room change; a CLOSED door is detected from its
+own state (a door carries an "open" image-state and its verb-11 only passes ego
+when `getObjectState(VAR_ME)` equals it) and Opened first; a WIDE scrolling room
+(one walk routes ego only to the next walkbox edge) is re-walked while ego keeps
+advancing. No blind re-clicking. (4) The maze head is raised **once** (it stays
+"in hand" the whole maze — verified: the old per-step `raiseHead` re-raised
+exactly once). (5) Class-bit reads deduped into `isTouchable`/`hasClass`/
+`egoInBoat` (the `0x80000000`/`0x20`/`costume===4` magic now lives in one place).
+
+**Two engine bugs fixed completing Part III (2026-06-14):** (1) **dialog verbs
+weren't rendered/clickable over a full-height (200px) close-up** — `paintVerbBand`
+only drew verbs in the panel band BELOW a 144px room, so the navigator-head talk
+(room 86) showed no options (USER-REPORTED in-browser). Now verbs paint + hit-test
+at their screen-space row over any room (`graphics`→`render/screen.ts`). (2)
+**`loadRoomWithEgo` ran the new room's ENCD before placing ego in it** — SCUMM puts
+ego in the room first (`o5_loadRoomWithEgo`), so an ENCD that branches on ego's room
+(the cabin's spinning-key setup, `getActorRoom(ego)==g4`) was skipped. Fixed the
+ordering in `opcodes/index.ts`. A room-86 dialog-text COLOUR glitch remains, visual
+only — tracked in the Tier-2 list below.
 
 **Working principle (agreed 2026-06-02):** engine-faithful, no hacks/shortcuts —
 confirm the real mechanism first (**never consult ScummVM source, in any form**),
@@ -44,7 +73,7 @@ a raw `driveUntil` only for bespoke predicates). Named `<Part> · <Room> — <wh
 proves>`, file order = run order; per-game ids/vars in `game.ts` (`ROOMS`/`VERBS`/`VARS`).
 A clean fast-forward save (`saves/MI1-walkthrough-frontier.websave.json`, gitignored,
 written by the ALWAYS-LAST `frontier` beat and regenerated each green run) sits at the furthest
-clean state (currently room 25; see NEXT below).
+clean state (currently room 83 — the Mêlée docks, Part IV begun; see NEXT below).
 
 **The overhead map (rooms 2–6) is WALKABLE** (ego a small figure, costume 3 walking / costume 4 the
 boat), not a node hub: edge connectors cross screens (global #34); locations are entered by walking
@@ -57,7 +86,20 @@ the save for speed, but the from-boot run is the real check. Keep RNG-touchy bea
 stop-conditions and condition-waiters, not exact intermediate asserts (the duel grind and monkey
 feed were hardened this way 2026-06-13 when the village walk-speed fix shifted the stream).
 
-### Part III endgame map — catacombs → ghost ship → seltzer → the lift (probed 2026-06-14)
+### Part III endgame map — catacombs → ghost ship → seltzer → the lift (probed 2026-06-14, IMPLEMENTED 2026-06-14)
+
+> **IMPLEMENTED + from-boot green** — the beats are now the source of truth (the map below is the
+> dossier they were built from). What driving CORRECTED vs the map: (1) **the maze is navigated by
+> walking into `g164`** (the head-pointed cave), NOT `g266` (that's the *entrance* you came from) —
+> raise the head first (USE #293 → bit#426), and when the correct cave is across a wall (ego pinned,
+> can't cross center to turn) walk back into `g266` to bounce to the antechamber and re-enter a fresh
+> screen (`solveMaze` does this adaptively; g265 survives the bounce). (2) **The voodoo root is taken
+> by LOOKing at the OPEN crate** (#821 verb 8: "Prenderò questa vecchia radice…"), not by a Pick-up on
+> #823 (which has no verb 9). (3) **The seltzer (#106) and the lift's ghost-crew greeting each present
+> an INTERACTIVE dialog** — they're auto-*triggered* but the player must pick a reply (the seltzer: any
+> reply; the crew: the lowest armed answer id is the ride, and the rest self-gate, so picking lowest by
+> id converges → global #131 — no need to read the localized text). (4) The head-talk beg
+> relents at **g286 ≥ 4** (not > 4). (5) Two engine fixes were needed — see the Current section.
 
 The frontier sits in the cannibal village (room 25) holding the Monkey-Head key (#269) and the
 navigator's head (#293); idol, picker, leaflet all given away. Everything from here to the end of
@@ -177,21 +219,19 @@ Part-IV line); `bit#452` Bob joins; `bit#453` underground/Part-IV; object states
 `#142` gate held / `#821` crate open / `#824` hatch open; `g266` correct maze direction, `g274` head
 hint, `g265` maze step counter; class 6 = key/wearable, class 32 (bit 31) = untouchable.
 
-**New `game.ts` room ids to add:** `monkeyHead`/catacombs gateway lives on the existing
-`monkeyClearing` (12) `#133` + `idolChamber` (69) ear `#767`; new rooms `catacombsAntechamber` (65),
-`catacombsMaze` (39), `ghostCavern` (70), `ghostDeck` (77), `ghostBrig` (71), `ghostCabin` (72),
-`ghostCrewQuarters` (73), `ghostBilge` (74), `ghostGalley` (75); plus on `cannibalVillage` (25) the
-head `#293` talk + necklace `#294`.
+**`game.ts` room ids (ADDED):** the catacombs gateway lives on `monkeyClearing` (12) `#133`/`#151` +
+`idolChamber` (69) ear `#767`; rooms `catacombsAntechamber` (65), `catacombsMaze` (39), `ghostCavern`
+(70), `ghostDeck` (77), `ghostBrig` (71), `ghostCabin` (72), `ghostCrewQuarters` (73), `ghostBilge`
+(74), `ghostGalley` (75); plus on `cannibalVillage` (25) the head `#293` talk (→ `ghostCavern.headTalk`)
++ necklace `#294` + `seltzerBit`/`partFourBit`.
 
-> **CONFIRM BY DRIVING (restore a near-ship save and step through — the from-boot run is the real
-> check).** (1) Re-entering the idol chamber (69) for the ear needs the monkey holding the gate
-> (`#142==1`) — verify it's still held on return, or how 69 is re-entered with the key. (2) The
-> mouth-open flag `#151` — confirm the key-on-ear path (global #94/callees) sets it (that's what
-> flips `#133` → room 65). (3) The cabin key `#799` is class 6 so it opens the hatch `#824` — confirm
-> (else find the real hatch key). (4) Global #78's ghost-detection flow (where it runs; the caught
-> path `startScript 72`) vs the `#769` board cutscene. (5) What *starts* the room-70 lift dialog
-> (#205/#206) on the post-seltzer return, and its answer-verb ids. (6) That following `g266` through
-> the maze (room 39) advances `g265` to the cavern.
+> **CONFIRMED BY DRIVING (from boot, 2026-06-14):** (1) the monkey is still holding the gate
+> (`#142==1`, monkey parked in room 12) on return, so `#155` re-enters the idol chamber. (2) Key-on-ear
+> → global #94 sets the mouth open (`#151`), drops ego in room 12; `#133` then → room 65. (3) the cabin
+> key `#799` (class 6) opens the hatch `#824` → bilge. (4) global #78 (room-77 ENCD) ejects ego unless
+> the necklace is worn (`bit#357`); boarding with it passes. (5) the post-seltzer lift drops ego in the
+> cavern where the crew dialog (room-70 #205/#206) runs — pick the lowest armed answer id (the ride) → global #131. (6)
+> the maze advances by walking into `g164` (NOT `g266`); `g265 ≥ 6` → cavern 70.
 
 > **Cannibal-village bug, still open (reported in-browser 2026-06-13).** The 3 cannibals sometimes
 > all render as "Lemonhead" (one mask) instead of three distinct masks — intermittent, a
@@ -265,6 +305,15 @@ Priority H/M/L = likelihood of biting current/near play × severity.
 - [ ] **L/M — `print` `clipped` line-wrap bound not modelled** (`vm.ts:~114`,
   the stored SO_CLIPPED bound).
   Long lines may overflow / mis-wrap vs the original's clip-X wrapping.
+- [ ] **L — head-talk (room 86) dialog-option text renders the wrong colour**
+  (reported in-browser 2026-06-14, visual only — mechanics fine). The navigator-head
+  conversation close-up now renders its options (the 200-tall close-up verb-paint fix,
+  this session: `paintVerbBand` draws verbs over a full-height room). But the option
+  lines paint dark red/magenta instead of a readable colour — the hovered/armed line
+  correctly highlights yellow (hicolor 14), so the base colour (verbOps `color=2`) is
+  mis-mapped through room 86's CLUT. Same family as the room-36 disclaimer colour gap;
+  needs a charset/CLUT-colour pass + in-browser pixel iteration. Does NOT block the beg
+  (the conversation is fully drivable).
 - [ ] **L — right-margin clamp for positioned left prints is a guess**
   (`screen.ts` `paintDialogText`, the non-center clamp citing room 51): the recipe
   close-up's bottom lines (left at x=160, w=218/190) clamp to x=102/130 and their tails
@@ -435,6 +484,10 @@ Three items ahead, one of which — keep playing MI1 — is the Current section
 above. We no longer track by phase number; the numbered-phase roadmap (and
 each finished task's closure record) is history — git keeps it.
 
+- **Part IV "Il Finale"** — the new frontier (Parts I–III now play from boot).
+  The lift lands ego on the Mêlée docks (room 83); the finale crashes the wedding
+  (room 78), confronts LeChuck (room 45), and the root-beer/seltzer showdown
+  (room 59). Drive it from boot, fixing each blocker as before.
 - **Audio: OPL2 synthesis** for the 15 ADL-only effects (first cut shipped
   above — SBL + CD play; an AudioWorklet OPL2 + the ADL MIDI event stream).
 - **MI2** — full support for the v5-but-slightly-different edge cases. Sanity
