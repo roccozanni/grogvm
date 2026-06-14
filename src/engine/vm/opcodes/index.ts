@@ -1535,10 +1535,16 @@ defineOp({
     // (room 58's maze fires its entry walk off it after the first
     // breakHere), so it must survive the room change.
     vm.vars.writeGlobal(VAR_WALKTO_OBJ, objId);
-    vm.enterRoom(room);
+    // SCUMM's o5_loadRoomWithEgo putActors ego into the new room BEFORE
+    // startScene (old EXCD → new ENCD), so an ENCD that branches on ego's room
+    // sees him already arrived — the cabin's spinning-key setup (room 72) gates
+    // its whole `g33=202` / draw-the-key block on `getActorRoom(ego) == g4`.
+    // Setting it after enterRoom skipped that block (no key to take). Position
+    // still lands after the ENCD's first slice (below).
     const ego = actorOrNull(vm, 0);
+    if (ego) ego.room = room;
+    vm.enterRoom(room);
     if (ego) {
-      ego.room = room;
       // Runs AFTER the ENCD's first slice (SO_AT has repositioned the entry
       // object) but BEFORE its post-breakHere entry walk.
       const walk = objectWalkPoint(vm, objId);
