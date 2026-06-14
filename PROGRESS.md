@@ -22,8 +22,10 @@ navigator's head.** The beat-by-beat sequence IS the test
 (`integration/mi1/walkthrough.test.ts`, in run order); Part-III room ids +
 mechanics live in `game.ts` (`monkeyBeach`/`monkeyMap`/`fort`/`riverFork`/
 `catapult`/`pond`/`crack`/`northBeach`/`cannibalVillage`/`cannibalHut`/`monkey`/
-`monkeyClearing`/`idolChamber`), not here. Next blocker is step 8, the catacombs
-(see below).
+`monkeyClearing`/`idolChamber`), not here. The remaining content — the catacombs,
+LeChuck's ghost ship, the seltzer trade, and the lift that ends Part III — is fully
+probed and mapped below (**Part III endgame map**, 2026-06-14); writing the beats +
+the new `game.ts` room ids is now mechanical.
 
 **Working principle (agreed 2026-06-02):** engine-faithful, no hacks/shortcuts —
 confirm the real mechanism first (**never consult ScummVM source, in any form**),
@@ -55,15 +57,141 @@ the save for speed, but the from-boot run is the real check. Keep RNG-touchy bea
 stop-conditions and condition-waiters, not exact intermediate asserts (the duel grind and monkey
 feed were hardened this way 2026-06-13 when the village walk-speed fix shifted the stream).
 
-> **NEXT SESSION — Part III step 8 (the catacombs).** Frontier sits in the cannibal village (room 25)
-> holding the Monkey-Head key (#269) and the navigator's head (#293); idol, picker, and leaflet all
-> given away. Next: use the key in the monkey-head's ear (close-up room 65) → mouth opens → the
-> catacombs maze, where holding out the navigator's head points the way (pause at junctions to let it
-> reorient) → LeChuck's ghost ship. The monkey-head entrance is the Great Stone Head (#284) on the
-> village's east side (the cannibals say "è la grande testa di scimmia sul lato est"); bit#358 (set by
-> the leaflet trade) arms the room-25 re-confrontation #214/#217. Restore the frontier save (room 25,
-> key + head in hand); RNG caveat above still applies — the from-boot run (`npm run test:integration`)
-> is the real check.
+### Part III endgame map — catacombs → ghost ship → seltzer → the lift (probed 2026-06-14)
+
+The frontier sits in the cannibal village (room 25) holding the Monkey-Head key (#269) and the
+navigator's head (#293); idol, picker, leaflet all given away. Everything from here to the end of
+Part III is mapped from the bytecode below (disassembler + `scratch/p3-allrooms.ts` +
+`scratch/p3-room-dump.ts`; **never ScummVM source**). Ids are object/script/bit/global numbers;
+verbs are `look=8 open=2 pickUp=9 talk=10 give=4 push=5 pull=6 use=7`. The maze and the ghost crew
+ride the engine RNG seam, so the from-boot run (`npm run test:integration`) stays the real check —
+beats here must follow VM state (`g266`, owner/bit flips), not exact intermediate positions.
+
+> **Corrects the old step-8 note.** The ear is **#767 in room 69 (the idol chamber)**, *not* a
+> close-up "room 65"; room 65 is the catacombs antechamber. The maze is **room 39** (procedural). The
+> gateway is the **Giant Monkey Head #133 in the clearing (room 12)** — the same head whose gate the
+> monkey held for the idol chamber — not a "Great Stone Head #284". Giving the root is **automatic**
+> (village heartbeat), not a Give verb. The "talk to Bob → lift" beat happens **on the ghost ship
+> (room 70)**, reached by *returning* there after the seltzer is made — not in the village.
+
+**A. Into the catacombs (clearing 12 → idol chamber 69 → antechamber 65 → maze 39 → cavern 70).**
+- The catacombs gateway is the **Giant Monkey Head `#133`** in the clearing (room **12**). Its
+  verb-11/8: if the monkey holds the gate (`#142` state 1) → idol chamber (room 69, via `startObject
+  155 script=11`); **else if the mouth is open (`#151` state 1) → `loadRoomWithEgo room=65`** (the
+  catacombs); else nothing. (`#133` has no Use verb, so the key can't be used on it directly.)
+- **Open the mouth:** in the idol chamber (room **69**) Use the Monkey-Head key `#269` on the giant
+  ear `#767` (verb 7; partner check `isEqual L0 val=269`) → **global #94**: ego climbs into the ear,
+  the mouth-open animation plays, `putActorInRoom room=12 x=876`. (`#765` "head" rejects the key —
+  it goes in the *ear*.)
+- Then in room 12, walk to `#133` again → room **65** (antechamber: `#754` head = climb back up to
+  12 via L201; `#755` "la caverna" = on into the maze). Room-65 ENCD falls ego in (L202) when
+  `g101==12`, sets `g274=1`, `g265=0`.
+- `#755` (verb 90/255): if `bit#383` set → straight to the cavern (`loadRoomWithEgo room=70`); else
+  → **room 39, the maze**.
+- **The maze (room 39) is procedural** (ENCD reseeds `g264` via `getRandomNumber`), but
+  **deterministically solvable by following `g266`**: room-39 L204 sets `g266` = the correct
+  direction-cave object for the current screen (one of `#495 #496 #497 #498 #521`, all named "la
+  caverna"); the navigator's head's hint lives in `g274` (0=left 1=right 2=forward 3=back) and
+  **holding the head `#293` disables the "confusion" scripts (L207/L206) and keeps the hint
+  (L212)**. L205 resolves a step: walking `g266` advances a step counter `g265`; **when `g265 > 6`
+  → `loadRoomWithEgo room=70`** (the ghost-ship cavern); wrong moves reshuffle / bounce to room 65.
+  *Test approach:* loop `walkTo(objectPoint(g266)); waitReady` until `currentRoom===70`.
+
+**B. Board the ghost ship — the necklace makes ego invisible (cavern 70 → decks 77/71/72/73/74/75).**
+- At the cavern (room **70**) the ghost ship `#769/#770/#771` and a deck ghost `#784` (class 32,
+  untouchable). **First** make ego invisible:
+  - **Talk** to the navigator's head `#293` (verb 10 → **global #140**, a dialog tree): beg
+    (`"Posso avere quella collana…"` then plead — the head relents after the beg-counter `g286 > 4`)
+    **or** threaten; both converge on the handover (`drawObject 929`, `actorSetClass obj=294
+    classes=[6]` → the necklace `#294` becomes wearable). The head + necklace `#294` were already
+    pocketed by the leaflet-trade cutscene (global #104); the talk is what makes `#294` *wearable*.
+  - **Wear** the necklace: Use `#294` (verb 7) → **global #141** → **`bit#357 = 1`** (invisible to
+    ghosts), `#294` renamed "su Guybrush". `#294`'s verb refuses where there are no ghosts ("Non ne
+    ho bisogno qui") and when hands are full — so wear it **at the cavern (room 70)**, not earlier.
+    `bit#453` (underground) only changes the flavor line, not the invisibility.
+- **Board:** `#769` "la nave fantasma" verb 11 → cutscene (`startScript 111` = stand-up; `175` =
+  no-op) → `loadRoomWithEgo room=77` (the main deck). The ghost-detection gate is **global #78**
+  (reads `bit#357`): not wearing → `startScript 72` (caught) and ejected back to room 70; wearing →
+  pass.
+- **Deck (room 77) connectivity:** `#838` porta → cabin **72**; `#840` "la porta che cigola"
+  (the squeaky door) → cell/brig **71**; `#841` portello → crew quarters **73**; `#855` caverna →
+  back to room **70**. Ambient ghosts: dog `#842`, drunk ghost `#843`.
+
+**B1. Cabin (room 72) — compass on the spinning key.** ENCD installs a sentence override
+(`g33=202`) and draws the key as actor 5 + an atmospheric (non-lethal) ghost (actor 9). Use the
+magnetic compass `#732` on the key `#799` (verb 7) — local **#202** hard-checks the pair `{732,799}`
+in either order → magnet cutscene → `pickupObject obj=799` (the key enters inventory). Bare pickup is
+refused ("E' una grande chiave fantasma."). No bit set — assert `getObjectOwner(799)==ego`.
+
+**B2. Feather → tickle a sleeping ghost → jug o' grog (galley 75 / crew quarters 73).** Take the
+ghost feather `#820` (verb 9, no gate; in room 75). In the crew quarters (room 73) Use the feather
+`#820` on the **ticklish** sleeper `#804` (verb 7 — `#803` "Non soffre il solletico") → local **#200**
+flips the grog `#802` touchable (clears its class-32 untouchable bit, `setState 802 state=1`). Take
+the grog `#802` (verb 9 → global #183 → `pickupObject 802`).
+
+**B3. Locked hatch → bilge → grog in the rat dish → cooking grease (galley 75 → bilge 74).** The
+locked hatch `#824` (verb 2) gates on the held item being **class 6** (`ifClassOfIs val=g7
+classes=[134]` = class 6) → generic unlock (global #25) → `setState 824 state=1` → `loadRoomWithEgo
+room=74`. **The cabin key `#799` is the intended hatch key (a class-6 "key") — CONFIRM by driving.**
+In the bilge (room 74): pour the grog `#802` into the rat dish `#807` (verb 4 *or* 7; partner check
+`L0==802`, gated `bit#316==0`) → local **#201**: the big rat `#810` gets drunk, the chase guard
+(L203) stops, **`bit#316 = 1`**. Then take the cooking grease: jar `#806` verb 9 → `pickupObject
+815` — the item that lands in inventory is the **glob `#815` "la noce di grasso"** (gated
+`getObjectOwner(815)!=ego`), not the jar.
+
+**B4. Grease the squeaky door → ghost tools → crate → voodoo root (deck 77 → cell 71 → galley 75).**
+The squeaky door `#840` (room 77): opening it (verb 2) when it still **has class 6** runs the squeak
+cutscene (L200–L206) that wakes the deck ghost and re-arms the ambient scripts (and sets `bit#317`);
+**greasing** it — Use the grease glob `#815` on `#840` → `actorSetClass obj=840 classes=[6]`
+(clears class 6) + rename "la porta" — flips its verb-2 onto the **silent** branch → `loadRoomWithEgo
+room=71`. (`#840` has *no* Use verb of its own; the grease interaction lives on `#815`.) In the
+cell/brig (room 71, past the asleep guard `#787`) take the ghost tools `#788` (verb 9 → `pickupObject
+788`, no gate). Back in the galley (room 75) Use the tools `#788` on the glowing crate `#821` (verb 7;
+partner `L0==788`) → global #25 → `setState 821 state=1` (open); then take the voodoo root `#823`
+(verb 8, gated crate `state==1` **and** `owner(823)==world`) → `pickupObject 823`.
+
+**C. Out of the catacombs → village → the seltzer is made automatically (room 70 → 65 → 25).** Leave
+the ship (room 77 `#855` → cavern 70) and take `#768` "la caverna" (verb 11; gated **owning `#823`**
+or `bit#383`) → **global #170** (the "una lunga camminata…" cutscene) → `loadRoomWithEgo obj=290
+room=25` (village). **No Give verb:** the village heartbeat (room-25 local **#200** @114–131) sees
+`owner(#823)==ego && bit#383==0` → **global #106**, which renames the root `#823` →
+"la bottiglia di selz magico", `actorSetClass obj=823 classes=[6,146]`, **`bit#383 = 1`**; room-25
+**L210** then walks ego off and `putActorInRoom room=6` (the overhead map) at x=126,y=64.
+
+**D. The lift back — ends Part III (village → cavern 70 → Part IV at Mêlée).** With `bit#383` set, the
+village jungle exit `#290` (verb 11) now → **global #171** ("dopo aver corso a tutta velocità…") →
+`loadRoomWithEgo room=70` (a shortcut straight back to the cavern). Room-70 ENCD now (`bit#383` set)
+skips making the ship boardable (`notEqualZero bit#383 -> 74`) — instead the **ghost crew** path runs:
+they greet ego as "Bob", the decrepit ghost explains LeChuck went to Mêlée to marry Elaine, and the
+crew offer a ride (room-70 locals **#205/#206**, `bit#452` = Bob also boards). That ends at **global
+#131** — the Part III→IV transition: unloads Part-III resources, `bit#453=1`, `loadRoom 95` (the
+**"Parte Quattro / Il Finale"** title card), then `putActorInRoom room=83 x=80 y=121` (ego back on the
+Mêlée docks). **Part III's walkthrough block ends here**; Part IV "Il Finale" (wedding-crash room 78,
+LeChuck room 45, showdown room 59) is the next frontier.
+
+**Gating bits/vars (assert these, not strings):** `bit#357` necklace worn = invisible (global #141);
+`bit#383` root → magic seltzer (global #106; also gates the cave exit `#768`, the village→ship shortcut
+`#290`, and room-70's lift-vs-board branch); `bit#426` head held-out/reassembled (gates head talk vs
+put-back, and room-65/70 ENCD); `bit#316` rats fed; `bit#436` crew-dialog state (gates the lift / the
+Part-IV line); `bit#452` Bob joins; `bit#453` underground/Part-IV; object states `#151` mouth open /
+`#142` gate held / `#821` crate open / `#824` hatch open; `g266` correct maze direction, `g274` head
+hint, `g265` maze step counter; class 6 = key/wearable, class 32 (bit 31) = untouchable.
+
+**New `game.ts` room ids to add:** `monkeyHead`/catacombs gateway lives on the existing
+`monkeyClearing` (12) `#133` + `idolChamber` (69) ear `#767`; new rooms `catacombsAntechamber` (65),
+`catacombsMaze` (39), `ghostCavern` (70), `ghostDeck` (77), `ghostBrig` (71), `ghostCabin` (72),
+`ghostCrewQuarters` (73), `ghostBilge` (74), `ghostGalley` (75); plus on `cannibalVillage` (25) the
+head `#293` talk + necklace `#294`.
+
+> **CONFIRM BY DRIVING (restore a near-ship save and step through — the from-boot run is the real
+> check).** (1) Re-entering the idol chamber (69) for the ear needs the monkey holding the gate
+> (`#142==1`) — verify it's still held on return, or how 69 is re-entered with the key. (2) The
+> mouth-open flag `#151` — confirm the key-on-ear path (global #94/callees) sets it (that's what
+> flips `#133` → room 65). (3) The cabin key `#799` is class 6 so it opens the hatch `#824` — confirm
+> (else find the real hatch key). (4) Global #78's ghost-detection flow (where it runs; the caught
+> path `startScript 72`) vs the `#769` board cutscene. (5) What *starts* the room-70 lift dialog
+> (#205/#206) on the post-seltzer return, and its answer-verb ids. (6) That following `g266` through
+> the maze (room 39) advances `g265` to the cavern.
 
 > **Cannibal-village bug, still open (reported in-browser 2026-06-13).** The 3 cannibals sometimes
 > all render as "Lemonhead" (one mask) instead of three distinct masks — intermittent, a
