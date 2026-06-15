@@ -154,6 +154,16 @@ of copy-pasting a resource preamble or decoder chain. **What to import:**
   (bg / objects / scripts / boxes / box matrix / scale / z-planes, each
   isolated so one bad section never sinks the rest) + `referencedGlobalScripts`.
   Same primitives the Explorer renders.
+- **Trace what actually runs** — `traceTicks(vm, n, {scripts?, keepIdle?})`
+  (`testkit/trace.ts`) drives `n` jiffies and returns the per-frame opcodes,
+  grouped by the script that ran them, off the VM's built-in trace ring (no
+  engine hooks); `formatFrames`/`groupFrame` are the pure renderers. CLI:
+  `npm run spyglass -- <save> [ticks]` (`tools/spyglass.ts`; flags `--script=<ids>`
+  `--compact` `--idle` `--game=` `--seed=`; `<save>` of `fresh` traces a bare
+  boot). The dynamic counterpart to disgrogate: it shows what *executed*, not
+  what a script *could* run. A killed script's terminating `stopObjectCode`
+  surfaces under a trailing `#0` run (the slot id is cleared before the trace
+  push) — expected.
 - **Reproducibility** — `makeSeededRandom(seed)` (mulberry32) feeds
   `VmInit.random`; not part of the save snapshot.
 
@@ -172,8 +182,8 @@ of copy-pasting a resource preamble or decoder chain. **What to import:**
 go in `scratch/` — gitignored, NEVER `integration/` or any `*.test.ts` (that
 dir is the regression net). Run with `npx vite-node scratch/<name>.ts`, and
 build on the testkit (`bootScummV5` / `restoreSave` from `src/testkit/`)
-rather than a hand-rolled resource preamble; see `scratch/render-save.ts` for
-the PNG-encoder pattern. A probe that proves reusable graduates to a committed
+rather than a hand-rolled resource preamble (`writeScreenshot` / `testkit/png.ts`
+cover PNG output). A probe that proves reusable graduates to a committed
 `tools/` CLI.
 
 **Run the playthroughs separately:** `npm run test:integration` (own vitest
@@ -182,8 +192,7 @@ Data-gated: self-skips with no game data, so a fresh checkout / CI stays green;
 never commit the copyrighted bytes. Per-beat checkpoint saves (opt-in):
 `npm run test:integration:save` dumps `saves/beats/<order>-<slug>.websave.json`
 after every green beat — import one in the browser's saves panel to eyeball
-rendering or bisect a visual regression. (Dead probes predating the
-`games/MI1` → `games/MI1-IT-CD-DOS-VGA` rename live in `scratch/archive/`.)
+rendering or bisect a visual regression.
 
 ## Dev-environment gotchas (fragile, operational — not doc material)
 

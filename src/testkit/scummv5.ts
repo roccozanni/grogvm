@@ -17,6 +17,7 @@ export * from './drive';
 export * from './random';
 export * from './actions';
 export * from './png';
+export * from './trace';
 export * from './screenshot';
 
 /** The two resource files every v5 game ships (index + data). */

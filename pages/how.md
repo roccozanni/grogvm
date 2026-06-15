@@ -174,15 +174,22 @@ lines. Claude (Opus 4.7, then 4.8, then Fable 5, then Opus 4.8 again) did the
 bit-flipping while I steered. A few things made that work over three weeks 
 instead of collapsing into spaghetti:
 
-- **Phases and a living tracker.** Work moved in numbered phases, and a single
+- **Phases and a living tracker.** Work moved in phases, and a single
   `PROGRESS.md` held the current frontier. At each session's end, findings
   migrated out of the tracker into permanent [docs](/docs/) and the tracker got
   pruned back to "what's next." It never became a graveyard.
 - **Docs as the AI's memory.** The reverse-engineering notes aren't an
   afterthought; they're how the next session remembers what the last one
   learned about SCUMM. I spent an **insane** amount of time working with the agent
-  to rewrite, restructure and polish the documentation as we have been progressing
+  to rewrite, restructure and polish the documentation as we progressed
   through the game.
+- **Tooling, Tooling and more Tooling.** The ability for the agent to autonomously 
+  drive, observe and troubleshoot is the most important pillar. A rich set of tools
+  has been built along the way, by routinely analyzing the one-off probes the agent
+  was writing in `scratch/` looking for recurring patterns, and promoting the findings
+  to first-class citizens. This led to the creation of a headless harness (`testkit`),
+  a disassembler (`disgrogate`), a tracer (`spyglass`), a screenshot generator (`mugshot`),
+  and countless helpers for resource extraction and inspection.
 - **No hacks.** Except in the very first few days when we prioritized getting
   *something* on screen to look at (also due to the absence of tooling), the choice 
   was to model what the real engine actually does rather than special-case 

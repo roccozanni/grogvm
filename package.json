@@ -15,7 +15,8 @@
     "test:integration:verbose": "vitest run --config vitest.integration.config.ts --reporter=verbose",
     "test:integration:save": "BEAT_SAVES=1 vitest run --config vitest.integration.config.ts integration/mi1/walkthrough.test.ts",
     "disgrogate": "npx tsx tools/disgrogate.ts",
-    "mugshot": "npx tsx tools/mugshot.ts"
+    "mugshot": "npx tsx tools/mugshot.ts",
+    "spyglass": "npx tsx tools/spyglass.ts"
   },
   "devDependencies": {
     "@types/markdown-it": "^14.1.2",
