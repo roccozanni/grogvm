@@ -1,59 +1,54 @@
 /**
  * MI1 FULL WALKTHROUGH — the regression net.
  *
- * ONE continuous run: a single VM, booted once, driven through the game's own
- * solution from the title screen onward, state carrying forward the whole way.
- * We grow it room by room; the last green beat is the **frontier** — how far
- * the engine currently gets. Run it at the end of a session / after a refactor:
- * if the game stopped being playable anywhere, the failing beat's name says
- * where.
+ * ONE continuous run: a single VM, booted once, driven through the game's
+ * solution from the title screen on, state carrying forward throughout. Grown
+ * room by room; the last green beat is the **frontier** — how far the engine
+ * gets. Run after a session/refactor: a failing beat's name says where the
+ * game stopped being playable.
  *
- * WHAT THIS COVERS — and what it doesn't:
- *   • It is HEADLESS. It drives the VM and asserts on observable VM *state*
- *     (current room, object ownership, globals/bit-vars, halt, actor
- *     position, dialog text-as-data). It renders ZERO pixels.
- *   • So it catches LOGIC / PLAYABILITY regressions ("the door won't open",
- *     "the trial flag stops setting", "a script halts", "ego can't path").
- *     It does NOT catch visual ones — garbled compositing, z-order, a missing
- *     cursor — those stay the domain of in-browser real-pixel confirmation.
- *     A green run proves the game *plays*, never that it *renders*.
+ * COVERAGE: HEADLESS — drives the VM, asserts observable VM *state* (room,
+ * object ownership, globals/bit-vars, halt, actor position, dialog
+ * text-as-data); renders ZERO pixels. Catches LOGIC/PLAYABILITY regressions
+ * (door won't open, a flag stops setting, a script halts, ego can't path), NOT
+ * visual ones (compositing, z-order, missing cursor) — those need in-browser
+ * pixel confirmation. Green proves the game *plays*, never that it *renders*.
  *
  * RULES (same as the rest of the suite):
  *   • Drive from boot every run — no save fast-forward — so intro/early-room
- *     regressions can't hide. It gets slower as it spans the game; that's the
- *     price of honest coverage.
+ *     regressions can't hide. Slower as it spans the game; the price of honest
+ *     coverage.
  *   • Deterministic: boot seeds the engine RNG ({@link SEED}) so the run is
- *     reproducible — a flaky regression net is worthless.
+ *     reproducible.
  *   • Assert MECHANICS via numeric ids, never localized strings. Where text
- *     must be checked, derive it from this build (e.g. a dialog answer's own
- *     `name`).
- *   • Player actions go through the faithful click flow ({@link actions});
- *     any unavoidable shortcut is flagged as debt at the call site.
+ *     must be checked, derive it from this build (e.g. a dialog answer's `name`).
+ *   • Player actions go through the faithful click flow ({@link actions}); any
+ *     unavoidable shortcut is flagged as debt at the call site.
  *   • Movement is a BARE click, never an armed verb. In MI1 "Walk to" is the
- *     *default* sentence, not a verb button you press — the player just clicks
- *     a spot or a thing and the engine runs its default action: floor → walk
- *     there; a door/arch → enter if open, stop in front if closed; a map node
- *     → travel. So `walkTo(vm, target)` (hover + click, no verb armed) is how
- *     ego moves and goes through doors/arches/nodes. `use(vm, VERB, obj)` is
- *     ONLY for the real verb buttons — Open, Look at, Pick up, Talk to, Push,
- *     Give — e.g. a closed door is `use(open, door)` then `walkTo(door)`.
+ *     *default* sentence, not a verb button: clicking a spot/thing runs the
+ *     engine's default action — floor → walk there; door/arch → enter if open,
+ *     stop in front if closed; map node → travel. `walkTo(vm, target)` (hover +
+ *     click, no verb armed) moves ego and goes through doors/arches/nodes.
+ *     `use(vm, VERB, obj)` is ONLY for real verb buttons (Open, Look at, Pick
+ *     up, Talk to, Push, Give) — e.g. a closed door is `use(open, door)` then
+ *     `walkTo(door)`.
  *
- * BEAT KINDS: every beat is either TRAVEL (🚶‍➡️) — move ego from room A to room
- * B, the whole leg in one beat however many rooms it crosses (doors, map
- * nodes, ziplines included) — or ACTION (⚙️) — what ego does inside the room
- * it traveled to. Don't mix the two; a leg that takes an action to survive
- * (the melting-mug race) is still one travel beat.
+ * BEAT KINDS: every beat is TRAVEL (🚶‍➡️) — move ego from room A to B, the whole
+ * leg in one beat however many rooms it crosses (doors, map nodes, ziplines) —
+ * or ACTION (⚙️) — what ego does inside the room it traveled to. Don't mix; a
+ * leg that takes an action to survive (the melting-mug race) is still one
+ * travel beat.
  *
  * BEAT NAMING: `<kind emoji> <Room> — <what the beat proves>`, grouped by
  * `describe` into the game's own parts (Part I = "The Three Trials"); Room is
- * where the beat acts (a travel beat's starting room). No ordinal — file
- * order *is* run order, so the sequence is positional. Stop-on-break surfaces
- * the failing beat's name, so it must say *where* (the room) and *what*
- * broke; don't cross-reference other beats by number.
+ * where the beat acts (a travel beat's starting room). No ordinal — file order
+ * *is* run order, so the sequence is positional. Stop-on-break surfaces the
+ * failing beat's name, so it must say *where* (the room) and *what* broke;
+ * don't cross-reference other beats by number.
  *
  * Data-gated (skipped without the game files). Run: `npm run test:integration`.
- * With BEAT_SAVES set (`npm run test:integration:save`) every green beat
- * also dumps an importable checkpoint save to saves/beats/.
+ * With BEAT_SAVES set (`npm run test:integration:save`) every green beat also
+ * dumps an importable checkpoint save to saves/beats/.
  */
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { describe, expect, it, type TestContext } from 'vitest';
@@ -104,24 +99,23 @@ import {
 // One VM for the whole walkthrough, driven forward across beats.
 const vm = boot();
 
-// Stop-on-break: the FIRST failing beat goes red (that's the regression);
-// every later beat is skipped, not cascaded into noise or — worse — falsely
-// passed. So a red+skipped tail localizes exactly where the game broke.
+// Stop-on-break: the FIRST failing beat goes red (the regression); every later
+// beat is skipped, not cascaded into noise or falsely passed. A red+skipped
+// tail localizes exactly where the game broke.
 let broken = false;
 
-// The grog carrier in play, shared by the run-to-the-jail and lock-melt
-// beats (which mug is live depends on how many pours the run needed).
+// The grog carrier in play, shared by the run-to-the-jail and lock-melt beats
+// (which mug is live depends on how many pours the run needed).
 let activeMug = 0;
 let remainingMugs: number[] = [];
 
-// Per-beat checkpoints, opt-in via BEAT_SAVES (`npm run
-// test:integration:save`): every green beat also snapshots the VM to
-// saves/beats/<run-order>-<slug>.websave.json — an in-browser import target
-// at each point of the run, for visual spot-checks (the net itself renders no
-// pixels) and for bisecting where a rendering regression starts. The
-// directory is wiped up front so checkpoints from an older engine can't pass
-// as fresh; a beat that ends before full settle (e.g. the troll-bridge
-// crossing) restores exactly there, mid-choreography rather than at idle.
+// Per-beat checkpoints, opt-in via BEAT_SAVES (`npm run test:integration:save`):
+// every green beat snapshots the VM to saves/beats/<run-order>-<slug>.websave.json
+// — an in-browser import target at each point, for visual spot-checks and for
+// bisecting where a rendering regression starts. The directory is wiped up front
+// so checkpoints from an older engine can't pass as fresh; a beat that ends
+// before full settle (e.g. the troll-bridge crossing) restores there,
+// mid-choreography rather than at idle.
 const beatSavesDir = process.env.BEAT_SAVES ? 'saves/beats' : undefined;
 if (beatSavesDir) {
   rmSync(beatSavesDir, { recursive: true, force: true });
@@ -163,7 +157,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       const ego = vm.vars.readGlobal(VAR_EGO);
       expect(ego).toBeGreaterThan(0);
       expect(vm.actors.get(ego).room).toBe(ROOMS.meleeLookout.id);
-      // Lit (the lighting seed) so look-ats yield real descriptions, not "too dark".
+      // Lit so look-ats yield real descriptions, not "too dark".
       expect(vm.vars.readGlobal(VAR_CURRENT_LIGHTS)).not.toBe(0);
       expect(vm.cursor.userput).toBeGreaterThan(0);
       expect(vm.cursor.state).toBeGreaterThan(0);
@@ -198,13 +192,13 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     });
 
     beat('⚙️ SCUMM Bar — talk to the LOOM-ad pirate → close-up (82), pick an answer, ego speaks it', () => {
-      // Talking to the salesman pirate #333 starts conversation script #93, which
-      // loads the close-up room 82.
+      // Talking to salesman pirate #333 starts conversation script #93, which
+      // loads close-up room 82.
       use(vm, VERBS.talk, ROOMS.scummBar.loomPirate);
       expect(driveToRoom(vm, ROOMS.pirateCloseup.id, { maxTicks: 2400 })).toBe(true);
 
-      // This beat hand-rolls the dialog (rather than pickDialogAnswer) to prove
-      // the mechanic end-to-end: the line ego speaks IS the answer we clicked.
+      // Hand-rolls the dialog (rather than pickDialogAnswer) to prove the
+      // mechanic end-to-end: the line ego speaks IS the answer clicked.
       const niceHat = ROOMS.pirateCloseup.answers.niceHat;
       driveUntil(vm, (v) => v.verbs.get(niceHat)?.state === 'on', { maxTicks: 1200 });
       const answer = vm.verbs.get(niceHat);
@@ -214,7 +208,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       driveUntil(vm, (v) => v.activeDialog !== null, { maxTicks: 400 });
       expect(vm.activeDialog?.text).toBe(answer!.name);
 
-      // Fire the goodbye option once it re-arms to return to the bar.
+      // Fire goodbye once it re-arms to return to the bar.
       waitIdle(vm);
       const goodbye = ROOMS.pirateCloseup.answers.goodbye;
       driveUntil(vm, (v) => v.verbs.get(goodbye)?.state === 'on', { maxTicks: 1200 });
@@ -225,12 +219,12 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
     beat('⚙️ SCUMM Bar — talk to the 3 pirates; the trials flag (g197) flips', () => {
       // Unlike the LOOM pirate, the three important-looking pirates (#322) run
-      // their conversation #220 *inline* in the bar — no close-up room.
+      // conversation #220 *inline* in the bar — no close-up room.
       expect(vm.vars.readGlobal(VARS.trialsLearned)).toBe(0); // not yet learned
       use(vm, VERBS.talk, ROOMS.scummBar.threePirates);
 
-      // Pick the real opener (the other two are jokes that dead-end). The
-      // pirates then explain the trials → g197 flips.
+      // Pick the real opener (the other two are dead-end jokes). The pirates
+      // then explain the trials → g197 flips.
       const wantPirate = ROOMS.scummBar.trialsAnswers.wantToBePirate;
       driveUntil(vm, (v) => v.verbs.get(wantPirate)?.state === 'on', { maxTicks: 2400 });
       expect(vm.verbs.get(wantPirate)?.name?.length ?? 0).toBeGreaterThan(0);
@@ -251,15 +245,14 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       const cook = () => vm.actors.get(ROOMS.scummBar.cookActor);
       const inBar = () => cook().room === ROOMS.scummBar.id;
 
-      // Pre-position ego at the kitchen door so it can slip in during the brief
-      // window — crossing the whole bar mid-window won't make it.
+      // Pre-position ego at the kitchen door to slip in during the brief window
+      // — crossing the whole bar mid-window won't make it.
       walkTo(vm, { x: 500, y: 130 });
 
       // The cook cycles out into the bar then back. The door's left open, so a
       // click on it carries ego through — but only with the cook deep in the bar
-      // (his sweep dips to x≈300), clear of the doorway he'd otherwise block. The
-      // window is timed, so retry across cycles; each miss waits out the window
-      // before the next try.
+      // (sweep dips to x≈300), clear of the doorway he'd block. The window is
+      // timed, so retry across cycles; each miss waits out the window first.
       let entered = false;
       for (let attempt = 0; attempt < 12 && !entered; attempt++) {
         driveUntil(vm, () => inBar() && cook().x < 340, { maxTicks: 4000 });
@@ -285,10 +278,9 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       const k = ROOMS.kitchen;
       const gull = () => vm.actors.get(k.seagullActor);
 
-      // Open the dock door and wait for it to actually swing open (its state
-      // flips to 1): only then are the dock walkboxes unblocked — until then ego
-      // can't even path onto the dock — and the gull watcher (local #203, on
-      // ego's distance to the board) is armed.
+      // Open the dock door and wait for its state to flip to 1: only then are
+      // the dock walkboxes unblocked (ego can't path onto the dock until then)
+      // and the gull watcher (local #203, on ego's distance to the board) armed.
       use(vm, VERBS.open, k.dockDoor);
       expect(driveUntil(vm, (v) => v.objectStates.get(k.dockDoor) === 1, { maxTicks: 4000 })).toBe(true);
 
@@ -304,8 +296,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       }
 
       // Third stomp makes the gull bolt (x 252→310); the fish's "bird will peck"
-      // guard lifts only WHILE it flies. Trigger on the bolt, then grab inside
-      // that window.
+      // guard lifts only WHILE it flies. Grab inside that window.
       walkTo(vm, k.boardWalkTo);
       expect(driveUntil(vm, () => gull().x > 260, { maxTicks: 4000 })).toBe(true);
       use(vm, VERBS.pickUp, k.fish);
@@ -319,7 +310,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(driveToRoom(vm, ROOMS.scummBar.id, { maxTicks: 2000 })).toBe(true);
 
       // The FIRST bar exit fires a one-time cutscene (the Sheriff; through rooms
-      // 70→72) before control lands back at the lookout — hence the wide budget.
+      // 70→72) before control lands back at the lookout.
       walkTo(vm, ROOMS.scummBar.exitDoor);
       expect(driveToRoom(vm, ROOMS.meleeLookout.id, { maxTicks: 8000 })).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
@@ -330,9 +321,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       walkTo(vm, ROOMS.meleeLookout.cliff);
       expect(driveToRoom(vm, ROOMS.cliffPath.id, { maxTicks: 4000 })).toBe(true);
 
-      // "il sentiero" lists verbs [90, 255] but no walk verb, so the click's
-      // default sentence falls back to the 0xFF/255 default entry, which runs the
-      // exit up to the map.
+      // The path lists verbs [90, 255] with no walk verb, so a bare click falls
+      // back to the 255 default entry, which runs the exit up to the map.
       walkTo(vm, ROOMS.cliffPath.path);
       expect(driveToRoom(vm, ROOMS.meleeMap.id, { maxTicks: 4000 })).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
@@ -344,12 +334,11 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
     beat('🚶‍➡️ Clearing — enter the circus tent (51); the brothers start arguing', () => {
       const ego = vm.vars.readGlobal(VAR_EGO);
-      // Room 52 is a high zone (right, where you enter) and a low zone (left,
-      // the tent). You can't walk straight across: local script 202 force-stops
-      // the ego whenever it's in box 7 (the diagonal bridge) at x>200, so a
-      // single click on the tent stalls at the high/low boundary. The faithful
-      // play is to descend into the low zone first, then walk to the tent —
-      // staged here in short hops exactly as a player clicks their way down.
+      // Room 52 has a high zone (right, where you enter) and a low zone (left,
+      // the tent). Can't walk straight across: local script 202 force-stops ego
+      // in box 7 (the diagonal bridge) at x>200, so a single click on the tent
+      // stalls at the high/low boundary. Descend into the low zone first, then
+      // walk to the tent — staged in short hops as a player clicks down.
       for (const wp of [{ x: 209, y: 118 }, { x: 120, y: 115 }, { x: 90, y: 92 }]) {
         walkTo(vm, wp);
         driveUntil(
@@ -369,7 +358,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     beat('⚙️ Circus — break in (ahem) and negotiate the cannonball job', () => {
       const A = ROOMS.circus.fettuciniAnswers;
       // Break into the argument with "ahem", then negotiate: ask the pay, accept,
-      // claim the helmet. The menus are sequential and separated by speech, so the
+      // claim the helmet. Menus are sequential, separated by speech, so the
       // recurring answer id (120) can't cross-match. The last pick takes the
       // cannon-launch branch and hands control back (the brothers want the helmet).
       pickDialogAnswer(vm, A.ahem);
@@ -389,8 +378,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       give(vm, VERBS.give, ROOMS.kitchen.pot, ROOMS.circus.brotherActor);
       pickDialogAnswer(vm, ROOMS.circus.fettuciniAnswers.amnesia, { armTicks: 30000 });
 
-      // The payout: object #488 (pieces of eight) runs its verb-250 script,
-      // adding 478 to the money global.
+      // Payout: object #488 (pieces of eight) runs its verb-250 script, adding
+      // 478 to the money global.
       expect(waitGlobal(vm, VARS.money, 478, 20000)).toBe(true);
       expect(vm.haltInfo).toBeNull();
     });
@@ -398,10 +387,10 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     beat('🚶‍➡️ Circus — back to the map and on to the Mêlée town street (35)', () => {
       const ego = vm.vars.readGlobal(VAR_EGO);
       const A = () => vm.actors.get(ego);
-      // The cannon gag fires ego clean out of the circus and dumps him back in
-      // the clearing (52) — there's no manual exit to take; just let it play out.
-      // He lands in the low (tent) zone, so climb the diagonal bridge back to the
-      // high zone before taking the path up (reverse of the staged descent in).
+      // The cannon gag fires ego out of the circus and dumps him in the clearing
+      // (52) — no manual exit, just let it play out. He lands in the low (tent)
+      // zone, so climb the diagonal bridge back to the high zone before the path
+      // up (reverse of the staged descent in).
       expect(driveToRoom(vm, ROOMS.clearing.id, { maxTicks: 6000 })).toBe(true);
       for (const wp of [{ x: 120, y: 115 }, { x: 209, y: 118 }, { x: 430, y: 130 }]) {
         walkTo(vm, wp);
@@ -410,9 +399,9 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       walkTo(vm, ROOMS.clearing.pathToMap);
       expect(driveToRoom(vm, ROOMS.meleeMap.id, { maxTicks: 8000 })).toBe(true);
 
-      // Map → the town: the "village" node lands ego in the wide lookout/town
-      // room 33 (g196 still 0 this early); walk east through its arch into the
-      // town street (35). One grouped travel beat, lookout-arch and all.
+      // Map → town: the "village" node lands ego in the wide lookout/town room
+      // 33 (g196 still 0 this early); walk east through its arch into the town
+      // street (35). One grouped travel beat, lookout-arch and all.
       walkTo(vm, ROOMS.meleeMap.village);
       expect(driveToRoom(vm, ROOMS.meleeLookout.id, { maxTicks: 8000 })).toBe(true);
       walkTo(vm, ROOMS.meleeLookout.townArch);
@@ -426,8 +415,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       const startMoney = vm.vars.readGlobal(VARS.money);
 
       // The cousin-Dominique line is the opener that gets the citizen to offer the
-      // map; the take-it answer then buys it for 100 pieces of eight. (The other
-      // openers dead-end.)
+      // map; the take-it answer buys it for 100 pieces of eight. (Other openers
+      // dead-end.)
       use(vm, VERBS.talk, ROOMS.meleeStreet.citizen);
       expect(pickDialogAnswer(vm, ROOMS.meleeStreet.citizenAnswers.dominique).length).toBeGreaterThan(0);
       expect(pickDialogAnswer(vm, ROOMS.meleeStreet.citizenAnswers.takeMap).length).toBeGreaterThan(0);
@@ -444,9 +433,9 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       use(vm, VERBS.pickUp, ROOMS.voodooShop.chicken);
       expect(waitPickedUp(vm, ROOMS.voodooShop.chicken)).toBe(true);
 
-      // The shop's entrance choreography (local #200, gated on arriving from
-      // the street — g101, the exit hook's record) closes the door behind you,
-      // so leaving is open-then-walk again.
+      // The entrance choreography (local #200, gated on arriving from the
+      // street — g101, the exit hook's record) closes the door behind you, so
+      // leaving is open-then-walk again.
       use(vm, VERBS.open, ROOMS.voodooShop.door);
       expect(driveUntil(vm, (v) => v.objectStates.get(ROOMS.voodooShop.door) === 1, { maxTicks: 8000 })).toBe(true);
       walkTo(vm, ROOMS.voodooShop.door);
@@ -457,9 +446,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     beat('🚶‍➡️ Mêlée town — through the arch and into the general store (30)', () => {
       walkTo(vm, ROOMS.meleeStreet.storeArch);
       expect(driveToRoom(vm, ROOMS.storeStreet.id, { maxTicks: 10000 })).toBe(true);
-      // The store door's Open handler only fires with ego standing at it, so the
-      // "approach, open, enter": click it (ego walks up, stops — it's closed),
-      // Open it, then click again to walk through.
+      // The store door's Open handler only fires with ego standing at it: click
+      // it (ego walks up, stops — it's closed), Open it, click again to walk through.
       walkTo(vm, ROOMS.storeStreet.storeDoor);
       use(vm, VERBS.open, ROOMS.storeStreet.storeDoor);
       walkTo(vm, ROOMS.storeStreet.storeDoor);
@@ -473,7 +461,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       const A = ROOMS.store.buyAnswers;
 
       // Lift both items off the shelf first — ownership flips to ego on the spot
-      // (he's pocketing unpaid merchandise).
+      // (pocketing unpaid merchandise).
       for (const obj of [ROOMS.store.sword, ROOMS.store.shovel]) {
         use(vm, VERBS.pickUp, obj);
         expect(waitPickedUp(vm, obj)).toBe(true);
@@ -481,7 +469,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
       // Ring the bell (Push) to summon the shopkeeper, then buy through his
       // conversation. The buy menu reuses verb ids (120/121 recur across stages),
-      // so pick in order: bring up the sword → buy it, the shovel → buy it, leave.
+      // so pick in order: sword → buy it, shovel → buy it, leave.
       use(vm, VERBS.push, ROOMS.store.bell);
       use(vm, VERBS.talk, ROOMS.store.shopkeeper);
       pickDialogAnswer(vm, A.aboutSword);
@@ -506,12 +494,11 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     });
 
     beat('🚶‍➡️ General store — back across the island to the forest fork (218)', () => {
-      // The whole trip out, reversed, in one go: the store street's far-east arch
-      // → the town street, its west arch → the lookout, off the cliff, up the
-      // path to the map, then the map's crossroads node (#911, "il bivio") — the
-      // one node we've not taken before — loads room 218, the forest-maze entry
-      // (a pseudo-room backed by room 58). Each hop is a bare click whose default
-      // verb-11 runs the transition.
+      // The trip out reversed, in one go: store street's far-east arch → town
+      // street, its west arch → lookout, off the cliff, up the path to the map,
+      // then the map's crossroads node (#911) — the one node not taken before —
+      // loads room 218, the forest-maze entry (a pseudo-room backed by room 58).
+      // Each hop is a bare click whose default verb-11 runs the transition.
       walkTo(vm, ROOMS.storeStreet.townArch);
       expect(driveToRoom(vm, ROOMS.meleeStreet.id, { maxTicks: 12000 })).toBe(true);
       walkTo(vm, ROOMS.meleeStreet.lookoutArch);
@@ -528,11 +515,11 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
     beat('🚶‍➡️ Forest — thread the maze (back/left/right…) out to the dig clearing (64)', () => {
       // From the entry (218) the path back, left, right, left, right, back,
-      // right, left, back walks out to the treasure clearing. Each turn is a
-      // click on a direction's "il sentiero" tile; its verb-11 switches on the
-      // current pseudo-room (`g4`) and loads the next. Asserting the pseudo-room
-      // each step lands in proves we're threading the exact route (a re-wired
-      // maze edge fails on the step that broke), and the last `back` exits to 64.
+      // right, left, back walks out to the treasure clearing. Each turn clicks a
+      // direction's path tile; its verb-11 switches on the current pseudo-room
+      // (`g4`) and loads the next. Asserting the pseudo-room each step lands in
+      // proves the exact route (a re-wired maze edge fails on the broken step),
+      // and the last `back` exits to 64.
       const F = ROOMS.forest;
       const route: ReadonlyArray<[number, number]> = [
         [F.back, 215], [F.left, 220], [F.right, 213], [F.left, 212], [F.right, 204],
@@ -550,10 +537,9 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       const ego = vm.vars.readGlobal(VAR_EGO);
       expect(vm.getObjectOwner(ROOMS.forestDig.tshirt)).not.toBe(ego);
 
-      // Use shovel on X: the dig cutscene (local #200) plays the hours-pass
-      // beat, ego digs, and `pickupObject`s the treasure T-shirt into the inventory.
-      // It's a long cutscene (two camera pans + the dig-and-refill), hence the
-      // wide budget.
+      // Use shovel on X: the dig cutscene (local #200) plays the hours-pass beat,
+      // ego digs, and `pickupObject`s the treasure T-shirt into inventory. Long
+      // cutscene (two camera pans + the dig-and-refill).
       useWith(vm, VERBS.use, ROOMS.store.shovel, ROOMS.forestDig.x);
       expect(waitPickedUp(vm, ROOMS.forestDig.tshirt, 60000)).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
@@ -561,10 +547,10 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     });
 
     beat('🚶‍➡️ Forest dig — back up the path to the map, into the maze at the crossroads (218)', () => {
-      // The dig clearing's only exit is "il sentiero nella foresta" (#750): a
-      // bare click runs its verb-11 → back to the Mêlée map, landing on the
-      // crossroads node. Re-enter the maze through that same node (#911, "il
-      // bivio") → the forest entry pseudo-room (218).
+      // The dig clearing's only exit is the forest path (#750): a bare click runs
+      // its verb-11 → back to the Mêlée map, landing on the crossroads node.
+      // Re-enter the maze through that same node (#911) → forest entry
+      // pseudo-room (218).
       walkTo(vm, ROOMS.forestDig.pathToMap);
       expect(driveToRoom(vm, ROOMS.meleeMap.id, { maxTicks: 8000 })).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
@@ -574,13 +560,12 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     });
 
     beat('🚶‍➡️ Forest — thread the back-route out to the sword-master fork (209)', () => {
-      // A different thread of the maze than the treasure route: from the entry
-      // (218) the path back, back, right, right, left, back lands at the
-      // sword-master fork (pseudo-room 209). Same three direction objects as the
-      // treasure run (back #685 / left #688 / right #687); asserting the
-      // pseudo-room each step lands in proves we're walking this exact route. The
-      // second `back` (215→203) is the map-gated edge — we hold the map (#442),
-      // so it lets us through instead of bouncing us out.
+      // A different maze thread than the treasure route: from the entry (218) the
+      // path back, back, right, right, left, back lands at the sword-master fork
+      // (pseudo-room 209). Same three direction objects as the treasure run
+      // (back #685 / left #688 / right #687); asserting the pseudo-room each step
+      // proves the exact route. The second `back` (215→203) is the map-gated edge
+      // — holding the map (#442) lets us through instead of bouncing us out.
       const F = ROOMS.forest;
       const route: ReadonlyArray<[number, number]> = [
         [F.back, 215], [F.back, 203], [F.right, 202], [F.right, 205], [F.left, 217], [F.back, 209],
@@ -595,8 +580,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
     beat('⚙️ Forest — push the signpost (the trunk drops as a bridge), cross to the Sword Master (61)', () => {
       // Push the signpost (#681): its local #203 drops the dead tree-trunk into a
-      // bridge — unblocking the box and playing the fall — and sets bit#546. Wait
-      // for that bit before crossing: only then is the right path (#687) walkable
+      // bridge (unblocking the box, playing the fall) and sets bit#546. Wait for
+      // that bit before crossing: only then is the right path (#687) walkable
       // over to the Sword Master's clearing (61). Reaching room 61 is the
       // discovery — the location is now known for the swordfighting trial later.
       expect(vm.vars.readBit(ROOMS.forest.bridgeBit)).toBe(0);
@@ -614,7 +599,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     beat('🚶‍➡️ Sword Master — back to the map and on to the troll bridge (57)', () => {
       // Out of the Sword Master's clearing: #743 has no walk verb, so a bare
       // click runs its default (verb 255) → back to the Mêlée map. From there the
-      // "il ponte" node (#914) drops ego on the troll's side of the bridge (57).
+      // bridge node (#914) drops ego on the troll's side of the bridge (57).
       walkTo(vm, ROOMS.swordMaster.path);
       expect(driveToRoom(vm, ROOMS.meleeMap.id, { maxTicks: 8000 })).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
@@ -627,22 +612,22 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     beat('⚙️ Troll bridge — give the troll the red herring; cross back to the map', () => {
       const ego = vm.vars.readGlobal(VAR_EGO);
       // The troll wants something red: give him the red herring (the kitchen
-      // fish, #568) — the two-object Give sentence to the troll actor. Local
-      // #204 unblocks the bridge and walks ego across, landing back on the map.
-      // The fish ends owned by the troll.
+      // fish, #568) — a two-object Give to the troll actor. Local #204 unblocks
+      // the bridge and walks ego across, landing back on the map. The fish ends
+      // owned by the troll.
       expect(vm.getObjectOwner(ROOMS.kitchen.fish)).toBe(ego);
       give(vm, VERBS.give, ROOMS.kitchen.fish, ROOMS.trollBridge.trollActor);
       expect(driveToRoom(vm, ROOMS.meleeMap.id, { maxTicks: 12000 })).toBe(true);
       expect(vm.getObjectOwner(ROOMS.kitchen.fish)).not.toBe(ego);
       // Crossing leaves the map's verb bar empty (local #204 sets VAR_VERB_SCRIPT
       // on the way over), so just settle — node travel runs the default-verb
-      // sentence and needs no armed verb. Don't waitPlayable here (no verb arms).
+      // sentence, no armed verb. Don't waitPlayable here (no verb arms).
       waitReady(vm);
       expect(vm.haltInfo).toBeNull();
     });
 
-    beat('🚶‍➡️ Mêlée map — travel on to the house (la casa, 43)', () => {
-      // Bridge crossed, the far side of the map is reachable: the "la casa" node
+    beat('🚶‍➡️ Mêlée map — travel on to the house (43)', () => {
+      // Bridge crossed, the far side of the map is reachable: the house node
       // (#916) loads the house (room 43).
       walkTo(vm, ROOMS.meleeMap.house);
       expect(driveToRoom(vm, ROOMS.house.id, { maxTicks: 12000 })).toBe(true);
@@ -655,11 +640,10 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(vm.vars.readBit(ROOMS.house.lessonTakenBit)).toBe(0);
 
       // Knock (Open the door, #591) → Smirk's doorway conversation (global #57).
-      // The whole exchange is cutscene-driven and each menu's intended line is
-      // the first slot (verb 120), so pick 120 down the negotiation: (1) ask to
-      // be trained, (2) confirm we're a pirate, (3,4) insist twice more, (5)
-      // confirm we hold the fee (≥30), (6) hand over the sword. That sends ego
-      // into Smirk's gym (60).
+      // Cutscene-driven, each menu's intended line is the first slot (verb 120),
+      // so pick 120 down the negotiation: (1) ask to be trained, (2) confirm
+      // we're a pirate, (3,4) insist twice more, (5) confirm we hold the fee
+      // (≥30), (6) hand over the sword. That sends ego into Smirk's gym (60).
       use(vm, VERBS.open, ROOMS.house.door);
       for (let menu = 0; menu < 6; menu++) {
         expect(pickDialogAnswer(vm, 120, { armTicks: 20000 }).length).toBeGreaterThan(0);
@@ -668,7 +652,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
       // The teaching cutscene runs long, then the insult lesson begins. With no
       // real comebacks yet, answer "whatever" (verb 120) to both insults — that
-      // ends the lesson and boots Guybrush back outside the house (43).
+      // ends the lesson and boots ego back outside the house (43).
       pickDialogAnswer(vm, 120, { armTicks: 60000 });
       pickDialogAnswer(vm, 120, { armTicks: 60000 });
       expect(driveToRoom(vm, ROOMS.house.id, { maxTicks: 60000 })).toBe(true);
@@ -691,8 +675,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     beat('⚙️ Mêlée map — take up a west-of-fork spot to draw pirates out', () => {
       // Pirates spawn at random map spots and walk toward random nodes; a duel
       // fires when one closes on ego. The east/house edge stays cold for tens of
-      // thousands of ticks, but the west-of-fork side has the traffic (confirmed
-      // in scratch/stumble.ts). Park here; the grind beat below does the wandering.
+      // thousands of ticks, but the west-of-fork side has the traffic. Park here;
+      // the grind beat below does the wandering.
       walkTo(vm, ROOMS.pirateDuel.westSpots[0]!);
       expect(vm.currentRoom).toBe(ROOMS.meleeMap.id);
       expect(vm.haltInfo).toBeNull();
@@ -704,12 +688,11 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       // flips on who won the last exchange, so throwing a known insult and letting
       // the pirate counter it both teaches that comeback (#82) AND flips us to
       // defense, where the pirate insults us and we learn a new insult (#83).
-      // (Winning every exchange — the old picker — stays on attack and learns
-      // almost nothing.) The stop is DYNAMIC, not a hardcoded comeback set: it
-      // grinds until the pool plateaus (no new comeback for N duels) with the
-      // gate g282>3 clear, so an engine change that moves the seeded stream
-      // re-converges on its own instead of forcing a hand re-derive. The proof
-      // that it learned enough is the Sword-Master win in the next beat.
+      // (Winning every exchange stays on attack and learns almost nothing.) The
+      // stop is DYNAMIC, not a hardcoded comeback set: grinds until the pool
+      // plateaus (no new comeback for N duels) with the gate g282>3 clear, so an
+      // engine change that moves the seeded stream re-converges on its own. Proof
+      // it learned enough is the Sword-Master win in the next beat.
       grindForSwordMaster(vm);
       expect(vm.currentRoom).toBe(ROOMS.meleeMap.id);
       expect(vm.haltInfo).toBeNull();
@@ -726,8 +709,9 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
     beat('⚙️ Sword Master — win the insult duel; the swordfighting trial is passed', () => {
       // Talk to Carla → sit out the intro → her duel runs in room 44 (g285=2, she
-      // insults 16..33). `fightSwordMaster` defends with scroll-to-want (the comeback
-      // menu pages 6 at a time) and wins. Beating her sets bit#20 — trial complete.
+      // insults 16..33). `fightSwordMaster` defends with scroll-to-want (the
+      // comeback menu pages 6 at a time) and wins. Beating her sets bit#20 — trial
+      // complete.
       expect(vm.vars.readBit(ROOMS.swordMaster.foughtBit)).toBe(0);
       expect(fightSwordMaster(vm)).toBe(true);
       expect(vm.vars.readBit(ROOMS.swordMaster.foughtBit)).toBe(1);
@@ -738,8 +722,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     beat('🚶‍➡️ Sword Master — back to the map and into the forest at the crossroads (218)', () => {
       // The thievery trial opens with a forest detour for the guard-dogs' sedative.
       // Out of the Sword Master's clearing via her path (#743, a bare-click default)
-      // → the Mêlée map, then the crossroads node (#911, "il bivio") → the forest
-      // entry pseudo-room (218), exactly as the treasure/sword-master runs began.
+      // → the Mêlée map, then the crossroads node (#911) → the forest entry
+      // pseudo-room (218), as the treasure/sword-master runs began.
       walkTo(vm, ROOMS.swordMaster.path);
       expect(driveToRoom(vm, ROOMS.meleeMap.id, { maxTicks: 8000 })).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
@@ -755,7 +739,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       // From the entry (218) a single `back` (#685) lands on the one screen whose
       // flowers are yellow (pseudo-room 215). Pick up the plant (#678): in g4==215
       // its verb-9 `pickupObject`s the yellow petal (#689) into inventory — the
-      // sedative for the mansion's guard dogs. (Pseudo-rooms all alias room 58, so
+      // sedative for the mansion's guard dogs. (Pseudo-rooms alias room 58, so
       // gate on `currentRoom`/g4, not `loadedRoom`.)
       walkTo(vm, ROOMS.forest.back);
       expect(
@@ -774,9 +758,9 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       // the entry exits the maze). From the map the village node (#917) still
       // lands at the lookout (33) — g196 has climbed to 2, but that node routes
       // there regardless — then east through its arch (#427) to the town street
-      // (35), the store arch (#451) to the store street (34), and finally
-      // "il palazzo del Governatore" (#431, a verb-11 `loadRoomWithEgo room=36`)
-      // walks ego up to the mansion gate, where the piranha poodles guard the door.
+      // (35), the store arch (#451) to the store street (34), and finally the
+      // Governor's-palace node (#431, a verb-11 `loadRoomWithEgo room=36`) walks
+      // ego up to the mansion gate, where the piranha poodles guard the door.
       walkTo(vm, ROOMS.forest.right);
       expect(driveUntil(vm, (v) => v.currentRoom === ROOMS.forest.id, { maxTicks: 12000 })).toBe(true);
       walkTo(vm, ROOMS.forest.right);
@@ -810,10 +794,10 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(vm.vars.readBit(ROOMS.governorMansion.dogsAsleepBit)).toBe(0);
 
       // Drug the meat: Use the yellow petal with the meat — a TWO-INVENTORY
-      // combine: both clicks land on inventory slots, and the second slot click
-      // itself commits the sentence. The meat's verb-7 (partner #689) sets the
-      // drugged class on #566 and runs global #182, which renames it to the
-      // drugged-meat label and consumes the petal (#689 → owner 0).
+      // combine: both clicks land on inventory slots, the second slot click
+      // commits the sentence. The meat's verb-7 (partner #689) sets the drugged
+      // class on #566 and runs global #182, which renames it to the drugged-meat
+      // label and consumes the petal (#689 → owner 0).
       useWith(vm, VERBS.use, petal, meat);
       expect(driveUntil(vm, (v) => v.getObjectOwner(petal) === 0, { maxTicks: 12000 })).toBe(true);
 
@@ -822,9 +806,9 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       // renaming them to the sleeping-dogs label. The dogs are a scene OBJECT
       // (class 5, a legitimate give target for the hover poller), so the gesture
       // is Give + the meat's slot + a scene click on them. "Give" (not "Use") is
-      // the verb that reaches the feed branch — its proximity gate is the one the
-      // getDist box-clamp fix unblocked, so the ego can reach the dogs across the
-      // locked sleep-gate boxes. The meat ends consumed (owner → the room, 15).
+      // the verb that reaches the feed branch; its proximity gate lets ego reach
+      // the dogs across the locked sleep-gate boxes. The meat ends consumed
+      // (owner → the room, 15).
       useWith(vm, VERBS.give, meat, dogs);
       expect(
         driveUntil(vm, (v) => v.vars.readBit(ROOMS.governorMansion.dogsAsleepBit) === 1, { maxTicks: 40000 }),
@@ -840,7 +824,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       const inside = ROOMS.governorInterior;
 
       // Dogs down: the gate door (#465) now opens — the dog-feed #201 lifted the
-      // pen-box lock and set the door's class. Open it, then walk through →
+      // pen-box lock and set the door's class. Open it, walk through →
       // `loadRoomWithEgo room=53` lands ego at the interior door (#633).
       use(vm, VERBS.open, mansion.door);
       walkTo(vm, mansion.door);
@@ -848,9 +832,9 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(waitPlayable(vm)).toBe(true);
 
       // The idol sits behind a booby-trap gauntlet. The right-hand door (#632),
-      // once opened, runs the gauntlet cutscene (local #210) on Walk-to: it arms
-      // the four joke items and drops them into ego's hands, then hands control
-      // back. The rat repellent (#640) is the one we'll trade Otis for the cake.
+      // once opened, runs the gauntlet cutscene (local #210) on Walk-to: arms the
+      // four joke items and drops them into ego's hands, hands control back. The
+      // rat repellent (#640) is the one we'll trade Otis for the cake.
       const loot = [inside.ratRepellent, inside.styleManual, inside.waxLips, inside.stapleRemover];
       for (const item of loot) expect(vm.getObjectOwner(item)).not.toBe(ego);
       use(vm, VERBS.open, inside.rightDoor);
@@ -870,8 +854,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       const jail = ROOMS.prison;
 
       // The idol needs a file, baked into Otis's cake. Out of the mansion to the
-      // jail: interior door #633 → gate (36); the gate path #466 → store street
-      // (34); the prison entrance #434 → the jail (31).
+      // jail: interior door #633 → gate (36); gate path #466 → store street (34);
+      // prison entrance #434 → jail (31).
       walkTo(vm, inside.entryDoor);
       expect(driveToRoom(vm, ROOMS.governorMansion.id, { maxTicks: 14000 })).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
@@ -883,9 +867,9 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(waitPlayable(vm)).toBe(true);
 
       // Otis is locked in the far-left cell. Walk to his bars and Talk: his
-      // monologue (a victim of society; can't keep his breath fresh in here) runs
-      // and hands control straight back — no menu. It sets bit#420, the gate that
-      // unlocks the breath-mint line in the shopkeeper's tree.
+      // monologue (victim of society; can't keep his breath fresh) runs and hands
+      // control straight back — no menu. Sets bit#420, the gate that unlocks the
+      // breath-mint line in the shopkeeper's tree.
       expect(vm.vars.readBit(jail.talkedBit)).toBe(0);
       const otis = vm.actors.get(jail.prisonerActor);
       walkTo(vm, { x: otis.x + 30, y: otis.y });
@@ -911,9 +895,9 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(waitPlayable(vm)).toBe(true);
 
       // Ring for the shopkeeper, talk to him, pick the mint line — armed only
-      // because Otis has been spoken to (bit#420). It costs 1 piece of eight; the
-      // mint (#395) lands in inventory. Then leave the chat (look-around) the same
-      // way the sword/shovel buy does, and step back out to the street.
+      // because Otis has been spoken to (bit#420). Costs 1 piece of eight; the
+      // mint (#395) lands in inventory. Then leave the chat (look-around) as the
+      // sword/shovel buy does, and step back out to the street.
       const startMoney = vm.vars.readGlobal(VARS.money);
       expect(vm.getObjectOwner(store.mint)).not.toBe(ego);
       use(vm, VERBS.push, store.bell);
@@ -946,36 +930,36 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
         walkTo(vm, { x: otis.x + 30, y: otis.y });
         waitIdle(vm);
       };
-      // Otis's receive-handler is verb-80 on the OBJECT #405 (→ room-local
-      // #203), not on actor 4 — so the gesture targets the prisoner OBJECT:
-      // Give + the item's slot + a scene click on #405 (class 5, so the hover
-      // poller routes it into object B over the overlaid actor). That's
-      // `useWith` with the Give verb, unlike the troll/brother gives, whose
-      // recipients really are actors (`give()` drives those).
+      // Otis's receive-handler is verb-80 on the OBJECT #405 (→ room-local #203),
+      // not on actor 4 — so the gesture targets the prisoner OBJECT: Give + the
+      // item's slot + a scene click on #405 (class 5, so the hover poller routes
+      // it into object B over the overlaid actor). That's `useWith` with the Give
+      // verb, unlike the troll/brother gives, whose recipients really are actors
+      // (`give()` drives those).
       //
       // Mint first — settles Otis's death-breath so he'll deal; then the rat
       // repellent — he trades Aunt Tillie's carrot cake (#420 → ego).
       expect(vm.getObjectOwner(jail.cake)).not.toBe(ego);
       approach();
-      // Otis defaults to class 6 (death-breath); his mint reaction
-      // CLEARS class 6 — and the repellent trade below only accepts once his breath
-      // is settled (class 6 clear). Wait for the reaction to actually START (the
-      // committed sentence isn't picked up the same tick, so waitPlayable alone can
-      // return before the cutscene begins) and then for it to end.
+      // Otis defaults to class 6 (death-breath); his mint reaction CLEARS class 6,
+      // and the repellent trade below only accepts once it's clear. Wait for the
+      // reaction to START (the committed sentence isn't picked up the same tick,
+      // so waitPlayable alone can return before the cutscene begins) then for it
+      // to end.
       useWith(vm, VERBS.give, ROOMS.store.mint, jail.prisoner);
       expect(driveUntil(vm, (v) => v.activeDialog !== null, { maxTicks: 14000 })).toBe(true);
       expect(waitPlayable(vm, 40000)).toBe(true);
       approach();
       // The repellent trade is a long hand-over cutscene (Otis eats, thanks you,
-      // produces the cake) — the cake transfers only at its tail, so wait it out.
+      // produces the cake) — the cake transfers only at its tail.
       useWith(vm, VERBS.give, inside.ratRepellent, jail.prisoner);
       expect(driveUntil(vm, (v) => v.getObjectOwner(jail.cake) === ego, { maxTicks: 40000 })).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
 
-      // Open the cake — Open + its inventory slot (a one-object sentence the
-      // slot click commits) → it renames to the file label and the verb-2
-      // `actorSetClass` sets class 3 (and clears class 6): that class flip is
-      // the file marker. Assert the class, not the localized name.
+      // Open the cake — Open + its inventory slot (a one-object sentence the slot
+      // click commits) → it renames to the file label and the verb-2
+      // `actorSetClass` sets class 3 (and clears class 6): that class flip is the
+      // file marker. Assert the class, not the localized name.
       const isFile = (v: typeof vm) =>
         ((v.objectClasses.get(jail.cake) ?? 0) & (1 << jail.cakeIsFileClassBit)) !== 0;
       expect(isFile(vm)).toBe(false);
@@ -1005,10 +989,10 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(driveToRoom(vm, inside.id, { maxTicks: 14000 })).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
 
-      // With the file (the opened cake) in hand, Walk to the spioncino (#637, the
-      // hole in the wall — a bare click runs its only verb, 11): it checks ego
-      // holds the file then fires the grab cutscene (#211), which reaches through
-      // the booby-trap gauntlet and `pickupObject`s the idol (#635) into inventory.
+      // With the file (the opened cake) in hand, Walk to the peephole (#637, the
+      // hole in the wall — a bare click runs its only verb, 11): checks ego holds
+      // the file then fires the grab cutscene (#211), which reaches through the
+      // booby-trap gauntlet and `pickupObject`s the idol (#635) into inventory.
       expect(vm.getObjectOwner(jail.cake)).toBe(ego); // the file
       expect(vm.getObjectOwner(inside.idol)).not.toBe(ego);
       walkTo(vm, inside.hole);
@@ -1024,10 +1008,10 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       const inside = ROOMS.governorInterior;
       const sea = ROOMS.seaBottom;
 
-      // The grab runs straight into the Sheriff/Governor catch (#212): an excuse
-      // menu, then the smitten-stammer cascade in the Governor's close-up (room
-      // 23) — a convergent don't-care cascade. Advance it until the menus stop
-      // and control returns in the mansion.
+      // The grab runs into the Sheriff/Governor catch (#212): an excuse menu,
+      // then the smitten-stammer cascade in the Governor's close-up (room 23) — a
+      // convergent don't-care cascade. Advance until the menus stop and control
+      // returns in the mansion.
       advanceDialog(vm, undefined, { maxMenus: 14, armTicks: 8000 });
       expect(waitPlayable(vm)).toBe(true);
       expect(vm.currentRoom).toBe(inside.id);
@@ -1059,7 +1043,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(driveToRoom(vm, docks.id, { maxTicks: 20000 })).toBe(true);
 
       // Declare the rescue (#123): ends the conversation and sets the quest flag
-      // (bit#304), Part I's setup done and the hunt for a ship begun.
+      // (bit#304) — Part I's setup done, the hunt for a ship begun.
       expect(vm.vars.readBit(docks.questDeclaredBit)).toBe(0);
       expect(
         driveUntil(vm, (v) => v.verbs.get(docks.getCrewAndShip)?.state === 'on', { maxTicks: 14000 }),
@@ -1072,9 +1056,9 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(vm.haltInfo).toBeNull();
     });
 
-    beat('🚶‍➡️ Mêlée docks — back ashore: up the molo and into the SCUMM Bar (28)', () => {
-      // Post-vow the molo (#905) carries ego straight up to the lookout (33,
-      // bit#453 reroute); the bar door is right there.
+    beat('🚶‍➡️ Mêlée docks — back ashore: up the jetty and into the SCUMM Bar (28)', () => {
+      // Post-vow the jetty (#905) carries ego up to the lookout (33, bit#453
+      // reroute); the bar door is right there.
       walkTo(vm, 905);
       expect(driveToRoom(vm, ROOMS.meleeLookout.id, { maxTicks: 14000 })).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
@@ -1086,8 +1070,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     });
 
     beat('⚙️ SCUMM Bar — pocket all five pewter mugs', () => {
-      // The bar has emptied out — the cook just stands idle — and the five
-      // mugs (#362–366) are free to take, the grog carriers for Otis's lock.
+      // The bar has emptied out (the cook stands idle) and the five mugs
+      // (#362–366) are free to take — the grog carriers for Otis's lock.
       const ego = vm.vars.readGlobal(VAR_EGO);
       for (const mug of ROOMS.scummBar.mugs) {
         use(vm, VERBS.pickUp, mug);
@@ -1099,8 +1083,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     });
 
     beat('🚶‍➡️ SCUMM Bar — into the kitchen (41)', () => {
-      // The kitchen door is shut post-vow (no cook gate anymore): Open it,
-      // walk through.
+      // The kitchen door is shut post-vow (no cook gate): Open it, walk through.
       use(vm, VERBS.open, ROOMS.scummBar.kitchenDoor);
       walkTo(vm, ROOMS.scummBar.kitchenDoor);
       expect(driveToRoom(vm, ROOMS.kitchen.id, { maxTicks: 8000 })).toBe(true);
@@ -1110,8 +1093,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
     beat('⚙️ SCUMM Bar kitchen — fill a mug at the grog barrel (the melt timer starts)', () => {
       // With a dozen-plus items carried the mug's slot sits past the panel's
-      // visible window, so the gesture scrolls the panel first — the testkit's
-      // slot click models the arrows.
+      // visible window, so the gesture scrolls the panel first — the slot click
+      // models the arrows.
       const [mug] = ROOMS.scummBar.mugs;
       expect(mugHasGrog(vm, mug!)).toBe(false);
       useWith(vm, VERBS.use, mug!, ROOMS.kitchen.barrel);
@@ -1120,10 +1103,10 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     });
 
     beat('🚶‍➡️ SCUMM Bar kitchen — race the melting mug across town to the jail (31), pouring as it dies', () => {
-      // The melt ladder drains fastest in the transit rooms (35: −3/tick,
-      // 34: −5), so the run is: kitchen door → bar → lookout → town street →
-      // store street → jail, decanting into a fresh mug (global #69) whenever
-      // the active one hits its dying stage (class 6). Four spares is plenty.
+      // The melt ladder drains fastest in the transit rooms (35: −3/tick, 34: −5),
+      // so the run is: kitchen door → bar → lookout → town street → store street
+      // → jail, decanting into a fresh mug (global #69) whenever the active one
+      // hits its dying stage (class 6). Four spares is plenty.
       const mugs = [...ROOMS.scummBar.mugs];
       let active = mugs.shift()!;
       const pourIfDying = (): void => {
@@ -1155,9 +1138,9 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     beat('⚙️ Mêlée jail — Otis agrees to join, then the grog melts his lock', () => {
       const jail = ROOMS.prison;
       // Post-vow his conversation arms the recruit pair: #123 is the news (the
-      // kidnapping reveal), then #123 again is the ask (the join-the-crew
-      // offer) — the second sets bit#477, REQUIRED before the melt or #70 takes
-      // the mocking branch.
+      // kidnapping reveal), then #123 again is the ask (the join-the-crew offer)
+      // — the second sets bit#477, REQUIRED before the melt or #70 takes the
+      // mocking branch.
       expect(vm.vars.readBit(jail.otisAgreedBit)).toBe(0);
       const otis = vm.actors.get(jail.prisonerActor);
       walkTo(vm, { x: otis.x + 30, y: otis.y });
@@ -1168,14 +1151,14 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(
         driveUntil(vm, (v) => v.vars.readBit(jail.otisAgreedBit) === 1, { maxTicks: 8000 }),
       ).toBe(true);
-      // Step out of the conversation (the remaining options are small talk; the
-      // goodbye is the last armed slot each menu).
+      // Step out of the conversation (the rest is small talk; goodbye is the last
+      // armed slot each menu).
       exitDialog(vm);
       expect(waitPlayable(vm, 14000)).toBe(true);
 
-      // Pour onto the lock (#403 → #69 → #70): the rescue cutscene melts it,
-      // frees Otis (bit#76 — his crew flag) and, with bit#477 set, plays the
-      // friendly join before he heads off to fetch his things.
+      // Pour onto the lock (#403 → #69 → #70): the rescue cutscene melts it, frees
+      // Otis (bit#76 — his crew flag) and, with bit#477 set, plays the friendly
+      // join before he heads off to fetch his things.
       if (mugDying(vm, activeMug)) {
         const next = remainingMugs.shift()!;
         useWith(vm, VERBS.use, activeMug, next); // a two-inventory combine
@@ -1195,9 +1178,9 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     });
 
     beat("🚶‍➡️ Mêlée jail — back across town and up to the Sword Master's clearing (61)", () => {
-      // Jail → store street → town street, west arch (the post-vow reroute can
-      // land either at the lookout or back on the docks — both reach the cliff
-      // path), up to the map, and out to her clearing.
+      // Jail → store street → town street, west arch (the post-vow reroute lands
+      // either at the lookout or back on the docks — both reach the cliff path),
+      // up to the map, and out to her clearing.
       walkTo(vm, ROOMS.prison.entrance);
       expect(driveToRoom(vm, ROOMS.storeStreet.id, { maxTicks: 14000 })).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
@@ -1219,7 +1202,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
         pickDialogAnswer(vm, ROOMS.swordMaster.recruitAnswer, { armTicks: 16000 }).length,
       ).toBeGreaterThan(0);
       // Her reaction plays through the close-up (44) and back; the flag is the
-      // mechanic, the room the proof control returned.
+      // mechanic, the room proves control returned.
       expect(
         driveUntil(vm, (v) => v.vars.readBit(ROOMS.swordMaster.recruitedBit) === 1, { maxTicks: 30000 }),
       ).toBe(true);
@@ -1238,9 +1221,9 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(driveToRoom(vm, isle.id, { maxTicks: 14000 })).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
 
-      // Climb the ladder tower to its platform (box 7), hook the chicken over
-      // the cable (#203 glides ego across to the house pole top, box 10), then
-      // the front door — touchable only on this side — into the house.
+      // Climb the ladder tower to its platform (box 7), hook the chicken over the
+      // cable (#203 glides ego across to the house pole top, box 10), then the
+      // front door — touchable only on this side — into the house.
       walkTo(vm, isle.tower);
       expect(driveUntil(vm, () => ego().walkBox === isle.towerTopBox, { maxTicks: 8000 })).toBe(true);
       useWith(vm, VERBS.use, ROOMS.voodooShop.chicken, isle.cableFromTower);
@@ -1257,9 +1240,9 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
     beat("⚙️ Meathook's house — the news, the dare, the beast: Meathook joins (bit#88)", () => {
       const house = ROOMS.meathookHouse;
-      // Walking in fires his accost by itself. The news (120), then the crew
-      // idea (122) → he questions our bravery and the dare tour (#201) walks us
-      // through the trophy doors to the little door.
+      // Walking in fires his accost by itself. The news (120), then the crew idea
+      // (122) → he questions our bravery and the dare tour (#201) walks us through
+      // the trophy doors to the little door.
       expect(pickDialogAnswer(vm, house.answers.kidnapped, { armTicks: 20000 }).length).toBeGreaterThan(0);
       expect(pickDialogAnswer(vm, house.answers.crewIdea, { armTicks: 20000 }).length).toBeGreaterThan(0);
       const tourRunning = (v: typeof vm) =>
@@ -1271,8 +1254,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
         driveUntil(vm, (v) => v.cutsceneStack.length === 0 && doorTouchable(v), { maxTicks: 120000 }),
       ).toBe(true);
 
-      // Open the little door → the beast bursts out shrieking (#49 sets
-      // bit#323, clears the door's class 6 and renames it the winged devil)…
+      // Open the little door → the beast bursts out shrieking (#49 sets bit#323,
+      // clears the door's class 6 and renames it the winged devil)…
       expect(vm.vars.readBit(house.beastOutBit)).toBe(0);
       use(vm, VERBS.open, house.littleDoor);
       expect(driveUntil(vm, (v) => v.vars.readBit(house.beastOutBit) === 1, { maxTicks: 30000 })).toBe(true);
@@ -1280,9 +1263,9 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(driveUntil(vm, (v) => !class6(v), { maxTicks: 60000 })).toBe(true);
       expect(waitPlayable(vm, 30000)).toBe(true);
 
-      // …then touch it: "Usa" has no entry on #478, so the engine falls back to
-      // its 255 default — the payoff cutscene (#205). Meathook signs on
-      // (bit#88) and the scene walks ego back outside.
+      // …then touch it: Use has no entry on #478, so the engine falls back to its
+      // 255 default — the payoff cutscene (#205). Meathook signs on (bit#88) and
+      // the scene walks ego back outside.
       use(vm, VERBS.use, house.littleDoor);
       expect(driveUntil(vm, (v) => v.vars.readBit(house.recruitedBit) === 1, { maxTicks: 120000 })).toBe(true);
       expect(driveToRoom(vm, ROOMS.hookIsle.id, { maxTicks: 30000 })).toBe(true);
@@ -1293,9 +1276,9 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     beat('🚶‍➡️ Hook Isle — zipline back and return to the Mêlée map', () => {
       const isle = ROOMS.hookIsle;
       const ego = () => vm.actors.get(vm.vars.readGlobal(VAR_EGO));
-      // The mirror trip: house pole up (box 10), chicken on the cable back to
-      // the tower (box 7), climb down, and the path — touchable again on this
-      // side — up to the map.
+      // The mirror trip: house pole up (box 10), chicken on the cable back to the
+      // tower (box 7), climb down, and the path — touchable again on this side —
+      // up to the map.
       walkTo(vm, isle.housePole);
       expect(driveUntil(vm, () => ego().walkBox === isle.houseTopBox, { maxTicks: 8000 })).toBe(true);
       useWith(vm, VERBS.use, ROOMS.voodooShop.chicken, isle.cableFromHouse);
@@ -1320,10 +1303,10 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     beat("⚙️ Stan's — the cheapest ship, the credit question, and the famous exit", () => {
       const stan = ROOMS.stan;
       const ego = vm.vars.readGlobal(VAR_EGO);
-      // Ask for the cheap one (the Sea Monkey pitch), try credit — he points
-      // at the storekeeper in town — then back out and leave. His farewell
-      // hands over the business card + compass and walks ego off the lot
-      // itself (loadRoomWithEgo → the map).
+      // Ask for the cheap one (the Sea Monkey pitch), try credit — he points at
+      // the storekeeper in town — then back out and leave. His farewell hands over
+      // the business card + compass and walks ego off the lot (loadRoomWithEgo →
+      // the map).
       expect(pickDialogAnswer(vm, stan.answers.cheapest, { armTicks: 30000 }).length).toBeGreaterThan(0);
       expect(pickDialogAnswer(vm, stan.answers.onCredit, { armTicks: 24000 }).length).toBeGreaterThan(0);
       expect(pickDialogAnswer(vm, stan.answers.backOut, { armTicks: 24000 }).length).toBeGreaterThan(0);
@@ -1336,8 +1319,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     });
 
     beat('🚶‍➡️ Mêlée map — back across the island to the general store (30)', () => {
-      // Map → the village node (the docks now) → lookout → the two arches →
-      // the store.
+      // Map → village node (the docks now) → lookout → the two arches → store.
       walkTo(vm, ROOMS.meleeMap.village);
       expect(
         driveUntil(
@@ -1348,7 +1330,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       ).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
       if (vm.currentRoom === ROOMS.docks.id) {
-        walkTo(vm, 905); // il molo climbs to the lookout post-vow
+        walkTo(vm, 905); // the jetty climbs to the lookout post-vow
         expect(driveToRoom(vm, ROOMS.meleeLookout.id, { maxTicks: 14000 })).toBe(true);
         expect(waitPlayable(vm)).toBe(true);
       }
@@ -1367,10 +1349,10 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
     beat('⚙️ General store — the credit interview: watch the keeper dial the safe', () => {
       const store = ROOMS.store;
-      // Ask for the note (armed only after Stan's referral), claim a job, name
-      // it — he dials the safe to fetch the note while we "watch" (the
-      // combination digits live in g221..g224; random per game, so the
-      // cracking beat reads them from the vars).
+      // Ask for the note (armed only after Stan's referral), claim a job, name it
+      // — he dials the safe to fetch the note while we "watch" (the combination
+      // digits live in g221..g224; random per game, so the cracking beat reads
+      // them from the vars).
       use(vm, VERBS.push, store.bell);
       use(vm, VERBS.talk, store.shopkeeper);
       expect(pickDialogAnswer(vm, store.creditAnswers.askNote, { armTicks: 20000 }).length).toBeGreaterThan(0);
@@ -1400,8 +1382,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
         driveUntil(vm, (v) => v.actors.get(store.keeperActor).room !== store.id, { maxTicks: 40000 }),
       ).toBe(true);
       expect(waitPlayable(vm, 20000)).toBe(true);
-      // The handle (#390) is a parent-gated hotspot — clickable exactly while
-      // its safe (#389) sits shut, which it is again now that the keeper's gone.
+      // The handle (#390) is a parent-gated hotspot — clickable exactly while its
+      // safe (#389) sits shut, which it is again now that the keeper's gone.
       expect(vm.getObjectOwner(store.creditNote)).not.toBe(ego);
       expect(crackSafe(vm)).toBe(true);
       expect(vm.getObjectOwner(store.creditNote)).toBe(ego);
@@ -1427,11 +1409,10 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
     beat("⚙️ Stan's — the note closes it: walk-away ×3, ladder to 5000, the Sea Monkey is ours", () => {
       const stan = ROOMS.stan;
-      // Re-open the cheap-ship pitch, then drive the deal machine: the credit
-      // note opens the deal menu, three walk-away threats grind the price 8000
-      // → 6400, the rising-offer ladder takes it to 4900, and the insisted 5000
-      // clears it — bit#51, the Sea Monkey is ours. Control returns with ego on
-      // the deck.
+      // Re-open the cheap-ship pitch, then drive the deal machine: the credit note
+      // opens the deal menu, three walk-away threats grind the price 8000 → 6400,
+      // the rising-offer ladder takes it to 4900, and the insisted 5000 clears it
+      // — bit#51, the Sea Monkey is ours. Control returns with ego on the deck.
       expect(vm.vars.readBit(stan.shipBoughtBit)).toBe(0);
       expect(pickDialogAnswer(vm, stan.answers.cheapest, { armTicks: 30000 }).length).toBeGreaterThan(0);
       expect(buySeaMonkey(vm)).toBe(true);
@@ -1441,9 +1422,9 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     });
 
     beat("🚶‍➡️ Stan's — off the lot and down to the Mêlée docks (83)", () => {
-      // Ship + three crew flags set: the lot path leads back to the map, and
-      // the village node lands at the docks, where the crew is waiting (ENCD →
-      // the dock scene starts on arrival, so no settle here).
+      // Ship + three crew flags set: the lot path leads back to the map, and the
+      // village node lands at the docks, where the crew waits (ENCD → the dock
+      // scene starts on arrival, so no settle here).
       walkTo(vm, ROOMS.stan.path);
       expect(driveToRoom(vm, ROOMS.meleeMap.id, { maxTicks: 20000 })).toBe(true);
       expect(waitPlayable(vm, 14000)).toBe(true);
@@ -1454,9 +1435,9 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
     beat('⚙️ Mêlée docks — the crew boards the Sea Monkey; Part II opens aboard', () => {
       // Each crew member greets ego with a small don't-care menu; answering
-      // through them rolls straight into the departure — rooms 97 → 87 → the
-      // below-decks chat (19) — and control comes back in the Sea Monkey's
-      // cabin (room 7). Part II.
+      // through them rolls into the departure — rooms 97 → 87 → the below-decks
+      // chat (19) — and control comes back in the Sea Monkey's cabin (room 7).
+      // Part II.
       advanceDialog(vm, (v) => v.currentRoom !== ROOMS.docks.id, { maxMenus: 10, armTicks: 20000 });
       expect(driveToRoom(vm, ROOMS.docks.seaMonkeyCabin, { maxTicks: 60000 })).toBe(true);
       expect(waitPlayable(vm, 30000)).toBe(true);
@@ -1475,8 +1456,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       use(vm, VERBS.pickUp, cabin.ink);
       expect(waitPickedUp(vm, cabin.ink)).toBe(true);
 
-      // The drawer is open-then-look-inside: Open flips its state, the LOOK
-      // runs the inside cutscene that auto-pockets the dusty book.
+      // The drawer is open-then-look-inside: Open flips its state, LOOK runs the
+      // inside cutscene that auto-pockets the dusty book.
       use(vm, VERBS.open, cabin.drawer);
       expect(driveUntil(vm, (v) => v.objectStates.get(cabin.drawer) === 1, { maxTicks: 6000 })).toBe(true);
       use(vm, VERBS.look, cabin.drawer);
@@ -1555,8 +1536,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       use(vm, VERBS.pickUp, galley.cerealShelf);
       expect(waitPickedUp(vm, galley.cereal, 8000)).toBe(true);
 
-      // Open the carried box: the eat cutscene ends on the surprise-inside
-      // reveal and #185 hands the prize over.
+      // Open the carried box: the eat cutscene ends on the surprise-inside reveal
+      // and #185 hands the prize over.
       use(vm, VERBS.open, galley.cereal);
       expect(driveUntil(vm, (v) => v.getObjectOwner(galley.smallKey) === ego, { maxTicks: 20000 })).toBe(true);
       expect(waitPlayable(vm, 12000)).toBe(true);
@@ -1589,8 +1570,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(driveUntil(vm, (v) => v.objectStates.get(cabin.cabinet) === 1, { maxTicks: 12000 })).toBe(true);
 
       // The heavy chest inside is hoverable now (parent-gated on the open
-      // cabinet). Picking it up runs #184: ego drags it onto the floor —
-      // where it seals walkbox 11 and `createBoxMatrix` reroutes the room.
+      // cabinet). Picking it up runs #184: ego drags it onto the floor, where it
+      // seals walkbox 11 and `createBoxMatrix` reroutes the room.
       use(vm, VERBS.pickUp, cabin.heavyChest);
       expect(driveUntil(vm, (v) => v.objectStates.get(cabin.placedChest) === 1, { maxTicks: 20000 })).toBe(true);
       expect(waitPlayable(vm, 12000)).toBe(true);
@@ -1607,8 +1588,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     });
 
     beat('🚶‍➡️ Sea Monkey cabin — around the dragged chest (the rebuilt box matrix) and down to the galley', () => {
-      // This leg is the createBoxMatrix proof: the direct strip to the door
-      // is sealed under the chest, so the walk must take the rebuilt detour.
+      // The createBoxMatrix proof: the direct strip to the door is sealed under
+      // the chest, so the walk must take the rebuilt detour.
       walkTo(vm, ROOMS.shipCabin.door);
       expect(driveToRoom(vm, ROOMS.shipDeck.id, { maxTicks: 8000 })).toBe(true);
       expect(waitPlayable(vm, 8000)).toBe(true);
@@ -1630,17 +1611,17 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
         useWith(vm, VERBS.use, obj, galley.bigPot);
         expect(driveUntil(vm, (v) => v.vars.readBit(bit) === 1, { maxTicks: 16000 })).toBe(true);
       }
-      // The eighth fills g260 to 8 and fires the cooking cutscene (#108):
-      // ego faints, days pass, and the voyage stage flips to 1.
+      // The eighth fills g260 to 8 and fires the cooking cutscene (#108): ego
+      // faints, days pass, and the voyage stage flips to 1.
       const [lastObj, lastBit] = galley.ingredients[galley.ingredients.length - 1]!;
       useWith(vm, VERBS.use, lastObj, galley.bigPot);
       expect(driveUntil(vm, (v) => v.vars.readBit(lastBit) === 1, { maxTicks: 16000 })).toBe(true);
       expect(waitGlobal(vm, VARS.voyageStage, 1, 60000)).toBe(true);
       expect(vm.vars.readGlobal(galley.potCountVar)).toBe(8);
 
-      // Ego is out cold on the galley floor; the cutscene routes the next
-      // click to the wake-up script (g32 → local #201), which hands back
-      // control (the queasy wake-up line).
+      // Ego is out cold on the galley floor; the cutscene routes the next click to
+      // the wake-up script (g32 → local #201), which hands back control (the
+      // queasy wake-up line).
       expect(driveUntil(vm, (v) => v.vars.readGlobal(VAR_VERB_SCRIPT) === 201, { maxTicks: 20000 })).toBe(true);
       walkTo(vm, { x: 160, y: 130 });
       expect(driveUntil(vm, (v) => v.vars.readGlobal(VAR_VERB_SCRIPT) === 4, { maxTicks: 20000 })).toBe(true);
@@ -1653,8 +1634,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       const galley = ROOMS.shipGalley;
       use(vm, VERBS.pickUp, galley.smallPot);
       expect(waitPickedUp(vm, galley.smallPot, 8000)).toBe(true);
-      // Stan's business card on the fire — consumed, the flaming mass lands
-      // in inventory (the only fire that can ride to the cannon).
+      // Stan's business card on the fire — consumed, the flaming mass lands in
+      // inventory (the only fire that can ride to the cannon).
       useWith(vm, VERBS.use, ROOMS.stan.businessCard, galley.fire);
       expect(driveUntil(vm, (v) => v.getObjectOwner(galley.flamingMass) === ego, { maxTicks: 16000 })).toBe(true);
       expect(vm.getObjectOwner(ROOMS.stan.businessCard)).not.toBe(ego);
@@ -1679,8 +1660,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(waitPlayable(vm, 8000)).toBe(true);
       walkTo(vm, ROOMS.shipLanding.ladderUp);
       expect(driveToRoom(vm, ROOMS.shipDeck.id, { maxTicks: 8000 })).toBe(true);
-      // First deck entry post-voyage: the ENCD tail plays the arrival-at-Monkey-
-      // Island look and bumps the voyage stage to 2.
+      // First deck entry post-voyage: the ENCD tail plays the
+      // arrival-at-Monkey-Island look and bumps the voyage stage to 2.
       expect(waitPlayable(vm, 8000)).toBe(true);
       expect(vm.vars.readGlobal(VARS.voyageStage)).toBe(2);
       expect(vm.haltInfo).toBeNull();
@@ -1698,8 +1679,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       useWith(vm, VERBS.use, ROOMS.shipHold.gunpowder, deck.nozzle);
       expect(driveUntil(vm, (v) => v.vars.readBit(deck.powderLoadedBit) === 1, { maxTicks: 16000 })).toBe(true);
 
-      // …light the fuse and WEAR THE POT — the burn-down (#251) is a short
-      // window, and the small pot's one-object Use is the climb-in (#107).
+      // …light the fuse and WEAR THE POT — the burn-down (#251) is a short window,
+      // and the small pot's one-object Use is the climb-in (#107).
       useWith(vm, VERBS.use, ROOMS.shipGalley.flamingMass, deck.fuse);
       expect(
         driveUntil(vm, (v) => v.slots.some((s) => s.status !== 'dead' && s.scriptId === deck.fuseScript), { maxTicks: 12000 }),
@@ -1716,9 +1697,9 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
   describe('Part III — Under Monkey Island', () => {
     beat('⚙️ Monkey beach — get up off the sand, pocket a banana, read the assembly notice', () => {
       const beach = ROOMS.monkeyBeach;
-      // The cannon launch dropped ego face-down on the sand with the next click
-      // routed to the get-up wakeup (g32 = 201 → local #201). A bare floor click
-      // stands him up and restores the normal verb script (g32 → 4).
+      // The launch dropped ego face-down on the sand with the next click routed
+      // to the get-up wakeup (g32 = 201 → local #201). A bare floor click stands
+      // him up and restores the normal verb script (g32 → 4).
       expect(vm.vars.readGlobal(VAR_VERB_SCRIPT)).toBe(beach.wakeupVerbScript);
       walkTo(vm, { x: 200, y: 120 });
       expect(driveUntil(vm, (v) => v.vars.readGlobal(VAR_VERB_SCRIPT) === 4, { maxTicks: 8000 })).toBe(true);
@@ -1729,8 +1710,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(waitPickedUp(vm, beach.banana)).toBe(true);
 
       // Read the public-assembly notice by the tree (#271, Look at → local #203):
-      // the LeChuck Giant-Monkey-Head occupation announcement. The text-as-data
-      // proves the read ran; control then returns.
+      // the LeChuck Giant-Monkey-Head occupation announcement. Text-as-data proves
+      // the read ran; control then returns.
       use(vm, VERBS.look, beach.assemblyNote);
       expect(driveUntil(vm, (v) => (v.activeDialog?.text ?? '').length > 0, { maxTicks: 8000 })).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
@@ -1739,7 +1720,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
     beat('🚶‍➡️ Monkey beach — into the jungle and across the overhead map to the Fort (80)', () => {
       const map = ROOMS.monkeyMap;
-      // "la giungla" (#261, Walk-to): putActorInRoom 2 + actorFollowCamera carries
+      // The jungle (#261, Walk-to): putActorInRoom 2 + actorFollowCamera carries
       // ego onto the walkable overhead map (room 2) as a small figure.
       walkTo(vm, ROOMS.monkeyBeach.jungle);
       expect(driveToRoom(vm, map.id, { maxTicks: 12000 })).toBe(true);
@@ -1751,7 +1732,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(driveToRoom(vm, map.fortScreen, { maxTicks: 12000 })).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
 
-      // Walk the figure onto the fortezza marker: room-3 local #200 watches ego's
+      // Walk the figure onto the fortress marker: room-3 local #200 watches ego's
       // distance and at ≤2 runs loadRoomWithEgo room=80 — into the Fort.
       walkTo(vm, map.fortApproach);
       expect(driveToRoom(vm, ROOMS.fort.id, { maxTicks: 16000 })).toBe(true);
@@ -1769,7 +1750,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
       // Open (verb 2) the spyglass: its verb-2 renames it to the lens label and
       // flips the lens class bit (value 2) on — the same id #882 becomes the lens.
-      // Assert the class flip, not the localized name.
+      // Assert the class flip, not the name.
       const isLens = (v: typeof vm) =>
         ((v.objectClasses.get(fort.spyglass) ?? 0) & (1 << fort.lensClassBit)) !== 0;
       expect(isLens(vm)).toBe(false);
@@ -1789,12 +1770,12 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
       // Push the rusty cannon (#883 → local #200): it tips and spills the
       // gunpowder pile + cannonball onto the floor (state 1, touchable). Herman
-      // Toothrot (actor 7) then wanders in to confront you over his spyglass.
+      // Toothrot (actor 7) wanders in to confront you over his spyglass.
       use(vm, VERBS.push, fort.cannon);
       expect(driveUntil(vm, () => herman().room === fort.id, { maxTicks: 12000 })).toBe(true);
 
-      // Send Herman off (#122). The spill is only
-      // reachable once he's gone, so wait for him to clear room 80.
+      // Send Herman off (#122). The spill is only reachable once he's gone, so
+      // wait for him to clear room 80.
       const armed = () => vm.verbs.get(fort.dismissHerman)?.state === 'on';
       expect(driveUntil(vm, () => armed(), { maxTicks: 16000 })).toBe(true);
       pickAnswer(vm, fort.dismissHerman);
@@ -1813,7 +1794,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
     beat('🚶‍➡️ Fort — back across the overhead map to the River Fork (15)', () => {
       const map = ROOMS.monkeyMap;
-      // The Fort path (#886) drops ego back on screen 3 (near the fortezza, but
+      // The Fort path (#886) drops ego back on screen 3 (near the fortress, but
       // clear of its re-entry watcher).
       walkTo(vm, ROOMS.fort.path);
       expect(driveToRoom(vm, map.fortScreen, { maxTicks: 12000 })).toBe(true);
@@ -1842,8 +1823,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     });
 
     beat('🚶‍➡️ River Fork — up the footholds to the catapult platform (16)', () => {
-      // "i punti d'appoggio" (#170, Walk-to → local #203) climbs ego up to the
-      // catapult platform (room 16).
+      // The footholds (#170, Walk-to → local #203) climb ego up to the catapult
+      // platform (room 16).
       walkTo(vm, ROOMS.riverFork.footholds);
       expect(driveToRoom(vm, ROOMS.catapult.platform, { maxTicks: 16000 })).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
@@ -1856,8 +1837,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       const playable = () =>
         vm.cursor.userput > 0 && vm.activeDialog === null && [...vm.verbs.values()].some((v) => v.state === 'on');
 
-      // Aim: pull the catapult arm (#235) — each pull raises g242 by 1 (it rests
-      // at 2); a hit lands only at g242==4, so two effective pulls. Bounded loop
+      // Aim: pull the catapult arm (#235) — each pull raises g242 by 1 (rests at
+      // 2); a hit lands only at g242==4, so two effective pulls. Bounded loop
       // (some pulls land mid-animation and don't register).
       for (let i = 0; i < 8 && vm.vars.readGlobal(cat.aimVar) !== cat.aimTarget; i++) {
         use(vm, VERBS.pull, cat.crank);
@@ -1883,7 +1864,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       }
       expect(vm.vars.readBit(cat.hitBit)).toBe(1);
       // The hit cutscene continues a few ticks past the bit#530 latch (shake →
-      // the bananas drop → the payoff line); let it finish before checking the drop.
+      // bananas drop → payoff line); let it finish before checking the drop.
       expect(waitPlayable(vm)).toBe(true);
       expect(vm.objectStates.get(ROOMS.monkeyBeach.fallenBananas)).toBe(1); // the dropped cluster
       expect(vm.haltInfo).toBeNull();
@@ -1891,10 +1872,10 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
     beat('🚶‍➡️ Catapult — back down to the River Fork (15)', () => {
       const cat = ROOMS.catapult;
-      // Down the two "il sentiero in basso" exits: ledge → platform (16) → River
-      // Fork (15). The firing ledge can't always path straight to the down-path
-      // object (depends on where the launch left ego), so nudge ego toward it
-      // (box 1) between attempts.
+      // Down the two down-path exits: ledge → platform (16) → River Fork (15).
+      // The firing ledge can't always path straight to the down-path object
+      // (depends on where the launch left ego), so nudge ego toward it (box 1)
+      // between attempts.
       for (let i = 0; i < 5 && vm.currentRoom === cat.ledge; i++) {
         walkTo(vm, cat.ledgeDown);
         if (driveToRoom(vm, cat.platform, { maxTicks: 10000 })) break;
@@ -1923,7 +1904,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
       // Stand at the dam, then strike the flint against the cannonball (steel) for
       // a spark → global #44: the dam blows, the river floods, and the wash carries
-      // ego back onto the overhead map (room 4).
+      // ego onto the overhead map (room 4).
       walkTo(vm, river.dam);
       waitPlayable(vm, 6000);
       useWith(vm, VERBS.use, river.flint, fort.cannonball);
@@ -1933,7 +1914,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     });
 
     beat('🚶‍➡️ Monkey map — down to the Pond (40)', () => {
-      // The flood left ego on screen 4, where "il laghetto" (#59) loads the Pond.
+      // The flood left ego on screen 4, where the pond marker (#59) loads the Pond.
       walkTo(vm, ROOMS.monkeyMap.pondMarker);
       expect(driveToRoom(vm, ROOMS.pond.id, { maxTicks: 16000 })).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
@@ -1944,7 +1925,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       const ego = vm.vars.readGlobal(VAR_EGO);
       // The flood filled the pond, so the rope (#561) by the unhealthy man is
       // reachable now — a plain Pick up takes it. With the Fort rope, that's the
-      // two the Crack descent needs.
+      // two ropes the Crack descent needs.
       expect(vm.getObjectOwner(ROOMS.pond.secondRope)).not.toBe(ego);
       use(vm, VERBS.pickUp, ROOMS.pond.secondRope);
       expect(waitPickedUp(vm, ROOMS.pond.secondRope)).toBe(true);
@@ -1954,8 +1935,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
     beat('🚶‍➡️ Pond — back across the map to the Crack (18)', () => {
       const map = ROOMS.monkeyMap;
-      // Out of the Pond (#554) onto screen 4, cross to screen 2 (#46), then "il
-      // crepaccio" (#35) drops into the Crack.
+      // Out of the Pond (#554) onto screen 4, cross to screen 2 (#46), then the
+      // crack marker (#35) drops into the Crack.
       walkTo(vm, ROOMS.pond.exit);
       expect(driveToRoom(vm, map.riverScreen, { maxTicks: 14000 })).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
@@ -1972,9 +1953,9 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       const ego = vm.vars.readGlobal(VAR_EGO);
       const crack = ROOMS.crack;
       // Tie the Fort rope to the branch (Use → local #202): ego climbs down a
-      // level. Then the Pond rope to the trunk: ego climbs to the bottom. Each
-      // tie consumes its rope (owner → the room). The Use-walk puts ego in the
-      // walkbox each tie gates on.
+      // level. Then the Pond rope to the trunk: ego climbs to the bottom. Each tie
+      // consumes its rope (owner → the room). The Use-walk puts ego in the walkbox
+      // each tie gates on.
       expect(vm.getObjectOwner(crack.oars)).not.toBe(ego);
       useWith(vm, VERBS.use, ROOMS.fort.rope, crack.branch);
       expect(driveUntil(vm, (v) => v.getObjectOwner(ROOMS.fort.rope) !== ego, { maxTicks: 12000 })).toBe(true);
@@ -2008,9 +1989,9 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       const beach = ROOMS.monkeyBeach;
       // The catapult knocked these onto the sand (#270, state 1). A plain Pick up
       // takes both beach bananas (#266 + #267) and clears the cluster — no picker
-      // needed. They must be collected HERE: after the row there's no convenient
-      // way back to room 20, and the monkey wants five (these two + #265 from the
-      // opening + the village pair #282/#283).
+      // needed. Collect HERE: after the row there's no convenient way back to room
+      // 20, and the monkey wants five (these two + #265 from the opening + the
+      // village pair #282/#283).
       expect(vm.objectStates.get(beach.fallenBananas)).toBe(1);
       expect(vm.getObjectOwner(beach.beachBananaA)).not.toBe(ego);
       use(vm, VERBS.pickUp, beach.fallenBananas);
@@ -2036,9 +2017,9 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
       // Circumnavigate clockwise in the boat: screen 2's water exit → screen 5 →
       // screen 6, staying in the boat across each edge (the edge-distance box snap
-      // keeps the relative crossing on water, not stranded on a land box). "La
-      // spiaggia" then lands ego on the north beach (132), disembarking him (back
-      // to the walking figure).
+      // keeps the crossing on water, not stranded on a land box). The north-beach
+      // marker then lands ego on the north beach (132), disembarking him (back to
+      // the walking figure).
       walkTo(vm, map.boatScreen2to5);
       expect(driveToRoom(vm, 5, { maxTicks: 14000 })).toBe(true); // map screen 5 (east)
       expect(inBoat()).toBe(true);
@@ -2057,8 +2038,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       walkTo(vm, ROOMS.northBeach.jungle);
       expect(driveToRoom(vm, ROOMS.monkeyMap.villageScreen, { maxTicks: 14000 })).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
-      // Walk the figure onto "il villaggio" (#72): verb-11 loadRoomWithEgo room=25
-      // → into the cannibal village.
+      // Walk the figure onto the village marker (#72): verb-11 loadRoomWithEgo
+      // room=25 → into the cannibal village.
       walkTo(vm, ROOMS.monkeyMap.villageMarker);
       expect(driveToRoom(vm, ROOMS.cannibalVillage.id, { maxTicks: 16000 })).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
@@ -2078,9 +2059,9 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(waitPickedUp(vm, village.bowlBananaB)).toBe(true);
 
       // The capture parks until ego turns back toward the cannibals (the camera
-      // pans right past g2>270); walking to the confront spot springs it. Then
-      // the threat menu arms — pick the give-in answer (#122): the natives
-      // escort ego to the guest hut (global #105 → room 27).
+      // pans right past g2>270); walking to the confront spot springs it. Then the
+      // threat menu arms — pick the give-in answer (#122): the natives escort ego
+      // to the guest hut (global #105 → room 27).
       walkTo(vm, village.confrontSpot);
       expect(
         driveUntil(vm, (v) => v.verbs.get(village.fineEatMe)?.state === 'on', { maxTicks: 16000 }),
@@ -2100,16 +2081,16 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       use(vm, VERBS.pickUp, hut.skull);
       expect(waitPickedUp(vm, hut.skull)).toBe(true);
 
-      // Open the loose board → "il buco" (the hole), state 1.
+      // Open the loose board → the hole, state 1.
       use(vm, VERBS.open, hut.looseBoard);
       expect(
         driveUntil(vm, (v) => v.objectStates.get(hut.looseBoard) === 1, { maxTicks: 8000 }),
       ).toBe(true);
 
       // Crawl through the hole (verb 11, a bare click) → out onto overhead-map
-      // screen 6. The banana-picker (#314) is deliberately left behind — it won't
-      // fit through the hole (local #200 makes ego drop it); it's retrieved later
-      // through the door once the idol wins the cannibals over.
+      // screen 6. The banana-picker (#314) is left behind — it won't fit through
+      // the hole (local #200 makes ego drop it); retrieved later through the door
+      // once the idol wins the cannibals over.
       walkTo(vm, hut.looseBoard);
       expect(driveToRoom(vm, ROOMS.monkeyMap.villageScreen, { maxTicks: 14000 })).toBe(true);
       expect(vm.getObjectOwner(hut.picker)).not.toBe(ego);
@@ -2121,8 +2102,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       const map = ROOMS.monkeyMap;
       const inBoat = () => egoInBoat(vm);
       // The walking figure can't path screen 6 → 2 (the inland map's two halves
-      // only join by boat). Drop to the north beach (#71 "la spiaggia") and
-      // re-launch the rowboat (#17): ego rows out as the boat figure (costume 4).
+      // only join by boat). Drop to the north beach (#71) and re-launch the
+      // rowboat (#17): ego rows out as the boat figure (costume 4).
       walkTo(vm, map.northBeachLanding);
       expect(driveToRoom(vm, ROOMS.northBeach.id, { maxTicks: 12000 })).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
@@ -2130,7 +2111,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(driveUntil(vm, () => inBoat(), { maxTicks: 10000 })).toBe(true);
 
       // Row 6 → 5 → 2 (water connectors), then beach at the south shore (#30 →
-      // room 20). Each crossing stays in the boat (the edge-distance box snap).
+      // room 20). Each crossing stays in the boat (edge-distance box snap).
       walkTo(vm, map.boatScreen6to5);
       expect(driveToRoom(vm, 5, { maxTicks: 12000 })).toBe(true);
       expect(inBoat()).toBe(true);
@@ -2141,7 +2122,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(driveToRoom(vm, ROOMS.monkeyBeach.id, { maxTicks: 12000 })).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
 
-      // South beach → jungle (#261) → overhead-map screen 2, on foot, where the
+      // South beach → jungle (#261) → overhead-map screen 2 on foot, where the
       // monkey paces.
       walkTo(vm, ROOMS.monkeyBeach.jungle);
       expect(driveToRoom(vm, ROOMS.monkeyMap.id, { maxTicks: 12000 })).toBe(true);
@@ -2157,8 +2138,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       const held = (b: number) => vm.getObjectOwner(b) === ego;
 
       // Catch it: the monkey paces, so click where it is and retry until the
-      // close-up (room 21) loads. (RNG-touchy — its path differs from boot, so
-      // this is a bounded retry, not an exact click.)
+      // close-up (room 21) loads. (RNG-touchy — its path differs from boot, so a
+      // bounded retry, not an exact click.)
       let caught = false;
       for (let i = 0; i < 20 && !caught; i++) {
         try {
@@ -2171,16 +2152,15 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(caught).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
 
-      // Feed all five, driven by the authoritative success signal g145 (each
-      // accepted give +1), NOT by banana id: the monkey only accepts while "down"
-      // (costume 6) and one given mid-animation is refused (the not-yet refusal),
-      // so a give can land OR bounce. Each round wait for the monkey to be
-      // receptive AND the prior feed (#202/#203) fully settled — feeding any still-
-      // held banana and waiting for g145 to tick before the next give — so no feed
-      // is ever in flight during the next give's arm (that race used to consume a
-      // banana mid-gesture and strand the picker). The try/catch absorbs the rare
-      // case where a banana leaves inventory during the give itself; g145 is the
-      // truth and the loop just re-picks. Order-independent and timing-robust.
+      // Feed all five, driven by the success signal g145 (each accepted give +1),
+      // NOT by banana id: the monkey only accepts while "down" (costume 6) and one
+      // given mid-animation is refused, so a give can land OR bounce. Each round
+      // wait for the monkey to be receptive AND the prior feed (#202/#203) fully
+      // settled — feed any still-held banana, wait for g145 to tick before the
+      // next give — so no feed is in flight during the next give's arm (that race
+      // used to consume a banana mid-gesture and strand the picker). The try/catch
+      // absorbs a banana leaving inventory during the give itself; g145 is the
+      // truth and the loop re-picks. Order-independent and timing-robust.
       const heldBanana = (): number | undefined => m.bananas.find((b) => held(b));
       for (
         let guard = 0;
@@ -2226,12 +2206,12 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(vm.haltInfo).toBeNull();
     });
 
-    beat('🚶‍➡️ Map screen 2 — across the map to the clearing (la zona disboscata, 12), the monkey in tow', () => {
+    beat('🚶‍➡️ Map screen 2 — across the map to the clearing (12), the monkey in tow', () => {
       const map = ROOMS.monkeyMap;
       // The walking figure can't reach screen 5 straight from screen 2 (#33 is a
-      // water edge), so thread screen 2 → 4 (#29) → 5 (#47), then the "la zona
-      // disboscata" marker (#63) → the clearing (room 12). The monkey trails
-      // across each screen (global #34 carries the follower along).
+      // water edge), so thread screen 2 → 4 (#29) → 5 (#47), then the clearing
+      // marker (#63) → the clearing (room 12). The monkey trails across each
+      // screen (global #34 carries the follower along).
       walkTo(vm, map.screen2toScreen4);
       expect(driveToRoom(vm, map.riverScreen, { maxTicks: 12000 })).toBe(true); // screen 4
       expect(waitPlayable(vm)).toBe(true);
@@ -2253,8 +2233,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       const chamber = ROOMS.idolChamber;
       const scriptLive = (id: number) => vm.slots.some((s) => s.status !== 'dead' && s.scriptId === id);
 
-      // Pull the totem's nose (#144, verb 6 → local #204): ego yanks it, and with
-      // the monkey following, #205 sets the monkey to hold the gate.
+      // Pull the totem's nose (#144, verb 6 → local #204): ego yanks it; with the
+      // monkey following, #205 sets the monkey to hold the gate.
       use(vm, VERBS.pull, clr.totemNose);
       expect(driveUntil(vm, (v) => !scriptLive(204) && v.cursor.userput > 0, { maxTicks: 16000 })).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
@@ -2264,7 +2244,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       walkTo(vm, clr.head);
       expect(driveUntil(vm, (v) => v.objectStates.get(clr.gateHeldObj) === 1, { maxTicks: 16000 })).toBe(true);
 
-      // Through the held gate (#155) into the idol chamber (room 69). Reaching the
+      // Through the held gate (#155) into the idol chamber (room 69). The
       // far-right entrance can take a couple of hops along the wide clearing.
       let entered = false;
       for (let i = 0; i < 4 && !entered; i++) {
@@ -2343,7 +2323,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       const A = () => vm.actors.get(ego);
 
       // The village looks empty; provoke the ambush by walking far WEST then back
-      // EAST toward the exit (the camera-crossing watcher fires the confrontation).
+      // EAST toward the exit (the camera-crossing watcher fires it).
       walkTo(vm, village.recaptureWest);
       expect(driveUntil(vm, () => A().x <= 130, { maxTicks: 9000 })).toBe(true);
       walkTo(vm, village.recaptureEast);
@@ -2353,7 +2333,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(armed().includes(village.offerAnything)).toBe(true);
       pickAnswer(vm, village.offerAnything);
 
-      // Wait for the brief offering window: the cannibals turn touchable and control
+      // Wait for the brief offering window: cannibals turn touchable and control
       // returns — then give the wimpy idol immediately (too slow and they re-jail you).
       expect(
         driveUntil(vm, () => cannibalsTouchable() && vm.cursor.userput > 0 && armed().length === 0, { maxTicks: 16000 }),
@@ -2372,8 +2352,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       const ego = vm.vars.readGlobal(VAR_EGO);
       const village = ROOMS.cannibalVillage;
       const hut = ROOMS.cannibalHut;
-      // The idol made the cannibals friendly, so the hut door (#285) opens now:
-      // Open it and walk through into the hut (room 27).
+      // The idol made the cannibals friendly, so the hut door (#285) opens: Open
+      // it and walk through into the hut (room 27).
       use(vm, VERBS.open, village.hutDoor);
       driveUntil(vm, () => vm.currentRoom === hut.id, { maxTicks: 8000 });
       if (vm.currentRoom !== hut.id) {
@@ -2398,7 +2378,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
       // Out of the hut (door #307) back to the village. Carrying the picker with
       // bit#548 still unset, room 25's ENCD summons Herman Toothrot (actor 7) —
-      // he's been hunting the cannibals to get his banana-picker back.
+      // hunting the cannibals to get his banana-picker back.
       walkTo(vm, hut.door);
       expect(driveToRoom(vm, village.id, { maxTicks: 12000 })).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
@@ -2432,9 +2412,9 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       const nativesTouchable = () => isTouchable(vm, village.friendlyNatives);
       const convoOver = () => vm.cursor.userput > 0 && !dialogUp(vm) && !scriptLive(213);
 
-      // The friendly cannibals aren't standing around — they only reappear when
-      // ego ENTERS the village FROM the map (g101==6). Step out the jungle (#290)
-      // to overhead-map screen 6, then back in via the village marker (#72).
+      // The friendly cannibals only reappear when ego ENTERS the village FROM the
+      // map (g101==6). Step out the jungle (#290) to overhead-map screen 6, then
+      // back in via the village marker (#72).
       walkTo(vm, village.jungleExit);
       expect(driveToRoom(vm, map.villageScreen, { maxTicks: 14000 })).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
@@ -2447,8 +2427,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       // where he hides (#511). Only then does the go-get-the-root answer (#124)
       // arm; it sets #513 and makes them offer the head. (#120 recurs across menus
       // and #124 is an unrelated goodbye in the first menu, so gate the goGetRoot
-      // pick on the #510/#511 progress bits.) A final probe ends the talk → the
-      // natives go idle.
+      // pick on the #510/#511 progress bits.) A final probe ends the talk → natives
+      // go idle.
       expect(driveUntil(vm, () => dialogUp(vm), { maxTicks: 12000 })).toBe(true);
       for (let i = 0; i < 12 && !convoOver(); i++) {
         if (!dialogUp(vm)) {
@@ -2467,7 +2447,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
       // Idle natives are giveable now: hand them the navigation leaflet (#902) →
       // room-25 #203 → global #104 takes it, plays the magic-necklace close-up,
-      // and gives ego the navigator's head (#293; sets bit#358, g411 → 4313).
+      // gives ego the navigator's head (#293; sets bit#358, g411 → 4313).
       useWith(vm, VERBS.give, village.leaflet, village.friendlyNatives);
       expect(driveUntil(vm, (v) => v.getObjectOwner(village.navigatorHead) === ego, { maxTicks: 50000 })).toBe(true);
       expect(vm.getObjectOwner(village.leaflet)).not.toBe(ego);
@@ -2480,7 +2460,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       const map = ROOMS.monkeyMap;
       const clr = ROOMS.monkeyClearing;
       const inBoat = () => egoInBoat(vm);
-      // The reverse of the idol trip: jungle exit → screen 6 → north beach, relaunch
+      // Reverse of the idol trip: jungle exit → screen 6 → north beach, relaunch
       // the rowboat, row 6 → 5 → 2, beach at the south shore, then walk the inland
       // map (2 → 4 → 5) to the clearing.
       walkTo(vm, ROOMS.cannibalVillage.jungleExit);
@@ -2522,9 +2502,10 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     beat('⚙️ Idol chamber — the Monkey-Head key in the giant ear opens the head\'s mouth', () => {
       const ego = vm.vars.readGlobal(VAR_EGO);
       const clr = ROOMS.monkeyClearing;
-      // Use the Monkey-Head key (#269) on the giant ear (#767): global #94 climbs ego
-      // in, the mouth-open animation plays, the mouth flag (#151) flips, and ego is
-      // dropped back in the clearing (room 12). (The "head" #765 rejects the key.)
+      // Use the Monkey-Head key (#269) on the giant ear (#767): global #94 climbs
+      // ego in, the mouth-open animation plays, the mouth flag (#151) flips, and
+      // ego is dropped back in the clearing (room 12). (The head #765 rejects the
+      // key.)
       expect(vm.getObjectOwner(ROOMS.cannibalVillage.monkeyHeadKey)).toBe(ego);
       useWith(vm, VERBS.use, ROOMS.cannibalVillage.monkeyHeadKey, ROOMS.idolChamber.ear);
       expect(
@@ -2543,7 +2524,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(enterRoom(vm, clr.head, ROOMS.catacombsAntechamber.id)).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
 
-      // Into the maze (room 39) via "la caverna" (#755, far right of room 65), then
+      // Into the maze (room 39) via the cavern (#755, far right of room 65), then
       // let the head guide the maze to the ghost-ship cavern.
       expect(enterRoom(vm, ROOMS.catacombsAntechamber.cavern, ROOMS.catacombsMaze.id)).toBe(true);
       expect(solveMaze(vm)).toBe(true);
@@ -2562,9 +2543,10 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
         maxTicks: 6000,
       });
 
-      // Talk to the head → the room-86 close-up. Beg: pick the necklace topic, then the
-      // plead line (same verb, escalating name) until the beg-counter (g286) passes 4 and
-      // the head relents and hands it over — the conversation then ends (back to the cavern).
+      // Talk to the head → the room-86 close-up. Beg: pick the necklace topic, then
+      // the plead line (same verb, escalating name) until the beg-counter (g286)
+      // passes 4 and the head relents and hands it over — the conversation then
+      // ends (back to the cavern).
       use(vm, VERBS.talk, head);
       expect(driveToRoom(vm, t.closeup, { maxTicks: 10000 })).toBe(true);
       for (let i = 0; i < 10 && !worn() && vm.currentRoom === t.closeup; i++) {
@@ -2590,7 +2572,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     beat('🚶‍➡️ Ghost-ship cavern — board the (invisible) ego onto the main deck (77)', () => {
       const cavern = ROOMS.ghostCavern;
       // Board the ghost ship: the deck ENCD's ghost-detection (global #78) passes
-      // because the necklace is worn (bit#357). Without it ego is caught and ejected.
+      // because the necklace is worn (bit#357). Without it ego is caught/ejected.
       expect(enterRoom(vm, cavern.ship, ROOMS.ghostDeck.id, { maxTicks: 16000 })).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
       expect(vm.vars.readBit(cavern.wornBit)).toBe(1); // still invisible — not caught
@@ -2617,11 +2599,11 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       const galley = ROOMS.ghostGalley;
       const grogTouchable = () => isTouchable(vm, crew.grog);
       // The ticklish sleeper #804 sits in a stack of overlapping objects (the other
-      // sleeper #803, the bottle #805): a hover only resolves to IT while its wake-
-      // watcher (room-73 local #201) has it touchable, which it does only when ego
-      // stands right of the wake line (x ≈ 120). #804's own walk-to spot is there,
-      // so park ego on it and wait for the sleeper to actually be hittable before
-      // each tickle — otherwise the feather lands on a neighbour and nothing happens.
+      // sleeper #803, the bottle #805): a hover resolves to IT only while its
+      // wake-watcher (room-73 local #201) has it touchable, which happens only when
+      // ego stands right of the wake line (x ≈ 120). #804's own walk-to spot is
+      // there, so park ego on it and wait for the sleeper to be hittable before
+      // each tickle — else the feather lands on a neighbour and nothing happens.
       const sleeperTouchable = () => isTouchable(vm, crew.ticklishSleeper);
       const sleeperSpot = (): { x: number; y: number } => {
         const c = vm.loadedRoom!.objects.get(crew.ticklishSleeper)!.cdhd;
@@ -2633,7 +2615,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       use(vm, VERBS.pickUp, galley.feather);
       expect(waitPickedUp(vm, galley.feather)).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
-      // Back to the crew quarters; tickle the ticklish sleeper (it takes two) to free
+      // Back to the crew quarters; tickle the ticklish sleeper (takes two) to free
       // the grog (clears its untouchable class), then take it.
       expect(enterRoom(vm, galley.crewPassage, crew.id)).toBe(true);
       for (let i = 0; i < 6 && !grogTouchable(); i++) {
@@ -2658,7 +2640,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(enterRoom(vm, ROOMS.ghostCrewQuarters.galleyPassage, galley.id)).toBe(true);
       useWith(vm, VERBS.use, ROOMS.ghostCabin.key, galley.hatch);
       expect(enterRoom(vm, galley.hatch, bilge.id)).toBe(true);
-      // Pour the grog into the rat dish (the rats get drunk, the chase guard stops),
+      // Pour the grog into the rat dish (rats get drunk, the chase guard stops),
       // then take the cooking grease.
       useWith(vm, VERBS.use, ROOMS.ghostCrewQuarters.grog, bilge.ratDish);
       expect(driveUntil(vm, () => vm.vars.readBit(bilge.ratsFedBit) === 1, { maxTicks: 12000 })).toBe(true);
@@ -2675,9 +2657,9 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       const deck = ROOMS.ghostDeck;
       const brig = ROOMS.ghostBrig;
       const doorSilent = () => !hasClass(vm, deck.squeakyDoor, 6);
-      // Up to the deck (bilge → galley → crew quarters → deck). Grease the squeaky door
-      // (clears its class 6 → silent) so it opens without waking the ghost, then through
-      // it to the brig for the tools.
+      // Up to the deck (bilge → galley → crew quarters → deck). Grease the squeaky
+      // door (clears its class 6 → silent) so it opens without waking the ghost,
+      // then through it to the brig for the tools.
       expect(enterRoom(vm, ROOMS.ghostBilge.galleyStairs, galley.id)).toBe(true);
       expect(enterRoom(vm, galley.crewPassage, ROOMS.ghostCrewQuarters.id)).toBe(true);
       expect(enterRoom(vm, ROOMS.ghostCrewQuarters.deckStairs, deck.id)).toBe(true);
@@ -2688,8 +2670,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       use(vm, VERBS.pickUp, brig.tools);
       expect(waitPickedUp(vm, brig.tools)).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
-      // Back to the galley; the tools open the glowing crate, and LOOKING in the open
-      // crate takes the voodoo root.
+      // Back to the galley; the tools open the glowing crate, and LOOKING in the
+      // open crate takes the voodoo root.
       expect(enterRoom(vm, brig.door, deck.id)).toBe(true);
       expect(enterRoom(vm, deck.crewDoor, ROOMS.ghostCrewQuarters.id)).toBe(true);
       expect(enterRoom(vm, ROOMS.ghostCrewQuarters.galleyPassage, galley.id)).toBe(true);
@@ -2716,8 +2698,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(driveToRoom(vm, village.id, { maxTicks: 20000 })).toBe(true);
       // The village heartbeat sees the root in hand and runs the seltzer cutscene
       // (#106): the cannibals gather and offer a parting dialog — pick a reply (any
-      // converges), then they turn the root into magic seltzer (bit#383) and walk ego
-      // off to the overhead map.
+      // converges), then they turn the root into magic seltzer (bit#383) and walk
+      // ego off to the overhead map.
       const seltzerMade = () => vm.vars.readBit(village.seltzerBit) === 1;
       advanceDialog(vm, () => seltzerMade(), { maxMenus: 8, armTicks: 14000 });
       expect(driveUntil(vm, () => seltzerMade(), { maxTicks: 16000 })).toBe(true);
@@ -2733,21 +2715,21 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
         expect(driveToRoom(vm, village.id, { maxTicks: 16000 })).toBe(true);
         expect(waitPlayable(vm)).toBe(true);
       }
-      // With the seltzer made, the jungle exit now runs the lift: the ghost crew greet
-      // ego as "Bob" and ferry him off → the Part III→IV transition (global #131) →
-      // the Part IV title card → the Mêlée docks (room 83).
+      // With the seltzer made, the jungle exit now runs the lift: the ghost crew
+      // greet ego as "Bob" and ferry him off → the Part III→IV transition (global
+      // #131) → the Part IV title card → the Mêlée docks (room 83).
       walkTo(vm, village.jungleExit);
       // The lift drops ego in the ghost-ship cavern (70), where whoever ferried in
       // (Herman Toothrot, or the three sunburn-hunting ghost pirates — room-70 local
-      // #204 branches on bit#436 into #205/#206) greets "Bob" and strikes up a parting
-      // conversation. They are THEMSELVES bound for Mêlée, so no answer dead-ends: the
-      // ride option always sits at the lowest live answer id (#206's ride-home answer is
-      // verb 120 and leaves straight away; #205's ask-for-a-lift answer is verb 122, and
-      // the lower small-talk answers self-gate — each sets its own bit#443/445/451/444
-      // so it stops being offered next menu). So pick the lowest armed answer BY ID (the
-      // localized text differs per build) until they ferry ego off → global #131 → the
-      // Part IV title card → the Mêlée docks (83). The answer ids are 119+N for the
-      // Nth menu line; both endings call startScript 131 once the ride is accepted.
+      // #204 branches on bit#436 into #205/#206) greets "Bob" and strikes up a
+      // parting conversation. They are THEMSELVES bound for Mêlée, so no answer
+      // dead-ends: the ride option always sits at the lowest live answer id (#206's
+      // ride-home answer is verb 120, leaves straight away; #205's ask-for-a-lift is
+      // verb 122, and the lower small-talk answers self-gate — each sets its own
+      // bit#443/445/451/444 so it stops being offered next menu). So pick the lowest
+      // armed answer BY ID until they ferry ego off → global #131 → the Part IV title
+      // card → the Mêlée docks (83). Answer ids are 119+N for the Nth menu line; both
+      // endings call startScript 131 once the ride is accepted.
       const atPartFour = () => vm.currentRoom === 83 || vm.vars.readBit(village.partFourBit) === 1;
       advanceDialog(vm, () => atPartFour(), { maxMenus: 16, armTicks: 14000 });
       expect(driveUntil(vm, () => atPartFour(), { maxTicks: 16000 })).toBe(true);
@@ -2763,23 +2745,23 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       const ego = vm.vars.readGlobal(VAR_EGO);
       // LeChuck's lift stripped Ego's pockets to money + the magic seltzer.
       expect(vm.getObjectOwner(docks.seltzer)).toBe(ego);
-      // Walking to the town-ward "molo" (#905) summons a ghost pirate that forces
-      // a deadpan sales-pitch conversation; the root-beer line runs the seltzer
-      // spray that dissolves it. Once it's gone the exit leads on to
-      // the Mêlée street — leaveSprayingGhosts picks the root beer, then walks
-      // through (via enterRoom, which re-walks the wide dock on its own).
+      // Walking to the town-ward jetty (#905) summons a ghost pirate that forces a
+      // deadpan sales-pitch conversation; the root-beer line runs the seltzer spray
+      // that dissolves it. Once it's gone the exit leads on to the Mêlée street —
+      // leaveSprayingGhosts picks the root beer, then walks through (via enterRoom,
+      // which re-walks the wide dock on its own).
       expect(leaveSprayingGhosts(vm, docks.townExit, ROOMS.meleeStreet.id, docks.ghostAnswers.rootBeer)).toBe(true);
       expect(vm.getObjectOwner(docks.seltzer)).toBe(ego); // still ours — the spray doesn't consume it
       expect(waitPlayable(vm)).toBe(true);
       expect(vm.haltInfo).toBeNull();
     });
 
-    beat('🚶‍➡️ Mêlée street — spray "lo spettro sinistro", cross to the store street (34)', () => {
+    beat('🚶‍➡️ Mêlée street — spray the sinister specter, cross to the store street (34)', () => {
       const street = ROOMS.meleeStreet;
       // Heading west to the store arch (#451) walks Ego into the sinister specter
       // (#440, room 35 #211). Its banter is a branching tree, but the root-beer
-      // line jumps straight to the spray; once the specter's gone the arch loads
-      // the store street.
+      // line jumps straight to the spray; once it's gone the arch loads the store
+      // street.
       expect(leaveSprayingGhosts(vm, street.storeArch, ROOMS.storeStreet.id, street.ghostRootBeerAnswer)).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
       expect(vm.haltInfo).toBeNull();
@@ -2788,9 +2770,9 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     beat('🚶‍➡️ Store street — open the church door (between store and jail), into the wedding (78)', () => {
       const street = ROOMS.storeStreet;
       // The church door (#438) is a plain two-state door between the store and the
-      // jail; enterRoom detects it's shut, Opens it, then walks ego through → the
-      // church. The arch back to town (#433) now refuses (the wrong-way brush-off)
-      // and steers you here, so this door is the only way on.
+      // jail; enterRoom detects it's shut, Opens it, walks ego through → the church.
+      // The arch back to town (#433) now refuses (the wrong-way brush-off) and
+      // steers you here, so this door is the only way on.
       expect(enterRoom(vm, street.churchDoor, ROOMS.church.id, { maxTicks: 14000 })).toBe(true);
       expect(vm.haltInfo).toBeNull();
     });
@@ -2798,9 +2780,9 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     beat('⚙️ Church — object to the wedding; LeChuck whisks Ego off to confront him (45)', () => {
       const church = ROOMS.church;
       // Entering the church auto-ran the ceremony to the priest's call for
-      // objections and armed a four-line objection menu. Any
-      // objection interrupts the wedding (room 78 #201 waits on the pick), so we
-      // pick the first one; ego is then transported to the confrontation, room 45.
+      // objections and armed a four-line objection menu. Any objection interrupts
+      // the wedding (room 78 #201 waits on the pick), so pick the first; ego is
+      // then transported to the confrontation, room 45.
       pickDialogAnswer(vm, church.objectionVerbs[0], { armTicks: 16000 });
       expect(driveToRoom(vm, ROOMS.confrontation.id, { maxTicks: 16000 })).toBe(true);
       expect(vm.haltInfo).toBeNull();
@@ -2811,12 +2793,11 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       // The whole confrontation is forced dialogue (room 45 #200): Ego objects,
       // Elaine (actor 10) enters and reveals the bride under the veil is monkeys
       // holding her ghost-dissolving root beer, then Ego threatens to spray — but
-      // the seltzer bottle JAMS (it's corked). LeChuck punches Ego clear across
-      // the island (#133, a comic-book fight montage over the overhead map), which
-      // disowns the spent seltzer and drops him on the floor of Stan's. We walk
-      // the canonical
-      // plot thread (object → reveal → object → spray threat) — each pick advances
-      // one scripted stage; the last is what triggers the jam and the punch.
+      // the seltzer bottle JAMS (corked). LeChuck punches Ego clear across the
+      // island (#133, a comic-book fight montage over the overhead map), which
+      // disowns the spent seltzer and drops him on the floor of Stan's. Walk the
+      // canonical plot thread (object → reveal → object → spray threat) — each pick
+      // advances one scripted stage; the last triggers the jam and the punch.
       for (const answer of conf.answerPath) pickDialogAnswer(vm, answer, { armTicks: 24000 });
       expect(driveToRoom(vm, ROOMS.stansShowdown.id, { maxTicks: 24000 })).toBe(true);
       // The punch montage stripped the now-empty seltzer.
@@ -2830,8 +2811,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       const running = (id: number): boolean => vm.slots.some((s) => s.scriptId === id && s.status !== 'dead');
       // The punch hands control back with Ego on the floor. The first scene click
       // stands him up (#129) beside the root-beer machine; two punch timers then
-      // arm — #126 (a ~9 s do-nothing windup) and #125 (punch the instant ego
-      // tries to MOVE).
+      // arm — #126 (a ~9 s do-nothing windup) and #125 (punch the instant ego MOVES).
       expect(driveUntil(vm, (v) => v.cursor.userput > 0, { maxTicks: 24000 })).toBe(true);
       walkTo(vm, { x: 280, y: 110 }); // a bare click → stand up off the floor
       expect(driveUntil(vm, () => running(stan.movePunchScript), { maxTicks: 12000 })).toBe(true);
@@ -2841,7 +2821,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(driveUntil(vm, (v) => v.getObjectOwner(stan.rootBeer) === ego, { maxTicks: 9000 })).toBe(true);
       expect(running(stan.punchScript)).toBe(false); // the punch never fired — the grab didn't move ego
       // Spray LeChuck (#734) with the root beer → the win (#132): he chokes,
-      // switches to his death costume (115), detonates.
+      // switches to his death costume (115), and detonates.
       useWith(vm, VERBS.use, stan.rootBeer, stan.lechuck);
       expect(driveUntil(vm, () => running(stan.winScript), { maxTicks: 12000 })).toBe(true);
       expect(driveUntil(vm, (v) => v.actors.get(stan.lechuckActor).costume === 115, { maxTicks: 12000 })).toBe(true);
