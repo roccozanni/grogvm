@@ -229,8 +229,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(vm.vars.readGlobal(VARS.trialsLearned)).toBe(0); // not yet learned
       use(vm, VERBS.talk, ROOMS.scummBar.threePirates);
 
-      // Pick "Voglio diventare un pirata." — the real opener (the other two are
-      // jokes that dead-end). The pirates then explain the trials → g197 flips.
+      // Pick the real opener (the other two are jokes that dead-end). The
+      // pirates then explain the trials → g197 flips.
       const wantPirate = ROOMS.scummBar.trialsAnswers.wantToBePirate;
       driveUntil(vm, (v) => v.verbs.get(wantPirate)?.state === 'on', { maxTicks: 2400 });
       expect(vm.verbs.get(wantPirate)?.name?.length ?? 0).toBeGreaterThan(0);
@@ -426,8 +426,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       const startMoney = vm.vars.readGlobal(VARS.money);
 
       // The cousin-Dominique line is the opener that gets the citizen to offer the
-      // map; "take it" then buys it for 100 pieces of eight. (The other openers
-      // dead-end.)
+      // map; the take-it answer then buys it for 100 pieces of eight. (The other
+      // openers dead-end.)
       use(vm, VERBS.talk, ROOMS.meleeStreet.citizen);
       expect(pickDialogAnswer(vm, ROOMS.meleeStreet.citizenAnswers.dominique).length).toBeGreaterThan(0);
       expect(pickDialogAnswer(vm, ROOMS.meleeStreet.citizenAnswers.takeMap).length).toBeGreaterThan(0);
@@ -550,8 +550,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       const ego = vm.vars.readGlobal(VAR_EGO);
       expect(vm.getObjectOwner(ROOMS.forestDig.tshirt)).not.toBe(ego);
 
-      // "Usa pala con X": the dig cutscene (local #200) plays "Passano ore",
-      // ego digs, and `pickupObject`s the treasure T-shirt into the inventory.
+      // Use shovel on X: the dig cutscene (local #200) plays the hours-pass
+      // beat, ego digs, and `pickupObject`s the treasure T-shirt into the inventory.
       // It's a long cutscene (two camera pans + the dig-and-refill), hence the
       // wide budget.
       useWith(vm, VERBS.use, ROOMS.store.shovel, ROOMS.forestDig.x);
@@ -626,10 +626,10 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
     beat('⚙️ Troll bridge — give the troll the red herring; cross back to the map', () => {
       const ego = vm.vars.readGlobal(VAR_EGO);
-      // The troll wants "una cosa rossa": give him the red herring (the kitchen
-      // fish, #568) — the two-object "Dai" sentence to the troll actor. Local
-      // #204 says "Un'aringa rossa! ... Passa!", unblocks the bridge, and walks
-      // ego across, landing back on the map. The fish ends owned by the troll.
+      // The troll wants something red: give him the red herring (the kitchen
+      // fish, #568) — the two-object Give sentence to the troll actor. Local
+      // #204 unblocks the bridge and walks ego across, landing back on the map.
+      // The fish ends owned by the troll.
       expect(vm.getObjectOwner(ROOMS.kitchen.fish)).toBe(ego);
       give(vm, VERBS.give, ROOMS.kitchen.fish, ROOMS.trollBridge.trollActor);
       expect(driveToRoom(vm, ROOMS.meleeMap.id, { maxTicks: 12000 })).toBe(true);
@@ -657,9 +657,9 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       // Knock (Open the door, #591) → Smirk's doorway conversation (global #57).
       // The whole exchange is cutscene-driven and each menu's intended line is
       // the first slot (verb 120), so pick 120 down the negotiation: (1) ask to
-      // be trained, (2) "Sì che lo sono!" — yes I'm a pirate, (3,4) "Lo sono!"
-      // insist twice more, (5) "Ho 30 pezzi da otto" (we hold ≥30), (6) hand over
-      // the sword ("Va bene, ecco."). That sends ego into Smirk's gym (60).
+      // be trained, (2) confirm we're a pirate, (3,4) insist twice more, (5)
+      // confirm we hold the fee (≥30), (6) hand over the sword. That sends ego
+      // into Smirk's gym (60).
       use(vm, VERBS.open, ROOMS.house.door);
       for (let menu = 0; menu < 6; menu++) {
         expect(pickDialogAnswer(vm, 120, { armTicks: 20000 }).length).toBeGreaterThan(0);
@@ -809,17 +809,17 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(vm.getObjectOwner(petal)).toBe(ego);
       expect(vm.vars.readBit(ROOMS.governorMansion.dogsAsleepBit)).toBe(0);
 
-      // Drug the meat: "Use the yellow petal with the meat" — a TWO-INVENTORY
+      // Drug the meat: Use the yellow petal with the meat — a TWO-INVENTORY
       // combine: both clicks land on inventory slots, and the second slot click
       // itself commits the sentence. The meat's verb-7 (partner #689) sets the
-      // drugged class on #566 and runs global #182, which renames it "la carne
-      // condita" and consumes the petal (#689 → owner 0).
+      // drugged class on #566 and runs global #182, which renames it to the
+      // drugged-meat label and consumes the petal (#689 → owner 0).
       useWith(vm, VERBS.use, petal, meat);
       expect(driveUntil(vm, (v) => v.getObjectOwner(petal) === 0, { maxTicks: 12000 })).toBe(true);
 
       // Give the drugged meat to the dogs (#467): runs their verb-80 → room-local
       // #201, which feeds them, checks the drugged class, and sets bit#15 (asleep),
-      // renaming them "i cani piranha che dormono". The dogs are a scene OBJECT
+      // renaming them to the sleeping-dogs label. The dogs are a scene OBJECT
       // (class 5, a legitimate give target for the hover poller), so the gesture
       // is Give + the meat's slot + a scene click on them. "Give" (not "Use") is
       // the verb that reaches the feed branch — its proximity gate is the one the
@@ -957,7 +957,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       // repellent — he trades Aunt Tillie's carrot cake (#420 → ego).
       expect(vm.getObjectOwner(jail.cake)).not.toBe(ego);
       approach();
-      // Otis defaults to class 6 (death-breath); his "Mentina al grog!" reaction
+      // Otis defaults to class 6 (death-breath); his mint reaction
       // CLEARS class 6 — and the repellent trade below only accepts once his breath
       // is settled (class 6 clear). Wait for the reaction to actually START (the
       // committed sentence isn't picked up the same tick, so waitPlayable alone can
@@ -972,8 +972,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(driveUntil(vm, (v) => v.getObjectOwner(jail.cake) === ego, { maxTicks: 40000 })).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
 
-      // Open the cake — "Apri" + its inventory slot (a one-object sentence the
-      // slot click commits) → it renames to "la lima" and the verb-2
+      // Open the cake — Open + its inventory slot (a one-object sentence the
+      // slot click commits) → it renames to the file label and the verb-2
       // `actorSetClass` sets class 3 (and clears class 6): that class flip is
       // the file marker. Assert the class, not the localized name.
       const isFile = (v: typeof vm) =>
@@ -1058,9 +1058,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       // on the Mêlée docks (room 83), where the kidnapping conversation runs.
       expect(driveToRoom(vm, docks.id, { maxTicks: 20000 })).toBe(true);
 
-      // Declare the rescue — "Andrò a procurarmi un equipaggio ed una nave…" (#123)
-      // ends the conversation and sets the quest flag (bit#304), Part I's setup
-      // done and the hunt for a ship begun.
+      // Declare the rescue (#123): ends the conversation and sets the quest flag
+      // (bit#304), Part I's setup done and the hunt for a ship begun.
       expect(vm.vars.readBit(docks.questDeclaredBit)).toBe(0);
       expect(
         driveUntil(vm, (v) => v.verbs.get(docks.getCrewAndShip)?.state === 'on', { maxTicks: 14000 }),
@@ -1155,10 +1154,10 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
     beat('⚙️ Mêlée jail — Otis agrees to join, then the grog melts his lock', () => {
       const jail = ROOMS.prison;
-      // Post-vow his conversation arms the recruit pair: #123 is the news
-      // ("Hanno rapito il Governatore!"), then #123 again is the ask ("Se ti
-      // faccio uscire, ti unirai al mio equipaggio?") — the second sets
-      // bit#477, REQUIRED before the melt or #70 takes the mocking branch.
+      // Post-vow his conversation arms the recruit pair: #123 is the news (the
+      // kidnapping reveal), then #123 again is the ask (the join-the-crew
+      // offer) — the second sets bit#477, REQUIRED before the melt or #70 takes
+      // the mocking branch.
       expect(vm.vars.readBit(jail.otisAgreedBit)).toBe(0);
       const otis = vm.actors.get(jail.prisonerActor);
       walkTo(vm, { x: otis.x + 30, y: otis.y });
@@ -1176,7 +1175,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
       // Pour onto the lock (#403 → #69 → #70): the rescue cutscene melts it,
       // frees Otis (bit#76 — his crew flag) and, with bit#477 set, plays the
-      // friendly join before he heads off "to get his things".
+      // friendly join before he heads off to fetch his things.
       if (mugDying(vm, activeMug)) {
         const next = remainingMugs.shift()!;
         useWith(vm, VERBS.use, activeMug, next); // a two-inventory combine
@@ -1556,8 +1555,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       use(vm, VERBS.pickUp, galley.cerealShelf);
       expect(waitPickedUp(vm, galley.cereal, 8000)).toBe(true);
 
-      // Open the carried box: the eat cutscene ends in "there's a surprise
-      // inside" and #185 hands the prize over.
+      // Open the carried box: the eat cutscene ends on the surprise-inside
+      // reveal and #185 hands the prize over.
       use(vm, VERBS.open, galley.cereal);
       expect(driveUntil(vm, (v) => v.getObjectOwner(galley.smallKey) === ego, { maxTicks: 20000 })).toBe(true);
       expect(waitPlayable(vm, 12000)).toBe(true);
@@ -1632,7 +1631,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
         expect(driveUntil(vm, (v) => v.vars.readBit(bit) === 1, { maxTicks: 16000 })).toBe(true);
       }
       // The eighth fills g260 to 8 and fires the cooking cutscene (#108):
-      // ego faints, "Passano giorni", and the voyage stage flips to 1.
+      // ego faints, days pass, and the voyage stage flips to 1.
       const [lastObj, lastBit] = galley.ingredients[galley.ingredients.length - 1]!;
       useWith(vm, VERBS.use, lastObj, galley.bigPot);
       expect(driveUntil(vm, (v) => v.vars.readBit(lastBit) === 1, { maxTicks: 16000 })).toBe(true);
@@ -1641,7 +1640,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
       // Ego is out cold on the galley floor; the cutscene routes the next
       // click to the wake-up script (g32 → local #201), which hands back
-      // control ("Mi sento malissimo").
+      // control (the queasy wake-up line).
       expect(driveUntil(vm, (v) => v.vars.readGlobal(VAR_VERB_SCRIPT) === 201, { maxTicks: 20000 })).toBe(true);
       walkTo(vm, { x: 160, y: 130 });
       expect(driveUntil(vm, (v) => v.vars.readGlobal(VAR_VERB_SCRIPT) === 4, { maxTicks: 20000 })).toBe(true);
@@ -1680,8 +1679,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(waitPlayable(vm, 8000)).toBe(true);
       walkTo(vm, ROOMS.shipLanding.ladderUp);
       expect(driveToRoom(vm, ROOMS.shipDeck.id, { maxTicks: 8000 })).toBe(true);
-      // First deck entry post-voyage: the ENCD tail plays the "siamo arrivati
-      // a Monkey Island" look and bumps the voyage stage to 2.
+      // First deck entry post-voyage: the ENCD tail plays the arrival-at-Monkey-
+      // Island look and bumps the voyage stage to 2.
       expect(waitPlayable(vm, 8000)).toBe(true);
       expect(vm.vars.readGlobal(VARS.voyageStage)).toBe(2);
       expect(vm.haltInfo).toBeNull();
@@ -1730,7 +1729,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(waitPickedUp(vm, beach.banana)).toBe(true);
 
       // Read the public-assembly notice by the tree (#271, Look at → local #203):
-      // the LeChuck "occupazione della Testa Sacra" announcement. The text-as-data
+      // the LeChuck Giant-Monkey-Head occupation announcement. The text-as-data
       // proves the read ran; control then returns.
       use(vm, VERBS.look, beach.assemblyNote);
       expect(driveUntil(vm, (v) => (v.activeDialog?.text ?? '').length > 0, { maxTicks: 8000 })).toBe(true);
@@ -1768,8 +1767,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
         expect(waitPickedUp(vm, obj)).toBe(true);
       }
 
-      // Open (verb 2) the spyglass: its verb-2 renames it "la lente" and flips
-      // the lens class bit (value 2) on — the same id #882 becomes the lens.
+      // Open (verb 2) the spyglass: its verb-2 renames it to the lens label and
+      // flips the lens class bit (value 2) on — the same id #882 becomes the lens.
       // Assert the class flip, not the localized name.
       const isLens = (v: typeof vm) =>
         ((v.objectClasses.get(fort.spyglass) ?? 0) & (1 << fort.lensClassBit)) !== 0;
@@ -1794,7 +1793,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       use(vm, VERBS.push, fort.cannon);
       expect(driveUntil(vm, () => herman().room === fort.id, { maxTicks: 12000 })).toBe(true);
 
-      // Send Herman off (#122 "Lasciami in pace, dai?"). The spill is only
+      // Send Herman off (#122). The spill is only
       // reachable once he's gone, so wait for him to clear room 80.
       const armed = () => vm.verbs.get(fort.dismissHerman)?.state === 'on';
       expect(driveUntil(vm, () => armed(), { maxTicks: 16000 })).toBe(true);
@@ -1884,7 +1883,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       }
       expect(vm.vars.readBit(cat.hitBit)).toBe(1);
       // The hit cutscene continues a few ticks past the bit#530 latch (shake →
-      // the bananas drop → "Wow!"); let it finish before checking the drop.
+      // the bananas drop → the payoff line); let it finish before checking the drop.
       expect(waitPlayable(vm)).toBe(true);
       expect(vm.objectStates.get(ROOMS.monkeyBeach.fallenBananas)).toBe(1); // the dropped cluster
       expect(vm.haltInfo).toBeNull();
@@ -2080,7 +2079,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
       // The capture parks until ego turns back toward the cannibals (the camera
       // pans right past g2>270); walking to the confront spot springs it. Then
-      // the threat menu arms — pick "E va bene, mangiami." (#122): the natives
+      // the threat menu arms — pick the give-in answer (#122): the natives
       // escort ego to the guest hut (global #105 → room 27).
       walkTo(vm, village.confrontSpot);
       expect(
@@ -2174,8 +2173,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
       // Feed all five, driven by the authoritative success signal g145 (each
       // accepted give +1), NOT by banana id: the monkey only accepts while "down"
-      // (costume 6) and one given mid-animation is refused ("Non prima che scenda
-      // lui"), so a give can land OR bounce. Each round wait for the monkey to be
+      // (costume 6) and one given mid-animation is refused (the not-yet refusal),
+      // so a give can land OR bounce. Each round wait for the monkey to be
       // receptive AND the prior feed (#202/#203) fully settled — feeding any still-
       // held banana and waiting for g145 to tick before the next give — so no feed
       // is ever in flight during the next give's arm (that race used to consume a
@@ -2350,7 +2349,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       walkTo(vm, village.recaptureEast);
       expect(driveUntil(vm, () => armed().length > 0, { maxTicks: 14000 })).toBe(true);
 
-      // Pick "Non mangiarmi! Ti darò qualsiasi cosa!" (#121) → the offering speech.
+      // Pick the offer-anything answer (#121) → the offering speech.
       expect(armed().includes(village.offerAnything)).toBe(true);
       pickAnswer(vm, village.offerAnything);
 
@@ -2361,7 +2360,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       ).toBe(true);
       useWith(vm, VERBS.give, ROOMS.idolChamber.wimpyIdol, village.cannibals);
 
-      // Accepted (#205 "LEMONHEAD!"): the idol is consumed and the hut door opens.
+      // Accepted (#205): the idol is consumed and the hut door opens.
       expect(driveUntil(vm, (v) => v.getObjectOwner(ROOMS.idolChamber.wimpyIdol) !== ego, { maxTicks: 10000 })).toBe(true);
       expect(driveUntil(vm, (v) => v.objectStates.get(village.hutDoor) === 1, { maxTicks: 10000 })).toBe(true);
       expect(vm.currentRoom).toBe(village.id);
@@ -2443,12 +2442,13 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(driveToRoom(vm, village.id, { maxTicks: 14000 })).toBe(true);
 
       // Re-entry opens a forced conversation (#214 → #213). Dig into beating
-      // LeChuck: each "tell me more" (#120) advances a menu — the cannibals reveal
-      // their exorcist potion needs a rare root LeChuck stole (#510) and where he
-      // hides (#511). Only then does "I'll go get the root!" (#124) arm; it sets
-      // #513 and makes them offer the head. (#120 recurs across menus and #124 is
-      // an unrelated "bye" in the first menu, so gate the goGetRoot pick on the
-      // #510/#511 progress bits.) A final probe ends the talk → the natives go idle.
+      // LeChuck: each tell-me-more answer (#120) advances a menu — the cannibals
+      // reveal their exorcist potion needs a rare root LeChuck stole (#510) and
+      // where he hides (#511). Only then does the go-get-the-root answer (#124)
+      // arm; it sets #513 and makes them offer the head. (#120 recurs across menus
+      // and #124 is an unrelated goodbye in the first menu, so gate the goGetRoot
+      // pick on the #510/#511 progress bits.) A final probe ends the talk → the
+      // natives go idle.
       expect(driveUntil(vm, () => dialogUp(vm), { maxTicks: 12000 })).toBe(true);
       for (let i = 0; i < 12 && !convoOver(); i++) {
         if (!dialogUp(vm)) {
@@ -2466,7 +2466,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(nativesTouchable()).toBe(true);
 
       // Idle natives are giveable now: hand them the navigation leaflet (#902) →
-      // room-25 #203 → global #104 takes it, plays the "magic necklace" close-up,
+      // room-25 #203 → global #104 takes it, plays the magic-necklace close-up,
       // and gives ego the navigator's head (#293; sets bit#358, g411 → 4313).
       useWith(vm, VERBS.give, village.leaflet, village.friendlyNatives);
       expect(driveUntil(vm, (v) => v.getObjectOwner(village.navigatorHead) === ego, { maxTicks: 50000 })).toBe(true);
@@ -2696,7 +2696,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       useWith(vm, VERBS.use, brig.tools, galley.crate);
       expect(driveUntil(vm, (v) => v.objectStates.get(galley.crate) === 1, { maxTicks: 12000 })).toBe(true);
       waitPlayable(vm, 4000);
-      use(vm, VERBS.look, galley.crate); // "Prenderò questa vecchia radice…" → take the root
+      use(vm, VERBS.look, galley.crate); // looking in the open crate → take the root
       expect(driveUntil(vm, (v) => v.getObjectOwner(galley.root) === ego, { maxTicks: 12000 })).toBe(true);
       expect(waitPlayable(vm)).toBe(true);
       expect(vm.haltInfo).toBeNull();
@@ -2735,18 +2735,18 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       }
       // With the seltzer made, the jungle exit now runs the lift: the ghost crew greet
       // ego as "Bob" and ferry him off → the Part III→IV transition (global #131) →
-      // the "Parte Quattro" title card → the Mêlée docks (room 83).
+      // the Part IV title card → the Mêlée docks (room 83).
       walkTo(vm, village.jungleExit);
       // The lift drops ego in the ghost-ship cavern (70), where whoever ferried in
       // (Herman Toothrot, or the three sunburn-hunting ghost pirates — room-70 local
       // #204 branches on bit#436 into #205/#206) greets "Bob" and strikes up a parting
       // conversation. They are THEMSELVES bound for Mêlée, so no answer dead-ends: the
-      // ride option always sits at the lowest live answer id (#206's "back to Mêlée" is
-      // verb 120 and leaves straight away; #205's "would you take me?" is verb 122, and
+      // ride option always sits at the lowest live answer id (#206's ride-home answer is
+      // verb 120 and leaves straight away; #205's ask-for-a-lift answer is verb 122, and
       // the lower small-talk answers self-gate — each sets its own bit#443/445/451/444
       // so it stops being offered next menu). So pick the lowest armed answer BY ID (the
       // localized text differs per build) until they ferry ego off → global #131 → the
-      // "Parte Quattro" card → the Mêlée docks (83). The answer ids are 119+N for the
+      // Part IV title card → the Mêlée docks (83). The answer ids are 119+N for the
       // Nth menu line; both endings call startScript 131 once the ride is accepted.
       const atPartFour = () => vm.currentRoom === 83 || vm.vars.readBit(village.partFourBit) === 1;
       advanceDialog(vm, () => atPartFour(), { maxMenus: 16, armTicks: 14000 });
@@ -2765,7 +2765,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(vm.getObjectOwner(docks.seltzer)).toBe(ego);
       // Walking to the town-ward "molo" (#905) summons a ghost pirate that forces
       // a deadpan sales-pitch conversation; the root-beer line runs the seltzer
-      // spray ("Fresco!") that dissolves it. Once it's gone the exit leads on to
+      // spray that dissolves it. Once it's gone the exit leads on to
       // the Mêlée street — leaveSprayingGhosts picks the root beer, then walks
       // through (via enterRoom, which re-walks the wide dock on its own).
       expect(leaveSprayingGhosts(vm, docks.townExit, ROOMS.meleeStreet.id, docks.ghostAnswers.rootBeer)).toBe(true);
@@ -2789,7 +2789,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       const street = ROOMS.storeStreet;
       // The church door (#438) is a plain two-state door between the store and the
       // jail; enterRoom detects it's shut, Opens it, then walks ego through → the
-      // church. The arch back to town (#433) now refuses ("Non è di là la chiesa")
+      // church. The arch back to town (#433) now refuses (the wrong-way brush-off)
       // and steers you here, so this door is the only way on.
       expect(enterRoom(vm, street.churchDoor, ROOMS.church.id, { maxTicks: 14000 })).toBe(true);
       expect(vm.haltInfo).toBeNull();
@@ -2797,8 +2797,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
     beat('⚙️ Church — object to the wedding; LeChuck whisks Ego off to confront him (45)', () => {
       const church = ROOMS.church;
-      // Entering the church auto-ran the ceremony to the priest's "speak now or
-      // forever hold your peace" and armed a four-line objection menu. Any
+      // Entering the church auto-ran the ceremony to the priest's call for
+      // objections and armed a four-line objection menu. Any
       // objection interrupts the wedding (room 78 #201 waits on the pick), so we
       // pick the first one; ego is then transported to the confrontation, room 45.
       pickDialogAnswer(vm, church.objectionVerbs[0], { armTicks: 16000 });
@@ -2811,9 +2811,10 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       // The whole confrontation is forced dialogue (room 45 #200): Ego objects,
       // Elaine (actor 10) enters and reveals the bride under the veil is monkeys
       // holding her ghost-dissolving root beer, then Ego threatens to spray — but
-      // the seltzer bottle JAMS ("E' TAPPATA!"). LeChuck punches Ego clear across
-      // the island (#133, "POW"/"BIFF" over the overhead map), which disowns the
-      // spent seltzer and drops him on the floor of Stan's. We walk the canonical
+      // the seltzer bottle JAMS (it's corked). LeChuck punches Ego clear across
+      // the island (#133, a comic-book fight montage over the overhead map), which
+      // disowns the spent seltzer and drops him on the floor of Stan's. We walk
+      // the canonical
       // plot thread (object → reveal → object → spray threat) — each pick advances
       // one scripted stage; the last is what triggers the jam and the punch.
       for (const answer of conf.answerPath) pickDialogAnswer(vm, answer, { armTicks: 24000 });
@@ -2839,8 +2840,8 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       use(vm, VERBS.pickUp, stan.rootBeer);
       expect(driveUntil(vm, (v) => v.getObjectOwner(stan.rootBeer) === ego, { maxTicks: 9000 })).toBe(true);
       expect(running(stan.punchScript)).toBe(false); // the punch never fired — the grab didn't move ego
-      // Spray LeChuck (#734) with the root beer → the win (#132): he chokes
-      // ("--urk--", "Aiiieeee!"), switches to his death costume (115), detonates.
+      // Spray LeChuck (#734) with the root beer → the win (#132): he chokes,
+      // switches to his death costume (115), detonates.
       useWith(vm, VERBS.use, stan.rootBeer, stan.lechuck);
       expect(driveUntil(vm, () => running(stan.winScript), { maxTicks: 12000 })).toBe(true);
       expect(driveUntil(vm, (v) => v.actors.get(stan.lechuckActor).costume === 115, { maxTicks: 12000 })).toBe(true);

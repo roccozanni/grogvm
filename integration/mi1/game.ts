@@ -28,7 +28,7 @@ export const DATA_DIR = 'games/MI1-IT-CD-DOS-VGA';
  * source with this so the whole run is reproducible — a regression net
  * we run each session must not be flaky. Change only with reason.
  */
-export const SEED = 0x6d6f6e6b; // "monk"
+export const SEED = 0x6d6f6e6b; // ASCII "monk"
 
 /** Whether the MI1 data is present (gate the suite on this). */
 export const hasGame = (): boolean => hasData(DATA_DIR);
@@ -104,8 +104,8 @@ export const VARS = {
    * win/loss handler (global #74) each time a duel is *won* (winning exchanges
    * g263 exceed the per-duel threshold g351). The Sword Master only agrees to
    * fight once `g282 > 3` (room 61 #58) — i.e. four pirate duels won — at which
-   * point a beaten pirate says "Sei bravo abbastanza per sfidare il Maestro
-   * della Spada." This is the readiness gate the grind drives toward.
+   * point a beaten pirate gives the line declaring the player ready to challenge
+   * the Sword Master. This is the readiness gate the grind drives toward.
    */
   fightsWon: 282,
   /**
@@ -125,7 +125,7 @@ export const VARS = {
    * the cooking cutscene (#108) has sailed the ship — the gate the cannon's
    * climb-in checks, and the deck ENCD's wide-scroll / island-on-the-horizon
    * switch; 2 once the deck has been re-entered post-voyage (its ENCD tail
-   * plays the "siamo arrivati a Monkey Island" look and bumps the stage).
+   * plays the arrived-at-Monkey-Island look and bumps the stage).
    */
   voyageStage: 259,
   /**
@@ -172,21 +172,21 @@ export const COMEBACKS_LEARNED_BIT = 222;
 
 /** Verb ids — global, not owned by any room (same in every build). */
 export const VERBS = {
-  /** "Esamina" / Look at. */
+  /** Look at. */
   look: 8,
-  /** "Apri" / Open (e.g. the bar door before walking through). */
+  /** Open (e.g. the bar door before walking through). */
   open: 2,
-  /** "Prendi" / Pick up. */
+  /** Pick up. */
   pickUp: 9,
-  /** "Parla" / Talk to. */
+  /** Talk to. */
   talk: 10,
-  /** "Dai" / Give — two-object (Give X to <actor>). */
+  /** Give — two-object (Give X to <actor>). */
   give: 4,
-  /** "Premi" / Push — e.g. ring the general-store bell. */
+  /** Push — e.g. ring the general-store bell. */
   push: 5,
-  /** "Tira" / Pull — the safe handle's other direction. */
+  /** Pull — the safe handle's other direction. */
   pull: 6,
-  /** "Usa" / Use — two-object (Use X with Y), e.g. the shovel on the dig X. */
+  /** Use — two-object (Use X with Y), e.g. the shovel on the dig X. */
   use: 7,
 } as const;
 
@@ -298,17 +298,16 @@ export const ROOMS = {
   circus: {
     id: 51,
     fettuciniAnswers: {
-      /** Menu 1 (the interrupt menu): ". . .ahem. . ." — break into the argument. */
+      /** Menu 1 (the interrupt menu): the interrupt line — break into the argument. */
       ahem: 120,
-      /** Menu 2: "Quanto mi pagherete?" — ask the pay. */
+      /** Menu 2: the ask-the-pay line. */
       howMuchPay: 121,
-      /** Menu 3: "OK, mi sembra buono." — accept the deal. */
+      /** Menu 3: the accept-the-deal line. */
       acceptDeal: 120,
-      /** Menu 4: "Certo che ho un elmetto..." — claim the helmet (the pot we
-       *  took in the kitchen); takes the cannon-launch branch. */
+      /** Menu 4: the claim-the-helmet line (the pot we took in the kitchen);
+       *  takes the cannon-launch branch. */
       haveHelmet: 120,
-      /** Menu 5 (post-launch amnesia gag): "Sono Bobbin. Sei mia madre?" —
-       *  either option leads to the payout. */
+      /** Menu 5 (post-launch amnesia gag): either option leads to the payout. */
       amnesia: 120,
     },
     /**
@@ -347,13 +346,13 @@ export const ROOMS = {
     /** Dialog-answer verb ids for the three-pirates conversation. */
     trialsAnswers: {
       /**
-       * "Voglio diventare un pirata." — the real opener (vs. the two joke
+       * The real opener (the want-to-be-a-pirate line, vs. the two joke
        * options); the pirates then explain the three trials and {@link
        * VARS.trialsLearned} (g197) flips 0→1.
        */
       wantToBePirate: 122,
-      /** "Beh, sarà meglio che vada via adesso." — goodbye; ends the
-       *  conversation and hands control back in the bar. */
+      /** The goodbye line; ends the conversation and hands control back in the
+       *  bar. */
       goodbye: 127,
     },
     /**
@@ -430,11 +429,10 @@ export const ROOMS = {
     id: 82,
     /** Dialog-answer verb ids (verb ids; their `name` is the localized line). */
     answers: {
-      /** "Che bel cappello." / "Nice hat." */
+      /** the nice-hat line. */
       niceHat: 121,
       /**
-       * "E' stato bello parlare con te." / "Nice talking to you." — the
-       * goodbye option; picking it ends the close-up and returns to the
+       * The goodbye option; picking it ends the close-up and returns to the
        * SCUMM Bar (room 28).
        */
       goodbye: 124,
@@ -457,13 +455,11 @@ export const ROOMS = {
     citizen: 441,
     citizenAnswers: {
       /**
-       * "No, ma una volta avevo un barbiere chiamato Dominique." — the cousin-
-       * Dominique opener; it turns the chat to the map he's holding and arms
-       * the buy menu. (The other openers dead-end.)
+       * The cousin-Dominique opener; it turns the chat to the map he's holding
+       * and arms the buy menu. (The other openers dead-end.)
        */
       dominique: 123,
-      /** "La prendo. Sarà un regalo stupendo." — buy it; the map (#442) goes
-       *  to ego for 100 pieces of eight. */
+      /** The buy-it line; the map (#442) goes to ego for 100 pieces of eight. */
       takeMap: 121,
     },
     /** "la mappa" (the map) — enters inventory when the citizen sells it. */
@@ -497,7 +493,7 @@ export const ROOMS = {
     ghost: 440,
     /**
      * The root-beer answer in the street ghost's first menu — the 3rd option
-     * (verb 122, "No, ma ho questa micidiale birra di radice"). Dialog answer
+     * (verb 122, the offer-root-beer line). Dialog answer
      * verbs are positional (`g100 = 120 + option index`), so option 3 is always
      * 122; its case in #211 jumps directly to the spray. One pick clears the
      * ghost — see {@link leaveSprayingGhosts}.
@@ -540,9 +536,9 @@ export const ROOMS = {
      * "l'arco" (#433) — the far-east arch back to the Mêlée town street
      * ({@link ROOMS.meleeStreet}, room 35); click to walk through. (Early on
      * bit#453, the church-detour gate, is clear, so it just loads room 35.)
-     * Once bit#453 is set (Part IV begun) its verb-11 instead scolds "Non è di
-     * là la chiesa" and redirects the walk to the church door {@link churchDoor}
-     * — the game funnels the finale toward the church.
+     * Once bit#453 is set (Part IV begun) its verb-11 instead scolds (a
+     * the-church-isn't-that-way line) and redirects the walk to the church door
+     * {@link churchDoor} — the game funnels the finale toward the church.
      */
     townArch: 433,
     /** "l'entrata" (#434) — the prison entrance. Walk-to (verb 11) →
@@ -582,21 +578,21 @@ export const ROOMS = {
      * verb leaving the menu between picks. Sword costs 100, shovel 75.
      */
     buyAnswers: {
-      /** Top menu: "Si tratta della spada^" — bring up the sword. */
+      /** Top menu: the about-the-sword line — bring up the sword. */
       aboutSword: 120,
-      /** Top menu: "Si tratta della pala^" — bring up the shovel. */
+      /** Top menu: the about-the-shovel line — bring up the shovel. */
       aboutShovel: 121,
-      /** Sub-menu: "La voglio." — buy the item just brought up. */
+      /** Sub-menu: the buy-it line — buy the item just brought up. */
       wantIt: 120,
       /**
-       * "Avrei bisogno d'una mentina per l'alito." — buy the breath mint
+       * The buy-breath-mint line — buy the breath mint
        * ({@link mint}, #395) for 1 piece of eight. This option is GATED: it
        * only arms after Otis has been spoken to (the prison sets {@link
        * ROOMS.prison}'s `talkedBit`, bit#420), which is what unlocks the
        * mint line in the shopkeeper's tree.
        */
       breathMint: 124,
-      /** "Vorrei dare un'occhiata in giro." — ends the chat, control back. */
+      /** the look-around line — ends the chat, control back. */
       lookAround: 125,
     },
     /** "la mentina" (#395) — the breath mint, bought via {@link
@@ -639,8 +635,8 @@ export const ROOMS = {
      * The credit interview + errand (conversation #211, after Stan's
      * referral). Slot ids as armed at this stage of the tree (sword/shovel/
      * mint long bought): top menu has the Sword-Master line at 122 and the
-     * credit ask at 123; the job question answers "Certo che sì!" at 120;
-     * the job-detail menu has "Pulisco le navi al concessionario Stan." at
+     * credit ask at 123; the job question's yes-answer is at 120;
+     * the job-detail menu has the clean-ships-at-Stan's line at
      * 123. Asking the keeper to fetch the Sword Master (122) sends him out —
      * the safe-cracking window.
      */
@@ -711,15 +707,15 @@ export const ROOMS = {
      */
     rightDoor: 632,
     /** "la finestra rotta" (#638) — the broken window. Its own verbs all warn
-     *  "careful not to cut myself"; the hole you actually go through is the
+     *  against cutting yourself on it; the hole you actually go through is the
      *  {@link hole} (#637) beside it. */
     brokenWindow: 638,
     /**
      * "lo spioncino" (#637) — the hole in the wall. Walk-to (verb 11, a bare
      * click) is its only verb: it checks ego holds the file, then runs the grab
      * cutscene (local #211) — Guybrush reaches through the gauntlet and the
-     * cutscene `pickupObject`s the idol (#635) into inventory. ("Enter the hole
-     * in the wall" with the file.)
+     * cutscene `pickupObject`s the idol (#635) into inventory. (Enter the hole
+     * in the wall while holding the file.)
      */
     hole: 637,
     /** "l'idolo favoloso" (#635) — the idol, the thievery-trial prize. Not
@@ -740,8 +736,8 @@ export const ROOMS = {
      * close-up (room 23) — all don't-care options (pick any). Control then
      * returns in the mansion; trying to leave via {@link entryDoor} (#633) with
      * the idol runs the Sheriff block (#217), whose taunt menu offers this:
-     * verb 122 "…ma stai bloccando l'uscita" — provoking Fester to dump ego (and
-     * the idol) into the harbor.
+     * verb 122, the you're-blocking-the-exit line — provoking Fester to dump ego
+     * (and the idol) into the harbor.
      */
     festerBlockingExit: 122,
   },
@@ -770,9 +766,8 @@ export const ROOMS = {
   docks: {
     id: 83,
     /**
-     * Dialog answer "Andrò a procurarmi un equipaggio ed una nave e la salverò"
-     * (#123) — the "I'll get a crew and a ship" vow. Picking it ends the
-     * conversation and sets {@link questDeclaredBit}.
+     * Dialog answer (#123) — the get-a-crew-and-a-ship rescue vow. Picking it
+     * ends the conversation and sets {@link questDeclaredBit}.
      */
     getCrewAndShip: 123,
     /** `bit#304` — set when the rescue is vowed (#123); the Part-I-into-II
@@ -813,7 +808,7 @@ export const ROOMS = {
     book: 74,
     /**
      * "l'armadio" (#79; #80 is the second door half) — the Captain's locked
-     * cabinet. Open by hand refuses ("Sembra ben chiuso"); Use the small key
+     * cabinet. Open by hand refuses (it's locked); Use the small key
      * ({@link ROOMS.shipGalley}'s `smallKey`, #157) with it → global #25
      * swings both halves to state 1, revealing the heavy chest inside.
      */
@@ -953,7 +948,7 @@ export const ROOMS = {
     /**
      * "i cereali" (#164) — the cereal, a broth ingredient. Pick up pockets
      * the box (staging the prize #157 at owner 14, hidden); Open the carried
-     * box → the eat cutscene ("Crunch" ×10, bit#366) → global #185 hands the
+     * box → the eat cutscene (the eating gag, bit#366) → global #185 hands the
      * surprise (#157) to ego.
      */
     cereal: 164,
@@ -971,7 +966,7 @@ export const ROOMS = {
      * 15), Jolly Roger #238→bit#429, cereal #164→bit#430, wine #104→bit#431,
      * breath mint #395→bit#432, rubber chicken #377→bit#433, cinnamon
      * #88→bit#434. The running total lives in g260; at 8 the cooking
-     * cutscene (global #108) fires: ego faints, "Passano giorni", the ship
+     * cutscene (global #108) fires: ego faints, days pass, the ship
      * sails itself ({@link VARS.voyageStage} g259 → 1), and ego wakes in the
      * galley on the next click (g32 → local #201).
      */
@@ -986,7 +981,7 @@ export const ROOMS = {
      *  its one-object Use on deck dispatches the climb-into-the-nozzle. */
     smallPot: 165,
     /** "il fuoco ardente" (#161). Use the business card (#702) with it →
-     *  the card burns ("li brucerò tutti") and the flaming mass (#167) lands
+     *  the card burns (the burn-them-all gag) and the flaming mass (#167) lands
      *  in inventory — the fuse lighter. */
     fire: 161,
     /** "la massa infuocata" (#167) — the burning business card. */
@@ -1009,8 +1004,8 @@ export const ROOMS = {
     banana: 265,
     /**
      * "il foglio di carta" (#271) — the public-assembly notice by the tree.
-     * Look at (verb 8) runs local #203, which reads the LeChuck "occupazione
-     * della Testa Sacra di Scimmia" announcement and hands control back.
+     * Look at (verb 8) runs local #203, which reads the LeChuck occupation
+     * announcement and hands control back.
      */
     assemblyNote: 271,
     /**
@@ -1161,9 +1156,9 @@ export const ROOMS = {
      */
     confrontSpot: { x: 400, y: 138 },
     /**
-     * Confrontation menu (the cannibals threaten to eat you). "E va bene,
-     * mangiami." (#122) chains global #105 — the natives escort ego to the guest
-     * hut (`putActorInRoom room=27`). The other options loop "Allora?" (no offer
+     * Confrontation menu (the cannibals threaten to eat you). The fine-eat-me
+     * line (#122) chains global #105 — the natives escort ego to the guest
+     * hut (`putActorInRoom room=27`). The other options loop (no offer
      * yet) or fail the three-headed-monkey trick (#207).
      */
     fineEatMe: 122,
@@ -1173,13 +1168,13 @@ export const ROOMS = {
      * toward the exit (the camera-crossing watcher, local #200/#202). At the
      * confront menu pick {@link offerAnything} → the offering speech → a brief
      * window where #303 turns touchable (its untouchable class bit 31 clears) and
-     * the verb script is g32=206 ("not going anywhere until you give us
-     * something"). Give the wimpy idol then → #203 → #205 ("LEMONHEAD!"): the
+     * the verb script is g32=206 (the give-us-something hold). Give the wimpy
+     * idol then → #203 → #205 (the idol-accepted reaction): the
      * idol is consumed, the cannibals turn friendly, and the hut door
      * ({@link hutDoor}) opens. Too slow and they throw you back in the hut.
      */
     cannibals: 303,
-    /** Confront-menu option "Non mangiarmi! Ti darò qualsiasi cosa!" (#121) —
+    /** Confront-menu option (the offer-anything line, #121) —
      *  opens the offering window. */
     offerAnything: 121,
     /** Provoke the re-confrontation: the camera must pan left (walk west) then
@@ -1221,7 +1216,7 @@ export const ROOMS = {
      * a fresh menu until the cannibals have explained their exorcist potion needs
      * a rare root LeChuck stole ({@link rootStolenBit} #510) and where he hides
      * ({@link hideoutBit} #511) — only THEN does {@link goGetRoot} (answer #124,
-     * "Vado a cercare LeChuck e mi prendo la radice!") arm; picking it sets
+     * the go-get-the-root line) arm; picking it sets
      * {@link committedBit} #513, makes them offer the head, and turns the natives
      * idle/giveable. (Answer #120 recurs across menus; #124 is an unrelated
      * "you've done enough, bye" exit in the FIRST menu, so gate the goGetRoot
@@ -1265,7 +1260,7 @@ export const ROOMS = {
     /**
      * The lift home — ends Part III. Once the seltzer is made (bit#383), the
      * village's jungle exit ({@link jungleExit} #290) verb-11 → global #171 (the
-     * "dopo aver corso a tutta velocità…" cutscene) → the ghost-ship cavern
+     * run-home transition cutscene) → the ghost-ship cavern
      * ({@link ghostCavern}, room 70), where the ghost crew greet ego as "Bob" and
      * give a ride → global #131 → Part IV (room 95 title card → the Mêlée docks,
      * room 83; sets bit#453). (Pre-seltzer, #290 is the plain exit to map screen 6.)
@@ -1284,7 +1279,7 @@ export const ROOMS = {
     /**
      * "il teschio" (#310) — the skull on the wall. Pick up (verb 9) pockets it
      * and REVEALS the loose board ({@link looseBoard} #309, its child — Open does
-     * nothing until the skull is taken). Otherwise inert ("Non è successo niente").
+     * nothing until the skull is taken). Otherwise inert (a nothing-happened line).
      */
     skull: 310,
     /**
@@ -1325,8 +1320,8 @@ export const ROOMS = {
      *  the monkey follows ego out. */
     closeupExit: 274,
     /** The monkey must be "down" (costume 6) in the close-up to accept a banana;
-     *  feeding mid-animation is refused ("Non prima che scenda lui"), so wait for
-     *  this costume between feeds. */
+     *  feeding mid-animation is refused (a wait-until-it-comes-down line), so wait
+     *  for this costume between feeds. */
     receptiveCostume: 6,
     /** g145 — bananas fed to the monkey (each feed +1). */
     fedVar: 145,
@@ -1392,8 +1387,8 @@ export const ROOMS = {
      * key ({@link cannibalVillage}'s `monkeyHeadKey` #269) on it (verb 7; partner
      * `L0==269`) → global #94: ego climbs in, the mouth-open animation plays, the
      * mouth state object #151 flips to 1, and ego is dropped back in the clearing
-     * (room 12, x≈876). The "head" #765 rejects the key ("Non c'è un posto per
-     * ficcarla") — it goes in the *ear*.
+     * (room 12, x≈876). The "head" #765 rejects the key (a nowhere-to-put-it
+     * line) — it goes in the *ear*.
      */
     ear: 767,
   },
@@ -1429,7 +1424,7 @@ export const ROOMS = {
      *  walks him in to complain; a conversation answer sends him off and he
      *  leaves room 80. */
     hermanActor: 7,
-    /** Dialog answer "Lasciami in pace, dai?" (#122) — sends Herman away. */
+    /** Dialog answer (the leave-me-alone line, #122) — sends Herman away. */
     dismissHerman: 122,
     /** "la polvere da sparo" pile (#887) — Pick up (verb 9 → local #201) pockets
      *  the gunpowder object {@link gunpowder} #884 (the dam charge). Spilled by
@@ -1489,7 +1484,7 @@ export const ROOMS = {
     /**
      * "l'arte primitiva" (#235; #234 is its other end) — the catapult arm. Pull
      * (verb 6 → local #200) raises the aim ({@link aimVar} g242) by 1 per pull
-     * (#234 lowers it); it caps with "Non va oltre". A hit lands only at
+     * (#234 lowers it); it caps out (a won't-go-further line). A hit lands only at
      * g242=={@link aimTarget} — it rests at 2, so two pulls aim it.
      */
     crank: 235,
@@ -1506,7 +1501,7 @@ export const ROOMS = {
      * {@link dismissHerman}.
      */
     seatedRock: 116,
-    /** Dialog answer "Lasciami in pace, dai?" (#122) — shoo Herman, same as the
+    /** Dialog answer (the leave-me-alone line, #122) — shoo Herman, same as the
      *  Fort. */
     dismissHerman: 122,
     /** bit#530 — set once the catapult has hit the beach banana tree. It's a
@@ -1603,9 +1598,8 @@ export const ROOMS = {
     lock: 403,
     /**
      * Otis's POST-VOW conversation (#405's talk, with bit#304 set): answer
-     * #123 twice — first "Hanno rapito il Governatore!" (the news), then
-     * "Se ti faccio uscire, ti unirai al mio equipaggio?" — the second pick
-     * sets {@link otisAgreedBit}.
+     * #123 twice — first the Governor-was-kidnapped news line, then the
+     * join-my-crew line — the second pick sets {@link otisAgreedBit}.
      */
     recruitAnswer: 123,
     /** bit#477 — Otis agreed to join (the second #123 pick above). Must be
@@ -1658,16 +1652,15 @@ export const ROOMS = {
     /**
      * The yellow-flower screen — pseudo-room 215, one `back` step in from the
      * entry (218). It's the ONE forest screen whose flowers are yellow (every
-     * other screen has "gli stessi vecchi fiori rossi" — the same old red
-     * flowers); the per-screen distinction is `g4==215`, which the plant's
-     * scripts gate on.
+     * other screen has the same old red flowers); the per-screen distinction is
+     * `g4==215`, which the plant's scripts gate on.
      */
     flowerScreen: 215,
     /**
      * "le piante" (the plants, #678). In the flower screen (`g4==215`) Pick up
      * (verb 9) runs `pickupObject 689` — the yellow petal into inventory; on
-     * any other forest screen it refuses ("...non è degno di un pirata"). Also
-     * gated on not already holding the petal ("Ne ho già uno."). The petal
+     * any other forest screen it refuses (a not-worthy-of-a-pirate line). Also
+     * gated on not already holding the petal (an already-have-one line). The petal
      * itself (#689) carries no Pick up verb — the plant is how you get it.
      */
     flowerPlant: 678,
@@ -1680,7 +1673,7 @@ export const ROOMS = {
   /**
    * The treasure-dig clearing (room 64), at the end of the {@link forest} maze.
    * Use (verb 7) the shovel ({@link ROOMS.store}'s `shovel`, #396) on the X
-   * (#749) → the dig cutscene (local #200) plays out "Passano ore" and hands
+   * (#749) → the dig cutscene (local #200) plays out (hours pass) and hands
    * ego the buried treasure: object #752, the joke T-shirt.
    */
   forestDig: {
@@ -1723,9 +1716,10 @@ export const ROOMS = {
      *  Beating her sets it; the trial is complete on the win. */
     foughtBit: 20,
     /**
-     * Post-vow recruit: talk to her (#744) and answer #122 ("Hanno RAPITO il
-     * Governatore!"). Her reaction plays through the close-up (room 44) and
-     * sets {@link recruitedBit}; control returns in her clearing (61).
+     * Post-vow recruit: talk to her (#744) and answer #122 (the
+     * Governor-was-kidnapped line). Her reaction plays through the close-up
+     * (room 44) and sets {@link recruitedBit}; control returns in her clearing
+     * (61).
      */
     recruitAnswer: 122,
     /** bit#89 — Carla recruited (one of the three crew flags). */
@@ -1772,8 +1766,8 @@ export const ROOMS = {
    * Meathook's house (room 37). Walking in fires his accost (#60, started by
    * the room's ENCD via local #203) — no Talk click needed. The recruit:
    * answer the news, propose getting a crew, and he challenges your bravery —
-   * the tour cutscene (local #201) leads to the little door, "aprire quella
-   * porticina ^e toccare la bestia".
+   * the tour cutscene (local #201) leads to the little door (the bravery dare:
+   * open the little door and touch the beast).
    */
   meathookHouse: {
     id: 37,
@@ -1788,10 +1782,10 @@ export const ROOMS = {
      */
     littleDoor: 478,
     answers: {
-      /** Accost menu 1: "Il Governatore è stato RAPITO!" — the news. */
+      /** Accost menu 1: the Governor-was-kidnapped news line. */
       kidnapped: 120,
-      /** Menu 2 (what do we do): "Potremmo mettere insieme un equipaggio ed
-       *  inseguirli." — the crew idea; Meathook then runs the dare tour. */
+      /** Menu 2 (what do we do): the put-together-a-crew line; Meathook then
+       *  runs the dare tour. */
       crewIdea: 122,
     },
     /** Room-local #201 — the dare tour cutscene (he opens the trophy doors up
@@ -1832,29 +1826,27 @@ export const ROOMS = {
     /** g204 — the last offer made (the offer ladder compares against it). */
     lastOfferVar: 204,
     answers: {
-      /** Browse menu: "Veramente non posso spendere tanto." → the Sea Monkey
-       *  pitch. (On a later visit the same slot reads "posso rivedere quella
-       *  che costa poco?".) */
+      /** Browse menu: the can't-spend-that-much line → the Sea Monkey
+       *  pitch. (On a later visit the same slot is the show-me-the-cheap-one
+       *  line.) */
       cheapest: 122,
-      /** Sea Monkey menu: "Veramente, speravo di prenderla a credito." — Stan
-       *  points you at the storekeeper (no bit; the store's credit line arms
-       *  off this referral). */
+      /** Sea Monkey menu: the buy-on-credit line — Stan points you at the
+       *  storekeeper (no bit; the store's credit line arms off this referral). */
       onCredit: 121,
-      /** Sea Monkey menu: "Pensandoci bene, questa non è proprio la nave che
-       *  mi serve." — back out of the pitch to the browse menu. */
+      /** Sea Monkey menu: the not-the-ship-I-need line — back out of the pitch
+       *  to the browse menu. */
       backOut: 125,
-      /** Browse menu: "Veramente, vorrei pensarci su un'altro po'." — leave;
-       *  Stan's farewell hands the card + compass and exits to the map. */
+      /** Browse menu: the think-it-over line — leave; Stan's farewell hands the
+       *  card + compass and exits to the map. */
       thinkItOver: 124,
-      /** Browse menu, note in hand: "Ho un credito dal negoziante. Lo
-       *  accetterai?" — opens the deal menu. */
+      /** Browse menu, note in hand: the have-a-credit-note line — opens the deal
+       *  menu. */
       haveCreditNote: 124,
-      /** Deal menu: "Vorrei farti un'offerta." — the offer ladder. */
+      /** Deal menu: the make-an-offer line — the offer ladder. */
       makeAnOffer: 121,
-      /** Deal menu: "Scordatelo. Tanto non mi serve questa barca." — the
-       *  walk-away threat (see {@link walkAwaysVar}). */
+      /** Deal menu: the walk-away threat line (see {@link walkAwaysVar}). */
       walkAway: 123,
-      /** Threat follow-up: "Beh, forse hai ragione^" — stay on the lot. */
+      /** Threat follow-up: the stay-on-the-lot line. */
       stay: 120,
     },
   },
@@ -1862,10 +1854,11 @@ export const ROOMS = {
   /**
    * The troll bridge (room 57) — reached from the map's "il ponte" node
    * ({@link meleeMap}'s `bridge`). A troll (actor 5, rendered as object #655)
-   * blocks the span; he wants "una cosa rossa" — the red herring (the kitchen
+   * blocks the span; he demands something red — the red herring (the kitchen
    * fish, {@link ROOMS.kitchen}'s `fish` #568). Giving it (the two-object
-   * "Dai" sentence to the troll) runs local #204: "Un'aringa rossa! ... Passa!",
-   * unblocks the bridge boxes, and walks ego across — landing back on the map
+   * Give sentence to the troll) runs local #204 (the troll accepts the red
+   * herring and lets you pass), unblocks the bridge boxes, and walks ego across
+   * — landing back on the map
    * on the far side. The fish ends owned by the troll (owner 14).
    */
   trollBridge: {
@@ -1968,7 +1961,7 @@ export const ROOMS = {
      *  back to the antechamber. */
     enterCaveVar: 266,
     /** g274 — the head's direction hint (0=left 1=right 2=forward 3=back); the head
-     *  speaks it ("Credo che voglia che io vada a…") and ego points that way. */
+     *  speaks it (the which-way line) and ego points that way. */
     hintVar: 274,
     /** bit#426 — the head is raised/out (ego pointing). Required for the head guidance
      *  (#207/#212); USE the head to toggle it. */
@@ -1985,15 +1978,15 @@ export const ROOMS = {
     id: 70,
     /**
      * Talk to the navigator's head (#293, verb 10) → the room-86 close-up. BEG for
-     * the necklace: pick "Posso avere quella collana…" ({@link begTopic} #121), then
-     * the plead line (also #121, its name escalating "Oh, dai…"/"Ti prego!"/…) until
+     * the necklace: pick the ask-for-the-necklace line ({@link begTopic} #121), then
+     * the plead line (also #121, its name escalating per repeat) until
      * the beg counter {@link begCountVar} g286 passes 4 and the head relents
-     * ("Oh, va bene, piagnucoloso. Puoi averla.") → hands the necklace over. The
+     * → hands the necklace over. The
      * dialog options are positioned text verbs resolved by VAR_MOUSE_Y, so the click
      * must land on the option's row (the testkit's pickAnswer plants the cursor there).
      */
     headTalk: { closeup: 86, talk: 10, begTopic: 121, begCountVar: 286 },
-    /** "la collana…" (#294) — once handed over, Use it (verb 7) HERE (where the ghosts
+    /** the necklace (#294) — once handed over, Use it (verb 7) HERE (where the ghosts
      *  are) → global #141 → {@link wornBit} bit#357 = 1 (invisible). */
     necklace: 294,
     /** bit#357 — the necklace is worn = ego invisible to ghosts (the room-77 ENCD
@@ -2003,7 +1996,7 @@ export const ROOMS = {
      *  (`startScript 111` stand-up) → the main deck ({@link ghostDeck}, room 77). */
     ship: 769,
     /** "la caverna" (#768) — the exit. With the voodoo root in hand it runs global
-     *  #170 (the "una lunga camminata…" walk) → the cannibal village (room 25);
+     *  #170 (the long-walk transition) → the cannibal village (room 25);
      *  without it, back to the antechamber (room 65). */
     caveExit: 768,
   },
@@ -2039,7 +2032,7 @@ export const ROOMS = {
     id: 72,
     /** "la chiave" (#799) — the spinning ghost key. Use the magnetic compass
      *  (#732, carried) on it (verb 7) → local #202 → magnet cutscene → pickupObject
-     *  799. A bare Pick up is refused ("E' una grande chiave fantasma."). */
+     *  799. A bare Pick up is refused (a can't-grab-the-ghost-key line). */
     key: 799,
     /** "la bussola magnetica" (#732) — the carried compass, used on {@link key}. */
     compass: 732,
@@ -2059,7 +2052,7 @@ export const ROOMS = {
     deckStairs: 801,
     /**
      * "l'equipaggio fantasma che dorme" (#804) — the TICKLISH sleeper (the other,
-     * #803, "non soffre il solletico"). Use the feather ({@link ghostGalley}.feather
+     * #803, isn't ticklish). Use the feather ({@link ghostGalley}.feather
      * #820) on it (verb 7 → #820's handler → local #200); it takes TWO tickles
      * (g237 climbs each) to flip the grog touchable. */
     ticklishSleeper: 804,
@@ -2089,7 +2082,7 @@ export const ROOMS = {
      * "la cassa risplendente" (#821) — the glowing crate. Use the ghost tools
      * ({@link ghostBrig}.tools #788) on it (verb 7) → global #25 → opens (state 1).
      * Then LOOK at the open crate (verb 8) — NOT the root directly — and ego takes
-     * the voodoo root: "Prenderò questa vecchia radice…" → pickupObject 823.
+     * the voodoo root → pickupObject 823.
      */
     crate: 821,
     /** "la radice vudù" (#823) — the voodoo root, taken by looking in the open
@@ -2147,7 +2140,7 @@ export const ROOMS = {
      * Mêlée street ({@link meleeStreet}, room 35) — BUT a ghost pirate (actor 7)
      * guards it: the first walk runs the dock-ghost script (local #204) instead.
      * The ghost forces a conversation ({@link ghostAnswers}); picking the
-     * root-beer line runs the seltzer spray that dissolves it ("Fresco!"), after
+     * root-beer line runs the seltzer spray that dissolves it, after
      * which a SECOND walk to #905 leaves to room 35 — see
      * {@link leaveSprayingGhosts}. (#904, the west "molo", just bounces you back
      * to #905 in Part IV.)
@@ -2155,10 +2148,9 @@ export const ROOMS = {
     townExit: 905,
     /**
      * The dock-ghost conversation answers (verbs 120–123) — a sales-pitch gag:
-     * 120 "Potrebbe interessarle della birra di radice, signore?" (root beer?),
-     * 121 mouthwash, 122 a funny trick, 123 "Beccati QUESTO, verme!". ALL FOUR
-     * jump to the same spray (#204 offset 801); we pick `rootBeer` (120), the
-     * canonical root-beer line.
+     * 120 root beer, 121 mouthwash, 122 a funny trick, 123 an aggressive line.
+     * ALL FOUR jump to the same spray (#204 offset 801); we pick `rootBeer`
+     * (120), the canonical root-beer line.
      */
     ghostAnswers: { rootBeer: 120, mouthwash: 121, trick: 122, takeThis: 123 },
     /** The magic seltzer bottle (#823, "la bottiglia di selz magico") ego sprays
@@ -2171,7 +2163,7 @@ export const ROOMS = {
   /**
    * The church (room 78) — LeChuck is forcing Elaine into a wedding. Entering
    * (through {@link storeStreet}.churchDoor) auto-plays the ceremony: the priest
-   * (actor 2) reaches "speak now or forever hold your peace" and a four-line
+   * (actor 2) reaches the objection cue and a four-line
    * objection menu arms. Picking ANY line interrupts the wedding and whisks ego
    * to the confrontation ({@link confrontation}, room 45).
    */
@@ -2184,8 +2176,7 @@ export const ROOMS = {
      *  carries through the confrontation and the Stan's showdown. */
     lechuckActor: 9,
     /**
-     * The objection menu (verbs 120–123): 120 "Lo sposo non è un gentiluomo!",
-     * 121 "Lo sposo non è umano!", 122 "Elaine!", 123 "FERMATE LA CERIMONIA!!".
+     * The objection menu (verbs 120–123) — four wedding-objection lines.
      * Any pick advances (room 78 local #201 waits on g194 then transports ego to
      * room 45), so the beat picks the first, `objectionVerbs[0]`.
      */
@@ -2196,8 +2187,8 @@ export const ROOMS = {
    * The confrontation (room 45) — the long LeChuck dialogue (local #200): ego
    * objects, Elaine (actor 10) enters and reveals the bride under the veil is
    * monkeys holding her ghost-dissolving root beer, ego threatens to spray —
-   * and the seltzer bottle JAMS ("Oh, no! E' TAPPATA!"). LeChuck (costume 95)
-   * winds up and punches Bob across the island (global #133, "POW"/"BIFF" over
+   * and the seltzer bottle JAMS (it's corked). LeChuck (costume 95)
+   * winds up and punches Bob across the island (global #133, a punch montage over
    * the overhead map), which strips the spent seltzer and lands him in Stan's.
    */
   confrontation: {
@@ -2217,10 +2208,10 @@ export const ROOMS = {
     /**
      * The canonical pick sequence through local #200 (verified end-to-end via
      * `scratch/finale-dialog-probe.ts`):
-     *  - 124 "Sono venuto per impedirti di sposare il Governatore Marley" (object)
-     *  - 121 "Se tu sei qui, allora chi indossa quel vestito?" (the reveal)
-     *  - 124 "Dovevo impedirti di sposare il Governatore Marley" (object again)
-     *  - 121 "Ti spruzzerò con la mia bottiglia di selz appiccicoso" (spray threat)
+     *  - 124 the objection line (stop-the-wedding)
+     *  - 121 the who's-under-the-dress reveal line
+     *  - 124 the objection line again
+     *  - 121 the spray-threat line
      * The last is the seltzer-spray threat that triggers the jam → punch (#133).
      */
     answerPath: [124, 121, 124, 121] as const,
@@ -2274,8 +2265,8 @@ export const ROOMS = {
 // is verb `119+k` and the insult/comeback id behind it is `VAR(166+k)` (the
 // menu-builders #75/#89 write `g166[k]` and id-name them; confirmed via
 // scratch/duel-introspect.ts). One duel = provoke → open → trade.
-const DUEL_OPENER = 127; // "Mi chiamo Guybrush Threepwood. Preparati a morire!"
-const DUEL_SURRENDER_INSULT = 37; // "Mi arrendo, vinci tu!" — picking it forfeits
+const DUEL_OPENER = 127; // the duel-opening line
+const DUEL_SURRENDER_INSULT = 37; // the surrender line — picking it forfeits
 // The duel menu is a 6-wide sliding window over the learned insults/comebacks;
 // these verbs page it (confirmed scratch/carla-scrollprobe.ts).
 const DUEL_SCROLL_UP = 109; // toward lower ids
@@ -2299,7 +2290,7 @@ export function provokeDuel(vm: Vm): boolean {
   return false;
 }
 
-/** Step 2 — the greeting menu: pick "Preparati a morire!" to start the insult
+/** Step 2 — the greeting menu: pick the duel-opening line to start the insult
  *  game (duel mode {@link VARS.duelMode}/g285 flips 0 → nonzero). */
 export function openDuel(vm: Vm): void {
   driveUntil(vm, (v) => v.verbs.get(DUEL_OPENER)?.state === 'on', { maxTicks: 8000 });
@@ -2418,8 +2409,8 @@ const losePick = (vm: Vm): number => {
 };
 
 /** Play ONE provoked pirate duel lose-to-learn, all the way back to the map.
- *  Drives the greeting opener, the g285=3 exchanges, and the post-gate "Sei
- *  bravo abbastanza" conversation (exit via its last option) uniformly. Returns
+ *  Drives the greeting opener, the g285=3 exchanges, and the post-gate
+ *  ready-to-challenge conversation (exit via its last option) uniformly. Returns
  *  whether a pirate was found and the duel resolved back on the map. */
 export function grindOneDuel(vm: Vm): boolean {
   if (!provokeDuel(vm)) return false;
@@ -2612,7 +2603,7 @@ export function townToMap(vm: Vm): void {
  * Leave a Part IV room through `exitObj`, dissolving the ghost pirate that bars
  * it. Walking into the exit makes the ghost intercept with its sales-pitch
  * conversation; picking its root-beer line (`rootBeerAnswer`) runs the seltzer
- * spray that removes the ghost ("Fresco!") and clears the guard class off the
+ * spray that removes the ghost and clears the guard class off the
  * exit, after which the way leads on. Returns whether it arrived.
  *
  * Two reasons this is a loop, both watching real conditions rather than blind-
@@ -2715,14 +2706,14 @@ export function buySeaMonkey(vm: Vm): boolean {
     const threats = vm.vars.readGlobal(ROOMS.stan.walkAwaysVar);
     const lastOffer = vm.vars.readGlobal(ROOMS.stan.lastOfferVar);
     // The deal menu and the threat follow-up reuse low slots; tell the offer
-    // menu apart by its full five-slot spread (the four rungs + "soffrire").
+    // menu apart by its full five-slot spread (the four rungs + the extra line).
     const offerMenu = ids.has(124) && ids.has(122) && ids.has(121) && ids.has(120) && ids.has(123) && !ids.has(125);
     let pick: number;
     if (offerMenu) {
       // climb: first offer 2000 (slot 120), then one rung above the last
       pick = 120 + Math.min(3, lastOffer === 0 ? 0 : lastOffer / 1000 - 1);
     } else if (ids.has(A.stay) && m.length === 2) {
-      pick = A.stay; // "Beh, forse hai ragione^" — stay after a threat
+      pick = A.stay; // stay after a threat
     } else if (ids.has(A.haveCreditNote) && ids.has(125)) {
       pick = A.haveCreditNote; // browse menu, note in hand → open the deal
     } else if (threats < 3 && ids.has(A.walkAway)) {

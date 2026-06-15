@@ -89,3 +89,8 @@ VGA data GrogVM plays ships inside *The Secret of Monkey Island: Special
 Edition* on GOG / Steam. Full details — where to get the game, the
 no-piracy policy, trademarks, and a rights-holder contact — are on the
 [legal page](pages/legal.md) (live at <https://grogvm.dev/legal/>).
+
+*Monkey Island*, *SCUMM*, and *LucasArts* are trademarks of their
+respective owners. GrogVM is an unofficial, non-commercial fan project
+and is not affiliated with, endorsed by, or sponsored by Disney,
+LucasArts, or any rights holder.
