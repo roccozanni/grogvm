@@ -30,10 +30,10 @@ worked. This is my love letter to *Monkey Island*, LucasArts, and Ron Gilbert
 ## Discover GrogVM
 
 > **Status:** in active development. *The Secret of Monkey Island* plays from
-> boot through the end of Part II — verbs, inventory, dialogue, cutscenes,
-> saves, sound effects and CD-audio music — and every resource in its files is
-> browsable in the explorer. Part III onward and the few AdLib-only audio
-> effects are still in progress; see the
+> boot all the way to the end credits — all four parts — with verbs, inventory,
+> dialogue, cutscenes, saves, sound effects and CD-audio music, and every
+> resource in its files is browsable in the explorer. A few AdLib-only audio
+> effects and some visual polish are still in progress; see the
 > [documentation](/docs/) for the full picture.
 
 - **[Library](/library/)** — install a game you own from a local folder, then

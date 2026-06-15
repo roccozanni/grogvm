@@ -9,11 +9,11 @@ Three parts: notes on how GrogVM is built, the reverse-engineered SCUMM v5
 reference it is built against, and the method the work is done by.
 
 > **Status** — in active development. *The Secret of Monkey Island* plays
-> from boot through the end of Part II — verbs, inventory, dialogue,
-> cutscenes, saves, digital sound effects and CD-audio music — and every
-> resource in its files is browsable in the explorer. Still ahead: Part III
-> onward, OPL2 synthesis for the few AdLib-only effects, Monkey Island 2,
-> and a few visual effects.
+> from boot all the way to the end credits — all four parts — with verbs,
+> inventory, dialogue, cutscenes, saves, digital sound effects and CD-audio
+> music, and every resource in its files is browsable in the explorer. Still
+> ahead: OPL2 synthesis for the few AdLib-only effects, Monkey Island 2, and a
+> few visual effects.
 
 ## [Engine notes](engine/index.md)
 
