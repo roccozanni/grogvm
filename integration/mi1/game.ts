@@ -2516,6 +2516,72 @@ const pickComebackScrolling = (vm: Vm, want: number | undefined): void => {
   );
 };
 
+// ── Conversation menus ───────────────────────────────────────────────────
+// Dialog answers are positional verbs: the engine arms `g100 = 119 + N` for the
+// Nth menu line (line 1 → verb 120), in a contiguous band above the normal
+// verb/inventory ids. The rule is to drive dialogue by the NAMED answer a beat
+// means to pick (e.g. {@link ROOMS.confrontation}'s `answerPath`); these
+// primitives are the single home for the band itself, for the two cases a name
+// can't fit — detecting whether a menu is even up, and advancing a menu the GAME
+// ITSELF makes convergent (every line leads to the same outcome, so there is no
+// one canonical line to name).
+const DIALOG_ANSWER_MIN = 119;
+const DIALOG_ANSWER_MAX = 135;
+
+/** The conversation answers live right now, by ascending id (i.e. menu order). */
+export const dialogAnswers = (vm: Vm): number[] => {
+  const out: number[] = [];
+  for (let v = DIALOG_ANSWER_MIN; v <= DIALOG_ANSWER_MAX; v++) {
+    if (vm.verbs.get(v)?.state === 'on') out.push(v);
+  }
+  return out;
+};
+
+/** Whether a conversation menu is currently offering options. */
+export const dialogUp = (vm: Vm): boolean => dialogAnswers(vm).length > 0;
+
+/**
+ * Advance a CONVERGENT conversation — one the game makes don't-care, every line
+ * leading to the same place (the smitten-Governor stammer cascade, the crew's
+ * boarding greetings, the cannibals' seltzer send-off, the ghost crew's ferry
+ * ride home). Take the lowest-id live answer each menu — the continue/ride line,
+ * spent small-talk self-gating away as it's used — and drive until `until` holds
+ * or the menus stop arming. Picks by that documented convergence, never a guessed
+ * "canonical" answer (there isn't one). `maxMenus` is only a hang-guard.
+ */
+export function advanceDialog(
+  vm: Vm,
+  until: (vm: Vm) => boolean = () => false,
+  { maxMenus = 16, armTicks = 14000 }: { maxMenus?: number; armTicks?: number } = {},
+): boolean {
+  for (let menu = 0; menu < maxMenus && !until(vm); menu++) {
+    if (!driveUntil(vm, (v) => dialogUp(v) || until(v), { maxTicks: armTicks })) break;
+    if (until(vm)) break;
+    const opts = dialogAnswers(vm);
+    if (opts.length === 0) break;
+    pickDialogAnswer(vm, opts[0]!, { armTicks });
+  }
+  return until(vm);
+}
+
+/**
+ * Wind a conversation down by saying goodbye — the exit line sits last in the
+ * menu (highest id), the lower slots being small talk. Take the last live answer
+ * each menu until none remain. (Post-recruit Otis, whose remaining lines just
+ * loop pleasantries.)
+ */
+export function exitDialog(
+  vm: Vm,
+  { maxMenus = 4, armTicks = 10000 }: { maxMenus?: number; armTicks?: number } = {},
+): void {
+  for (let menu = 0; menu < maxMenus; menu++) {
+    const opts = dialogAnswers(vm);
+    if (opts.length === 0) break;
+    pickAnswer(vm, opts[opts.length - 1]!);
+    driveUntil(vm, (v) => !dialogUp(v), { maxTicks: armTicks });
+  }
+}
+
 // ── Crew & ship helpers (the Part-I finale) ──────────────────────────────
 
 /**

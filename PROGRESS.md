@@ -51,6 +51,10 @@ Suite conventions: beats carry **zero `driveTicks`** — each action waits on `w
 then asserts via named condition-waiters (`waitPickedUp` / `waitGlobal` / `waitPlayable`;
 a raw `driveUntil` only for bespoke predicates). Named `<Part> · <Room> — <what it
 proves>`, file order = run order; per-game ids/vars in `game.ts` (`ROOMS`/`VERBS`/`VARS`).
+Conversation menus are driven by the **named** answer a beat picks — or `game.ts`'s
+documented `advanceDialog`/`exitDialog` helpers (over the `dialogAnswers`/`dialogUp`
+band primitives) for menus the game itself makes convergent (don't-care cascades,
+goodbyes) — never a raw verb-id range.
 A clean fast-forward save (`saves/MI1-walkthrough-frontier.websave.json`, gitignored,
 written by the `Part IV entry checkpoint` beat and regenerated each green run) sits at the
 Mêlée docks (room 83, Part IV just begun) — the last clean *playable* checkpoint, from which

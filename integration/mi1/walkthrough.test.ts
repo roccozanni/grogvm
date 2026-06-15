@@ -76,11 +76,15 @@ import {
 } from '../../src/testkit/scummv5';
 import { VAR_CURRENT_LIGHTS, VAR_EGO, VAR_VERB_SCRIPT } from '../../src/engine/vm/vars';
 import {
+  advanceDialog,
   boot,
   buySeaMonkey,
   crackSafe,
+  dialogAnswers,
+  dialogUp,
   egoInBoat,
   enterRoom,
+  exitDialog,
   fightSwordMaster,
   grindForSwordMaster,
   hasClass,
@@ -1022,16 +1026,9 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
       // The grab runs straight into the Sheriff/Governor catch (#212): an excuse
       // menu, then the smitten-stammer cascade in the Governor's close-up (room
-      // 23) — all don't-care comedy options. Pick the first armed answer each time
-      // until control returns in the mansion.
-      const answers = () =>
-        [...vm.verbs.entries()].filter(([k, v]) => k >= 120 && k <= 129 && v.state === 'on');
-      for (let step = 0; step < 14; step++) {
-        if (!driveUntil(vm, () => answers().length > 0, { maxTicks: 8000 })) break;
-        const k = answers()[0]![0];
-        pickAnswer(vm, k);
-        driveUntil(vm, () => !answers().some(([j]) => j === k), { maxTicks: 6000 });
-      }
+      // 23) — a convergent don't-care cascade. Advance it until the menus stop
+      // and control returns in the mansion.
+      advanceDialog(vm, undefined, { maxMenus: 14, armTicks: 8000 });
       expect(waitPlayable(vm)).toBe(true);
       expect(vm.currentRoom).toBe(inside.id);
 
@@ -1174,12 +1171,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       ).toBe(true);
       // Step out of the conversation (the remaining options are small talk; the
       // goodbye is the last armed slot each menu).
-      for (let step = 0; step < 4; step++) {
-        const open = [...vm.verbs.entries()].filter(([k, s]) => k >= 120 && k <= 129 && s.state === 'on');
-        if (open.length === 0) break;
-        pickAnswer(vm, open[open.length - 1]![0]);
-        driveUntil(vm, () => ![...vm.verbs.entries()].some(([k, s]) => k >= 120 && k <= 129 && s.state === 'on'), { maxTicks: 10000 });
-      }
+      exitDialog(vm);
       expect(waitPlayable(vm, 14000)).toBe(true);
 
       // Pour onto the lock (#403 → #69 → #70): the rescue cutscene melts it,
@@ -1466,15 +1458,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       // through them rolls straight into the departure — rooms 97 → 87 → the
       // below-decks chat (19) — and control comes back in the Sea Monkey's
       // cabin (room 7). Part II.
-      const answers = () =>
-        [...vm.verbs.entries()].filter(([k, v]) => k >= 120 && k <= 129 && v.state === 'on');
-      for (let step = 0; step < 10 && vm.currentRoom === ROOMS.docks.id; step++) {
-        if (!driveUntil(vm, () => answers().length > 0 || vm.currentRoom !== ROOMS.docks.id, { maxTicks: 20000 })) break;
-        if (vm.currentRoom !== ROOMS.docks.id) break;
-        const k = answers()[0]![0];
-        pickAnswer(vm, k);
-        driveUntil(vm, () => !answers().some(([j]) => j === k) || vm.currentRoom !== ROOMS.docks.id, { maxTicks: 20000 });
-      }
+      advanceDialog(vm, (v) => v.currentRoom !== ROOMS.docks.id, { maxMenus: 10, armTicks: 20000 });
       expect(driveToRoom(vm, ROOMS.docks.seaMonkeyCabin, { maxTicks: 60000 })).toBe(true);
       expect(waitPlayable(vm, 30000)).toBe(true);
       expect(vm.haltInfo).toBeNull();
@@ -1869,7 +1853,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
 
     beat('⚙️ Catapult — aim at the beach banana tree, climb to the ledge and fire; two bananas drop', () => {
       const cat = ROOMS.catapult;
-      const answers = () => [...vm.verbs.entries()].filter(([k, v]) => k >= 120 && k <= 132 && v.state === 'on');
+      const answers = () => dialogAnswers(vm); // Herman's interruption menu, if any
       const playable = () =>
         vm.cursor.userput > 0 && vm.activeDialog === null && [...vm.verbs.values()].some((v) => v.state === 'on');
 
@@ -1896,7 +1880,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       for (let i = 0; i < 60 && vm.vars.readBit(cat.hitBit) === 0; i++) {
         driveUntil(vm, () => answers().length > 0 || vm.vars.readBit(cat.hitBit) === 1, { maxTicks: 4000 });
         const a = answers();
-        if (a.length > 0) pickAnswer(vm, a[a.length - 1]![0]);
+        if (a.length > 0) pickAnswer(vm, a[a.length - 1]!); // shoo Herman with the last line
       }
       expect(vm.vars.readBit(cat.hitBit)).toBe(1);
       // The hit cutscene continues a few ticks past the bit#530 latch (shake →
@@ -2354,7 +2338,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     beat('⚙️ Cannibal village — provoke the cannibals and give them the wimpy idol (they turn friendly)', () => {
       const ego = vm.vars.readGlobal(VAR_EGO);
       const village = ROOMS.cannibalVillage;
-      const armed = () => [...vm.verbs.entries()].filter(([k, v]) => k >= 120 && k <= 132 && v.state === 'on');
+      const armed = () => dialogAnswers(vm);
       // #303 carries the untouchable class (bit 31) until the offering window opens.
       const cannibalsTouchable = () => isTouchable(vm, village.cannibals);
       const A = () => vm.actors.get(ego);
@@ -2367,7 +2351,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       expect(driveUntil(vm, () => armed().length > 0, { maxTicks: 14000 })).toBe(true);
 
       // Pick "Non mangiarmi! Ti darò qualsiasi cosa!" (#121) → the offering speech.
-      expect(armed().some(([k]) => k === village.offerAnything)).toBe(true);
+      expect(armed().includes(village.offerAnything)).toBe(true);
       pickAnswer(vm, village.offerAnything);
 
       // Wait for the brief offering window: the cannibals turn touchable and control
@@ -2447,8 +2431,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       const talk = village.lechuckTalk;
       const scriptLive = (id: number) => vm.slots.some((s) => s.status !== 'dead' && s.scriptId === id);
       const nativesTouchable = () => isTouchable(vm, village.friendlyNatives);
-      const dialogUp = () => [...vm.verbs.entries()].some(([k, v]) => k >= 120 && k <= 135 && v.state === 'on');
-      const convoOver = () => vm.cursor.userput > 0 && !dialogUp() && !scriptLive(213);
+      const convoOver = () => vm.cursor.userput > 0 && !dialogUp(vm) && !scriptLive(213);
 
       // The friendly cannibals aren't standing around — they only reappear when
       // ego ENTERS the village FROM the map (g101==6). Step out the jungle (#290)
@@ -2466,17 +2449,17 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       // #513 and makes them offer the head. (#120 recurs across menus and #124 is
       // an unrelated "bye" in the first menu, so gate the goGetRoot pick on the
       // #510/#511 progress bits.) A final probe ends the talk → the natives go idle.
-      expect(driveUntil(vm, () => dialogUp(), { maxTicks: 12000 })).toBe(true);
+      expect(driveUntil(vm, () => dialogUp(vm), { maxTicks: 12000 })).toBe(true);
       for (let i = 0; i < 12 && !convoOver(); i++) {
-        if (!dialogUp()) {
-          driveUntil(vm, () => dialogUp() || convoOver(), { maxTicks: 9000 });
+        if (!dialogUp(vm)) {
+          driveUntil(vm, () => dialogUp(vm) || convoOver(), { maxTicks: 9000 });
           continue;
         }
         const rootReady =
           vm.vars.readBit(talk.rootStolenBit) && vm.vars.readBit(talk.hideoutBit) && !vm.vars.readBit(talk.committedBit);
         const pick = rootReady && vm.verbs.get(talk.goGetRoot)?.state === 'on' ? talk.goGetRoot : talk.probe;
         pickDialogAnswer(vm, pick, { armTicks: 16000 });
-        driveUntil(vm, () => dialogUp() || convoOver(), { maxTicks: 9000 });
+        driveUntil(vm, () => dialogUp(vm) || convoOver(), { maxTicks: 9000 });
       }
       expect(vm.vars.readBit(talk.committedBit)).toBe(1);
       expect(waitPlayable(vm)).toBe(true);
@@ -2736,18 +2719,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       // converges), then they turn the root into magic seltzer (bit#383) and walk ego
       // off to the overhead map.
       const seltzerMade = () => vm.vars.readBit(village.seltzerBit) === 1;
-      const dialogOpt = (): number | undefined =>
-        [...vm.verbs.entries()]
-          .filter(([k, v]) => k >= 119 && k <= 135 && v.state === 'on')
-          .map(([k]) => k)
-          .sort((p, q) => p - q)[0];
-      for (let i = 0; i < 8 && !seltzerMade(); i++) {
-        driveUntil(vm, () => dialogOpt() !== undefined || seltzerMade(), { maxTicks: 14000 });
-        if (seltzerMade()) break;
-        const opt = dialogOpt();
-        if (opt === undefined) break;
-        pickDialogAnswer(vm, opt, { armTicks: 12000 });
-      }
+      advanceDialog(vm, () => seltzerMade(), { maxMenus: 8, armTicks: 14000 });
       expect(driveUntil(vm, () => seltzerMade(), { maxTicks: 16000 })).toBe(true);
       expect(waitPlayable(vm, 12000)).toBe(true);
       expect(vm.haltInfo).toBeNull();
@@ -2777,18 +2749,7 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       // "Parte Quattro" card → the Mêlée docks (83). The answer ids are 119+N for the
       // Nth menu line; both endings call startScript 131 once the ride is accepted.
       const atPartFour = () => vm.currentRoom === 83 || vm.vars.readBit(village.partFourBit) === 1;
-      const dialogOpt = (): number | undefined =>
-        [...vm.verbs.entries()]
-          .filter(([k, v]) => k >= 119 && k <= 135 && v.state === 'on')
-          .map(([k]) => k)
-          .sort((p, q) => p - q)[0];
-      for (let i = 0; i < 16 && !atPartFour(); i++) {
-        driveUntil(vm, () => dialogOpt() !== undefined || atPartFour(), { maxTicks: 14000 });
-        if (atPartFour()) break;
-        const opt = dialogOpt();
-        if (opt === undefined) break;
-        pickDialogAnswer(vm, opt, { armTicks: 12000 });
-      }
+      advanceDialog(vm, () => atPartFour(), { maxMenus: 16, armTicks: 14000 });
       expect(driveUntil(vm, () => atPartFour(), { maxTicks: 16000 })).toBe(true);
       expect(driveUntil(vm, () => vm.vars.readBit(village.partFourBit) === 1, { maxTicks: 16000 })).toBe(true);
       expect(waitPlayable(vm, 14000)).toBe(true);
