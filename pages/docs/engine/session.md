@@ -12,7 +12,7 @@ session runs unchanged under a test harness that feeds it time by hand.
         the injected clock calls back: "it is now T ms"
                             │
                             ▼
-              throttle — elapsed ≥ 1000/rate ?
+              throttle — elapsed ≥ 1000/60 ?
                  │ no                │ yes
                  ▼                   ▼
           nothing to do      batch: run floor(elapsed/interval)
@@ -50,12 +50,12 @@ The unit of simulation is the **jiffy**: one VM tick. The loop's job is to
 turn elapsed real time into the right number of jiffies, then produce a
 frame.
 
-The loop **throttles to a target rate** (default 60 Hz): the minimum interval
-between simulated frames is `1000 / rate` milliseconds. When more time has
-elapsed than one interval — a slow frame, or a target rate above the clock's
-own cadence — the loop **batches** jiffies to catch up: it runs
-`floor(elapsed / interval)` ticks, **capped at 64** per callback so a long
-stall can never trigger an unbounded catch-up spiral.
+The loop **throttles to a fixed 60 Hz**: the minimum interval between
+simulated frames is `1000 / 60` milliseconds. When more time has elapsed than
+one interval — a slow frame, or a clock cadence below 60 Hz — the loop
+**batches** jiffies to catch up: it runs `floor(elapsed / interval)` ticks,
+**capped at 64** per callback so a long stall can never trigger an unbounded
+catch-up spiral.
 
 The **sub-interval remainder carries** into the next time base. Discarding it
 (resetting the base to "now" each callback) loses a fraction of an interval
@@ -65,12 +65,10 @@ most visibly — drifts steadily ahead of the simulation. The carry is capped
 at **one interval**, so a long stall (a hidden tab stops the browser clock
 outright) is dropped rather than replayed as a capped-batch fast-forward.
 
-Two control knobs sit on top of the model:
-
-- **`step`** advances exactly one jiffy and produces a frame — the primitive
-  the debug surface single-steps with.
-- **The rate is adjustable at runtime**; lowering it slows the simulation
-  uniformly (fewer jiffies per second of real time), it does not drop frames.
+On top of the model sits **`step`**: advance exactly one jiffy and produce a
+frame. The shell uses it to present the opening frame before the loop takes
+over, and the test harness single-steps with it. The rate itself is **fixed
+at 60 Hz** — there is no runtime speed control.
 
 ## 3. Auto-pause
 
@@ -128,7 +126,6 @@ frame picks up the same state anyway.
 ## 5. Lifecycle
 
 - **Boot** starts a fresh game.
-- **Reboot** boots the same game again from scratch.
 - **Snapshot** serializes the live VM into a save state.
 - **Restore** boots fresh and then applies a save state, and it **preserves the
   play/pause state** — a session that was playing resumes playing; one that was
@@ -139,7 +136,10 @@ frame picks up the same state anyway.
 
 ## 6. Debug drivers
 
-Beyond plain play/pause, the session exposes drivers the debug surface uses:
+Beyond plain play/pause, the session exposes drivers that advance the VM
+deterministically. These are **not** live controls — the browser's inspector
+is read-only observation (see [architecture §5](architecture.md)) — but the
+test harness and unit tests drive through them:
 
 - **Step** — advance one jiffy and present.
 - **Enter room** — warp directly to a room and let its entry script settle,

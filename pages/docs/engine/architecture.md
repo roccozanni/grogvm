@@ -226,9 +226,9 @@ playing, so the backend tracks real durations on the engine's own tick clock
 
 The shell holds a single **engine session** that wires VM, compositor,
 renderer, and an injected clock into a small control surface — play, pause,
-single-step, rate, input, snapshot/restore, and debug drivers. Its loop
-throttles and batches ticks, auto-pauses an idle game, and never touches the
-DOM (see [the session](session.md)).
+single-step, input, snapshot/restore, and debug drivers. Its loop
+throttles and batches ticks at a fixed 60 Hz, auto-pauses an idle game, and
+never touches the DOM (see [the session](session.md)).
 
 ### Save states
 
@@ -259,10 +259,12 @@ installed game and holds the line at zero misalignments.
 ## 5. The player & the explorer
 
 The **Player** hosts one session and shows two faces of the same running
-tick: the clean play surface, and a debug drawer with live VM inspection
-(slots, variables, trace, actors, walk-box overlay) that reads the session's
-VM directly — privileged access, by design, because a learning tool keeps its
-internals visible. The **Explorer** is a separate, session-free screen: pure
+tick: the clean play surface, and a **read-only** debug drawer with live VM
+inspection (slots, variables, trace, actors, walk-box overlay) that reads the
+session's VM directly — privileged access, by design, because a learning tool
+keeps its internals visible. The drawer observes; it never drives the clock,
+so a stray click in it can't desync the game you're playing. The **Explorer**
+is a separate, session-free screen: pure
 static analysis of an installed game's resources using the same decoders the
 VM uses, so it works even on a game the VM cannot yet play.
 

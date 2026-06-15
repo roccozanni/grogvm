@@ -2,24 +2,25 @@
  * Debug panel (pages/docs/engine/architecture.md §5): live VM inspection below
  * the Play canvas, driven off the same EngineSession. Always visible — GrogVM
  * is a learning tool, so VM internals are never hidden behind a toggle.
+ *
+ * Built on the reactive core: the panel DOM is constructed ONCE and updates
+ * through signal-driven effects (see panels.ts) — never a per-tick subtree
+ * rebuild. A `tick` signal refreshes the cheap header labels every frame; a
+ * throttled `live` signal drives the heavier tables so camera-follow stays
+ * smooth while playing, and refreshes them immediately when paused / stepping.
  */
 import { signal, bindText, el, createRoot, onCleanup } from '../../reactive';
 import type { EngineSession } from '../../../engine/session';
+import type { Vm } from '../../../engine/vm/vm';
 import type { ClickEvent } from '../input';
-import {
-  renderLive,
-  renderSavesPanel,
-  type InspectorState,
-  type RecentClick,
-} from './panels';
+import { livePanels, savesPanel, type LiveDeps, type RecentClick } from './panels';
 
 const RECENT_CLICKS_CAP = 12;
-const RATE_STEPS = [1, 2, 5, 10, 15, 30, 60, 120];
 /**
- * Live-table rebuild cadence during play. Per-frame rebuilds (~350 DOM
- * nodes) jank camera-follow, but rebuilding only on pause left the
- * inspector showing stale state — this keeps it live at a cost the frame
- * loop doesn't feel.
+ * Live-table repaint cadence during play. Per-frame table updates jank
+ * camera-follow, but refreshing only on pause leaves the inspector stale —
+ * this bumps the heavy panels every LIVE_REPAINT_MS while playing (full-rate
+ * when paused/stepping), at a cost the frame loop doesn't feel.
  */
 const LIVE_REPAINT_MS = 250;
 
@@ -34,56 +35,65 @@ export interface DebugPanel {
 
 // saveKey namespaces this install's save slots (per-install UUID, so two
 // language variants don't share); saveLabel prefixes exported-save filenames.
-export function mountDebugPanel(
-  session: EngineSession,
-  saveKey: string,
-  saveLabel: string,
-): DebugPanel {
-  // Loop-internal InspectorState fields are stubbed (the session owns the
-  // loop); the display fields are refreshed from session state each frame.
-  const state: InspectorState = {
-    vm: session.vm,
-    globalsShown: 64,
-    bitsShown: 256,
-    playing: false,
-    rafId: null,
-    tickCount: 0,
-    lastIdleFingerprint: null,
-    idleStreak: 0,
-    idleReason: null,
-    showWalkOverlay: false,
-    warpRoomId: 1,
-    tickRateHz: 60,
-    lastTickAt: 0,
-    recentClicks: [],
-    lastPalette: null,
-    lastTransparentIndex: null,
-    mountedFrame: null,
-  };
-
+export function mountDebugPanel(session: EngineSession, saveKey: string, saveLabel: string): DebugPanel {
   let element!: HTMLElement;
   let recordClick: (e: ClickEvent, objId: number | null) => void = () => {};
   let refreshSaves: () => void = () => {};
 
   const dispose = createRoot((disposeRoot) => {
-    const tickSig = signal(0);
-    const playingSig = signal(false);
-    const roomSig = signal('');
+    const vm = (): Vm => session.vm; // accessor, not a captured ref (restore swaps it)
+    const tickSig = signal(0); // current tickCount; bumps every frame
+    const liveSig = signal(0); // heavy-table bump; throttled while playing
+    const globalsShown = signal(64);
+    const bitsShown = signal(256);
+    const clicksSig = signal<readonly RecentClick[]>([]);
 
-    const live = el('div', { class: 'vm-live' });
-    let lastLiveRepaintAt = 0;
-    const repaintLive = (): void => {
-      lastLiveRepaintAt = performance.now();
-      state.vm = session.vm;
-      live.replaceChildren(renderLive(state, repaintLive));
+    let lastLiveAt = 0;
+    const bumpLive = (): void => {
+      lastLiveAt = performance.now();
+      liveSig.set((n) => n + 1);
+    };
+
+    // Read-only status readouts. The inspector observes the VM and changes
+    // nothing: driving the clock (play / pause / step / run-to-idle) now lives
+    // in the headless tooling — spyglass, disgrogate, the integration harness —
+    // where state is reproducible, instead of in a live play session where
+    // poking the clock only desyncs what you're playing.
+    const roomLabel = el('span', { class: 'vm-room-label' });
+    bindText(roomLabel, () => {
+      tickSig();
+      const v = vm();
+      return `room ${v.currentRoom}${v.loadedRoom ? ` (${v.loadedRoom.width}×${v.loadedRoom.height})` : ' — none loaded'}`;
+    });
+
+    const counter = el('span', { class: 'vm-tick-counter' });
+    bindText(counter, () => `tick ${tickSig()}`);
+
+    const statusLine = el('div', { class: 'vm-status' }, roomLabel, counter);
+
+    // Surfaces "clicks that change nothing" (a script parked waiting on a var
+    // the input never sets). Hidden until the watchdog fires; re-armed on a
+    // VM swap (restore).
+    const watchdogBanner = el('div', { class: 'vm-watchdog', style: { display: 'none' } });
+    let wiredVm: Vm | null = null;
+    const wireWatchdog = (v: Vm): void => {
+      v.enableHangWatchdog((info) => {
+        const msg =
+          `Hang watchdog: ${info.deadInputs} clicks in a row changed nothing ` +
+          `in room ${info.room} — VAR_VERB_SCRIPT=${info.verbScript}, ` +
+          `live scripts [${info.liveScripts.join(', ')}]. Input may be misrouted.`;
+        // eslint-disable-next-line no-console
+        console.warn('[GrogVM] ' + msg);
+        watchdogBanner.textContent = '⚠ ' + msg;
+        watchdogBanner.style.display = '';
+      });
     };
 
     // Saves: rebuilt only on discrete actions (keeps the slot-name input focus).
-    const saves = el('div', { class: 'vm-saves-host' });
+    const savesHost = el('div', { class: 'vm-saves-host' });
     const repaintSaves = (): void => {
-      saves.replaceChildren(
-        renderSavesPanel(
-          state,
+      savesHost.replaceChildren(
+        savesPanel(
           saveKey,
           saveLabel,
           (label) => session.snapshot(label),
@@ -97,75 +107,13 @@ export function mountDebugPanel(
     };
     refreshSaves = repaintSaves;
 
-    const playBtn = el('button', {
-      class: 'secondary',
-      onClick: () => {
-        // Pausing stops the clock, so no onFrame follows — sync the label
-        // AND rebuild the tables here, or the inspector freezes on the
-        // last throttled repaint instead of the paused-at state.
-        if (session.status().playing) {
-          session.pause();
-          repaintLive();
-        } else {
-          session.play();
-        }
-        playingSig.set(session.status().playing);
-      },
-    });
-    bindText(playBtn, () => (playingSig() ? '⏸ Pause' : '▶ Play'));
-
-    const roomLabel = el('span', { class: 'vm-room-label' });
-    bindText(roomLabel, () => roomSig());
-
-    const counter = el('span', { class: 'vm-tick-counter' });
-    bindText(counter, () => `tick ${tickSig()}`);
-
-    const rate = el(
-      'select',
-      {
-        class: 'vm-rate',
-        onChange: (e: Event) => session.setRate(Number((e.target as HTMLSelectElement).value)),
-      },
-      ...RATE_STEPS.map((hz) => el('option', { value: String(hz) }, `${hz} Hz`)),
-    );
-    rate.value = '60';
-
-    const warpInput = el('input', { type: 'number', class: 'vm-warp-input', value: '1' });
-    const controls = el(
-      'div',
-      { class: 'vm-controls' },
-      playBtn,
-      el('button', { class: 'secondary', onClick: () => session.step() }, 'Step'),
-      el('button', { class: 'secondary', onClick: () => session.skipCutscene() }, 'Run to idle'),
-      el('span', { class: 'vm-rate-label' }, 'rate '),
-      rate,
-      el('span', { class: 'vm-warp-label' }, 'room '),
-      warpInput,
-      el(
-        'button',
-        { class: 'secondary', onClick: () => session.enterRoom(Number(warpInput.value) || 0) },
-        'Warp',
-      ),
-      el('button', { class: 'secondary', onClick: () => session.reboot() }, 'Reboot'),
-      roomLabel,
-      counter,
-    );
-
-    // Surfaces "clicks that change nothing" (a script parked waiting on a var
-    // the input never sets). Hidden until the watchdog fires.
-    const watchdogBanner = el('div', { class: 'vm-watchdog', style: 'display:none' });
-    let wiredVm: typeof session.vm | null = null;
-    const wireWatchdog = (vm: typeof session.vm): void => {
-      vm.enableHangWatchdog((info) => {
-        const msg =
-          `Hang watchdog: ${info.deadInputs} clicks in a row changed nothing ` +
-          `in room ${info.room} — VAR_VERB_SCRIPT=${info.verbScript}, ` +
-          `live scripts [${info.liveScripts.join(', ')}]. Input may be misrouted.`;
-        // eslint-disable-next-line no-console
-        console.warn('[GrogVM] ' + msg);
-        watchdogBanner.textContent = '⚠ ' + msg;
-        watchdogBanner.style.display = '';
-      });
+    const deps: LiveDeps = {
+      vm,
+      live: liveSig,
+      idleReason: () => session.status().idleReason,
+      recentClicks: clicksSig,
+      globalsShown,
+      bitsShown,
     };
 
     element = el(
@@ -173,49 +121,32 @@ export function mountDebugPanel(
       { class: 'vm-debug' },
       el('h2', { class: 'vm-debug-heading' }, 'VM inspector'),
       watchdogBanner,
-      controls,
-      saves,
-      live,
+      statusLine,
+      savesHost,
+      livePanels(deps),
     );
 
     const unsub = session.onFrame(() => {
       const st = session.status();
-      state.tickCount = st.tickCount;
-      state.idleReason = st.idleReason;
-      state.playing = st.playing;
-      state.tickRateHz = st.tickRateHz;
       tickSig.set(st.tickCount);
-      playingSig.set(st.playing);
-      const vm = session.vm;
-      // Re-attach the watchdog when the VM instance changes (reboot/restore).
-      if (vm !== wiredVm) {
-        wiredVm = vm;
+      const v = session.vm;
+      if (v !== wiredVm) {
+        wiredVm = v;
         watchdogBanner.style.display = 'none';
-        wireWatchdog(vm);
+        wireWatchdog(v);
       }
-      roomSig.set(`room ${vm.currentRoom}${vm.loadedRoom ? ` (${vm.loadedRoom.width}×${vm.loadedRoom.height})` : ' — none loaded'}`);
-      // The cheap bindText labels update every frame; the heavy tables
-      // (~350 DOM nodes) rebuild at full rate when paused/stepping but only
-      // every LIVE_REPAINT_MS during play — per-frame rebuilds jank
-      // camera-follow, while a throttled rebuild keeps the inspector live.
-      if (!st.playing) {
-        repaintLive();
-      } else {
-        const now = performance.now();
-        if (now - lastLiveRepaintAt >= LIVE_REPAINT_MS) repaintLive();
-      }
+      // Heavy tables: full-rate when paused/stepping, throttled while playing —
+      // per-frame table updates jank camera-follow.
+      if (!st.playing || performance.now() - lastLiveAt >= LIVE_REPAINT_MS) bumpLive();
     });
     onCleanup(unsub);
 
     recordClick = (e, objId): void => {
-      const entry: RecentClick = { ...e, tickCount: state.tickCount, objId };
-      state.recentClicks.unshift(entry);
-      if (state.recentClicks.length > RECENT_CLICKS_CAP) state.recentClicks.length = RECENT_CLICKS_CAP;
-      repaintLive();
+      const entry: RecentClick = { ...e, tickCount: tickSig.peek(), objId };
+      clicksSig.set((prev) => [entry, ...prev].slice(0, RECENT_CLICKS_CAP));
     };
 
     repaintSaves();
-    repaintLive();
 
     return disposeRoot;
   });

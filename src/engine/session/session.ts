@@ -33,6 +33,9 @@ const MAX_SKIP_TICKS = 20000;
 const WARP_SETTLE_TICKS = 400;
 /** Trace mnemonics per slot folded into the idle fingerprint. */
 const MNEMONICS_PER_SLOT_IN_FINGERPRINT = 3;
+/** Fixed tick cadence: 60 Hz = full rAF speed. The loop still batches and
+ *  catches up after a stall (hidden tab); there's no user-facing rate knob. */
+const TICK_RATE_HZ = 60;
 
 /** All-black 256-colour palette for the brief no-room interval. */
 const BLACK_PALETTE = new Uint8Array(768);
@@ -53,7 +56,6 @@ export function createSession(
   clock: Clock,
   opts?: {
     bootParam?: number;
-    tickRateHz?: number;
     autoPauseOnIdle?: boolean;
     /** Output backend, reused across restore/reboot VM swaps (it owns the AudioContext). */
     audio?: AudioBackend;
@@ -77,7 +79,6 @@ export function createSession(
   let tickCount = 0;
   let playing = false;
   let idleReason: string | null = null;
-  let tickRateHz = opts?.tickRateHz ?? 60;
 
   // Loop timing (driven by the injected clock's nowMs, never performance.now).
   let lastTickAt = 0;
@@ -349,7 +350,7 @@ export function createSession(
       runBatch(1);
       return;
     }
-    const minIntervalMs = 1000 / tickRateHz;
+    const minIntervalMs = 1000 / TICK_RATE_HZ;
     const elapsed = now - lastTickAt;
     if (elapsed < minIntervalMs - 0.5) return; // not time yet; wait for next clock tick
     const batch = Math.min(
@@ -425,10 +426,6 @@ export function createSession(
       return composeAndPresent(false);
     },
 
-    setRate(hz: number): void {
-      tickRateHz = Math.max(1, Math.min(1000, hz));
-    },
-
     sendInput(ev: InputEvent): void {
       switch (ev.type) {
         case 'move':
@@ -475,22 +472,6 @@ export function createSession(
       } else {
         idleReason = `loaded${state.label ? ` "${state.label}"` : ''} — room ${vm.currentRoom} (paused)`;
       }
-    },
-
-    reboot(): void {
-      const wasPlaying = playing;
-      if (playing) {
-        playing = false;
-        clock.stop();
-      }
-      // restore() flows through backend.restore (which silences voices); a
-      // fresh boot doesn't, so silence the shared backend explicitly.
-      vm.audio.stopAll();
-      adopt(bootGame(
-        game.resourceFile, game.index, game.loff, game.gameId, undefined, undefined, game.cdTrackDurations, audio,
-      ).vm);
-      composeAndPresent(false);
-      if (wasPlaying) this.play();
     },
 
     enterRoom(roomId: number): void {
@@ -551,7 +532,7 @@ export function createSession(
         tickCount,
         idleReason,
         halted: vm.haltInfo !== null,
-        tickRateHz,
+        tickRateHz: TICK_RATE_HZ,
       };
     },
 

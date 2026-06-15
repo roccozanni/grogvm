@@ -197,23 +197,6 @@ describe('EngineSession — synthetic game', () => {
     expect(session.status().tickCount).toBe(ticked); // no ticks while paused
   });
 
-  it('setRate throttles the tick cadence', () => {
-    const slowClock = new ManualClock();
-    const fastClock = new ManualClock();
-    const sSlow = createSession(makeSyntheticGame(), new MemoryRenderer(), slowClock, { autoPauseOnIdle: false });
-    const sFast = createSession(makeSyntheticGame(), new MemoryRenderer(), fastClock, { autoPauseOnIdle: false });
-
-    sSlow.setRate(10); // 100 ms / tick
-    sFast.setRate(60); // ~16.7 ms / tick
-    sSlow.play();
-    sFast.play();
-    for (let i = 0; i < 60; i++) {
-      slowClock.advance(1000 / 60);
-      fastClock.advance(1000 / 60);
-    }
-    expect(sFast.status().tickCount).toBeGreaterThan(sSlow.status().tickCount);
-  });
-
   it('auto-pauses once the engine settles into a stable idle fingerprint', () => {
     // The yield-loop is the canonical "waiting for input" steady state: same
     // slots yielded, no actors moving — the fingerprint stops changing and the
@@ -253,15 +236,6 @@ describe('EngineSession — synthetic game', () => {
     // Restored while not playing → stays paused with a banner.
     expect(s2.status().playing).toBe(false);
     expect(s2.status().idleReason).toMatch(/loaded/);
-  });
-
-  it('reboot returns to a fresh boot (tick counter reset)', () => {
-    const session = createSession(makeSyntheticGame(), new MemoryRenderer(), new ManualClock());
-    for (let i = 0; i < 20; i++) session.step();
-    expect(session.status().tickCount).toBe(20);
-    session.reboot();
-    expect(session.status().tickCount).toBe(0);
-    expect(session.vm.haltInfo).toBeNull();
   });
 
   it('sendInput writes mouse vars and toggles button holds', () => {

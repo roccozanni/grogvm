@@ -1,43 +1,5 @@
 /* ── VM inspector ───────────────────────────────────────────────── */
 
-.vm-inspector {
-  margin-top: 1.5rem;
-}
-
-.vm-inspector > h2 {
-  font-size: 1rem;
-  color: var(--accent);
-  margin: 0 0 0.5rem;
-}
-
-.vm-inspector h3 {
-  font-size: 0.85em;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin: 1.25rem 0 0.5rem;
-}
-
-.vm-controls {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-  margin-bottom: 0.5rem;
-}
-
-.vm-controls button {
-  font-family: inherit;
-  font-size: 0.85em;
-  padding: 0.3rem 0.8rem;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.vm-controls button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
 .vm-empty {
   color: var(--muted);
   font-style: italic;
@@ -218,8 +180,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-.vm-vars > button,
-.vm-bits > button {
+.vm-vars > button {
   margin-top: 0.5rem;
 }
 
@@ -295,35 +256,11 @@
   font-weight: 700;
 }
 
-.vm-frame {
-  margin: 0.5rem 0 1rem;
-}
-
 .vm-tick-counter {
-  margin-left: auto;
   color: var(--muted);
   font-size: 0.85em;
   font-variant-numeric: tabular-nums;
   align-self: center;
-}
-
-.vm-tick-rate {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  color: var(--muted);
-  font-size: 0.85em;
-  align-self: center;
-}
-
-.vm-tick-rate select {
-  background: var(--surface, #14171f);
-  color: inherit;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 0.15rem 0.35rem;
-  font-size: inherit;
-  font-family: inherit;
 }
 
 .vm-idle-banner {
@@ -334,27 +271,6 @@
   margin: 0.5rem 0 1rem;
   color: #bcd6ee;
   font-size: 0.85em;
-}
-
-.vm-frame-err {
-  color: #ffb3b3;
-  margin: 0 0 0.4rem;
-  font-size: 0.8em;
-  font-style: italic;
-}
-
-.vm-frame-meta {
-  color: var(--muted);
-  font-size: 0.8em;
-  margin: 0.4rem 0 0;
-  font-variant-numeric: tabular-nums;
-}
-
-.vm-frame-skip-list {
-  margin: 0.25rem 0 0;
-  padding-left: 1.25rem;
-  font-size: 0.8em;
-  color: #ffd6a8;
 }
 
 /* The unified play screen: ONE canvas holding the room slice + verb panel.
@@ -373,26 +289,6 @@
     linear-gradient(-45deg, transparent 75%, #2a2a34 75%);
   background-size: 16px 16px;
   background-position: 0 0, 0 8px, 8px -8px, -8px 0;
-}
-
-.vm-frame-toggles {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  margin: 0.4rem 0 0.25rem;
-  font-size: 0.85em;
-  color: var(--muted);
-}
-
-.vm-frame-toggles label {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  cursor: pointer;
-}
-
-.vm-frame-toggles-info {
-  font-variant-numeric: tabular-nums;
 }
 
 .vm-input-panel {
@@ -501,14 +397,6 @@
   padding: 0.15rem 0.45rem;
 }
 
-.vm-tick-counter-live {
-  margin: 0.25rem 0;
-  font-family: var(--mono, monospace);
-  font-size: 0.85em;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
 /* Play surface. */
 .play-screen {
   padding: 0.75rem;
@@ -573,6 +461,16 @@
 .vm-debug-heading {
   margin: 0 0 0.5rem;
 }
+/* Panel sub-headings (Input, Script slots, Globals, …): a dense, muted
+   section header. Lost its styling when the section class was renamed
+   vm-inspector → vm-debug; re-pointed here. */
+.vm-debug h3 {
+  font-size: 0.85em;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 1.25rem 0 0.5rem;
+}
 .vm-watchdog {
   margin: 0 0 0.5rem;
   padding: 0.4rem 0.6rem;
@@ -583,23 +481,10 @@
   font-size: 0.8rem;
   line-height: 1.3;
 }
-.vm-controls {
+.vm-status {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.5rem;
   margin-bottom: 0.5rem;
-}
-.vm-controls .vm-rate-label,
-.vm-controls .vm-warp-label {
-  opacity: 0.7;
-  font-size: 0.85em;
-}
-.vm-warp-input {
-  width: 4rem;
-}
-.vm-tick-counter {
-  margin-left: auto;
-  opacity: 0.7;
-  font-size: 0.9em;
 }

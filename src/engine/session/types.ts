@@ -87,7 +87,6 @@ export interface EngineSession {
    * playing, the next frame picks up the same state anyway.
    */
   present(): FrameInfo;
-  setRate(hz: number): void;
 
   sendInput(ev: InputEvent): void;
 
@@ -95,8 +94,6 @@ export interface EngineSession {
   snapshot(label?: string, savedAt?: number): SaveState;
   /** Boot a fresh VM for the same game and restore into it. Preserves play/pause. */
   restore(state: SaveState): void;
-  /** Fresh boot of the same game (discards current state). */
-  reboot(): void;
 
   // ── debug drivers ──
   /** Warp into a room via the faithful enterRoom path, then settle its entry script. */

@@ -8,7 +8,7 @@
  * this covers the session layer ON TOP of the real game.)
  *
  * The loop/lifecycle/input plumbing (clock throttle, idle/all-dead pause,
- * onFrame, sendInput, reboot, dispose) is pinned synthetically — not duplicated
+ * onFrame, sendInput, dispose) is pinned synthetically — not duplicated
  * here. Data-gated, so it self-skips on a fresh checkout.
  */
 import { describe, expect, it } from 'vitest';
