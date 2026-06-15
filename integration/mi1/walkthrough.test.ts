@@ -2796,35 +2796,6 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     });
   });
 
-  // PART IV ENTRY CHECKPOINT: snapshot the room-83 state (Part IV just begun) to
-  // a save so the finale's beats — the newest, most fragile ones — can be
-  // developed by fast-forwarding here (restoreSave) instead of re-driving Parts
-  // I–III from boot. The regression net itself always runs from boot; this is a
-  // dev convenience, regenerated every green run so it can't drift stale. With
-  // Part IV mapped, the game is feature-complete, so this is the LAST clean
-  // *playable* checkpoint — Part IV plays out below it to the credits.
-  describe('Part IV entry checkpoint', () => {
-    beat('snapshot the Mêlée-docks state to saves/MI1-walkthrough-frontier', () => {
-      writeFileSync(
-        'saves/MI1-walkthrough-frontier.websave.json',
-        JSON.stringify(snapshotVm(vm, { game: 'MI1', label: 'walkthrough-frontier' })),
-      );
-      // Furthest clean point so far: ALL of Part III done. Through "Under Monkey
-      // Island" — the cannibal village, the idol/picker/key/head trades, the LeChuck
-      // talk — then the catacombs (key-on-ear opens the head's mouth, the navigator's
-      // head guides the maze), the ghost ship (necklace → invisible, board, cabin
-      // key, grog, grease, the voodoo root), the auto-seltzer back in the village, and
-      // the lift that ferries "Bob" off the island. Ego now stands on the Mêlée docks
-      // (room 83) with Part IV ("Il Finale") begun — the finale plays out below.
-      expect(vm.currentRoom).toBe(83); // the Mêlée docks
-      expect(vm.vars.readBit(ROOMS.cannibalVillage.partFourBit)).toBe(1); // Part IV begun
-      expect(vm.vars.readBit(ROOMS.cannibalVillage.seltzerBit)).toBe(1); // the root was made into seltzer
-      expect(vm.vars.readGlobal(VARS.voyageStage)).toBe(2); // Part III's voyage flag carried through
-      // The catacombs idol was given to the cannibals long ago (still not ego's).
-      expect(vm.getObjectOwner(ROOMS.idolChamber.wimpyIdol)).not.toBe(vm.vars.readGlobal(VAR_EGO));
-    });
-  });
-
   describe('Part IV — Defeat LeChuck', () => {
     beat('🚶‍➡️ Mêlée docks — spray the ghost pirate barring the way to town, out to the Mêlée street (35)', () => {
       const docks = ROOMS.meleeDocks;
