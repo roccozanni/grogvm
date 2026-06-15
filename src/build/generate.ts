@@ -139,7 +139,7 @@ export function llmsTxt(
   const sections: Array<{ title: string; pages: Page[] }> = [
     {
       title: 'Start here',
-      pages: ['/', '/why/', '/docs/'].map((r) => byRoute.get(r)).filter((p): p is Page => !!p),
+      pages: ['/', '/why/', '/how/', '/docs/'].map((r) => byRoute.get(r)).filter((p): p is Page => !!p),
     },
     { title: 'Engine — how GrogVM is built', pages: pages.filter((p) => p.route.startsWith('/docs/engine/')) },
     {

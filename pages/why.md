@@ -64,7 +64,7 @@ or even only available through the Wayback Machine. That's why this project
 ships with [extensive documentation](/docs/), not only about the engine
 itself, but also about every SCUMM detail we could reconstruct from the
 reverse engineering process. And because this documentation doubles as the
-AI's durable memory, it's treated as a first-class citizen — not an
+AI's durable memory, it's treated as a first-class citizen; not an
 afterthought, or something a developer was forced to write.
 
 In addition to this, GrogVM comes with an extensive set of inspection /
@@ -82,4 +82,6 @@ format or variant has never been tested and may be broken. No other game is
 supported at the moment, but *Monkey Island 2: LeChuck's Revenge* is the next
 (and likely last) target.
 
-Install your own copy in the [Library](/library/) and check it out.
+Install your own copy in the [Library](/library/) and check it out, or read
+[how it was actually built](/how/): the struggles, the dead ends, and the parts
+still unsolved.
