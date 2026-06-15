@@ -10,79 +10,42 @@ Lean tracker. Two buckets:
 
 ---
 
-## Current — natural play through MI1
-
-Playing MI1 from boot and fixing each blocker engine-faithfully (committed on
-`main`). **Unit suite green + tsc clean**, plus a data-gated, from-boot
-integration playthrough (`npm run test:integration`, ~2.3s). **MI1 PLAYS FROM
-BOOT TO THE CREDITS — Parts I–IV are all FINISHED.** Part IV "Il Finale" (mapped
-2026-06-14): the lift drops "Bob" on the Mêlée docks (room 83), where he sprays
-his way past ghost pirates with the magic seltzer (#823) — a deadpan sales-pitch
-conversation per ghost whose root-beer line runs the spray straight away —
-through the docks (83) → the Mêlée street (35, "lo spettro sinistro" #440) → the store street (34),
-opens the church door (#438) into the wedding (room 78), objects to the ceremony
-(any objection), then out-talks LeChuck in the confrontation (room 45): Elaine's
-reveal (the bride under the veil is monkeys with her ghost-dissolving root beer),
-the insult exchange, and the spray threat — at which the seltzer bottle JAMS and
-LeChuck punches Bob across the island (global #133, "POW"/"BIFF") into Stan's
-Used Ship Emporium (room 59); there Bob stands up, grabs the root beer (#733) and
-sprays LeChuck (#734) → he detonates (win #132) → credits. The beat-by-beat
-sequence IS the test (`integration/mi1/walkthrough.test.ts`, in run order);
-Part-III/IV room ids + mechanics live in `game.ts` (Part III: `monkeyBeach`…
-`ghostBrig`; Part IV: `meleeDocks`/`church`/`confrontation`/`stansShowdown` +
-the Part-IV objects on `meleeStreet`/`storeStreet`), not here. The maze solver,
-the unified room move, and the ghost-spray exit (`solveMaze`/`enterRoom`/
-`leaveSprayingGhosts`) also live in `game.ts`; Part-IV dialogue is driven by
-named canonical answers (the root-beer line for the ghosts, `confrontation.answerPath`)
-via `pickDialogAnswer`, never a verb-id range.
+## Process — how we work
 
 **Working principle (agreed 2026-06-02):** engine-faithful, no hacks/shortcuts —
 confirm the real mechanism first (**never consult ScummVM source, in any form**),
 verify the actual outcome not the bookkeeping, surface every
-deferral/approximation here, never bury one. The full contract:
+deferral/approximation in this tracker, never bury one. The full contract:
 [COLLABORATION](pages/docs/agent/collaboration.md) +
 [VERIFICATION](pages/docs/agent/verification.md).
 
-**The regression net — MI1 full walkthrough** (`integration/mi1/walkthrough.test.ts`,
-started 2026-06-04). Design (one seeded VM from boot, beats, the frontier) →
-[HARNESS §6](pages/docs/engine/harness.md); testkit pieces → [AGENTS "The harness"](AGENTS.md);
-the *printing-sentence-blocks-the-next* finding → [INPUT §5](pages/docs/scumm/input.md).
-Suite conventions: beats carry **zero `driveTicks`** — each action waits on `waitReady`,
-then asserts via named condition-waiters (`waitPickedUp` / `waitGlobal` / `waitPlayable`;
-a raw `driveUntil` only for bespoke predicates). Named `<Part> · <Room> — <what it
-proves>`, file order = run order; per-game ids/vars in `game.ts` (`ROOMS`/`VERBS`/`VARS`).
-Conversation menus are driven by the **named** answer a beat picks — or `game.ts`'s
-documented `advanceDialog`/`exitDialog` helpers (over the `dialogAnswers`/`dialogUp`
-band primitives) for menus the game itself makes convergent (don't-care cascades,
-goodbyes) — never a raw verb-id range.
-A clean fast-forward save (`saves/MI1-walkthrough-frontier.websave.json`, gitignored,
-written by the `Part IV entry checkpoint` beat and regenerated each green run) sits at the
-Mêlée docks (room 83, Part IV just begun) — the last clean *playable* checkpoint, from which
-the finale's beats can be iterated without re-driving Parts I–III. Part IV plays out below it
-to the credits; with the game feature-complete the checkpoint no longer migrates forward.
+**Regression net — after any engine change, run `npm run test:integration`
+(~2.5s).** The MI1 from-boot walkthrough (`integration/mi1/walkthrough.test.ts`)
+drives the game start-to-credits; a green run is the regression check. If it
+fails, re-run with `npm run test:integration:save`: the same playthrough, but it
+writes a savepoint at every beat for fast replay / targeted debugging of the
+failing beat. Per-game room ids + mechanics live in `game.ts`
+(`ROOMS`/`VERBS`/`VARS`); suite design → [HARNESS §6](pages/docs/engine/harness.md)
++ [AGENTS "The harness"](AGENTS.md).
+
+---
+
+## Current — MI1 complete; polish + open items
+
+**MI1 PLAYS FROM BOOT TO THE CREDITS — Parts I–IV are all FINISHED** (committed
+on `main`). **Unit suite green + tsc clean**, plus a data-gated, from-boot
+integration playthrough that drives MI1 start-to-credits. What's left is polish
+(in-browser look passes + the open bugs below) and the next game — see **Next**.
 
 **The overhead map (rooms 2–6) is WALKABLE** (ego a small figure, costume 3 walking / costume 4 the
 boat), not a node hub: edge connectors cross screens (global #34); locations are entered by walking
 onto their marker.
-
-**Dev caveat (still live):** the engine RNG is a test-only seam, NOT serialized in saves
-([HARNESS §4](pages/docs/engine/harness.md)), so a frontier-restore drive diverges from the full
-from-boot run (catapult-fire end-position, Herman's arrival timing, etc. shift) — develop against
-the save for speed, but the from-boot run is the real check. Keep RNG-touchy beats robust: dynamic
-stop-conditions and condition-waiters, not exact intermediate asserts (the duel grind and monkey
-feed were hardened this way 2026-06-13 when the village walk-speed fix shifted the stream).
 
 > **Cannibal-village bug, still open (reported in-browser 2026-06-13).** The 3 cannibals sometimes
 > all render as "Lemonhead" (one mask) instead of three distinct masks — intermittent, a
 > costume-decode/limb issue on actors 3/4/5 (costume 9) in room 25. Not yet investigated; a
 > real-pixel (in-browser) issue, so the headless net (which renders nothing) doesn't catch it.
 > (The room-25 walk-speed crawl reported the same day is FIXED — commit `0bd87c9`.)
-
-**Pending in-browser checks** (fixes shipped + folded into docs, look not yet confirmed):
-
-- The fixed intro entry — room 38 used to flash ego top-right at full scale before the
-  entry walk rescaled him; `enterRoom` now resolves box + scale on room load (ego at
-  scale 215, box 5 from the first frame; headless repro: `scratch/lookout-entry-scale.ts`).
 
 ### Open bug-report saves (reported, not yet fixed)
 
@@ -306,16 +269,6 @@ play — maintainability/quality, not bugs. File:line refs are point-in-time.
   lazily; there's no managed heap to model).
 
 ---
-
-## Shipped — audio output, first cut (`WebAudioBackend`, 2026-06-12)
-
-SBL PCM + CD-track playback behind the `AudioBackend` seam, verified in-browser
-(commits `b6642ca` + the `8880e9b` session-clock fix). Design, behaviour, and
-the always-muted/virtual-clock model → [AUDIO](pages/docs/engine/audio.md);
-format facts → [SOUND §2/§4](pages/docs/scumm/sound.md). The detailed plan and
-its closure live in git (this section's history). Open remainders: OPL2
-synthesis for the 15 ADL-only effects (Next), single-CD-transport exclusivity
-and restored-save audio resumption (Tier-2 list above).
 
 ## Next
 
