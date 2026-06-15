@@ -67,7 +67,7 @@ ${discovery}    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/site.css" />
   </head>
   <body>
-    <header class="site-nav"><a href="/">GrogVM</a> · <a href="/why/">Why</a> · <a href="/library/">Library</a> · <a href="/docs/">Docs</a></header>
+    <header class="site-nav"><a href="/">GrogVM</a> · <a href="/why/">Why</a> · <a href="/library/">Library</a> · <a href="/docs/">Docs</a> · <a href="/legal/">Legal</a></header>
     <main class="${mainClass}">
 ${opts.bodyHtml ?? ''}
 ${mount}    </main>
@@ -75,8 +75,12 @@ ${mount}    </main>
       <a href="https://www.gnu.org/licenses/gpl-3.0.html">GPL-3.0-or-later</a> ·
       <a href="https://github.com/roccozanni/grogvm">source</a> ·
       by <a href="https://roccozanni.com">Rocco Zanni</a> ·
-      bring your own MI1 / MI2 ·
-      <a href="/privacy/">privacy &amp; terms</a>
+      <a href="/legal/">legal &amp; game files</a> ·
+      <a href="/privacy/">privacy</a>
+      <br />
+      Monkey Island, SCUMM and LucasArts are trademarks of their respective
+      owners — GrogVM is an unofficial fan project, not affiliated with Disney
+      or LucasArts.
     </footer>
   </body>
 </html>

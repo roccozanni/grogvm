@@ -82,5 +82,10 @@ License, version 3 or later** — see [LICENSE](LICENSE). It comes with
 no warranty, to the extent permitted by law.
 
 GrogVM bundles and distributes no LucasArts assets — you must obtain
-MI1 / MI2 legally yourself. This is a personal learning project with no
-intent to ship a competing product.
+MI1 / MI2 legally yourself, and the project has a strict no-piracy
+policy ("abandonware" is not a legal category). This is a personal
+learning project with no intent to ship a competing product. The classic
+VGA data GrogVM plays ships inside *The Secret of Monkey Island: Special
+Edition* on GOG / Steam. Full details — where to get the game, the
+no-piracy policy, trademarks, and a rights-holder contact — are on the
+[legal page](pages/legal.md) (live at <https://grogvm.dev/legal/>).

@@ -10,6 +10,21 @@ yourself, from a copy you legally own. None of the original artwork, music,
 dialogue, scripts, or other game content is included in this repository or
 distributed with it.
 
+The classic VGA CD version GrogVM plays is included inside *The Secret of Monkey
+Island: Special Edition*, still sold on
+[GOG](https://www.gog.com/en/game/the_secret_of_monkey_island_special_edition) and
+[Steam](https://store.steampowered.com/app/32360/The_Secret_of_Monkey_Island_Special_Edition/)
+(switch to classic mode with F10). See [`pages/legal.md`](pages/legal.md) for the
+full details.
+
+## No piracy
+
+GrogVM has a strict no-piracy policy and exists for games you legally own.
+Nothing here is intended to help anyone obtain a game illegally, and "abandonware"
+is not a legal category — a game being out of print does not make copying it
+lawful. There is no support for, or endorsement of, pirated or otherwise
+unauthorised copies.
+
 ## How the format was reconstructed
 
 The SCUMM file formats and bytecode are not officially documented. GrogVM's
@@ -49,3 +64,9 @@ trademarks of their respective owners. GrogVM is an unofficial, non-commercial
 fan project and is not affiliated with, endorsed by, or sponsored by Disney,
 LucasArts, or any rights holder. References to these names describe what the
 software is compatible with.
+
+## Rights holders
+
+GrogVM hosts and distributes no game assets. If you represent a rights holder and
+have a concern, please get in touch at **rocco.zanni@gmail.com** — messages are
+read and answered promptly.

@@ -9,8 +9,13 @@ description: A from-scratch TypeScript reimplementation of the SCUMM v5 engine �
 
 A from-scratch TypeScript reimplementation of the SCUMM v5 engine — the one that
 ran *The Secret of Monkey Island* and *Monkey Island 2: LeChuck's Revenge* —
-running in the browser, with no server and no emulator. Games are never bundled or
-distributed — you point GrogVM at your own copy on disk, and it stays in your browser.
+running in the browser, with no server and no emulator.
+
+> **GrogVM ships no game data.** It is an engine, not the game: you point it at
+> your own legally-owned copy of *The Secret of Monkey Island* on disk, and those
+> files never leave your browser. Nothing here bundles or distributes any
+> LucasArts content — see **[the game files & legality](/legal/)** for where to
+> get the game and the full legal picture.
 
 ## Why
 
@@ -41,3 +46,5 @@ worked. This is my love letter to *Monkey Island*, LucasArts, and Ron Gilbert
   first.)
 - **[Documentation](/docs/)** — the reverse-engineering notes behind the engine:
   resource formats, opcodes, graphics, timing, and more.
+- **[Legal & game files](/legal/)** — what GrogVM does and doesn't ship, where to
+  legally get *The Secret of Monkey Island*, and the no-piracy policy.

@@ -1,9 +1,9 @@
 ---
-title: Privacy & Terms
+title: Privacy
 description: GrogVM collects no personal data, runs no analytics or tracking, and has no server. Your game files and saves never leave your browser.
 ---
 
-# Privacy & Terms
+# Privacy
 
 The short version: **GrogVM doesn't know or care who you are.**
 
@@ -28,19 +28,9 @@ The short version: **GrogVM doesn't know or care who you are.**
 source — read the code and confirm there's no tracking, no analytics, and no
 data leaving your machine: [github.com/roccozanni/grogvm](https://github.com/roccozanni/grogvm).
 
-## Terms
+## Terms, licensing & game files
 
-- GrogVM is **free software under GPL-3.0-or-later**, provided **as-is, with no
-  warranty**, to the fullest extent the law allows.
-- It bundles and distributes **no game assets**. You must obtain *The Secret of
-  Monkey Island* / *Monkey Island 2* **legally yourself**, and use GrogVM only
-  with copies you are entitled to.
-- GrogVM is an **independent, from-scratch implementation** of the SCUMM format,
-  reconstructed from public reverse-engineering resources and verified against
-  real game data — built alongside [ScummVM](https://www.scummvm.org/), not
-  derived from it; it is released under a compatible copyleft license in
-  the same spirit.
-- *Monkey Island*, *SCUMM*, and *LucasArts* are **trademarks of their respective
-  owners**. GrogVM is an **unofficial, non-commercial fan project** — not
-  affiliated with, endorsed by, or sponsored by Disney, LucasArts, or any rights
-  holder.
+Licensing (GPL-3.0-or-later, as-is with no warranty), the fact that GrogVM
+bundles and distributes **no game assets**, where to legally obtain the game, the
+no-piracy policy, and trademarks all live on the **[Legal & game files](/legal/)**
+page.
