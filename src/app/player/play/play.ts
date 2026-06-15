@@ -217,6 +217,9 @@ async function mountGame(game: StoredGame, main: HTMLElement, onBack: () => void
 
   const save = (): void => {
     writeSave(game.id, QUICK_SLOT, session.snapshot(QUICK_SLOT));
+    // The Saves panel reads the same game.id namespace but only rebuilds on
+    // its own actions — nudge it so the fresh quicksave shows immediately.
+    debug.refreshSaves();
   };
   const load = (): void => {
     const snap = readSave(game.id, QUICK_SLOT);

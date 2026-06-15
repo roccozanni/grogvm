@@ -161,14 +161,35 @@ export function renderSavesPanel(
   importBtn.addEventListener('click', () => fileInput.click());
   fileInput.addEventListener('change', () => {
     const file = fileInput.files?.[0];
+    fileInput.value = ''; // let the same file be re-imported later
     if (!file) return;
     void file.text().then((txt) => {
+      let snap: SaveState;
       try {
-        load(JSON.parse(txt) as SaveState);
+        snap = JSON.parse(txt) as SaveState;
+      } catch {
+        setStatus('import failed: not valid JSON', true);
+        return;
+      }
+      // load() validates the save (throwing on a version / shape mismatch)
+      // and rebuilds the panel; on failure leave the message up (no refresh).
+      try {
+        load(snap);
       } catch (err) {
         setStatus(`import failed: ${err instanceof Error ? err.message : String(err)}`, true);
-        refresh();
+        return;
       }
+      // Loaded fine — also persist it to a named slot so the import sticks in
+      // the list instead of being a one-shot load that vanishes on reboot.
+      const slot = nameInput.value.trim() || importNameFor(file.name, snap);
+      try {
+        writeSave(saveKey, slot, snap);
+      } catch (err) {
+        setStatus(`loaded, but couldn’t add to the list: ${err instanceof SaveStoreError ? err.message : String(err)}`, true);
+        return;
+      }
+      nameInput.value = '';
+      refresh(); // rebuild the list so the imported slot shows
     });
   });
 
@@ -229,6 +250,17 @@ function defaultSaveName(): string {
   const d = new Date();
   const pad = (n: number): string => String(n).padStart(2, '0');
   return `save ${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/**
+ * Slot name for an imported save: the label it was saved under, else the
+ * file's base name (sans the exporter's .websave/.json suffix), else a
+ * timestamp. Capped to the slot-name input's maxLength.
+ */
+function importNameFor(fileName: string, snap: SaveState): string {
+  const label = snap.label?.trim();
+  const stem = fileName.replace(/\.websave\.json$|\.json$/i, '').trim();
+  return (label || stem || defaultSaveName()).slice(0, 40);
 }
 
 function formatWhen(ms: number): string {

@@ -27,6 +27,8 @@ export interface DebugPanel {
   readonly element: HTMLElement;
   /** Record a room click for the Input panel's history. */
   recordClick(e: ClickEvent, objId: number | null): void;
+  /** Rebuild the Saves list — call after an external write (e.g. Quick save). */
+  refreshSaves(): void;
   dispose(): void;
 }
 
@@ -61,6 +63,7 @@ export function mountDebugPanel(
 
   let element!: HTMLElement;
   let recordClick: (e: ClickEvent, objId: number | null) => void = () => {};
+  let refreshSaves: () => void = () => {};
 
   const dispose = createRoot((disposeRoot) => {
     const tickSig = signal(0);
@@ -92,6 +95,7 @@ export function mountDebugPanel(
         ),
       );
     };
+    refreshSaves = repaintSaves;
 
     const playBtn = el('button', {
       class: 'secondary',
@@ -219,6 +223,7 @@ export function mountDebugPanel(
   return {
     element,
     recordClick: (e, objId) => recordClick(e, objId),
+    refreshSaves: () => refreshSaves(),
     dispose,
   };
 }
