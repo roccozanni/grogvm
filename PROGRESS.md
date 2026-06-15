@@ -14,20 +14,27 @@ Lean tracker. Two buckets:
 
 Playing MI1 from boot and fixing each blocker engine-faithfully (committed on
 `main`). **Unit suite green + tsc clean**, plus a data-gated, from-boot
-integration playthrough (`npm run test:integration`, ~2.4s). **Parts I, II, and III
-are FINISHED — the from-boot walkthrough now plays the WHOLE of "Under Monkey
-Island" and lands in Part IV** (the cannibal village, the catacombs — key-on-ear
-opens the head's mouth, the navigator's head guides the procedural maze — LeChuck's
-ghost ship — necklace→invisible, board, cabin key, grog, grease, voodoo root — the
-auto-seltzer back in the village, and the lift that ferries "Bob" off the island).
-The frontier save now sits at the **Mêlée docks (room 83), Part IV begun**. The
-beat-by-beat sequence IS the test (`integration/mi1/walkthrough.test.ts`, in run
-order); Part-III room ids + mechanics live in `game.ts` (`monkeyBeach`/`monkeyMap`/
-`fort`/`riverFork`/`catapult`/`pond`/`crack`/`northBeach`/`cannibalVillage`/
-`cannibalHut`/`monkey`/`monkeyClearing`/`idolChamber`/`catacombsAntechamber`/
-`catacombsMaze`/`ghostCavern`/`ghostDeck`/`ghostCabin`/`ghostCrewQuarters`/
-`ghostGalley`/`ghostBilge`/`ghostBrig`), not here. The maze solver + the unified
-room-to-room move (`solveMaze`/`enterRoom`) also live in `game.ts`.
+integration playthrough (`npm run test:integration`, ~2.3s). **MI1 PLAYS FROM
+BOOT TO THE CREDITS — Parts I–IV are all FINISHED.** Part IV "Il Finale" (mapped
+2026-06-14): the lift drops "Bob" on the Mêlée docks (room 83), where he sprays
+his way past ghost pirates with the magic seltzer (#823) — a deadpan sales-pitch
+conversation per ghost whose root-beer line runs the spray straight away —
+through the docks (83) → the Mêlée street (35, "lo spettro sinistro" #440) → the store street (34),
+opens the church door (#438) into the wedding (room 78), objects to the ceremony
+(any objection), then out-talks LeChuck in the confrontation (room 45): Elaine's
+reveal (the bride under the veil is monkeys with her ghost-dissolving root beer),
+the insult exchange, and the spray threat — at which the seltzer bottle JAMS and
+LeChuck punches Bob across the island (global #133, "POW"/"BIFF") into Stan's
+Used Ship Emporium (room 59); there Bob stands up, grabs the root beer (#733) and
+sprays LeChuck (#734) → he detonates (win #132) → credits. The beat-by-beat
+sequence IS the test (`integration/mi1/walkthrough.test.ts`, in run order);
+Part-III/IV room ids + mechanics live in `game.ts` (Part III: `monkeyBeach`…
+`ghostBrig`; Part IV: `meleeDocks`/`church`/`confrontation`/`stansShowdown` +
+the Part-IV objects on `meleeStreet`/`storeStreet`), not here. The maze solver,
+the unified room move, and the ghost-spray exit (`solveMaze`/`enterRoom`/
+`leaveSprayingGhosts`) also live in `game.ts`; Part-IV dialogue is driven by
+named canonical answers (the root-beer line for the ghosts, `confrontation.answerPath`)
+via `pickDialogAnswer`, never a verb-id range.
 
 **Working principle (agreed 2026-06-02):** engine-faithful, no hacks/shortcuts —
 confirm the real mechanism first (**never consult ScummVM source, in any form**),
@@ -45,8 +52,10 @@ then asserts via named condition-waiters (`waitPickedUp` / `waitGlobal` / `waitP
 a raw `driveUntil` only for bespoke predicates). Named `<Part> · <Room> — <what it
 proves>`, file order = run order; per-game ids/vars in `game.ts` (`ROOMS`/`VERBS`/`VARS`).
 A clean fast-forward save (`saves/MI1-walkthrough-frontier.websave.json`, gitignored,
-written by the ALWAYS-LAST `frontier` beat and regenerated each green run) sits at the furthest
-clean state (currently room 83 — the Mêlée docks, Part IV begun; see NEXT below).
+written by the `Part IV entry checkpoint` beat and regenerated each green run) sits at the
+Mêlée docks (room 83, Part IV just begun) — the last clean *playable* checkpoint, from which
+the finale's beats can be iterated without re-driving Parts I–III. Part IV plays out below it
+to the credits; with the game feature-complete the checkpoint no longer migrates forward.
 
 **The overhead map (rooms 2–6) is WALKABLE** (ego a small figure, costume 3 walking / costume 4 the
 boat), not a node hub: edge connectors cross screens (global #34); locations are entered by walking
@@ -306,14 +315,17 @@ and restored-save audio resumption (Tier-2 list above).
 
 ## Next
 
-Three items ahead, one of which — keep playing MI1 — is the Current section
-above. We no longer track by phase number; the numbered-phase roadmap (and
-each finished task's closure record) is history — git keeps it.
+MI1 now plays start-to-credits from boot, so the "keep playing MI1" track is
+DONE — what's left is polish and the next game. We no longer track by phase
+number; the numbered-phase roadmap (and each finished task's closure record) is
+history — git keeps it.
 
-- **Part IV "Il Finale"** — the new frontier (Parts I–III now play from boot).
-  The lift lands ego on the Mêlée docks (room 83); the finale crashes the wedding
-  (room 78), confronts LeChuck (room 45), and the root-beer/seltzer showdown
-  (room 59). Drive it from boot, fixing each blocker as before.
+- **MI1 in-browser finale pass** — the headless net proves Part IV *plays*, never
+  that it *renders* (it draws zero pixels). Eyeball the finale in the browser
+  from the beat saves (`npm run test:integration:save`): the ghost-spray
+  animation, the church/wedding, the "POW"/"BIFF" punch montage (global #133,
+  room 85) and its camera framing, and the LeChuck-explosion credits. Fold any
+  visual gap into the Tier-2 / rendering lists above.
 - **Audio: OPL2 synthesis** for the 15 ADL-only effects (first cut shipped
   above — SBL + CD play; an AudioWorklet OPL2 + the ADL MIDI event stream).
 - **MI2** — full support for the v5-but-slightly-different edge cases. Sanity

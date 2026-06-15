@@ -86,6 +86,7 @@ import {
   hasClass,
   hasGame,
   isTouchable,
+  leaveSprayingGhosts,
   mugDying,
   mugHasGrog,
   mugUsable,
@@ -2795,14 +2796,15 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
     });
   });
 
-  // ALWAYS THE LAST GROUP: snapshot the furthest clean playable state to a save
-  // so the NEXT frontier's beats can be developed by fast-forwarding here
-  // (restoreSave) instead of re-driving from boot — the regression net itself
-  // always runs from boot. As the walkthrough grows, this group moves to stay
-  // last, so the save tracks the leading edge. Regenerated every green run, so
-  // it can't drift stale.
-  describe('frontier', () => {
-    beat('snapshot the furthest clean state to saves/MI1-walkthrough-frontier', () => {
+  // PART IV ENTRY CHECKPOINT: snapshot the room-83 state (Part IV just begun) to
+  // a save so the finale's beats — the newest, most fragile ones — can be
+  // developed by fast-forwarding here (restoreSave) instead of re-driving Parts
+  // I–III from boot. The regression net itself always runs from boot; this is a
+  // dev convenience, regenerated every green run so it can't drift stale. With
+  // Part IV mapped, the game is feature-complete, so this is the LAST clean
+  // *playable* checkpoint — Part IV plays out below it to the credits.
+  describe('Part IV entry checkpoint', () => {
+    beat('snapshot the Mêlée-docks state to saves/MI1-walkthrough-frontier', () => {
       writeFileSync(
         'saves/MI1-walkthrough-frontier.websave.json',
         JSON.stringify(snapshotVm(vm, { game: 'MI1', label: 'walkthrough-frontier' })),
@@ -2813,13 +2815,104 @@ describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
       // head guides the maze), the ghost ship (necklace → invisible, board, cabin
       // key, grog, grease, the voodoo root), the auto-seltzer back in the village, and
       // the lift that ferries "Bob" off the island. Ego now stands on the Mêlée docks
-      // (room 83) with Part IV ("Il Finale") begun — the next frontier.
+      // (room 83) with Part IV ("Il Finale") begun — the finale plays out below.
       expect(vm.currentRoom).toBe(83); // the Mêlée docks
       expect(vm.vars.readBit(ROOMS.cannibalVillage.partFourBit)).toBe(1); // Part IV begun
       expect(vm.vars.readBit(ROOMS.cannibalVillage.seltzerBit)).toBe(1); // the root was made into seltzer
       expect(vm.vars.readGlobal(VARS.voyageStage)).toBe(2); // Part III's voyage flag carried through
       // The catacombs idol was given to the cannibals long ago (still not ego's).
       expect(vm.getObjectOwner(ROOMS.idolChamber.wimpyIdol)).not.toBe(vm.vars.readGlobal(VAR_EGO));
+    });
+  });
+
+  describe('Part IV — Defeat LeChuck', () => {
+    beat('🚶‍➡️ Mêlée docks — spray the ghost pirate barring the way to town, out to the Mêlée street (35)', () => {
+      const docks = ROOMS.meleeDocks;
+      const ego = vm.vars.readGlobal(VAR_EGO);
+      // LeChuck's lift stripped Ego's pockets to money + the magic seltzer.
+      expect(vm.getObjectOwner(docks.seltzer)).toBe(ego);
+      // Walking to the town-ward "molo" (#905) summons a ghost pirate that forces
+      // a deadpan sales-pitch conversation; the root-beer line runs the seltzer
+      // spray ("Fresco!") that dissolves it. Once it's gone the exit leads on to
+      // the Mêlée street — leaveSprayingGhosts picks the root beer, then walks
+      // through (via enterRoom, which re-walks the wide dock on its own).
+      expect(leaveSprayingGhosts(vm, docks.townExit, ROOMS.meleeStreet.id, docks.ghostAnswers.rootBeer)).toBe(true);
+      expect(vm.getObjectOwner(docks.seltzer)).toBe(ego); // still ours — the spray doesn't consume it
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('🚶‍➡️ Mêlée street — spray "lo spettro sinistro", cross to the store street (34)', () => {
+      const street = ROOMS.meleeStreet;
+      // Heading west to the store arch (#451) walks Ego into the sinister specter
+      // (#440, room 35 #211). Its banter is a branching tree, but the root-beer
+      // line jumps straight to the spray; once the specter's gone the arch loads
+      // the store street.
+      expect(leaveSprayingGhosts(vm, street.storeArch, ROOMS.storeStreet.id, street.ghostRootBeerAnswer)).toBe(true);
+      expect(waitPlayable(vm)).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('🚶‍➡️ Store street — open the church door (between store and jail), into the wedding (78)', () => {
+      const street = ROOMS.storeStreet;
+      // The church door (#438) is a plain two-state door between the store and the
+      // jail; enterRoom detects it's shut, Opens it, then walks ego through → the
+      // church. The arch back to town (#433) now refuses ("Non è di là la chiesa")
+      // and steers you here, so this door is the only way on.
+      expect(enterRoom(vm, street.churchDoor, ROOMS.church.id, { maxTicks: 14000 })).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('⚙️ Church — object to the wedding; LeChuck whisks Ego off to confront him (45)', () => {
+      const church = ROOMS.church;
+      // Entering the church auto-ran the ceremony to the priest's "speak now or
+      // forever hold your peace" and armed a four-line objection menu. Any
+      // objection interrupts the wedding (room 78 #201 waits on the pick), so we
+      // pick the first one; ego is then transported to the confrontation, room 45.
+      pickDialogAnswer(vm, church.objectionVerbs[0], { armTicks: 16000 });
+      expect(driveToRoom(vm, ROOMS.confrontation.id, { maxTicks: 16000 })).toBe(true);
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('⚙️ The confrontation — out-talk LeChuck until the jammed seltzer gets Ego punched into Stan\'s (59)', () => {
+      const conf = ROOMS.confrontation;
+      // The whole confrontation is forced dialogue (room 45 #200): Ego objects,
+      // Elaine (actor 10) enters and reveals the bride under the veil is monkeys
+      // holding her ghost-dissolving root beer, then Ego threatens to spray — but
+      // the seltzer bottle JAMS ("E' TAPPATA!"). LeChuck punches Ego clear across
+      // the island (#133, "POW"/"BIFF" over the overhead map), which disowns the
+      // spent seltzer and drops him on the floor of Stan's. We walk the canonical
+      // plot thread (object → reveal → object → spray threat) — each pick advances
+      // one scripted stage; the last is what triggers the jam and the punch.
+      for (const answer of conf.answerPath) pickDialogAnswer(vm, answer, { armTicks: 24000 });
+      expect(driveToRoom(vm, ROOMS.stansShowdown.id, { maxTicks: 24000 })).toBe(true);
+      // The punch montage stripped the now-empty seltzer.
+      expect(vm.getObjectOwner(ROOMS.meleeDocks.seltzer)).not.toBe(vm.vars.readGlobal(VAR_EGO));
+      expect(vm.haltInfo).toBeNull();
+    });
+
+    beat('⚙️ Stan\'s Used Ship Emporium — stand up, grab the root beer, spray LeChuck → he detonates (credits)', () => {
+      const stan = ROOMS.stansShowdown;
+      const ego = vm.vars.readGlobal(VAR_EGO);
+      const running = (id: number): boolean => vm.slots.some((s) => s.scriptId === id && s.status !== 'dead');
+      // The punch hands control back with Ego on the floor. The first scene click
+      // stands him up (#129) beside the root-beer machine; two punch timers then
+      // arm — #126 (a ~9 s do-nothing windup) and #125 (punch the instant ego
+      // tries to MOVE).
+      expect(driveUntil(vm, (v) => v.cursor.userput > 0, { maxTicks: 24000 })).toBe(true);
+      walkTo(vm, { x: 280, y: 110 }); // a bare click → stand up off the floor
+      expect(driveUntil(vm, () => running(stan.movePunchScript), { maxTicks: 12000 })).toBe(true);
+      // The root beer (#733) sits on ego's own walk-spot, so picking it up needs
+      // no walk — a zero-distance grab that must NOT trip the move-punch (#125).
+      use(vm, VERBS.pickUp, stan.rootBeer);
+      expect(driveUntil(vm, (v) => v.getObjectOwner(stan.rootBeer) === ego, { maxTicks: 9000 })).toBe(true);
+      expect(running(stan.punchScript)).toBe(false); // the punch never fired — the grab didn't move ego
+      // Spray LeChuck (#734) with the root beer → the win (#132): he chokes
+      // ("--urk--", "Aiiieeee!"), switches to his death costume (115), detonates.
+      useWith(vm, VERBS.use, stan.rootBeer, stan.lechuck);
+      expect(driveUntil(vm, () => running(stan.winScript), { maxTicks: 12000 })).toBe(true);
+      expect(driveUntil(vm, (v) => v.actors.get(stan.lechuckActor).costume === 115, { maxTicks: 12000 })).toBe(true);
+      expect(vm.haltInfo).toBeNull();
     });
   });
 });

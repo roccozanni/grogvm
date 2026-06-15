@@ -12,6 +12,7 @@ import {
   makeSeededRandom,
   objectPoint,
   pickAnswer,
+  pickDialogAnswer,
   use,
   waitPlayable,
   walkTo,
@@ -127,6 +128,16 @@ export const VARS = {
    * plays the "siamo arrivati a Monkey Island" look and bumps the stage).
    */
   voyageStage: 259,
+  /**
+   * Part IV finale stage (g277). The Mêlée-docks ENCD (room 83) branches on it
+   * (1–6) to pick which arrival script runs; the Part III→IV lift (global #131)
+   * sets it to 6 on landing, where the docks ENCD strips ego's inventory down
+   * to the keepers {money #488, magic seltzer #823, root beer #733}. The dock
+   * ghost (room 83 #204) and the LeChuck punch (room 45 #200) both clear it to
+   * 0 as the cutscene takes over. Not a linear progress counter — a per-arrival
+   * selector — so read it for "Part IV begun", not for "how far".
+   */
+  finaleStage: 277,
 } as const;
 
 /**
@@ -463,16 +474,35 @@ export const ROOMS = {
      */
     voodooDoor: 444,
     /** "l'arco" (#451) → the general-store street ({@link ROOMS.storeStreet},
-     *  room 34); click to walk through. */
+     *  room 34); click to walk through. The town-ward leg of the Part IV walk
+     *  to the church — ego arrives from the docks at the east arch (#450, x≈437)
+     *  and crosses west to this one. */
     storeArch: 451,
     /**
      * "l'arco" (#450) — the west arch back to the lookout/town room
      * ({@link ROOMS.meleeLookout}, room 33). Its verb-11 branches on plot bits
      * (later it reroutes to the docks, room 83); early on — those bits clear —
      * it lands ego at room 33's east arch (#427). The return leg of the trip
-     * out to the shops.
+     * out to the shops. (In Part IV ego ARRIVES here from the docks #905.)
      */
     lookoutArch: 450,
+    /**
+     * PART IV — "lo spettro sinistro" (#440), a ghost pirate blocking the
+     * cross-street. Walking past it trips its conversation (room 35 local #211,
+     * the longer cousin of the dock ghost): a BRANCHING banter tree — picking
+     * other lines wanders through stages of insults — but the root-beer line
+     * ({@link ghostRootBeerAnswer}) jumps straight to the spray (#211 offset
+     * 2653) that dissolves it. Then the way west to `storeArch` opens.
+     */
+    ghost: 440,
+    /**
+     * The root-beer answer in the street ghost's first menu — the 3rd option
+     * (verb 122, "No, ma ho questa micidiale birra di radice"). Dialog answer
+     * verbs are positional (`g100 = 120 + option index`), so option 3 is always
+     * 122; its case in #211 jumps directly to the spray. One pick clears the
+     * ghost — see {@link leaveSprayingGhosts}.
+     */
+    ghostRootBeerAnswer: 122,
   },
 
   /** The Voodoo Lady's shop (room 29), entered through the street's
@@ -510,12 +540,23 @@ export const ROOMS = {
      * "l'arco" (#433) — the far-east arch back to the Mêlée town street
      * ({@link ROOMS.meleeStreet}, room 35); click to walk through. (Early on
      * bit#453, the church-detour gate, is clear, so it just loads room 35.)
+     * Once bit#453 is set (Part IV begun) its verb-11 instead scolds "Non è di
+     * là la chiesa" and redirects the walk to the church door {@link churchDoor}
+     * — the game funnels the finale toward the church.
      */
     townArch: 433,
     /** "l'entrata" (#434) — the prison entrance. Walk-to (verb 11) →
      *  `loadRoomWithEgo obj=400 room=31`, dropping ego inside the jail
      *  ({@link prison}, room 31) where Otis is locked up. */
     prison: 434,
+    /**
+     * PART IV — "la porta" (#438), the church door (between the store and the
+     * jail). A standard two-state door: Open it (verb 2 — runs the open
+     * animation to state 1), then walk to it; its walk-to handler then
+     * `loadRoomWithEgo obj=857 room=78` into the wedding ({@link church}). Shut
+     * until Part IV.
+     */
+    churchDoor: 438,
   },
 
   /**
@@ -2090,6 +2131,141 @@ export const ROOMS = {
     /** "la porta" (#789) → back to the deck (room 77). */
     door: 789,
   },
+
+  // ── PART IV — Il Finale ──────────────────────────────────────────────────
+
+  /**
+   * The Mêlée docks (room 83) — where the lift drops "Bob" to open Part IV
+   * (g277 = 6, ego holding only money #488 + magic seltzer #823). LeChuck has
+   * overrun the island with ghost pirates; ego heads town-ward, spraying any
+   * ghost that blocks the way with the seltzer.
+   */
+  meleeDocks: {
+    id: 83,
+    /**
+     * "il molo" (#905) — the east/town-ward exit. Its walk-to leaves to the
+     * Mêlée street ({@link meleeStreet}, room 35) — BUT a ghost pirate (actor 7)
+     * guards it: the first walk runs the dock-ghost script (local #204) instead.
+     * The ghost forces a conversation ({@link ghostAnswers}); picking the
+     * root-beer line runs the seltzer spray that dissolves it ("Fresco!"), after
+     * which a SECOND walk to #905 leaves to room 35 — see
+     * {@link leaveSprayingGhosts}. (#904, the west "molo", just bounces you back
+     * to #905 in Part IV.)
+     */
+    townExit: 905,
+    /**
+     * The dock-ghost conversation answers (verbs 120–123) — a sales-pitch gag:
+     * 120 "Potrebbe interessarle della birra di radice, signore?" (root beer?),
+     * 121 mouthwash, 122 a funny trick, 123 "Beccati QUESTO, verme!". ALL FOUR
+     * jump to the same spray (#204 offset 801); we pick `rootBeer` (120), the
+     * canonical root-beer line.
+     */
+    ghostAnswers: { rootBeer: 120, mouthwash: 121, trick: 122, takeThis: 123 },
+    /** The magic seltzer bottle (#823, "la bottiglia di selz magico") ego sprays
+     *  ghosts with — the voodoo root, transmuted back in the village
+     *  ({@link cannibalVillage}.seltzerBit). Carried in from Part III; the spray
+     *  is automatic in each ghost's conversation, never a manual Use. */
+    seltzer: 823,
+  },
+
+  /**
+   * The church (room 78) — LeChuck is forcing Elaine into a wedding. Entering
+   * (through {@link storeStreet}.churchDoor) auto-plays the ceremony: the priest
+   * (actor 2) reaches "speak now or forever hold your peace" and a four-line
+   * objection menu arms. Picking ANY line interrupts the wedding and whisks ego
+   * to the confrontation ({@link confrontation}, room 45).
+   */
+  church: {
+    id: 78,
+    /** "l'uscita" (#857) — the entry/exit ego arrives at (the door from room 34
+     *  lands here at (145,142)). */
+    entry: 857,
+    /** LeChuck the groom — ACTOR 9 (costume 32) at the altar. The same actor
+     *  carries through the confrontation and the Stan's showdown. */
+    lechuckActor: 9,
+    /**
+     * The objection menu (verbs 120–123): 120 "Lo sposo non è un gentiluomo!",
+     * 121 "Lo sposo non è umano!", 122 "Elaine!", 123 "FERMATE LA CERIMONIA!!".
+     * Any pick advances (room 78 local #201 waits on g194 then transports ego to
+     * room 45), so the beat picks the first, `objectionVerbs[0]`.
+     */
+    objectionVerbs: [120, 121, 122, 123] as const,
+  },
+
+  /**
+   * The confrontation (room 45) — the long LeChuck dialogue (local #200): ego
+   * objects, Elaine (actor 10) enters and reveals the bride under the veil is
+   * monkeys holding her ghost-dissolving root beer, ego threatens to spray —
+   * and the seltzer bottle JAMS ("Oh, no! E' TAPPATA!"). LeChuck (costume 95)
+   * winds up and punches Bob across the island (global #133, "POW"/"BIFF" over
+   * the overhead map), which strips the spent seltzer and lands him in Stan's.
+   */
+  confrontation: {
+    id: 45,
+    /** LeChuck — ACTOR 9 (as in the {@link church}). */
+    lechuckActor: 9,
+    /** Elaine — ACTOR 10, entering partway through the cutscene. */
+    elaineActor: 10,
+    /**
+     * The confrontation is a BRANCHING chain of answer menus (verbs positional,
+     * `g100 = 120 + option index`). Driving it canonically is four picks along
+     * the plot thread — {@link answerPath} — each advancing one scripted stage:
+     * the objection → the "who's under the dress" reveal → the objection again →
+     * the spray threat (where the seltzer jams and LeChuck punches Bob out).
+     */
+    sceneScript: 200,
+    /**
+     * The canonical pick sequence through local #200 (verified end-to-end via
+     * `scratch/finale-dialog-probe.ts`):
+     *  - 124 "Sono venuto per impedirti di sposare il Governatore Marley" (object)
+     *  - 121 "Se tu sei qui, allora chi indossa quel vestito?" (the reveal)
+     *  - 124 "Dovevo impedirti di sposare il Governatore Marley" (object again)
+     *  - 121 "Ti spruzzerò con la mia bottiglia di selz appiccicoso" (spray threat)
+     * The last is the seltzer-spray threat that triggers the jam → punch (#133).
+     */
+    answerPath: [124, 121, 124, 121] as const,
+    /** Global #133 — the punch montage that flings ego to {@link stansShowdown}
+     *  (room 59) and disowns the seltzer (#823). */
+    punchScript: 133,
+  },
+
+  /**
+   * Stan's Used Ship Emporium (room 59) — the final showdown. The punch lands
+   * Bob on the floor; the first scene click stands him up (#129) next to a root
+   * beer vending machine. Two punch timers arm — #126 (a ~9 s "do nothing"
+   * windup) and #125 (punch the instant ego tries to MOVE) — so grab the root
+   * beer (which sits on ego's own walk-spot, needing no walk) and spray LeChuck
+   * fast. Using it on him detonates him → the win (#132) → credits.
+   */
+  stansShowdown: {
+    id: 59,
+    /** "la birra di radice" (#733) — the root beer, on ego's own walk-spot
+     *  (297,106). Pick up (verb 9): a zero-distance grab, so it must NOT trip the
+     *  move-punch timer #125 (the startWalkActor zero-distance early-out). */
+    rootBeer: 733,
+    /** "LeChuck" (#734) — the use-target object (backed by actor 9) at (297,106).
+     *  Use the root beer on him → he detonates. */
+    lechuck: 734,
+    /** LeChuck the actor (9) — flips to his death costume (115) as he chokes and
+     *  detonates in the win cutscene (#132); the durable "defeated" signal. */
+    lechuckActor: 9,
+    /** "la macchina del grog" (#690) — the root-beer vending machine ego is
+     *  flung against; the root beer #733 is dispensed from it. */
+    machine: 690,
+    /** The stand-up cutscene started by the first scene click after landing. */
+    standUpScript: 129,
+    /** The move-punch gate (#125) and the ~9 s do-nothing windup (#126) — both
+     *  arm once ego is standing; each fires the punch ({@link punchScript}) — #125
+     *  the instant ego moves, #126 when its timer elapses — ending the game. */
+    movePunchScript: 125,
+    windupPunchScript: 126,
+    /** Global #127 — the actual punch both timers start (`startScript 127`).
+     *  The zero-distance root-beer grab must NOT fire it; asserting it never ran
+     *  is how the beat proves the grab didn't move ego. */
+    punchScript: 127,
+    /** The win — global #132, started when the root beer is used on LeChuck. */
+    winScript: 132,
+  },
 } as const;
 
 // ── Insult-swordfight driving ─────────────────────────────────────────────
@@ -2364,6 +2540,36 @@ export function townToMap(vm: Vm): void {
   walkTo(vm, ROOMS.cliffPath.path);
   driveToRoom(vm, ROOMS.meleeMap.id, { maxTicks: 8000 });
   waitPlayable(vm, 10000);
+}
+
+/**
+ * Leave a Part IV room through `exitObj`, dissolving the ghost pirate that bars
+ * it. Walking into the exit makes the ghost intercept with its sales-pitch
+ * conversation; picking its root-beer line (`rootBeerAnswer`) runs the seltzer
+ * spray that removes the ghost ("Fresco!") and clears the guard class off the
+ * exit, after which the way leads on. Returns whether it arrived.
+ *
+ * Two reasons this is a loop, both watching real conditions rather than blind-
+ * retrying: the rooms are wide, so one walk only reaches the next walkbox edge
+ * and ego must re-walk to cross (each hop is paced by {@link walkTo}'s own
+ * waitReady — it blocks until the previous leg finishes); and the ghost
+ * intercepts on whichever hop reaches its trigger, RNG-dependent from boot. The
+ * hop cap is only a hang-guard. Picking by name (not "whatever's armed") matters
+ * because the street ghost's menu is a branching tree — only the root-beer line
+ * jumps straight to the spray; the others wander through stages of banter.
+ */
+export function leaveSprayingGhosts(vm: Vm, exitObj: number, targetRoom: number, rootBeerAnswer: number, maxHops = 8): boolean {
+  const start = vm.currentRoom;
+  const armed = (): boolean => vm.verbs.get(rootBeerAnswer)?.state === 'on';
+  for (let hop = 0; hop < maxHops && vm.currentRoom === start; hop++) {
+    walkTo(vm, exitObj);
+    // The leg either crosses to the target, settles at a box edge with control
+    // back, or the ghost intercepts with its menu — wait for whichever.
+    driveUntil(vm, (v) => v.currentRoom !== start || armed() || v.cursor.userput > 0, { maxTicks: 14000 });
+    if (armed()) pickDialogAnswer(vm, rootBeerAnswer); // root beer → spray → ghost gone
+    driveUntil(vm, (v) => v.currentRoom !== start || v.cursor.userput > 0, { maxTicks: 14000 });
+  }
+  return vm.currentRoom === targetRoom;
 }
 
 /** Class N is bit N−1 of the runtime class mask. Class 32 is the engine's
