@@ -52,7 +52,10 @@ AI. That FOMO I mentioned above contributed to it, but the first and foremost
 goal was to have fun. Within a few days I realized there was another
 opportunity, to contribute at least a bit to the preservation of the
 absolutely outstanding work done by the LucasArts team first, and the ScummVM
-volunteers later.
+volunteers later. None of this exists in a vacuum: ScummVM and the people who
+documented SCUMM over the last two decades made this kind of project possible.
+GrogVM is a separate engine, not derived from ScummVM source, but it absolutely
+stands on that preservation work.
 
 Everyone working in the industry knows that documentation is a double-edged
 sword. When well written it's very useful, but it takes a lot of effort, and

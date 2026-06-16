@@ -82,6 +82,9 @@ software is compatible with.
 GrogVM is free software, licensed under the **GNU General Public License, version
 3 or later** ([GPL-3.0-or-later](https://www.gnu.org/licenses/gpl-3.0.html)). It
 is provided **as-is, with no warranty**, to the fullest extent the law allows.
+This is a personal hobby project: bug reports and useful notes are welcome, but
+there is no guaranteed support for individual installs, game copies, browsers, or
+operating systems.
 
 ## Rights holders
 

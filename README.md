@@ -82,7 +82,9 @@ The same pages ship as the project site at <https://grogvm.dev>.
 
 GrogVM is free software, licensed under the **GNU General Public
 License, version 3 or later** — see [LICENSE](LICENSE). It comes with
-no warranty, to the extent permitted by law.
+no warranty, to the extent permitted by law. This is a personal hobby project:
+bug reports and useful notes are welcome, but there is no guaranteed support for
+individual installs, game copies, browsers, or operating systems.
 
 GrogVM bundles and distributes no LucasArts assets — you are responsible for
 using files from a lawful copy and complying with any terms that apply to that
