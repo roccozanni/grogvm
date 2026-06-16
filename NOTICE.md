@@ -1,29 +1,32 @@
 # NOTICE
 
 GrogVM is an independent, browser-based implementation of the SCUMM engine,
-written from scratch to play the classic LucasArts graphic adventures on the web.
+written from scratch to play classic LucasArts graphic adventure data on the
+web.
 
 ## Game assets
 
 GrogVM ships **no game data**. The engine plays games from data files you supply
-yourself, from a copy you legally own. None of the original artwork, music,
-dialogue, scripts, or other game content is included in this repository or
-distributed with it.
+yourself from a lawful copy. Users are responsible for complying with the terms
+that apply to their copy. None of the original artwork, music, dialogue,
+scripts, or other game content is included in this repository or distributed
+with it.
 
-The classic VGA CD version GrogVM plays is included inside *The Secret of Monkey
-Island: Special Edition*, still sold on
+The classic VGA CD version GrogVM currently targets is included inside some
+installs of *The Secret of Monkey Island: Special Edition*, still sold on
 [GOG](https://www.gog.com/en/game/the_secret_of_monkey_island_special_edition) and
 [Steam](https://store.steampowered.com/app/32360/The_Secret_of_Monkey_Island_Special_Edition/)
-(switch to classic mode with F10). See [`pages/legal.md`](pages/legal.md) for the
-full details.
+(switch to classic mode with F10). Digital-storefront terms can vary; GrogVM
+does not bypass DRM or provide game assets. See [`pages/legal.md`](pages/legal.md)
+for the full details.
 
 ## No piracy
 
-GrogVM has a strict no-piracy policy and exists for games you legally own.
-Nothing here is intended to help anyone obtain a game illegally, and "abandonware"
-is not a legal category — a game being out of print does not make copying it
-lawful. There is no support for, or endorsement of, pirated or otherwise
-unauthorised copies.
+GrogVM has a strict no-piracy policy and exists for games you are allowed to use.
+Nothing here is intended to help anyone obtain a game illegally, and
+"abandonware" is not a legal category — a game being out of print does not make
+copying it lawful. There is no support for, or endorsement of, pirated or
+otherwise unauthorised copies.
 
 ## How the format was reconstructed
 
@@ -35,7 +38,9 @@ that format — not a port of any existing codebase.
 
 The project ships its own extensive documentation of the format under
 [`pages/docs/scumm/`](pages/docs/scumm/), written as part of this reconstruction.
-Where that documentation draws on external sources, it credits them inline.
+Where that documentation draws on external sources, it credits them inline. Any
+page that adapts external text, tables, or diagrams should carry source and
+license notes directly on the page.
 
 ## Credits and gratitude
 
@@ -53,7 +58,7 @@ GrogVM stands on decades of work by others:
 
 ## License
 
-GrogVM is licensed under the **GNU General Public License v3.0** (see
+GrogVM is licensed under the **GNU General Public License v3.0 or later** (see
 [`LICENSE`](LICENSE)). This keeps the project copyleft — free to use, study,
 modify, and share, with the same freedoms preserved for everyone downstream.
 

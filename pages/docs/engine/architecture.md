@@ -6,10 +6,11 @@ description: The as-built shape of GrogVM — the layer map from markdown pages 
 # Architecture — Layers & Seams
 
 GrogVM is a from-scratch TypeScript reimplementation of SCUMM v5 that runs
-natively in the browser, built to learn the engine by rebuilding it. It targets
-*The Secret of Monkey Island* (CD, VGA, 256-color) and *Monkey Island 2:
-LeChuck's Revenge* (DOS) — the two share an engine version, container layout,
-and graphics pipeline, so one engine runs both.
+natively in the browser, built to learn the engine by rebuilding it. It currently
+targets *The Secret of Monkey Island* (CD, VGA, 256-color). *Monkey Island 2:
+LeChuck's Revenge* (DOS) is the next planned target: it shares the same engine
+version, container layout, and graphics pipeline, but it is not currently
+supported.
 
 This page is the map: the layers, what each one owns, and the seams between
 them. Subsystem behavior lives in the sibling docs, linked throughout.
@@ -37,7 +38,7 @@ them. Subsystem behavior lives in the sibling docs, linked throughout.
           generator; offline tooling, nothing imports it
 ```
 
-The whole site ships as static files — no server, ever. The engine at the
+The app ships as static files with no application backend. The engine at the
 bottom is fully headless: everything it needs from the outside world (a
 renderer, a clock, an audio backend) is injected, which is what lets the same
 code run a real game in the browser and a scripted playthrough in Node.
@@ -46,13 +47,13 @@ code run a real game in the browser and a scripted playthrough in Node.
 
 The non-goals shape the code as much as the goals do:
 
-- **Two games only.** No other SCUMM versions (v4, v6+), no non-SCUMM titles.
+- **MI1 now, MI2 next.** No other SCUMM versions (v4, v6+), no non-SCUMM titles.
 - **"Plays correctly enough to finish", not preservation.** No bit-exact
   reproduction of original timing or audio mixing.
 - **Clean room.** No ScummVM source reuse — the engine is built from
   long-circulating public format notes (which contain errors) validated
   against real game data, and from disassembling the games' own bytecode.
-- **No server, ever.** The whole site — these docs and the playable engine —
+- **No app backend.** The whole site — these docs and the playable engine —
   ships as static files.
 - **Desktop browsers.** Mobile/touch input is not a target.
 
@@ -99,9 +100,9 @@ What each layer in the stack owns:
 
 **Fine print — the static build.** The site is a multi-page static build:
 each page is a real HTML file, so refresh and deep links work and the content
-pages are crawler-indexable with no server and no SPA fallback. Each page also
-publishes its markdown beside the HTML at `<page url>.md` (append `.md` to the
-path), with relative `.md` links rewritten to absolute so the markdown stands
+pages are crawler-indexable without a custom server or SPA fallback. Each page
+also publishes its markdown beside the HTML at `<page url>.md` (append `.md` to
+the path), with relative `.md` links rewritten to absolute so the markdown stands
 on its own. Per-page bundles mean the engine chunk loads only on the screens
 that run it.
 Client-only parameters — which *installed* game to open — ride the query
@@ -169,10 +170,10 @@ and box-flag overrides. Scripts schedule cooperatively — each runs until it
 yields — and a VM-level error freezes the machine into an inspectable halt
 snapshot with a trace ring of the last dispatched opcodes.
 
-Both games run on this one engine. Code branches on the detected game
-identity at the small number of known difference points
-(see [game identity](game-identity.md)); the codebase is never forked per
-game.
+The design is intended to run both MI1 and MI2 on one engine. Code branches on
+the detected game identity at the small number of known difference points (see
+[game identity](game-identity.md)); the codebase is never forked per game.
+Current support is MI1 only.
 
 ### Graphics — indexed pixels end to end
 

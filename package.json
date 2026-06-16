@@ -1,8 +1,9 @@
 {
   "name": "grogvm",
   "version": "0.0.0",
-  "description": "A from-scratch TypeScript reimplementation of SCUMM v5 (Monkey Island 1 & 2) for the browser.",
+  "description": "A from-scratch TypeScript reimplementation of the SCUMM v5 engine for The Secret of Monkey Island in the browser.",
   "private": true,
+  "license": "GPL-3.0-or-later",
   "type": "module",
   "scripts": {
     "dev": "vite",

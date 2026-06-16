@@ -21,7 +21,16 @@ export async function installGame(app: App): Promise<void> {
     app.navigate({
       flash:
         `"${handle.name}" doesn't look like a supported game directory. ` +
-        `Expected MONKEY.000 + MONKEY.001 (MI1) or MONKEY2.000 + MONKEY2.001 (MI2).`,
+        `Expected MONKEY.000 + MONKEY.001 from The Secret of Monkey Island.`,
+    });
+    return;
+  }
+
+  if (detected.gameId === 'MI2') {
+    app.navigate({
+      flash:
+        `"${handle.name}" looks like Monkey Island 2. MI2 support is planned, ` +
+        `but the current build only plays The Secret of Monkey Island.`,
     });
     return;
   }

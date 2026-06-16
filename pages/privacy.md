@@ -1,6 +1,6 @@
 ---
 title: Privacy
-description: GrogVM collects no personal data, runs no analytics or tracking, and has no server. Your game files and saves never leave your browser.
+description: GrogVM collects no personal data, runs no analytics or tracking, and has no app backend. Your game files and saves never leave your browser.
 ---
 
 # Privacy
@@ -14,13 +14,14 @@ The short version: **GrogVM doesn't know or care who you are.**
   visits or profiles you.
 - **No personal data, no accounts.** There is no sign-up, no login, no form.
   GrogVM never asks for, collects, or stores anything that identifies you.
-- **No server, no request logs.** The site is static files on Amazon S3, served
-  through CloudFront with access logging disabled. Nothing you do in it is sent
-  anywhere — there is no backend to send it to, and no request log being kept.
+- **Static hosting, no app backend.** The site is static files on Amazon S3,
+  served through CloudFront with access logging disabled. CloudFront still serves
+  normal web requests for the site assets, but GrogVM has no application backend
+  receiving your actions, game data, or saves.
 - **Your game files stay yours.** Installing a game grants the browser read
   access to a folder on your own disk. That directory handle is kept in your
-  browser's local storage so the game can be reopened; the game's bytes are
-  never copied off your machine or uploaded.
+  browser's IndexedDB so the game can be reopened; the game's bytes are never
+  copied off your machine or uploaded.
 - **Your saves stay local.** Save states live in your browser's local storage
   and in files you explicitly export. They go nowhere else.
 

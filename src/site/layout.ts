@@ -4,9 +4,9 @@
 export const SITE = 'GrogVM';
 export const SITE_URL = 'https://grogvm.dev';
 export const DEFAULT_DESCRIPTION =
-  'A from-scratch TypeScript reimplementation of the SCUMM v5 engine — the one ' +
-  'behind The Secret of Monkey Island and Monkey Island 2 — running in the ' +
-  'browser, with no server and no emulator.';
+  'A from-scratch TypeScript reimplementation of the SCUMM v5 engine for ' +
+  'The Secret of Monkey Island, running in the browser with no app backend ' +
+  'and no emulator.';
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);

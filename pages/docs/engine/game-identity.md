@@ -8,8 +8,8 @@ description: How GrogVM tells one installed game from another — engine target 
 GrogVM installs a game by pointing at a local folder. Two questions have to be
 answered about that folder, and they are *different* questions:
 
-1. **Which engine target is this?** — `MI1` or `MI2`: which game the VM should
-   boot. This decides parsing and which scripts run.
+1. **Which engine target is this?** — currently `MI1`, with `MI2` recognized as
+   a future target. This decides parsing and which scripts run.
 2. **Which specific release is this?** — the English CD build, the Italian CD
    build, some other localization. This decides *identity*: whether it's a
    duplicate of something already installed, and which save slots belong to it.
@@ -21,9 +21,10 @@ same scripts — yet they are different installs a player may want side by side.
 ## Engine target: by filename
 
 The engine target is read from the directory's filenames. `MONKEY.000` +
-`MONKEY.001` ⇒ `MI1`; `MONKEY2.000` + `MONKEY2.001` ⇒ `MI2`. This is enough to
-boot, and it is all the VM ever needs — the localization is invisible to the
-bytecode.
+`MONKEY.001` ⇒ `MI1`; `MONKEY2.000` + `MONKEY2.001` ⇒ `MI2`. The detector knows
+both names because they are the planned SCUMM v5 scope, but the current launcher
+accepts only MI1 until MI2 runtime support is complete. For a supported target,
+the localization is invisible to the bytecode.
 
 ## Specific release: by hashing the index file
 

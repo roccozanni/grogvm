@@ -1,13 +1,14 @@
 ---
 title: The game files & legality
-description: GrogVM is an engine, not a game — it ships no LucasArts assets and distributes no game data. You bring your own legally-owned copy of The Secret of Monkey Island. Where to buy it, the no-piracy policy, trademarks, and how to reach the maintainer.
+description: GrogVM is an engine, not a game — it ships no LucasArts assets and distributes no game data. You bring files from your own lawful copy of The Secret of Monkey Island. Where to buy it, the no-piracy policy, trademarks, and how to reach the maintainer.
 ---
 
 # The game files & legality
 
 The short version: **GrogVM is an engine, not the game.** It ships no game data,
 distributes no LucasArts assets, and only ever runs from files *you* supply from a
-copy you legally own.
+lawful copy. You are responsible for complying with the terms that apply to your
+copy. This page is project policy, not legal advice.
 
 ## GrogVM is an engine, not the game
 
@@ -15,15 +16,17 @@ GrogVM is an independent reimplementation of the SCUMM v5 engine — the program
 that *ran* the game. It contains **none** of the original artwork, music,
 dialogue, scripts, or any other game content, and none is bundled with it or
 distributed alongside it. Like ScummVM, it replaces the original executable: you
-point it at a folder holding a game you own, and it reads those files on your own
-machine. Nothing is uploaded — your copy stays in your browser (see
+point it at a folder holding compatible game data you are allowed to use, and it
+reads those files on your own machine. Nothing is uploaded — your copy stays in
+your browser (see
 [Privacy](/privacy/)).
 
 ## Where to get *The Secret of Monkey Island*
 
-GrogVM plays the classic VGA CD version. If you bought the game back when it was
-first released — on floppy disk or CD-ROM — and still have it, those original data
-files are a perfectly legitimate copy to use: point GrogVM at them and play.
+GrogVM currently plays the classic VGA CD version of *The Secret of Monkey
+Island*. If you bought the game back when it was first released — on floppy disk
+or CD-ROM — and still have the data files and the right to use them on your
+machine, point GrogVM at them and play.
 (GrogVM currently targets the VGA CD release, so that's the variant known to work.)
 
 If you don't have an original, that same classic version is included inside
@@ -33,8 +36,10 @@ If you don't have an original, that same classic version is included inside
 - **Steam:** <https://store.steampowered.com/app/32360/The_Secret_of_Monkey_Island_Special_Edition/>
 
 The Special Edition lets you switch to the original classic mode (press **F10**),
-and ships the original classic data files inside its install folder — that folder
-is what you point GrogVM at in the [Library](/library/).
+and some installs include compatible classic data files. Digital storefront
+purchases are licenses and may carry restrictions on copying, extracting, or
+using game data outside the official product; check the terms that apply to your
+copy. GrogVM does not bypass DRM or provide tools for obtaining game assets.
 
 GrogVM does not recommend or endorse any individual supplier, and earns nothing
 from any purchase; the links above are for reference only. For out-of-print
@@ -43,10 +48,10 @@ illegal copies sold as the real thing.
 
 ## No piracy, no "abandonware"
 
-GrogVM has a **strict no-piracy policy.** It is for playing games you legally
-own, and nothing here is intended to help anyone obtain a game illegally. There is
-no support for, and no endorsement of, pirated, warez, or otherwise unauthorised
-copies.
+GrogVM has a **strict no-piracy policy.** It is for playing games you are allowed
+to use, and nothing here is intended to help anyone obtain a game illegally.
+There is no support for, and no endorsement of, pirated, warez, or otherwise
+unauthorised copies.
 
 "Abandonware" is not a legal category. A game being out of print, or its
 publisher having moved on, does not make copying it lawful — no more than an
