@@ -3,11 +3,18 @@
  * runtime state; nothing reconstructable from the game files is stored,
  * EXCEPT each live slot's bytecode (round-tripped verbatim so a mid-stream
  * PC resumes exactly). RNG state is deliberately absent — the original
- * never saved it either. See pages/docs/engine/session.md.
+ * never saved it either.
+ *
+ * Two fields hold only the delta from a fresh boot rather than the full
+ * live state: the object class/state/owner maps store just the entries
+ * scripts changed from the index seed (re-seeded on restore via
+ * `vm.applyObjectSeed`), and each actor's anim keeps only its active limbs
+ * (the 16-slot inactive default is rebuilt). See pages/docs/engine/session.md.
  */
 
 import type { Actor, Facing, WalkLeg } from '../actor/actor';
 import { DEFAULT_ACTOR_COUNT } from '../actor/actor';
+import { makeInactiveLimbs } from '../graphics/costume-anim';
 import type { AnimState, LimbPlayback } from '../graphics/costume-anim';
 import type { Sentence } from './sentence';
 import type { SoundSnapshot } from '../sound/backend';
@@ -63,7 +70,18 @@ interface ActorSnapshot {
   readonly initFrame: number;
   readonly talkStartFrame: number;
   readonly talkStopFrame: number;
-  readonly anim: AnimState;
+  readonly anim: AnimSnapshot;
+}
+
+/**
+ * An {@link AnimState} with only its active limbs retained, as
+ * `[limbIndex, playback]` pairs; the inactive limbs (all-default, the bulk
+ * of a 16-slot array) are rebuilt on restore.
+ */
+interface AnimSnapshot {
+  readonly animId: number;
+  readonly stopped: number;
+  readonly activeLimbs: ReadonlyArray<[number, LimbPlayback]>;
 }
 
 export interface SaveState {
@@ -188,12 +206,35 @@ function b64ToI32(s: string): Int32Array {
   return new Int32Array(bytes.buffer, 0, bytes.byteLength >> 2);
 }
 
-function cloneAnim(a: AnimState): AnimState {
-  return {
-    animId: a.animId,
-    stopped: a.stopped,
-    limbs: a.limbs.map((l) => ({ ...l })),
-  };
+/** Pack a live anim, keeping only its active (non-default) limbs. */
+function packAnim(a: AnimState): AnimSnapshot {
+  const activeLimbs: [number, LimbPlayback][] = [];
+  a.limbs.forEach((l, i) => {
+    if (l.active) activeLimbs.push([i, { ...l }]);
+  });
+  return { animId: a.animId, stopped: a.stopped, activeLimbs };
+}
+
+/** Rebuild a full anim, filling the unsaved limbs with the inactive default. */
+function unpackAnim(s: AnimSnapshot): AnimState {
+  const limbs = makeInactiveLimbs();
+  for (const [i, l] of s.activeLimbs) limbs[i] = { ...l };
+  return { animId: s.animId, stopped: s.stopped, limbs };
+}
+
+/**
+ * The entries of `live` that differ from the boot `seed` (an absent seed
+ * key reads as the map's default, so any live key not in the seed is a
+ * runtime change and is kept). Seed-identical entries are dropped and
+ * re-derived on restore by {@link Vm.applyObjectSeed}.
+ */
+function diffFromSeed(
+  live: ReadonlyMap<number, number>,
+  seed: ReadonlyMap<number, number>,
+): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  for (const [id, v] of live) if (v !== seed.get(id)) out.push([id, v]);
+  return out;
 }
 
 // ── snapshot ───────────────────────────────────────────────────────
@@ -244,7 +285,7 @@ export function snapshotVm(vm: Vm, meta?: { game?: string; label?: string; saved
       initFrame: a.initFrame,
       talkStartFrame: a.talkStartFrame,
       talkStopFrame: a.talkStopFrame,
-      anim: cloneAnim(a.anim),
+      anim: packAnim(a.anim),
     });
   }
 
@@ -263,11 +304,11 @@ export function snapshotVm(vm: Vm, meta?: { game?: string; label?: string; saved
     slots,
 
     strings: [...vm.strings].map(([id, bytes]) => [id, bytesToB64(bytes)]),
-    objectStates: [...vm.objectStates],
-    objectOwners: [...vm.objectOwners],
+    objectStates: diffFromSeed(vm.objectStates, vm.objectSeed.states),
+    objectOwners: diffFromSeed(vm.objectOwners, vm.objectSeed.owners),
     inventoryNames: [...vm.inventoryNames],
     objectNameOverrides: [...vm.objectNameOverrides],
-    objectClasses: [...vm.objectClasses],
+    objectClasses: diffFromSeed(vm.objectClasses, vm.objectSeed.classes),
     objectDrawQueue: [...vm.objectDrawQueue],
     objectDrawPositions: [...vm.objectDrawPositions].map(([id, p]) => [id, { ...p }]),
     drawnBoxes: vm.drawnBoxes.map((b) => ({ ...b })),
@@ -348,7 +389,9 @@ export function restoreVm(vm: Vm, state: SaveState): void {
     slot.freezeResistant = snap.freezeResistant;
   }
 
-  // Object / inventory / class state.
+  // Object / inventory / class state. The class/state/owner maps store only
+  // the diff from the index seed, so re-derive the seed first, then layer it.
+  vm.applyObjectSeed();
   for (const [id, b64] of state.strings) vm.strings.set(id, b64ToBytes(b64));
   for (const [id, v] of state.objectStates) vm.objectStates.set(id, v);
   for (const [id, v] of state.objectOwners) vm.objectOwners.set(id, v);
@@ -445,7 +488,7 @@ function applyActorSnapshot(a: Actor, snap: ActorSnapshot): void {
   a.initFrame = snap.initFrame;
   a.talkStartFrame = snap.talkStartFrame;
   a.talkStopFrame = snap.talkStopFrame;
-  a.anim = cloneAnim(snap.anim);
+  a.anim = unpackAnim(snap.anim);
   a.drawBounds = null; // transient render output — recomputed next frame
 }
 

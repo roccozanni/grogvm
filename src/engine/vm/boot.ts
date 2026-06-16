@@ -104,14 +104,23 @@ export function bootGame(
  * applied before any script runs; only non-default rows are stored. The
  * class bits matter most — Untouchable keeps inactive objects out of the
  * hover hit-test. See pages/docs/scumm/objects.md.
+ *
+ * The seed is captured on `vm.objectSeed` so a save can store only the
+ * runtime diff against it (see savestate.ts); the live maps are populated
+ * via `applyObjectSeed`, the same path a restore uses.
  */
 export function seedObjectTable(vm: Vm, index: IndexFile): void {
+  const { classes, states, owners } = vm.objectSeed;
+  classes.clear();
+  states.clear();
+  owners.clear();
   for (let id = 0; id < index.objects.length; id++) {
     const o = index.objects[id]!;
-    if (o.classMask !== 0) vm.objectClasses.set(id, o.classMask);
-    if (o.state !== 0) vm.objectStates.set(id, o.state);
-    if (o.owner !== 15) vm.objectOwners.set(id, o.owner);
+    if (o.classMask !== 0) classes.set(id, o.classMask);
+    if (o.state !== 0) states.set(id, o.state);
+    if (o.owner !== 15) owners.set(id, o.owner);
   }
+  vm.applyObjectSeed();
 }
 
 /**

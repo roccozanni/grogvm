@@ -232,7 +232,8 @@ export function stepAnim(state: AnimState): AnimState {
   return { animId: state.animId, limbs, stopped: state.stopped };
 }
 
-function makeInactiveLimbs(): LimbPlayback[] {
+/** A fresh 16-slot limb array, every limb inactive (the v5 init pose). */
+export function makeInactiveLimbs(): LimbPlayback[] {
   const out: LimbPlayback[] = [];
   for (let i = 0; i < LIMB_COUNT; i++) out.push(INACTIVE_LIMB);
   return out;

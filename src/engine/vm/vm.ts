@@ -283,6 +283,17 @@ export class Vm {
    */
   readonly objectClasses = new Map<number, number>();
   /**
+   * The boot-time class/state/owner defaults read from the index `DOBJ`
+   * directory (populated by `seedObjectTable`). Retained so a save can store
+   * only the runtime diff and a restore can re-derive the rest; it is game
+   * data, not runtime state, so `reset()` leaves it intact.
+   */
+  readonly objectSeed = {
+    classes: new Map<number, number>(),
+    states: new Map<number, number>(),
+    owners: new Map<number, number>(),
+  };
+  /**
    * Per-box walk-flag overrides for the CURRENT room (matrixOp setBoxFlags),
    * layered over the disk flags and read live by the pathfinder. Reset on
    * room change; saved because a restore does NOT re-run the entry script.
@@ -1781,6 +1792,20 @@ export class Vm {
       }
     }
     return count;
+  }
+
+  /**
+   * Replace the live object class/state/owner maps with the boot seed (the
+   * index defaults captured by `seedObjectTable`). Run at boot and again on
+   * restore before the saved runtime diff is layered on top.
+   */
+  applyObjectSeed(): void {
+    this.objectClasses.clear();
+    this.objectStates.clear();
+    this.objectOwners.clear();
+    for (const [id, v] of this.objectSeed.classes) this.objectClasses.set(id, v);
+    for (const [id, v] of this.objectSeed.states) this.objectStates.set(id, v);
+    for (const [id, v] of this.objectSeed.owners) this.objectOwners.set(id, v);
   }
 
   /** Reset trace + halt + every slot back to dead. */
