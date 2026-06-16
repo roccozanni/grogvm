@@ -10,10 +10,10 @@ with an AI about the cleverness of a virtual machine from 1990.
 
 I started on **May 25th, 2026** with an empty project and a `Play` button that
 did nothing. Three weeks and **hundreds of commits** later, *The Secret of Monkey
-Island* plays from the boot screen to the end credits in a browser tab, with no
-app backend and no emulator underneath. About **35,000 lines** of TypeScript for
-the engine, another **6,000** for the harness that plays the game to prove it
-still works.
+Island* plays from the boot screen to the end credits in a Chromium browser tab,
+with no app backend and no emulator underneath. About **35,000 lines** of
+TypeScript for the engine, another **6,000** for the harness that plays the game
+to prove it still works.
 
 It was never a straight line. There were plenty of reverts, one
 struggle I still haven't won, and a lot of days that were nothing but fixing bugs. One 
@@ -130,9 +130,9 @@ With this in place, whole days read like a march through the game's geography:
   file out, grab the idol, get caught, end up in the sea, recover it.
 
 By the end the harness walks all four parts from boot to credits, and the game
-has been completed in the browser too. When those signals are green, the game is
-playable end to end; the remaining rough edges are visual and audio fidelity,
-not the core flow. That was the whole point.
+has been completed in a Chromium browser too. When those signals are green, the
+game is playable end to end; the remaining rough edges are visual and audio
+fidelity, not the core flow. That was the whole point.
 
 ## The eyes that won't stay on
 

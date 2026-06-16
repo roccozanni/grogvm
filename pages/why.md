@@ -77,11 +77,11 @@ to deep dive into game files and their content.
 ## Project status
 
 As of June 16, 2026, GrogVM is capable of playing the CD VGA version of *The
-Secret of Monkey Island* end to end in the browser, both the English and Italian
-variants. Visual polish and a few AdLib-only effects are still in progress. Any
-other format or variant has never been tested and may be broken. No other game
-is supported at the moment, but *Monkey Island 2: LeChuck's Revenge* is the next
-(and likely last) target.
+Secret of Monkey Island* end to end in a Chromium-based desktop browser, both
+the English and Italian variants. Visual polish and a few AdLib-only effects are
+still in progress. Any other format or variant has never been tested and may be
+broken. No other game is supported at the moment, but *Monkey Island 2:
+LeChuck's Revenge* is the next (and likely last) target.
 
 Install a copy you are allowed to use in the [Library](/library/) and check it
 out, or read [how it was actually built](/how/): the struggles, the dead ends,

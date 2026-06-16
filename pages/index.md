@@ -35,12 +35,12 @@ worked. This is my love letter to *Monkey Island*, LucasArts, and Ron Gilbert
 ## Discover GrogVM
 
 > **Status:** in active development. *The Secret of Monkey Island* plays from
-> boot all the way to the end credits in the browser — all four parts — with
-> verbs, inventory, dialogue, cutscenes, saves, sound effects and CD-audio music,
-> and every resource in its files is browsable in the explorer. A few AdLib-only
-> audio effects and some visual polish are still in progress; *Monkey Island 2*
-> is planned but not supported in the current build. See the
-> [documentation](/docs/) for the full picture.
+> boot all the way to the end credits in a Chromium-based desktop browser — all
+> four parts — with verbs, inventory, dialogue, cutscenes, saves, sound effects
+> and CD-audio music, and every resource in its files is browsable in the
+> explorer. A few AdLib-only audio effects and some visual polish are still in
+> progress; *Monkey Island 2* is planned but not supported in the current build.
+> See the [documentation](/docs/) for the full picture.
 
 - **[Library](/library/)** — install *The Secret of Monkey Island* from a local
   folder, then play it or explore its resources. (Everything starts here — you

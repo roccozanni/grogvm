@@ -20,11 +20,11 @@ original rather than guessed. The full story is in [pages/why.md](pages/why.md).
 ## Status
 
 In active development. *The Secret of Monkey Island* classic CD VGA is playable
-from boot to credits in the browser, backed by a regression walkthrough that
-covers the full game. Verbs, inventory, dialogue, cutscenes, saves, and room
-rendering are in place. Visual polish and a few AdLib-only audio effects are
-still in progress. *Monkey Island 2* is planned, but the current build does not
-support it yet.
+from boot to credits in a Chromium-based desktop browser, backed by a regression
+walkthrough that covers the full game. Verbs, inventory, dialogue, cutscenes,
+saves, and room rendering are in place. Visual polish and a few AdLib-only audio
+effects are still in progress. *Monkey Island 2* is planned, but the current
+build does not support it yet.
 [PROGRESS.md](PROGRESS.md) is the live tracker — what's in flight,
 what's done, and what's next.
 

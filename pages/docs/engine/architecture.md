@@ -55,7 +55,8 @@ The non-goals shape the code as much as the goals do:
   against real game data, and from disassembling the games' own bytecode.
 - **No app backend.** The whole site — these docs and the playable engine —
   ships as static files.
-- **Desktop browsers.** Mobile/touch input is not a target.
+- **Chromium desktop browsers.** Mobile/touch input and non-Chromium browser
+  support are not current targets.
 
 ## 2. Principles
 
