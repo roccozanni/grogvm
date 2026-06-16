@@ -30,8 +30,7 @@ session runs unchanged under a test harness that feeds it time by hand.
 Time enters only through the clock seam, so the entire loop — throttling,
 batching, idle detection, pause logic — is deterministic and runs identically
 in the browser and under the headless harness. The rest of this doc walks the
-funnel top to bottom, then covers lifecycle, debug drivers, the hang
-watchdog, and input.
+funnel top to bottom, then covers lifecycle, the hang watchdog, and input.
 
 ## 1. The clock seam
 
@@ -134,20 +133,7 @@ frame picks up the same state anyway.
   the entry script would normally re-apply — such as locked walk boxes — is
   carried in the save state itself.)
 
-## 6. Debug drivers
-
-Beyond plain play/pause, the session exposes drivers that advance the VM
-deterministically. These are **not** live controls — the browser's inspector
-is read-only observation (see [architecture §5](architecture.md)) — but the
-test harness and unit tests drive through them:
-
-- **Step** — advance one jiffy and present.
-- **Enter room** — warp directly to a room and let its entry script settle,
-  bounded by a tick cap so a misbehaving entry can't hang the warp.
-- **Skip cutscene** — run the VM forward until interactive control returns
-  (a verb becomes available), bounded by a tick cap.
-
-## 7. The hang watchdog
+## 6. The hang watchdog
 
 An **opt-in** diagnostic for the failure mode auto-pause can't see: a game that
 looks alive but has stopped responding to the player. It fires when **three
@@ -161,7 +147,7 @@ activity. When it trips, it surfaces a warning naming the room and the active
 verb script — catching the input-misroute / wait-on-a-variable-that-never-changes
 class of hang.
 
-## 8. Input
+## 7. Input
 
 The session handles **engine-level input only**:
 

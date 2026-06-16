@@ -27,10 +27,6 @@ import type {
 const MAX_TICKS_PER_FRAME = 64;
 /** Consecutive identical yield fingerprints that count as "settled into idle". */
 const IDLE_STREAK_THRESHOLD = 10;
-/** Hard cap on the synchronous skip-cutscene loop. */
-const MAX_SKIP_TICKS = 20000;
-/** Hard cap on the synchronous enterRoom (warp) settle loop. */
-const WARP_SETTLE_TICKS = 400;
 /** Trace mnemonics per slot folded into the idle fingerprint. */
 const MNEMONICS_PER_SLOT_IN_FINGERPRINT = 3;
 /** Fixed tick cadence: 60 Hz = full rAF speed. The loop still batches and
@@ -472,51 +468,6 @@ export function createSession(
       } else {
         idleReason = `loaded${state.label ? ` "${state.label}"` : ''} — room ${vm.currentRoom} (paused)`;
       }
-    },
-
-    enterRoom(roomId: number): void {
-      if (playing) {
-        playing = false;
-        clock.stop();
-      }
-      vm.enterRoom(roomId);
-      idleStreak = 0;
-      lastIdleFingerprint = null;
-      for (let i = 0; i < WARP_SETTLE_TICKS; i++) {
-        if (vm.haltInfo) break;
-        runTick();
-        if (checkIdle()) break;
-      }
-      idleReason = vm.haltInfo
-        ? null
-        : `warped to room ${roomId} (loaded=${vm.loadedRoom?.id ?? 'none'})`;
-      composeAndPresent(true);
-    },
-
-    skipCutscene(): boolean {
-      if (playing) {
-        playing = false;
-        clock.stop();
-      }
-      idleStreak = 0;
-      lastIdleFingerprint = null;
-      let reached = false;
-      for (let i = 0; i < MAX_SKIP_TICKS; i++) {
-        if (vm.haltInfo) break;
-        runTick();
-        const interactive = [...vm.verbs.values()].some((v) => v.state === 'on');
-        if (checkIdle() && interactive) {
-          reached = true;
-          break;
-        }
-      }
-      idleReason = reached
-        ? 'skipped past cutscene — control returned to the verb bar'
-        : vm.haltInfo
-          ? null
-          : `skip ran ${MAX_SKIP_TICKS} ticks without control returning`;
-      composeAndPresent(true);
-      return reached;
     },
 
     onFrame(cb: (frame: FrameInfo) => void): () => void {

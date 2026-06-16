@@ -131,7 +131,7 @@ describe('EngineSession — synthetic game', () => {
   it('step() composes the loaded room and presents it to the renderer', () => {
     const renderer = new MemoryRenderer();
     const session = createSession(makeSyntheticGame(), renderer, new ManualClock());
-    session.enterRoom(ROOM_ID);
+    session.vm.enterRoom(ROOM_ID);
 
     const frame = session.step();
 
@@ -154,15 +154,6 @@ describe('EngineSession — synthetic game', () => {
     for (let y = ROOM_H; y < 200; y += 13) {
       expect(frame.framebuffer[y * 320 + 7]).toBe(0);
     }
-  });
-
-  it('enterRoom warps into a room, loads it, and reports the warp', () => {
-    const session = createSession(makeSyntheticGame(), new MemoryRenderer(), new ManualClock());
-    session.enterRoom(ROOM_ID);
-    expect(session.vm.currentRoom).toBe(ROOM_ID);
-    expect(session.vm.loadedRoom?.id).toBe(ROOM_ID);
-    expect(session.vm.haltInfo).toBeNull();
-    expect(session.status().idleReason).toMatch(/warped to room 5/);
   });
 
   it('onFrame subscribers receive each presented frame; unsubscribe stops it', () => {
@@ -222,7 +213,7 @@ describe('EngineSession — synthetic game', () => {
 
   it('snapshot → restore through the session reproduces the room', () => {
     const s1 = createSession(makeSyntheticGame(), new MemoryRenderer(), new ManualClock());
-    s1.enterRoom(ROOM_ID);
+    s1.vm.enterRoom(ROOM_ID);
     const snap = s1.snapshot('t', 1000);
     const json = JSON.stringify(snap);
 

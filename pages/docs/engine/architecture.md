@@ -226,9 +226,9 @@ playing, so the backend tracks real durations on the engine's own tick clock
 
 The shell holds a single **engine session** that wires VM, compositor,
 renderer, and an injected clock into a small control surface — play, pause,
-single-step, input, snapshot/restore, and debug drivers. Its loop
-throttles and batches ticks at a fixed 60 Hz, auto-pauses an idle game, and
-never touches the DOM (see [the session](session.md)).
+single-step, input, and snapshot/restore. Its loop throttles and batches
+ticks at a fixed 60 Hz, auto-pauses an idle game, and never touches the DOM
+(see [the session](session.md)).
 
 ### Save states
 

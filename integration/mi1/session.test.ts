@@ -69,7 +69,7 @@ describe.skipIf(!hasGame())('EngineSession — real MI1', () => {
   it('the presented frame includes verb-bar text pixels — the complete screen crosses the Renderer seam', () => {
     const renderer = new MemoryRenderer();
     const session = createSession(makeGame(), renderer, new ManualClock());
-    session.skipCutscene(); // drives to the lookout with the verb bar live
+    fastForwardToLookout(session.vm); // drives to the lookout with the verb bar live
     const frame = session.present();
     expect([...session.vm.verbs.values()].some((v) => v.state === 'on')).toBe(true);
     // The verb band (rows ≥ roomHeight) carries real ink: at least one pixel
@@ -96,18 +96,6 @@ describe.skipIf(!hasGame())('EngineSession — real MI1', () => {
     expect(session.status().tickCount).toBeGreaterThan(100);
     expect(renderer.presentCount).toBeGreaterThan(0);
     expect(sawRoom).toBe(true); // a room loaded + composed during play
-  });
-
-  it('skipCutscene fast-forwards the intro into the interactive lookout', () => {
-    const session = createSession(makeGame(), new MemoryRenderer(), new ManualClock());
-    session.skipCutscene();
-    expect(session.vm.loadedRoom?.id).toBe(LOOKOUT);
-    expect(session.vm.haltInfo).toBeNull();
-    expect([...session.vm.verbs.values()].some((v) => v.state === 'on')).toBe(true);
-    // NB: it returns `false` (caps at MAX_SKIP_TICKS) for this path — room 33's
-    // ego idle animation keeps the yield fingerprint changing, so the
-    // idle+interactive stop never trips. Faithful to the ported logic; the
-    // value here is the synchronous drive-through to the lookout.
   });
 
   // NB: session-level snapshot/restore (reproduces room, paused-with-banner,

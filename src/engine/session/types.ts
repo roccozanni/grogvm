@@ -95,12 +95,6 @@ export interface EngineSession {
   /** Boot a fresh VM for the same game and restore into it. Preserves play/pause. */
   restore(state: SaveState): void;
 
-  // ── debug drivers ──
-  /** Warp into a room via the faithful enterRoom path, then settle its entry script. */
-  enterRoom(roomId: number): void;
-  /** Run synchronously until control returns to the player. True if reached. */
-  skipCutscene(): boolean;
-
   /** Subscribe to frame emissions. Returns an unsubscribe function. */
   onFrame(cb: (frame: FrameInfo) => void): () => void;
   status(): SessionStatus;
