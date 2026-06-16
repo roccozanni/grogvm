@@ -6,33 +6,33 @@
  * actual bytecode (real scripts, actors, dialog, verbs at the first interactive
  * room) — byte-for-byte — and that the restored VM keeps running.
  *
- * Data-gated, so it self-skips on a fresh checkout.
+ * Requires installed game data — fails (not skips) without it.
  */
 import { describe, expect, it } from 'vitest';
 import { snapshotVm, restoreVm, type SaveState } from '../../src/engine/vm/savestate';
 import { VAR_EGO } from '../../src/engine/vm/vars';
 import { driveToRoom } from '../../src/testkit/scummv5';
-import { boot, hasGame, ROOMS } from './game';
+import { BUILDS, bootFrom, ROOMS, type Build } from './game';
 
 const LOOKOUT = ROOMS.meleeLookout.id; // 33 — the first interactive room
 
 /** Boot MI1 and drive the intro into the first interactive room, settled. */
-function bootToLookout() {
-  const vm = boot();
+function bootToLookout(build: Build) {
+  const vm = bootFrom(build);
   expect(driveToRoom(vm, LOOKOUT, { maxTicks: 60000 })).toBe(true);
   for (let i = 0; i < 24; i++) vm.tick(); // settle actors/verbs/dialog
   return vm;
 }
 
-describe.skipIf(!hasGame())('save-state — real MI1 round-trip', () => {
+describe.each(BUILDS)(' MI1 — Save and Restore - $variant', (build) => {
   it('snapshot → restore into a fresh boot reproduces the live state exactly', () => {
-    const vm = bootToLookout();
+    const vm = bootToLookout(build);
     expect(vm.haltInfo).toBeNull();
 
     const snap = snapshotVm(vm, { game: 'MI1' });
     const json = JSON.stringify(snap);
 
-    const vm2 = boot();
+    const vm2 = bootFrom(build);
     restoreVm(vm2, JSON.parse(json) as SaveState);
 
     // The restored VM re-serializes byte-for-byte identically.
@@ -47,8 +47,8 @@ describe.skipIf(!hasGame())('save-state — real MI1 round-trip', () => {
   });
 
   it('a restored VM keeps ticking without halting', () => {
-    const vm = bootToLookout();
-    const vm2 = boot();
+    const vm = bootToLookout(build);
+    const vm2 = bootFrom(build);
     restoreVm(vm2, JSON.parse(JSON.stringify(snapshotVm(vm))) as SaveState);
     for (let i = 0; i < 120; i++) vm2.tick();
     expect(vm2.haltInfo).toBeNull();

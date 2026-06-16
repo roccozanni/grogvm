@@ -40,8 +40,15 @@ export interface GameVariant {
   variant: string;
 }
 
+/** Human label for an index-file content hash — a known release name, else a
+ *  `variant <hash7>` fallback. Pure/sync, so Node callers (the integration
+ *  catalog) can label a build off a `node:crypto` hash without `crypto.subtle`. */
+export function variantName(contentHash: string): string {
+  return KNOWN_VARIANTS[contentHash] ?? `variant ${contentHash.slice(0, 7)}`;
+}
+
 export async function identifyVariant(indexBytes: Uint8Array): Promise<GameVariant> {
   const digest = await crypto.subtle.digest('SHA-256', indexBytes as BufferSource);
   const contentHash = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
-  return { contentHash, variant: KNOWN_VARIANTS[contentHash] ?? `variant ${contentHash.slice(0, 7)}` };
+  return { contentHash, variant: variantName(contentHash) };
 }

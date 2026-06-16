@@ -103,9 +103,13 @@ one corner of the project that touches the filesystem — which is exactly why i
 lives *beside* the engine rather than inside it. The engine core stays portable
 and browser-bundled, free of any file API.
 
-Because the games cannot be redistributed, every playthrough is **data-gated**:
-with no game directory present it skips itself, so a fresh checkout and CI stay
-green. The copyrighted bytes are never committed.
+Because the games cannot be redistributed, the copyrighted bytes are never
+committed — so the playthroughs are kept out of the default test run and the
+build pipeline, the only things a fresh checkout or CI executes. They are a
+**data-required** suite you run deliberately, against the game data you've
+installed locally. Running them with no matching data **fails loudly** rather
+than skipping: a missing directory or a mistyped build selector is a mistake to
+surface, not a green no-op to wave through.
 
 ## 6. The regression net
 

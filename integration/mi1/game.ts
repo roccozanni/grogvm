@@ -4,13 +4,10 @@
  * The id labels and mechanic notes here are the knowledge home for
  * walkthrough facts.
  */
-import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync } from 'node:fs';
 import {
   bootScummV5,
   driveToRoom,
   driveUntil,
-  hasData,
   makeSeededRandom,
   objectPoint,
   pickAnswer,
@@ -21,51 +18,23 @@ import {
 } from '../../src/testkit/scummv5';
 import { VAR_EGO } from '../../src/engine/vm/vars';
 import type { Vm } from '../../src/engine/vm/vm';
+import { requireBuilds, type Build } from '../catalog';
+export type { Build } from '../catalog';
 
-/** Where installed game data lives — the only convention left; a *search
- *  root*, not a build name (the copyrighted bytes are gitignored). */
-const GAMES_ROOT = 'games';
-
-/** SHA-256 of `MONKEY.000` for the build the walkthrough was authored against
- *  (Italiano — same key as `detect.ts`'s `KNOWN_VARIANTS`). The run is one
- *  seeded VM from boot, and CD-track durations differ by a few jiffies between
- *  releases, so when several MI1 builds are installed we pin to this one for a
- *  reproducible run, falling back gracefully when it's absent. */
-const PREFERRED_INDEX_HASH = '4dfbd8f4ba61fcf604073c6960d98caa2c5dd43d6be296b82c25bd2ee1acc3f8';
-
-/** Discover an installed MI1 build under {@link GAMES_ROOT} instead of baking in
- *  a folder name. Returns the preferred variant when present, else the first
- *  bootable MI1 dir (sorted, for determinism), or `''` when none is installed —
- *  which leaves {@link hasGame} false and the suite self-skipping, exactly as a
- *  fresh checkout / CI sees it. */
-function findGameData(): string {
-  let dirs: string[];
-  try {
-    dirs = readdirSync(GAMES_ROOT)
-      .map((name) => `${GAMES_ROOT}/${name}`)
-      .filter(hasData) // MONKEY.000/.001 present ⇒ a bootable MI1 v5 build
-      .sort();
-  } catch {
-    return ''; // no games/ root at all (fresh checkout / CI)
-  }
-  const indexHash = (dir: string): string =>
-    createHash('sha256').update(readFileSync(`${dir}/MONKEY.000`)).digest('hex');
-  return dirs.find((dir) => indexHash(dir) === PREFERRED_INDEX_HASH) ?? dirs[0] ?? '';
-}
-
-/** The discovered build dir (see {@link findGameData}). Only meaningful when
- *  {@link hasGame} is true; every suite gates on that first. */
-export const DATA_DIR = findGameData();
+/** The MI1 builds this run covers (see {@link ../catalog}): every installed
+ *  variant by default, or the `GROGVM_GAME_SELECTOR`-matched subset. The seeded
+ *  run is per-variant (each build gets its own VM), and EN and IT both pass, so
+ *  there's no preferred variant — the default covers them all. `requireBuilds`
+ *  throws when nothing matches, so the suite fails rather than skipping. */
+export const BUILDS: readonly Build[] = requireBuilds('MI1');
 
 /** Fixed RNG seed — boot seeds the engine's entropy with this so the run is
  *  reproducible. Change only with reason. */
 export const SEED = 0x6d6f6e6b; // ASCII "monk"
 
-/** Whether the MI1 data is present (gate the suite on this). */
-export const hasGame = (): boolean => hasData(DATA_DIR);
-
-/** Boot MI1 to the title screen, seeded for a deterministic playthrough. */
-export const boot = (): Vm => bootScummV5(DATA_DIR, 'MI1', makeSeededRandom(SEED));
+/** Boot one MI1 build to the title screen, seeded for a deterministic run. */
+export const bootFrom = (build: Build): Vm =>
+  bootScummV5(build.dir, 'MI1', makeSeededRandom(SEED));
 
 /**
  * Expected sound durations (jiffies, 1/60 s) per release, keyed by index-file
@@ -73,8 +42,8 @@ export const boot = (): Vm => bootScummV5(DATA_DIR, 'MI1', makeSeededRandom(SEED
  * the one build-variant exception in this file: the CD music ships in a
  * different encoding per release (IT FLAC vs EN MP3), so CD-track lengths differ
  * by a few jiffies of encoder padding; the in-resource SBL/MIDI sounds (#28,
- * #50) are byte-shared and time identically. The sound suite autodetects the
- * {@link DATA_DIR} variant and asserts its row.
+ * #50) are byte-shared and time identically. The sound suite keys each selected
+ * build's {@link Build.contentHash} into this map and asserts its row.
  */
 export interface SoundDurations {
   /** Digitized SBL gate #28. */

@@ -3,7 +3,7 @@
  * harness; re-exports the rest so callers import everything from here.
  * See pages/docs/engine/harness.md.
  */
-import { closeSync, existsSync, fstatSync, openSync, readdirSync, readFileSync, readSync } from 'node:fs';
+import { closeSync, fstatSync, openSync, readdirSync, readFileSync, readSync } from 'node:fs';
 import { parseResourceFile } from '../engine/resources/file';
 import { parseIndexFile } from '../engine/resources/index-file';
 import { parseLoff } from '../engine/resources/loff';
@@ -23,11 +23,6 @@ export * from './screenshot';
 /** The two resource files every v5 game ships (index + data). */
 const INDEX_FILE = 'MONKEY.000';
 const DATA_FILE = 'MONKEY.001';
-
-/** Whether `dir` holds a bootable v5 game (gate tests / probes on this). */
-export function hasData(dir: string): boolean {
-  return existsSync(`${dir}/${INDEX_FILE}`) && existsSync(`${dir}/${DATA_FILE}`);
-}
 
 /** Parsed v5 resources — the inputs {@link bootGame} needs. */
 export interface LoadedGame {

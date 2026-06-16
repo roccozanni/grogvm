@@ -14,16 +14,16 @@ import { parseLoff } from '../../src/engine/resources/loff';
 import { loadGlobalScript } from '../../src/engine/vm/scripts';
 import { listRooms, extractRoom } from '../../src/engine/room/extract';
 import { disassemble } from '../../src/engine/vm/disasm';
-import { DATA_DIR, hasGame } from './game';
+import { BUILDS } from './game';
 
-describe.skipIf(!hasGame())('MI1 — disassembler corpus alignment', () => {
+describe.each(BUILDS)('MI1 — Disassembler - $variant', (build) => {
   it('decodes every global, room, and object-verb script with zero misalignments', () => {
     const res = parseResourceFile(
-      new Uint8Array(readFileSync(`${DATA_DIR}/MONKEY.001`)),
+      new Uint8Array(readFileSync(`${build.dir}/MONKEY.001`)),
       SCUMM_V5_XOR_KEY,
     );
     const idx = parseResourceFile(
-      new Uint8Array(readFileSync(`${DATA_DIR}/MONKEY.000`)),
+      new Uint8Array(readFileSync(`${build.dir}/MONKEY.000`)),
       SCUMM_V5_XOR_KEY,
     );
     const index = parseIndexFile(idx);

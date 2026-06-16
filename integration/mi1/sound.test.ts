@@ -6,38 +6,38 @@
  * (`loadSound` → `parseSound`, with CD-track durations from
  * `readCdTrackDurations`).
  *
- * Runs **once** against whatever build `DATA_DIR` points to, autodetecting the
- * variant the way the browser does — hashing `MONKEY.000` (`identifyVariant`)
- * and looking the expected durations up in `KNOWN_SOUND_DURATIONS`. So the
- * same suite covers the IT (FLAC tracks) and EN (MP3 tracks) releases; the
- * in-resource SBL/MIDI sounds (#28, #50) time identically, only the CD-track
- * lengths differ by encoding. Data-gated, so it self-skips on a fresh checkout.
+ * Runs once per selected build (see `../catalog`), keyed by the build's index
+ * hash into `KNOWN_SOUND_DURATIONS`. So the default run covers the IT (FLAC
+ * tracks) and EN (MP3 tracks) releases together; the in-resource SBL/MIDI
+ * sounds (#28, #50) time identically, only the CD-track lengths differ by
+ * encoding. Requires installed game data — fails (not skips) without it.
  *
  * Wait-gated ids: SBL #28 (~2.7 s), MIDI #50 (~4.8 s), one-shot CD triggers
  * #104–107 (track 6) and #117 (track 7); #116/#118/#123 are looping CD music
  * (non-gating).
  */
-import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { loadScummV5, readCdTrackDurations } from '../../src/testkit/scummv5';
 import { parseSound, type SoundResource } from '../../src/engine/sound/resource';
 import { loadSound } from '../../src/engine/vm/scripts';
-import { identifyVariant } from '../../src/platform/detect';
-import { DATA_DIR, hasGame, KNOWN_SOUND_DURATIONS, type SoundDurations } from './game';
+import { BUILDS, KNOWN_SOUND_DURATIONS, type SoundDurations } from './game';
 
-describe.skipIf(!hasGame())('MI1 — sound durations (real files)', () => {
+describe.each(BUILDS)('MI1 — Sound durations - $variant', (build) => {
   let dur: (id: number) => SoundResource;
   let expected: SoundDurations;
 
-  beforeAll(async () => {
-    const { res, index, loff } = loadScummV5(DATA_DIR);
-    const cd = readCdTrackDurations(DATA_DIR);
+  beforeAll(() => {
+    const { res, index, loff } = loadScummV5(build.dir);
+    const cd = readCdTrackDurations(build.dir);
     dur = (id) => parseSound(loadSound(res, index, loff, id), (track) => cd.get(track) ?? 0);
 
-    const { contentHash, variant } = await identifyVariant(new Uint8Array(readFileSync(`${DATA_DIR}/MONKEY.000`)));
-    const known = KNOWN_SOUND_DURATIONS[contentHash];
+    // The catalog already hashed the index (build.contentHash) the same way the
+    // browser's identifyVariant does — look its duration row up directly.
+    const known = KNOWN_SOUND_DURATIONS[build.contentHash];
     if (!known) {
-      throw new Error(`No KNOWN_SOUND_DURATIONS for variant "${variant}" (${contentHash}) at ${DATA_DIR}`);
+      throw new Error(
+        `No KNOWN_SOUND_DURATIONS for variant "${build.variant}" (${build.contentHash}) at ${build.dir}`,
+      );
     }
     expected = known;
   });

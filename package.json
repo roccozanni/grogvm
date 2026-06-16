@@ -14,7 +14,7 @@
     "test:run": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:integration:verbose": "vitest run --config vitest.integration.config.ts --reporter=verbose",
-    "test:integration:save": "BEAT_SAVES=1 vitest run --config vitest.integration.config.ts integration/mi1/walkthrough.test.ts",
+    "test:integration:save": "GROGVM_SAVE_BEATS=1 vitest run --config vitest.integration.config.ts integration/mi1/walkthrough.test.ts",
     "disgrogate": "npx tsx tools/disgrogate.ts",
     "mugshot": "npx tsx tools/mugshot.ts",
     "spyglass": "npx tsx tools/spyglass.ts"

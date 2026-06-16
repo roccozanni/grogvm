@@ -33,7 +33,7 @@ failing beat. Per-game room ids + mechanics live in `game.ts`
 ## Current — MI1 complete; polish + open items
 
 **MI1 PLAYS FROM BOOT TO THE CREDITS — Parts I–IV are all FINISHED** (committed
-on `main`). **Unit suite green + tsc clean**, plus a data-gated, from-boot
+on `main`). **Unit suite green + tsc clean**, plus a data-required, from-boot
 integration playthrough that drives MI1 start-to-credits. What's left is polish
 (in-browser look passes + the open bugs below) and the next game — see **Next**.
 

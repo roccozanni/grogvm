@@ -46,9 +46,10 @@
  * failing beat's name, so it must say *where* (the room) and *what* broke;
  * don't cross-reference other beats by number.
  *
- * Data-gated (skipped without the game files). Run: `npm run test:integration`.
- * With BEAT_SAVES set (`npm run test:integration:save`) every green beat also
- * dumps an importable checkpoint save to saves/beats/.
+ * Requires installed game data (fails, not skips, without it). Run:
+ * `npm run test:integration`. With GROGVM_SAVE_BEATS set
+ * (`npm run test:integration:save`) every green beat also dumps an importable
+ * checkpoint save to saves/beats/<game>-<variant>/.
  */
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { describe, expect, it, type TestContext } from 'vitest';
@@ -72,7 +73,8 @@ import {
 import { VAR_CURRENT_LIGHTS, VAR_EGO, VAR_VERB_SCRIPT } from '../../src/engine/vm/vars';
 import {
   advanceDialog,
-  boot,
+  BUILDS,
+  bootFrom,
   buySeaMonkey,
   crackSafe,
   dialogAnswers,
@@ -83,7 +85,6 @@ import {
   fightSwordMaster,
   grindForSwordMaster,
   hasClass,
-  hasGame,
   isTouchable,
   leaveSprayingGhosts,
   mugDying,
@@ -96,32 +97,19 @@ import {
   VERBS,
 } from './game';
 
-// One VM for the whole walkthrough, driven forward across beats.
-const vm = boot();
-
-// Stop-on-break: the FIRST failing beat goes red (the regression); every later
-// beat is skipped, not cascaded into noise or falsely passed. A red+skipped
-// tail localizes exactly where the game broke.
-let broken = false;
-
-// The grog carrier in play, shared by the run-to-the-jail and lock-melt beats
-// (which mug is live depends on how many pours the run needed).
-let activeMug = 0;
-let remainingMugs: number[] = [];
-
-// Per-beat checkpoints, opt-in via BEAT_SAVES (`npm run test:integration:save`):
-// every green beat snapshots the VM to saves/beats/<run-order>-<slug>.websave.json
+// Per-beat checkpoints, opt-in via GROGVM_SAVE_BEATS (`npm run test:integration:save`):
+// every green beat snapshots the VM to saves/beats/<game>-<variant>/<run-order>-<slug>.websave.json
 // — an in-browser import target at each point, for visual spot-checks and for
-// bisecting where a rendering regression starts. The directory is wiped up front
-// so checkpoints from an older engine can't pass as fresh; a beat that ends
-// before full settle (e.g. the troll-bridge crossing) restores there,
+// bisecting where a rendering regression starts. The per-build subdir keeps the
+// default all-variants run from colliding on the build-less name. The root is
+// wiped up front so checkpoints from an older engine can't pass as fresh; a beat
+// that ends before full settle (e.g. the troll-bridge crossing) restores there,
 // mid-choreography rather than at idle.
-const beatSavesDir = process.env.BEAT_SAVES ? 'saves/beats' : undefined;
+const beatSavesDir = process.env.GROGVM_SAVE_BEATS ? 'saves/beats' : undefined;
 if (beatSavesDir) {
   rmSync(beatSavesDir, { recursive: true, force: true });
   mkdirSync(beatSavesDir, { recursive: true });
 }
-let beatOrdinal = 0;
 const slugify = (name: string): string =>
   name
     .normalize('NFD')
@@ -130,26 +118,51 @@ const slugify = (name: string): string =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
 
-const beat = (name: string, fn: (ctx: TestContext) => void | Promise<void>): void => {
-  const ordinal = ++beatOrdinal;
-  it(name, async (ctx) => {
-    if (broken) return ctx.skip();
-    try {
-      await fn(ctx);
-    } catch (e) {
-      broken = true;
-      throw e;
-    }
-    if (beatSavesDir) {
-      writeFileSync(
-        `${beatSavesDir}/${String(ordinal).padStart(3, '0')}-${slugify(name)}.websave.json`,
-        JSON.stringify(snapshotVm(vm, { game: 'MI1', label: name })),
-      );
-    }
-  });
-};
+// The whole walkthrough runs once per selected build — every installed variant
+// by default, or the GROGVM_GAME_SELECTOR-matched subset. Each variant gets its
+// own VM driven from boot, so a run stays one seeded timeline.
+describe.each(BUILDS)('MI1 — Full Walkthrough - $variant', (build) => {
+  // One VM for this variant, driven forward across beats.
+  const vm = bootFrom(build);
 
-describe.skipIf(!hasGame())('MI1 — full walkthrough', () => {
+  // Stop-on-break: the FIRST failing beat goes red (the regression); every later
+  // beat is skipped, not cascaded into noise or falsely passed. A red+skipped
+  // tail localizes exactly where the game broke.
+  let broken = false;
+
+  // The grog carrier in play, shared by the run-to-the-jail and lock-melt beats
+  // (which mug is live depends on how many pours the run needed).
+  let activeMug = 0;
+  let remainingMugs: number[] = [];
+
+  // Checkpoints go under a per-build (gameId+variant) subdir so the default
+  // all-variants — and eventually all-games — run doesn't collide on the
+  // build-less <order>-<slug> filename.
+  const buildBeatsDir = beatSavesDir
+    ? `${beatSavesDir}/${slugify(`${build.gameId} ${build.variant}`)}`
+    : undefined;
+  if (buildBeatsDir) mkdirSync(buildBeatsDir, { recursive: true });
+
+  let beatOrdinal = 0;
+  const beat = (name: string, fn: (ctx: TestContext) => void | Promise<void>): void => {
+    const ordinal = ++beatOrdinal;
+    it(name, async (ctx) => {
+      if (broken) return ctx.skip();
+      try {
+        await fn(ctx);
+      } catch (e) {
+        broken = true;
+        throw e;
+      }
+      if (buildBeatsDir) {
+        writeFileSync(
+          `${buildBeatsDir}/${String(ordinal).padStart(3, '0')}-${slugify(name)}.websave.json`,
+          JSON.stringify(snapshotVm(vm, { game: 'MI1', label: name })),
+        );
+      }
+    });
+  };
+
   describe('Part I — The Three Trials', () => {
     beat('🚶‍➡️ Mêlée Lookout — intro boots through to the lookout (33), lit, control returned', () => {
       expect(driveToRoom(vm, ROOMS.meleeLookout.id)).toBe(true);

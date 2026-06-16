@@ -9,7 +9,7 @@
  *
  * The loop/lifecycle/input plumbing (clock throttle, idle/all-dead pause,
  * onFrame, sendInput, dispose) is pinned synthetically — not duplicated
- * here. Data-gated, so it self-skips on a fresh checkout.
+ * here. Requires installed game data — fails (not skips) without it.
  */
 import { describe, expect, it } from 'vitest';
 import { createSession } from '../../src/engine/session/session';
@@ -19,18 +19,18 @@ import type { SessionGame } from '../../src/engine/session/types';
 import type { Vm } from '../../src/engine/vm/vm';
 import { loadScummV5, readCdTrackDurations } from '../../src/testkit/scummv5';
 import { viewportLeft } from '../../src/engine/graphics/viewport';
-import { boot, DATA_DIR, hasGame, ROOMS } from './game';
+import { BUILDS, bootFrom, ROOMS, type Build } from './game';
 
 const LOOKOUT = ROOMS.meleeLookout.id; // 33 — the first interactive room
 
-function makeGame(): SessionGame {
-  const { res, index, loff } = loadScummV5(DATA_DIR);
+function makeGame(build: Build): SessionGame {
+  const { res, index, loff } = loadScummV5(build.dir);
   return {
     resourceFile: res,
     index,
     loff,
     gameId: 'MI1',
-    cdTrackDurations: readCdTrackDurations(DATA_DIR),
+    cdTrackDurations: readCdTrackDurations(build.dir),
   };
 }
 
@@ -41,10 +41,10 @@ function fastForwardToLookout(vm: Vm): void {
   for (let i = 0; i < 24; i++) vm.tick(); // settle actors/verbs/dialog
 }
 
-describe.skipIf(!hasGame())('EngineSession — real MI1', () => {
+describe.each(BUILDS)('MI1 — EngineSession - $variant', (build) => {
   it('step() composes the live room and presents it with actors + palette', () => {
     const renderer = new MemoryRenderer();
-    const session = createSession(makeGame(), renderer, new ManualClock());
+    const session = createSession(makeGame(build), renderer, new ManualClock());
     fastForwardToLookout(session.vm);
     expect(session.vm.currentRoom).toBe(LOOKOUT);
 
@@ -68,7 +68,7 @@ describe.skipIf(!hasGame())('EngineSession — real MI1', () => {
 
   it('the presented frame includes verb-bar text pixels — the complete screen crosses the Renderer seam', () => {
     const renderer = new MemoryRenderer();
-    const session = createSession(makeGame(), renderer, new ManualClock());
+    const session = createSession(makeGame(build), renderer, new ManualClock());
     fastForwardToLookout(session.vm); // drives to the lookout with the verb bar live
     const frame = session.present();
     expect([...session.vm.verbs.values()].some((v) => v.state === 'on')).toBe(true);
@@ -85,7 +85,7 @@ describe.skipIf(!hasGame())('EngineSession — real MI1', () => {
     // idle-pause trigger is pinned synthetically instead.)
     const renderer = new MemoryRenderer();
     const clock = new ManualClock();
-    const session = createSession(makeGame(), renderer, clock);
+    const session = createSession(makeGame(build), renderer, clock);
     let sawRoom = false;
     session.onFrame((f) => {
       if (f.roomId !== null) sawRoom = true;
@@ -111,7 +111,7 @@ describe.skipIf(!hasGame())('EngineSession — real MI1', () => {
   // Without the reclamp the centre stays pinned mid-room and the credits room
   // is split down the middle (cliff | LucasArts logo).
   it('a room load pulls the camera centre into the new room (explosion-ending path)', () => {
-    const vm = boot();
+    const vm = bootFrom(build);
     const CREDITS = 10;
 
     vm.enterRoom(ROOMS.stan.id); // 640 wide (where the explosion is triggered)

@@ -139,7 +139,7 @@ re-deriving boot boilerplate, and for these committed building blocks instead
 of copy-pasting a resource preamble or decoder chain. **What to import:**
 
 - **Drive a real VM** — `bootScummV5(dir[, gameId, random])` → `Vm` (plus
-  `hasData(dir)`, `loadScummV5(dir)`, `restoreSave(vm, name)` →
+  `loadScummV5(dir)`, `restoreSave(vm, name)` →
   `saves/<name>.websave.json`); then `drive.ts`
   (`driveTicks(vm, n)` · `driveUntil(vm, pred, {maxTicks})` · `driveToRoom` ·
   `setMouse`/`hover`) and the faithful action vocab `actions.ts`
@@ -186,9 +186,13 @@ cover PNG output). A probe that proves reusable graduates to a committed
 
 **Run the playthroughs separately** (own vitest config, NOT the default `npm
 test`, which stays fast/synthetic/data-free): see the **walkthrough skill** for
-the commands, the auto-discovery of an MI1 build under `games/`, and the opt-in
-per-beat checkpoint saves. Data-gated: self-skips with no game data, so a fresh
-checkout / CI stays green; never commit the copyrighted bytes.
+the commands, the `GROGVM_GAME_SELECTOR` (`integration/catalog.ts` discovers
+builds under `games/`; unset → every installed variant, else a case-insensitive
+prefix match on hash/variant/gameId/dir), and the opt-in per-beat checkpoint
+saves. Each suite parameterizes over the selected builds and **requires** at
+least one to match: no game data, or a selector that matches nothing, FAILS the
+run rather than skipping. Safe because CI runs only the synthetic suite + build,
+never this; never commit the copyrighted bytes.
 
 ## Dev-environment gotchas (fragile, operational — not doc material)
 
