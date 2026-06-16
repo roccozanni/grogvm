@@ -20,8 +20,10 @@ import {
 import { VAR_EGO } from '../../src/engine/vm/vars';
 import type { Vm } from '../../src/engine/vm/vm';
 
-/** The build we run the playthrough against (IT — also carries the saves). */
-export const DATA_DIR = 'games/MI1-IT-CD-DOS-VGA';
+/** The build we run the playthrough against (IT, which also carries the saves).
+ *  Override with the `GROG_GAME_DIR` env var to point at your own copy; the
+ *  suite self-skips (see {@link hasGame}) when the data isn't present. */
+export const DATA_DIR = process.env.GROG_GAME_DIR || 'games/MI1-IT-CD-DOS-VGA';
 
 /** Fixed RNG seed — boot seeds the engine's entropy with this so the run is
  *  reproducible. Change only with reason. */

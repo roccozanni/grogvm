@@ -1,4 +1,4 @@
-# AGENTS.md — GrogVM operational index for AI assistants
+# CLAUDE.md: GrogVM operational index for AI assistants
 
 You are joining a side project where the user is building a TypeScript
 SCUMM v5 reimplementation from scratch, for fun and learning. This file is
@@ -103,10 +103,10 @@ Operational handles:
   (`{offset, opcode, text, aligned}`) — executes nothing, reentrant,
   loop-bounded (safe on garbage bytes). A run ending `aligned: false` hit a
   byte it couldn't decode and stopped; treat everything after as unknown.
-- CLI: `npm run disgrogate -- <id>` (`tools/disgrogate.ts`) — forms are
-  `L<id> <room>` (local script), `ENCD`/`EXCD <room>`, or `SCAN grep=<term>`.
-  `SCAN` sweeps **global** scripts only; ids ≥ 200 are room-local (query as
-  `L<id> <room>` — see [room.md §7](pages/docs/scumm/room.md)).
+- CLI front-end (`tools/disgrogate.ts`): see the **disgrogate skill** for the
+  invocation, the forms, and the required `--game=<dir>`. `SCAN` sweeps
+  **global** scripts only; room-local ids (≥ 200) are queried as `L<id> <room>`
+  (see [room.md §7](pages/docs/scumm/room.md)).
 - **`override BEGIN (then jump N)` prints the RAW jump delta** — the engine
   lands at `pc + N`. Don't resolve N against script start; that sends you
   mid-instruction into garbage (bit the title-music trace).
@@ -146,9 +146,8 @@ of copy-pasting a resource preamble or decoder chain. **What to import:**
   (`walkTo`/`use`/`useWith`/`give`/`pickAnswer`/`pickDialogAnswer`/`waitIdle`,
   plus `objectPoint`/`actorPoint`). `scummv5.ts` re-exports the lot.
 - **Render a VM to PNG** — `writeScreenshot(vm, path, {scale=3})` /
-  `screenshot(vm)` (full screen through the real compose pipeline), or
-  `npm run mugshot -- <save> [ticks]` (`tools/mugshot.ts`; flags `--out=`
-  `--scale=` `--game=` `--seed=`; `<save>` of `fresh` skips the restore).
+  `screenshot(vm)` (full screen through the real compose pipeline), or the
+  `tools/mugshot.ts` CLI (see the **mugshot skill** for its invocation).
 - **Inspect a room statically (no boot)** — `listRooms(file, loff)` +
   `extractRoom(file, ref)` (`room/extract.ts`): a graceful dossier
   (bg / objects / scripts / boxes / box matrix / scale / z-planes, each
@@ -157,11 +156,10 @@ of copy-pasting a resource preamble or decoder chain. **What to import:**
 - **Trace what actually runs** — `traceTicks(vm, n, {scripts?, keepIdle?})`
   (`testkit/trace.ts`) drives `n` jiffies and returns the per-frame opcodes,
   grouped by the script that ran them, off the VM's built-in trace ring (no
-  engine hooks); `formatFrames`/`groupFrame` are the pure renderers. CLI:
-  `npm run spyglass -- <save> [ticks]` (`tools/spyglass.ts`; flags `--script=<ids>`
-  `--compact` `--idle` `--game=` `--seed=`; `<save>` of `fresh` traces a bare
-  boot). The dynamic counterpart to disgrogate: it shows what *executed*, not
-  what a script *could* run. A killed script's terminating `stopObjectCode`
+  engine hooks); `formatFrames`/`groupFrame` are the pure renderers. Its CLI
+  front-end is `tools/spyglass.ts` (see the **spyglass skill** for the
+  invocation). The dynamic counterpart to disgrogate: it shows what *executed*,
+  not what a script *could* run. A killed script's terminating `stopObjectCode`
   surfaces under a trailing `#0` run (the slot id is cleared before the trace
   push) — expected.
 - **Reproducibility** — `makeSeededRandom(seed)` (mulberry32) feeds
@@ -186,13 +184,11 @@ rather than a hand-rolled resource preamble (`writeScreenshot` / `testkit/png.ts
 cover PNG output). A probe that proves reusable graduates to a committed
 `tools/` CLI.
 
-**Run the playthroughs separately:** `npm run test:integration` (own vitest
-config — NOT the default `npm test`, which stays fast/synthetic/data-free).
-Data-gated: self-skips with no game data, so a fresh checkout / CI stays green;
-never commit the copyrighted bytes. Per-beat checkpoint saves (opt-in):
-`npm run test:integration:save` dumps `saves/beats/<order>-<slug>.websave.json`
-after every green beat — import one in the browser's saves panel to eyeball
-rendering or bisect a visual regression.
+**Run the playthroughs separately** (own vitest config, NOT the default `npm
+test`, which stays fast/synthetic/data-free): see the **walkthrough skill** for
+the commands, the `GROG_GAME_DIR` data override, and the opt-in per-beat
+checkpoint saves. Data-gated: self-skips with no game data, so a fresh checkout
+/ CI stays green; never commit the copyrighted bytes.
 
 ## Dev-environment gotchas (fragile, operational — not doc material)
 

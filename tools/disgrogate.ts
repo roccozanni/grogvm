@@ -4,32 +4,33 @@
  * its decoded instructions; the decode logic itself lives in the module
  * (and has unit tests) — this file is just file-loading + arg parsing.
  *
- *   npm run disgrogate -- <globalId>
- *   npm run disgrogate -- L<id> <room>      # room-local script
- *   npm run disgrogate -- ENCD <room>       # room entry script
- *   npm run disgrogate -- EXCD <room>
- *   npm run disgrogate -- SCAN grep=lights  # sweep every script
+ *   npm run disgrogate -- --game=<dir> <globalId>
+ *   npm run disgrogate -- --game=<dir> L<id> <room>      # room-local script
+ *   npm run disgrogate -- --game=<dir> ENCD <room>       # room entry script
+ *   npm run disgrogate -- --game=<dir> EXCD <room>
+ *   npm run disgrogate -- --game=<dir> SCAN grep=lights  # sweep every script
  *
- * Optional `grep=<term>` filters printed lines to those containing the
+ * `--game=<dir>` (the v5 game-data directory) is required — there is no baked
+ * default. Optional `grep=<term>` filters printed lines to those containing the
  * term. NB: SCAN is a linear sweep — treat hits in scripts that report
  * "(misaligned)" as leads, not proof (see the module doc).
  */
-import { readFileSync } from 'node:fs';
-import { parseResourceFile } from '../src/engine/resources/file';
-import { SCUMM_V5_XOR_KEY } from '../src/engine/resources/xor';
-import { parseIndexFile } from '../src/engine/resources/index-file';
-import { parseLoff } from '../src/engine/resources/loff';
+import { loadScummV5 } from '../src/testkit/scummv5';
 import { loadGlobalScript } from '../src/engine/vm/scripts';
 import { loadRoom } from '../src/engine/room/loader';
 import { disassemble } from '../src/engine/vm/disasm';
 
-const idx = parseResourceFile(new Uint8Array(readFileSync('games/MI1-IT-CD-DOS-VGA/MONKEY.000')), SCUMM_V5_XOR_KEY);
-const res = parseResourceFile(new Uint8Array(readFileSync('games/MI1-IT-CD-DOS-VGA/MONKEY.001')), SCUMM_V5_XOR_KEY);
-const index = parseIndexFile(idx);
-const loff = parseLoff(res);
+const positional = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+const gameDir = process.argv.find((a) => a.startsWith('--game='))?.slice(7);
+if (!gameDir) {
+  console.error('disgrogate: missing required --game=<dir> (the v5 game-data directory)');
+  process.exit(1);
+}
 
-const arg = process.argv[2] ?? '1';
-const room = parseInt(process.argv[3] ?? '10', 10);
+const { res, index, loff } = loadScummV5(gameDir);
+
+const arg = positional[0] ?? '1';
+const room = parseInt(positional[1] ?? '10', 10);
 const grep = process.argv.find((a) => a.startsWith('grep='))?.slice(5);
 
 function emit(bytecode: Uint8Array, label: string): void {

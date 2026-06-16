@@ -12,7 +12,7 @@
  * Options:
  *   --out=<path>   output PNG (default scratch/mugshot.png — gitignored)
  *   --scale=<n>    nearest-neighbour upscale (default 3)
- *   --game=<dir>   game data dir (default games/MI1-IT-CD-DOS-VGA)
+ *   --game=<dir>   game data dir (required — no default)
  *   --seed=<n>     RNG seed for deterministic boot (default 1)
  *
  *   npm run mugshot -- MI1-Italiano-quicksave 60
@@ -28,7 +28,11 @@ const save = positional[0] ?? 'fresh';
 const ticks = parseInt(positional[1] ?? '0', 10);
 const out = flag('out', 'scratch/mugshot.png');
 const scale = parseInt(flag('scale', '3'), 10);
-const gameDir = flag('game', 'games/MI1-IT-CD-DOS-VGA');
+const gameDir = process.argv.find((a) => a.startsWith('--game='))?.slice(7);
+if (!gameDir) {
+  console.error('mugshot: missing required --game=<dir> (the v5 game-data directory)');
+  process.exit(1);
+}
 const seed = parseInt(flag('seed', '1'), 10);
 
 const vm = bootScummV5(gameDir, 'MI1', makeSeededRandom(seed));

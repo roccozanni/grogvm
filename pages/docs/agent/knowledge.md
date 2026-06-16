@@ -83,7 +83,7 @@ These pages are the durable knowledge base *and* a public website:
   numbers, or scratch scripts; they rot on the first refactor. SCUMM's own
   opcode/routine names (`adjustXYToBeInBox`) and a few coarse engine
   references are fine. This `agent/` section alone may name repo files
-  (`PROGRESS.md`, `AGENTS.md`) and npm scripts — still no source paths.
+  (`PROGRESS.md`, `CLAUDE.md`) and npm scripts — still no source paths.
 - **No exact test counts** — describe a suite qualitatively.
 - **Index titles** (docs landing page) — descriptive Title-Case with the
   on-disk resource in parens where one applies (`Background Bitmaps
@@ -123,6 +123,6 @@ trim. One lenient zone — the per-game id tables in the integration
 playthroughs, where id labels and mechanic notes *are* the knowledge home
 for walkthrough facts.
 
-`AGENTS.md` at the repo root is the operational counterpart — the repo map,
+`CLAUDE.md` at the repo root is the operational counterpart — the repo map,
 tooling APIs, and gotchas, the precise-path material these pages avoid by
 convention.

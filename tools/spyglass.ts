@@ -16,7 +16,7 @@
  *   --script=<id[,id,...]>  keep only runs of these script ids
  *   --compact               list scripts + opcode counts, not full opcode detail
  *   --idle                  keep idle frames (default: drop frames that ran nothing)
- *   --game=<dir>            game data dir (default games/MI1-IT-CD-DOS-VGA)
+ *   --game=<dir>            game data dir (required — no default)
  *   --seed=<n>              RNG seed for deterministic boot (default 1)
  *
  *   npm run spyglass -- MI1-Italiano-quicksave 60
@@ -37,7 +37,11 @@ const flag = (name: string, fallback: string): string =>
 
 const save = positional[0] ?? 'fresh';
 const ticks = parseInt(positional[1] ?? '200', 10);
-const gameDir = flag('game', 'games/MI1-IT-CD-DOS-VGA');
+const gameDir = process.argv.find((a) => a.startsWith('--game='))?.slice(7);
+if (!gameDir) {
+  console.error('spyglass: missing required --game=<dir> (the v5 game-data directory)');
+  process.exit(1);
+}
 const seed = parseInt(flag('seed', '1'), 10);
 const scriptArg = flag('script', '');
 const scripts = scriptArg

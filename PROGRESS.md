@@ -26,7 +26,7 @@ fails, re-run with `npm run test:integration:save`: the same playthrough, but it
 writes a savepoint at every beat for fast replay / targeted debugging of the
 failing beat. Per-game room ids + mechanics live in `game.ts`
 (`ROOMS`/`VERBS`/`VARS`); suite design → [HARNESS §6](pages/docs/engine/harness.md)
-+ [AGENTS "The harness"](AGENTS.md).
++ [CLAUDE.md "The harness"](CLAUDE.md).
 
 ---
 
@@ -198,7 +198,7 @@ Priority H/M/L = likelihood of biting current/near play × severity.
 
 **Tooling:** `npm run disgrogate` (+ `SCAN grep=`) is the disassembler CLI
 (`tools/disgrogate.ts`) — keep it in sync with the executing opcode table
-(AGENTS.md).
+(CLAUDE.md).
 
 ### Open backlog
 

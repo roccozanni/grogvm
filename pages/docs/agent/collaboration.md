@@ -9,7 +9,7 @@ GrogVM is built **by a human and an AI agent, together**: the human sets
 direction, reviews every plan, verifies in the browser, and owns every
 commit; the agent disassembles, implements, drives the engine headless, and
 writes these docs. This section is the method — and the agent's normative
-briefing, paired with the operational `AGENTS.md` at the repo root. Its
+briefing, paired with the operational `CLAUDE.md` at the repo root. Its
 siblings: [where knowledge lives](knowledge.md),
 [how claims get verified](verification.md).
 
