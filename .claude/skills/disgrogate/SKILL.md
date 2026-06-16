@@ -10,7 +10,7 @@ description: Statically disassemble a SCUMM v5 script from the grogvm game data
 
 `npm run disgrogate -- --game=<dir> <arg> [room] [grep=<term>]`
 
-- `--game=<dir>` (REQUIRED, no default): the v5 game-data dir, e.g. `games/MI1-IT-CD-DOS-VGA`.
+- `--game=<dir>` (REQUIRED, no default): the v5 game-data dir, e.g. `games/<mi1-build>`.
 - forms for `<arg>`:
   - `<globalId>`: a global script (e.g. `1`).
   - `L<id> <room>`: a room-local script (ids >= 200 are room-local, not global).
@@ -19,9 +19,9 @@ description: Statically disassemble a SCUMM v5 script from the grogvm game data
 - `grep=<term>` (optional): filter printed lines to those containing the term.
 
 Examples:
-- `npm run disgrogate -- --game=games/MI1-IT-CD-DOS-VGA 1`
-- `npm run disgrogate -- --game=games/MI1-IT-CD-DOS-VGA ENCD 33`
-- `npm run disgrogate -- --game=games/MI1-IT-CD-DOS-VGA SCAN grep=lights`
+- `npm run disgrogate -- --game=games/<mi1-build> 1`
+- `npm run disgrogate -- --game=games/<mi1-build> ENCD 33`
+- `npm run disgrogate -- --game=games/<mi1-build> SCAN grep=lights`
 
 ## Reading the output (caveats)
 - `SCAN` sweeps GLOBAL scripts only; query room-local ids as `L<id> <room>`.

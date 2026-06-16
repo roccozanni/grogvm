@@ -10,7 +10,7 @@ description: Render a frame of the running grogvm game to a PNG. Use to eyeball
 
 `npm run mugshot -- --game=<dir> <save> [ticks] [options]`
 
-- `--game=<dir>` (REQUIRED, no default): the v5 game-data dir, e.g. `games/MI1-IT-CD-DOS-VGA`.
+- `--game=<dir>` (REQUIRED, no default): the v5 game-data dir, e.g. `games/<mi1-build>`.
 - `<save>`: a save slot name (resolves to `saves/<name>.websave.json`) or a path.
   Pass `fresh` to boot without restoring (e.g. the title screen).
 - `[ticks]`: game ticks to advance before capturing (default 0).
@@ -20,8 +20,8 @@ description: Render a frame of the running grogvm game to a PNG. Use to eyeball
   - `--seed=<n>`: RNG seed for a deterministic boot (default 1).
 
 Examples:
-- `npm run mugshot -- --game=games/MI1-IT-CD-DOS-VGA fresh 200 --out=scratch/title.png`
-- `npm run mugshot -- --game=games/MI1-IT-CD-DOS-VGA MI1-Italiano-quicksave 60`
+- `npm run mugshot -- --game=games/<mi1-build> fresh 200 --out=scratch/title.png`
+- `npm run mugshot -- --game=games/<mi1-build> MI1-Italiano-quicksave 60`
 
 It renders the full screen through the real compose pipeline. For the wider
 "render a VM to PNG" surface (`writeScreenshot` / `screenshot`), see CLAUDE.md.

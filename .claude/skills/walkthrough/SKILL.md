@@ -2,8 +2,8 @@
 name: walkthrough
 description: Run the grogvm MI1 integration playthroughs (the from-boot walkthrough
   regression net) and produce per-beat checkpoint saves. Use to run the real-game
-  playthrough tests, point the suite at custom game data, or dump checkpoint saves
-  to eyeball/bisect a visual regression. Separate from the fast default `npm test`.
+  playthrough tests (against an MI1 build discovered under games/), or dump checkpoint
+  saves to eyeball/bisect a visual regression. Separate from the fast default `npm test`.
 ---
 
 # walkthrough, real-game playthrough suite
@@ -21,10 +21,12 @@ self-skips when its data is absent, so a fresh checkout and CI stay green.
   the browser's saves panel to eyeball rendering or bisect a visual regression.
 
 ## Game data
-- Defaults to `games/MI1-IT-CD-DOS-VGA` (the IT build, which also carries the saves).
-- Override with the `GROG_GAME_DIR` env var to point at your own copy, e.g.
-  `GROG_GAME_DIR=/path/to/data npm run test:integration`.
-- Never commit the copyrighted bytes.
+- The suite discovers an installed MI1 build under `games/` automatically — no
+  folder name baked in, no env var. Drop a build (e.g. `games/MI1-EN-CD-DOS-VGA`)
+  there and it's found.
+- When several MI1 builds are present it pins to the Italiano variant (by
+  `MONKEY.000` hash) for a reproducible seeded run, else takes the first sorted.
+- No `games/` data ⇒ the suite self-skips. Never commit the copyrighted bytes.
 
 ## Notes
 - The walkthrough is ONE VM from boot with a seeded RNG, so beat timing is

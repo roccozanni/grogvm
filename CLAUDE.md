@@ -186,9 +186,9 @@ cover PNG output). A probe that proves reusable graduates to a committed
 
 **Run the playthroughs separately** (own vitest config, NOT the default `npm
 test`, which stays fast/synthetic/data-free): see the **walkthrough skill** for
-the commands, the `GROG_GAME_DIR` data override, and the opt-in per-beat
-checkpoint saves. Data-gated: self-skips with no game data, so a fresh checkout
-/ CI stays green; never commit the copyrighted bytes.
+the commands, the auto-discovery of an MI1 build under `games/`, and the opt-in
+per-beat checkpoint saves. Data-gated: self-skips with no game data, so a fresh
+checkout / CI stays green; never commit the copyrighted bytes.
 
 ## Dev-environment gotchas (fragile, operational — not doc material)
 
