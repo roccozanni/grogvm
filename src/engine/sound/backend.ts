@@ -9,6 +9,13 @@ export interface SoundSnapshot {
 }
 
 /**
+ * Re-acquires a sound's parsed descriptor by id. The snapshot stores ids,
+ * not renditions, so an output backend needs this to rebuild its real voices
+ * on {@link AudioBackend.restore}.
+ */
+export type SoundResourceResolver = (id: number) => SoundResource;
+
+/**
  * One active sound as the live inspector sees it: what the VM *believes* is
  * playing. Read-only — derived from the same state {@link AudioBackend.isRunning}
  * reads, so observing it can never perturb timing. PCM/CD renditions are
@@ -43,7 +50,12 @@ export interface AudioBackend {
   /** Advance the clock by `jiffies`; the VM ticks this once per jiffy. */
   advance(jiffies: number): void;
   serialize(): SoundSnapshot;
-  restore(snap: SoundSnapshot): void;
+  /**
+   * Replace the active-sound map with `snap`. `resolve` re-acquires each
+   * sound's rendition so an output backend can rebuild the real voices the
+   * snapshot can't carry; a timing-only backend ignores it.
+   */
+  restore(snap: SoundSnapshot, resolve: SoundResourceResolver): void;
   dispose(): void;
 }
 
@@ -135,8 +147,8 @@ export class SilentTimingBackend implements AudioBackend {
     this.active.clear();
     this.music = null;
     for (const [id, remaining, looping] of snap.active) {
-      // The snapshot stores no rendition, so kind is unknown until the game
-      // next starts the sound (music returns on the next room change).
+      // Timing only — the snapshot carries no rendition, so kind stays
+      // 'unknown' here; an output backend re-resolves it to rebuild voices.
       this.active.set(id, { remaining, looping, kind: 'unknown', total: 0 });
       if (looping) this.music = id; // best-effort: the looping entry is the music slot
     }

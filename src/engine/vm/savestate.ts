@@ -404,7 +404,10 @@ export function restoreVm(vm: Vm, state: SaveState): void {
   vm.drawnBoxes.length = 0;
   for (const b of state.drawnBoxes) vm.drawnBoxes.push({ ...b });
   vm.shakeEnabled = state.shakeEnabled;
-  vm.audio.restore(state.sound);
+  // Pass the resolver so an output backend can rebuild its real voices —
+  // resolveSound survives reset(), so the renditions are available now,
+  // before the room reload below.
+  vm.audio.restore(state.sound, (id) => vm.getSoundResource(id));
 
   // currentRoom + pseudoRooms + UI overrides + box flags must be set BEFORE
   // the room-resource reload below, so the CLUT overrides re-apply over the

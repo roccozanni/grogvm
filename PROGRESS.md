@@ -163,10 +163,13 @@ Priority H/M/L = likelihood of biting current/near play × severity.
   (`vm.ts:682/711/1613`): with all 25 script slots busy, a room's exit/entry
   script or the inventory refresh just doesn't run — the same silent shape as
   the EXCD ordering bug. MI1 play stays far below 25 live slots.
-- [ ] **L — restored music slot is a heuristic** (`sound/backend.ts:93`): on
+- [ ] **L — restored music slot is a heuristic** (`sound/backend.ts:153`): on
   save restore, the looping active sound is assumed to be the music slot.
-  Related output gap: a restored save resumes inaudibly until the game next
-  starts a sound (the snapshot stores ids, not renditions).
+  (The related output gap — a restored save stayed inaudible until the game
+  next started a sound — is FIXED 2026-06-16: `AudioBackend.restore` now takes
+  a rendition resolver and the Web Audio backend rebuilds its voices on load,
+  looping music from the top and one-shots from their saved offset. See
+  [audio.md](pages/docs/engine/audio.md).)
 - [ ] **L — single CD transport not modeled** (`platform/audio/`): real
   redbook hardware plays one track at a time, so a CD start would cut any
   playing CD sound; our backend would mix them. No observable MI1 consumer —

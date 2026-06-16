@@ -6,6 +6,7 @@ import {
   type ActiveSoundInfo,
   type AudioBackend,
   SilentTimingBackend,
+  type SoundResourceResolver,
   type SoundSnapshot,
 } from '../../engine/sound/backend';
 import type { SoundResource } from '../../engine/sound/resource';
@@ -138,12 +139,24 @@ export class WebAudioBackend implements AudioBackend {
     return this.timing.serialize();
   }
 
-  /** Restored sounds stay inaudible until the game next starts one — the
-   *  snapshot stores ids, not renditions (music returns on the next room change). */
-  restore(snap: SoundSnapshot): void {
+  /**
+   * Rebuild real output for every restored sound. The snapshot carries ids,
+   * not renditions, so we re-resolve each rendition and re-create its voice —
+   * without this the VM believes a sound is playing (`isRunning` true) while
+   * nothing is audible until the next room's ENCD restarts it. A one-shot
+   * resumes from where it was saved (offset = elapsed = total − remaining);
+   * looping music restarts from the top, exactly as a room change would.
+   */
+  restore(snap: SoundSnapshot, resolve: SoundResourceResolver): void {
     for (const id of [...this.voices.keys()]) this.stopVoice(id);
     this.music = null;
     this.timing.restore(snap);
+    for (const [id, remaining, looping] of snap.active) {
+      const res = resolve(id);
+      const elapsed = looping ? 0 : Math.max(0, res.durationJiffies - remaining);
+      this.startVoice(id, res, looping, elapsed);
+      if (looping) this.music = id; // mirror the timing backend's single music slot
+    }
   }
 
   dispose(): void {
@@ -152,15 +165,17 @@ export class WebAudioBackend implements AudioBackend {
     void this.ctx.close().catch(() => {});
   }
 
-  private startVoice(id: number, res: SoundResource, loop: boolean): void {
+  // `elapsedJiffies` > 0 only on restore: a one-shot resumes from where it
+  // was saved instead of replaying from the top.
+  private startVoice(id: number, res: SoundResource, loop: boolean, elapsedJiffies = 0): void {
     this.stopVoice(id);
     if (this.ctx.state === 'suspended') void this.ctx.resume().catch(() => {});
     const r = res.rendition;
     if (r.kind === 'pcm') {
-      const voice = this.startPcm(id, r.samples, r.rate, loop);
+      const voice = this.startPcm(id, r.samples, r.rate, loop, elapsedJiffies);
       if (voice) this.voices.set(id, voice);
     } else if (r.kind === 'cd') {
-      this.voices.set(id, this.startCd(r.track, r.startSec, loop));
+      this.voices.set(id, this.startCd(r.track, r.startSec, loop, elapsedJiffies));
     }
     // 'midi' (the ADL-only effects) and 'silent': timed but inaudible — the
     // OPL2 synthesis phase lands here.
@@ -171,14 +186,16 @@ export class WebAudioBackend implements AudioBackend {
     this.voices.delete(id);
   }
 
-  private startPcm(id: number, samples: Uint8Array, rate: number, loop: boolean): Voice | null {
+  private startPcm(id: number, samples: Uint8Array, rate: number, loop: boolean, elapsedJiffies = 0): Voice | null {
     const buffer = this.pcmBuffer(id, samples, rate);
     if (!buffer) return null;
     const src = this.ctx.createBufferSource();
     src.buffer = buffer;
     src.loop = loop;
     src.connect(this.master);
-    src.start();
+    // `when = 0` starts immediately; `offset` resumes a restored one-shot
+    // mid-buffer (clamped so a near-finished sound can't overrun the buffer).
+    src.start(0, Math.min(elapsedJiffies / 60, buffer.duration));
     return {
       stop() {
         try {
@@ -227,11 +244,11 @@ export class WebAudioBackend implements AudioBackend {
     return buffer;
   }
 
-  private startCd(track: number, startSec: number, loop: boolean): Voice {
+  private startCd(track: number, startSec: number, loop: boolean, startElapsedJiffies = 0): Voice {
     let el: HTMLAudioElement | null = null;
     let url: string | null = null;
     let cancelled = false;
-    let elapsedJiffies = 0;
+    let elapsedJiffies = startElapsedJiffies; // > 0 on restore: seek to the saved position
     let sinceSync = 0;
 
     // Where the virtual clock says the track should be: the trigger's cue
@@ -259,8 +276,9 @@ export class WebAudioBackend implements AudioBackend {
       el = new Audio(url);
       el.loop = loop;
       el.muted = this.muted;
-      // Pre-metadata this sets the spec's default playback start position.
-      if (startSec > 0) el.currentTime = startSec;
+      // Pre-metadata this sets the spec's default playback start position —
+      // virtualPos folds in any restored offset so a resumed track seeks right.
+      if (virtualPos() > 0) el.currentTime = virtualPos();
       tryPlay();
     });
     return {

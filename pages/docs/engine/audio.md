@@ -151,6 +151,8 @@ can never outlive the virtual clock.
 **What stays silent:** the MIDI renditions have no synthesizer, so an
 ADL-only sound (15 effects in MI1, e.g. the lookout's revisit theme #98) is
 timed but inaudible, as is iMUSE control data (`soundKludge`; 0 MI1 uses,
-loud-halts). A restored save resumes inaudibly until the game next starts a
-sound — the snapshot stores ids, not renditions; music returns on the next
-room change.
+loud-halts). A restored save rebuilds its voices immediately: the snapshot
+stores ids, not renditions, so `restore` takes a resolver that re-parses each
+active sound and re-creates its voice — looping music restarts from the top,
+a one-shot resumes from where it was saved. (The timing core stays
+rendition-blind; only the output backend uses the resolver.)
