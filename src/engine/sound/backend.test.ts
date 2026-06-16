@@ -46,6 +46,27 @@ describe('SilentTimingBackend', () => {
     expect(a.isRunning(40)).toBe(false);
   });
 
+  it('inspect() reports kind, device, length and the music slot', () => {
+    const a = new SilentTimingBackend();
+    a.startSound(5, { durationJiffies: 120, looping: false, rendition: { kind: 'pcm', samples: new Uint8Array(), rate: 6849 } });
+    a.startSound(6, { durationJiffies: 60, looping: false, rendition: { kind: 'midi', device: 'ADL', data: new Uint8Array() } });
+    a.startMusic(9, { durationJiffies: 0, looping: false, rendition: { kind: 'cd', track: 3, startSec: 0 } });
+    a.advance(20); // length is the full duration, not a countdown — total stays put
+
+    const byId = new Map(a.inspect().map((s) => [s.id, s]));
+    expect(byId.get(5)).toMatchObject({ kind: 'pcm', total: 120, looping: false, isMusic: false });
+    expect(byId.get(6)).toMatchObject({ kind: 'midi', device: 'ADL', isMusic: false });
+    expect(byId.get(9)).toMatchObject({ kind: 'cd', looping: true, isMusic: true });
+  });
+
+  it('inspect() reports a restored sound as unknown (snapshot carries no rendition)', () => {
+    const a = new SilentTimingBackend();
+    a.startSound(3, oneShot(50));
+    const b = new SilentTimingBackend();
+    b.restore(a.serialize());
+    expect(b.inspect()).toMatchObject([{ id: 3, kind: 'unknown' }]);
+  });
+
   it('round-trips its active map through serialize/restore', () => {
     const a = new SilentTimingBackend();
     a.startSound(3, oneShot(50));

@@ -56,6 +56,7 @@ function fakeVm(over: Record<string, unknown> = {}): Vm {
     slots: [],
     trace: [],
     actors: { all: () => [], capacity: 13, get: () => null },
+    audio: { inspect: () => [] },
     vars: {
       globals,
       numBits: 8,
@@ -99,6 +100,7 @@ describe('livePanels — structure', () => {
       const { host } = mount(fakeVm());
       expect(host.querySelector('.vm-input-panel')).not.toBeNull();
       expect(host.querySelector('.vm-actors')).not.toBeNull();
+      expect(host.querySelector('.vm-sounds')).not.toBeNull();
       expect(host.querySelector('.vm-slots')).not.toBeNull();
       expect(host.querySelector('.vm-trace')).not.toBeNull();
       expect(host.querySelector('.vm-var-grid')).not.toBeNull();
@@ -202,6 +204,67 @@ describe('conditional banners + click ring', () => {
       expect(li.textContent).toContain('tick 9');
       expect(li.textContent).toContain('obj #7');
       expect(li.textContent).toContain('Shift');
+    });
+  });
+});
+
+describe('sound panel', () => {
+  const sound = (over: Record<string, unknown> = {}): unknown => ({
+    id: 1,
+    kind: 'pcm',
+    total: 120,
+    looping: false,
+    isMusic: false,
+    ...over,
+  });
+
+  it('shows the empty state when nothing is playing', () => {
+    createRoot(() => {
+      const { host } = mount(fakeVm());
+      const panel = host.querySelector('.vm-sounds')!;
+      expect(panel.querySelector('h3')!.textContent).toBe('Sound (0 active)');
+      expect((panel.querySelector('.vm-empty') as HTMLElement).style.display).toBe('');
+      expect((panel.querySelector('table') as HTMLElement).style.display).toBe('none');
+    });
+  });
+
+  it('lists active sounds, music first, with their length', () => {
+    createRoot(() => {
+      const sounds = [
+        sound({ id: 5, kind: 'pcm', total: 120 }),
+        sound({ id: 9, kind: 'cd', looping: true, total: 0, isMusic: true }),
+      ];
+      const vm = fakeVm({ audio: { inspect: () => sounds } });
+      const { host } = mount(vm);
+      const rows = host.querySelectorAll('.vm-sounds tbody tr');
+      expect(rows.length).toBe(2);
+      // Music sorts first and carries the badge.
+      expect(rows[0]!.classList.contains('sound-music')).toBe(true);
+      expect(rows[0]!.querySelector('.sound-music-badge')!.textContent).toBe('music');
+      expect(rows[0]!.textContent).toContain('looping');
+      // The one-shot PCM shows its full duration (120 jiffies = 2.0s), not a countdown.
+      expect(rows[1]!.textContent).toContain('2.0s');
+    });
+  });
+
+  it('flags MIDI/silent renditions disabled and shows the device', () => {
+    createRoot(() => {
+      const vm = fakeVm({ audio: { inspect: () => [sound({ kind: 'midi', device: 'ADL' })] } });
+      const { host } = mount(vm);
+      const row = host.querySelector('.vm-sounds tbody tr')!;
+      expect(row.classList.contains('sound-disabled')).toBe(true);
+      expect(row.textContent).toContain('adl');
+      expect(row.textContent).toContain('disabled (not implemented)');
+    });
+  });
+
+  it('shows a restored sound as restored, with no known length', () => {
+    createRoot(() => {
+      const vm = fakeVm({ audio: { inspect: () => [sound({ kind: 'unknown', total: 0 })] } });
+      const { host } = mount(vm);
+      const cells = host.querySelectorAll('.vm-sounds tbody tr td');
+      expect(cells[2]!.textContent).toBe('restored');
+      expect(cells[3]!.textContent).toBe('—'); // length unknown after restore (snapshot carries none)
     });
   });
 });

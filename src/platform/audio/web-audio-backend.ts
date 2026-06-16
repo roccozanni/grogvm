@@ -2,7 +2,12 @@
  * Real audio output behind the `AudioBackend` seam: Web Audio for digitized
  * PCM, an `HTMLAudioElement` per CD track. See pages/docs/engine/audio.md.
  */
-import { type AudioBackend, SilentTimingBackend, type SoundSnapshot } from '../../engine/sound/backend';
+import {
+  type ActiveSoundInfo,
+  type AudioBackend,
+  SilentTimingBackend,
+  type SoundSnapshot,
+} from '../../engine/sound/backend';
 import type { SoundResource } from '../../engine/sound/resource';
 
 /** Resolves a CD track number to its `TrackN.{fla,mp3}` File; null when absent. */
@@ -113,6 +118,12 @@ export class WebAudioBackend implements AudioBackend {
 
   isRunning(id: number): boolean {
     return this.timing.isRunning(id);
+  }
+
+  // Timing is the authority on what's active; whether a kind is audible here
+  // (PCM/CD play, MIDI/silent don't — see startVoice) is the panel's to flag.
+  inspect(): readonly ActiveSoundInfo[] {
+    return this.timing.inspect();
   }
 
   advance(jiffies: number): void {

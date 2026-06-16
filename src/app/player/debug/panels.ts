@@ -7,6 +7,7 @@
  */
 
 import { effect, el, clear, type Signal } from '../../reactive';
+import type { ActiveSoundInfo } from '../../../engine/sound/backend';
 import { type SaveState } from '../../../engine/vm/savestate';
 import type { Actor } from '../../../engine/actor/actor';
 import type { ScriptSlot } from '../../../engine/vm/slot';
@@ -56,6 +57,7 @@ export function livePanels(d: LiveDeps): HTMLElement {
     idleBanner(d),
     inputPanel(d),
     actorPanel(d),
+    soundPanel(d),
     slotPanel(d),
     tracePanel(d),
     varsPanel(d, globalsModel(d)),
@@ -307,6 +309,74 @@ function animBlock(a: Actor): HTMLElement {
     el('div', { class: 'vm-actor-anim-head' }, `actor ${a.id} · anim ${a.anim.animId} · costume ${a.costume}`),
     limbTable,
   );
+}
+
+// ── sound ──
+
+/**
+ * Live sound table: every sound the VM's timing authority counts as active —
+ * what it *believes* is playing, the way the actor panel shows what's on stage.
+ * PCM and CD renditions are audible; MIDI (the AdLib effects) and silent ones
+ * are timed but produce no output yet, so they list with a "disabled" status —
+ * a missing effect reads as not-implemented, not broken. A sound restored from
+ * a save shows "restored" until the game next starts it (the snapshot carries
+ * no rendition). See pages/docs/engine/audio.md.
+ */
+function soundPanel(d: LiveDeps): HTMLElement {
+  const heading = el('h3');
+  const empty = el('p', { class: 'vm-empty', style: { display: 'none' } }, '(nothing playing)');
+  const table = el('table', { style: { display: 'none' } });
+  table.innerHTML = `
+    <thead><tr><th>id</th><th>kind</th><th>status</th><th>length</th></tr></thead>
+    <tbody></tbody>
+  `;
+  const tbody = table.querySelector('tbody')!;
+
+  effect(() => {
+    d.live();
+    const sounds = d.vm().audio.inspect();
+    heading.textContent = `Sound (${sounds.length} active)`;
+    const any = sounds.length > 0;
+    empty.style.display = any ? 'none' : '';
+    table.style.display = any ? '' : 'none';
+    clear(tbody);
+    // Music first, then by id — a stable order so the rebuilt rows don't jump
+    // as the active set changes from bump to bump.
+    const ordered = [...sounds].sort((a, b) => Number(b.isMusic) - Number(a.isMusic) || a.id - b.id);
+    for (const s of ordered) tbody.append(soundRow(s));
+  });
+
+  return el('div', { class: 'vm-sounds' }, heading, empty, table);
+}
+
+function soundRow(s: ActiveSoundInfo): HTMLElement {
+  const disabled = s.kind === 'midi' || s.kind === 'silent';
+  const tr = el('tr', { class: `sound-row${disabled ? ' sound-disabled' : ''}${s.isMusic ? ' sound-music' : ''}` });
+
+  // MIDI shows its device (adl/rol/spk) — that's the distinguishing detail.
+  const kind = s.kind === 'midi' ? (s.device ?? 'midi').toLowerCase() : s.kind;
+  // MIDI is the parked AdLib synth (not implemented); a 'silent' rendition is a
+  // genuinely empty/unrecognized SOU — distinct reasons for the same silence.
+  const status =
+    s.kind === 'unknown'
+      ? 'restored'
+      : s.kind === 'midi'
+        ? 'disabled (not implemented)'
+        : s.kind === 'silent'
+          ? 'silent (no audio)'
+          : 'playing';
+  // The sound's full duration — not a countdown; it doesn't tick down per bump.
+  const length = s.looping ? 'looping' : s.total > 0 ? secs(s.total) : '—';
+
+  const idCell = el('td', {}, `#${s.id}`);
+  if (s.isMusic) idCell.append(document.createTextNode(' '), el('span', { class: 'sound-music-badge' }, 'music'));
+  tr.append(idCell, el('td', {}, kind), el('td', {}, status), el('td', {}, length));
+  return tr;
+}
+
+/** Jiffies (1/60 s) → a compact seconds label. */
+function secs(jiffies: number): string {
+  return `${(jiffies / 60).toFixed(1)}s`;
 }
 
 // ── script slots ──
