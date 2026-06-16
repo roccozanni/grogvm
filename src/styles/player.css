@@ -85,49 +85,6 @@
   opacity: 0.5;
 }
 
-.vm-actor-anim-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-  margin-top: 0.5rem;
-}
-
-.vm-actor-anim-block {
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 0.4rem 0.6rem;
-  font-size: 0.8em;
-}
-
-.vm-actor-anim-head {
-  color: var(--accent, #9be65c);
-  margin-bottom: 0.25rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.vm-actor-anim-limbs {
-  width: 100%;
-  border-collapse: collapse;
-  font-variant-numeric: tabular-nums;
-}
-
-.vm-actor-anim-limbs th,
-.vm-actor-anim-limbs td {
-  text-align: left;
-  padding: 0.15rem 0.5rem;
-  border-bottom: 1px solid var(--border);
-}
-
-.vm-actor-anim-limbs th {
-  color: var(--muted);
-  font-weight: 500;
-  background: #06070b;
-}
-
-.limb-finished {
-  color: var(--muted);
-}
-
 .slot-row.slot-running td:nth-child(4) {
   color: #6cdf6c;
 }
@@ -291,13 +248,6 @@
 .hex-here {
   color: var(--error);
   font-weight: 700;
-}
-
-.vm-tick-counter {
-  color: var(--muted);
-  font-size: 0.85em;
-  font-variant-numeric: tabular-nums;
-  align-self: center;
 }
 
 .vm-idle-banner {
@@ -495,9 +445,6 @@
   border-top: 1px solid var(--border);
   padding-top: 0.75rem;
 }
-.vm-debug-heading {
-  margin: 0 0 0.5rem;
-}
 /* Panel sub-headings (Input, Script slots, Globals, …): a dense, muted
    section header. Lost its styling when the section class was renamed
    vm-inspector → vm-debug; re-pointed here. */
@@ -518,10 +465,56 @@
   font-size: 0.8rem;
   line-height: 1.3;
 }
-.vm-status {
+/* Room id + dimensions — the Stage tab's leading line. */
+.vm-room-label {
+  margin: 0;
+  font-family: var(--mono, monospace);
+  font-size: 0.85em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Tabbed inspector: every pane is built once; only the active one shows.
+   The halt / idle / watchdog alerts live ABOVE the strip (vm-alerts), so a
+   HALTED VM is never hidden behind an inactive tab. ── */
+.vm-tabs {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.5rem;
+  gap: 0.25rem;
+  margin: 0.25rem 0 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+/* Reset the boxed base-button look (site.css) to a flat underline strip. */
+.vm-tab {
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.35rem 0.8rem;
+  margin: 0 0 -1px;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  cursor: pointer;
+}
+.vm-tab:hover {
+  background: transparent;
+  color: var(--fg);
+}
+.vm-tab.active {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+  font-weight: 700;
+}
+.vm-tabpane[hidden] {
+  display: none;
+}
+.vm-pane-group {
+  display: flex;
+  flex-direction: column;
+}
+/* The first sub-heading in a pane hugs the top (drop the 1.25rem section gap
+   that only makes sense between stacked panels). */
+.vm-tabpane .vm-pane-group > div:first-child > h3:first-child {
+  margin-top: 0;
 }

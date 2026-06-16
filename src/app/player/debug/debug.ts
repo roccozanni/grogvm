@@ -9,11 +9,19 @@
  * throttled `live` signal drives the heavier tables so camera-follow stays
  * smooth while playing, and refreshes them immediately when paused / stepping.
  */
-import { signal, bindText, el, createRoot, onCleanup } from '../../reactive';
+import { signal, el, createRoot, onCleanup } from '../../reactive';
 import type { EngineSession } from '../../../engine/session';
 import type { Vm } from '../../../engine/vm/vm';
 import type { ClickEvent } from '../input';
-import { livePanels, savesPanel, type LiveDeps, type RecentClick } from './panels';
+import {
+  alertBanners,
+  livePanelTabs,
+  tabbedPanels,
+  savesPanel,
+  type InspectorTab,
+  type LiveDeps,
+  type RecentClick,
+} from './panels';
 
 const RECENT_CLICKS_CAP = 12;
 /**
@@ -23,6 +31,24 @@ const RECENT_CLICKS_CAP = 12;
  * when paused/stepping), at a cost the frame loop doesn't feel.
  */
 const LIVE_REPAINT_MS = 250;
+
+// Remembered active inspector tab (matches the grogvm:debug:* flag namespace
+// in play.ts), so a reload reopens the panel you were last reading.
+const TAB_KEY = 'grogvm:debug:tab';
+function readTab(): string {
+  try {
+    return globalThis.localStorage?.getItem(TAB_KEY) ?? 'saves';
+  } catch {
+    return 'saves';
+  }
+}
+function writeTab(id: string): void {
+  try {
+    globalThis.localStorage?.setItem(TAB_KEY, id);
+  } catch {
+    /* ignore — a missing localStorage just means the tab won't persist */
+  }
+}
 
 export interface DebugPanel {
   readonly element: HTMLElement;
@@ -54,22 +80,11 @@ export function mountDebugPanel(session: EngineSession, saveKey: string, saveLab
       liveSig.set((n) => n + 1);
     };
 
-    // Read-only status readouts. The inspector observes the VM and changes
-    // nothing: driving the clock (play / pause / step / run-to-idle) now lives
-    // in the headless tooling — spyglass, disgrogate, the integration harness —
-    // where state is reproducible, instead of in a live play session where
-    // poking the clock only desyncs what you're playing.
-    const roomLabel = el('span', { class: 'vm-room-label' });
-    bindText(roomLabel, () => {
-      tickSig();
-      const v = vm();
-      return `room ${v.currentRoom}${v.loadedRoom ? ` (${v.loadedRoom.width}×${v.loadedRoom.height})` : ' — none loaded'}`;
-    });
-
-    const counter = el('span', { class: 'vm-tick-counter' });
-    bindText(counter, () => `tick ${tickSig()}`);
-
-    const statusLine = el('div', { class: 'vm-status' }, roomLabel, counter);
+    // The inspector observes the VM and changes nothing — driving the clock
+    // lives in the headless tooling (spyglass, disgrogate, the integration
+    // harness), not in a live play session. `tickSig` no longer drives a
+    // visible counter; it survives only to timestamp clicks in the Input ring
+    // (room id + dimensions moved into the Stage tab's Room section).
 
     // Surfaces "clicks that change nothing" (a script parked waiting on a var
     // the input never sets). Hidden until the watchdog fires; re-armed on a
@@ -116,14 +131,17 @@ export function mountDebugPanel(session: EngineSession, saveKey: string, saveLab
       bitsShown,
     };
 
+    // Saves first — it's what a normal player reaches for; the VM-internals
+    // tabs follow. Its rebuilds (on discrete save/load actions) stay walled off
+    // from the other panes.
+    const tabs: InspectorTab[] = [{ id: 'saves', label: 'Saves', build: () => savesHost }, ...livePanelTabs(deps)];
+
     element = el(
       'section',
       { class: 'vm-debug' },
-      el('h2', { class: 'vm-debug-heading' }, 'VM inspector'),
       watchdogBanner,
-      statusLine,
-      savesHost,
-      livePanels(deps),
+      alertBanners(deps),
+      tabbedPanels(tabs, { initialTab: readTab(), onTabChange: writeTab }),
     );
 
     const unsub = session.onFrame(() => {

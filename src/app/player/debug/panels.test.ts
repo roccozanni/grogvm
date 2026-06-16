@@ -2,42 +2,14 @@
 /**
  * The reactive debug panels (panels.ts) against a hand-rolled fake VM — no
  * engine boot, no session. Pins what the conversion to the reactive core has
- * to preserve: panels build ONCE and update in place (the anim <details> keeps
- * its open state across a repaint; var cells are reused, not rebuilt), the
- * conditional banners toggle, and the click ring rides its own signal.
+ * to preserve: panels build ONCE and update in place (var cells are reused,
+ * not rebuilt), the conditional banners toggle, the click ring rides its own
+ * signal, and the tabs show one pane at a time without rebuilding.
  */
 import { describe, it, expect } from 'vitest';
-import { signal, createRoot, type Signal } from '../../reactive';
-import { livePanels, type LiveDeps, type RecentClick } from './panels';
+import { signal, createRoot, el, type Signal } from '../../reactive';
+import { alertBanners, livePanelTabs, tabbedPanels, type LiveDeps, type RecentClick } from './panels';
 import type { Vm } from '../../../engine/vm/vm';
-
-type Limb = { active: boolean; finished: boolean; start: number; cursor: number; length: number; noLoop: boolean };
-const limb = (over: Partial<Limb> = {}): Limb => ({
-  active: false,
-  finished: false,
-  start: 0,
-  cursor: 0,
-  length: 1,
-  noLoop: false,
-  ...over,
-});
-
-function fakeActor(over: Record<string, unknown> = {}): unknown {
-  return {
-    id: 3,
-    room: 1,
-    costume: 5,
-    x: 100,
-    y: 50,
-    isMoving: false,
-    visible: true,
-    walkTarget: null,
-    facing: 'S',
-    scale: 255,
-    anim: { animId: 0, limbs: [limb(), limb()] },
-    ...over,
-  };
-}
 
 function fakeVm(over: Record<string, unknown> = {}): Vm {
   const globals = new Array<number>(128).fill(0);
@@ -75,7 +47,7 @@ interface Harness {
   globalsShown: Signal<number>;
 }
 
-function mount(vm: Vm): Harness {
+function mount(vm: Vm, initialTab = 'exec'): Harness {
   const tick = signal(0);
   const idle = signal<string | null>(null);
   const clicks = signal<readonly RecentClick[]>([]);
@@ -89,10 +61,18 @@ function mount(vm: Vm): Harness {
     globalsShown,
     bitsShown,
   };
-  return { host: livePanels(deps), tick, idle, clicks, globalsShown };
+  // Mirror the production composition (debug.ts): the conditional alerts above
+  // the tab strip, Saves first, then the live panels grouped into tabs. The
+  // opening tab is a parameter so a test can probe a pane whose live updates
+  // are gated on visibility (default 'exec', independent of the prod default).
+  const tabs = [{ id: 'saves', label: 'Saves', build: () => el('div', { class: 'vm-saves-host' }) }, ...livePanelTabs(deps)];
+  const host = el('div', {}, alertBanners(deps), tabbedPanels(tabs, { initialTab, onTabChange: () => {} }));
+  return { host, tick, idle, clicks, globalsShown };
 }
 
 const bump = (h: Harness): void => h.tick.set((n) => n + 1);
+const showTab = (h: Harness, label: string): void =>
+  ([...h.host.querySelectorAll('.vm-tab')].find((t) => t.textContent === label) as HTMLButtonElement).click();
 
 describe('livePanels — structure', () => {
   it('renders every section', () => {
@@ -109,31 +89,52 @@ describe('livePanels — structure', () => {
   });
 });
 
-describe('actor anim <details>', () => {
-  it('keeps its open state across a repaint (the bug the rebuild caused)', () => {
+describe('tabbed layout', () => {
+  it('shows only the active pane and switches without rebuilding the panels', () => {
     createRoot(() => {
-      const animating = fakeActor({ anim: { animId: 2, limbs: [limb({ active: true, cursor: 1, length: 4 })] } });
-      const vm = fakeVm({ actors: { all: () => [animating], capacity: 13, get: () => null } });
-      const h = mount(vm);
+      const { host } = mount(fakeVm());
+      // Default tab (exec) is visible; the others start hidden.
+      expect(host.querySelector('#vm-pane-exec')!.hasAttribute('hidden')).toBe(false);
+      expect(host.querySelector('#vm-pane-state')!.hasAttribute('hidden')).toBe(true);
 
-      const details = h.host.querySelector('details') as HTMLDetailsElement;
-      expect(details).not.toBeNull();
-      expect(details.style.display).toBe('');
-      details.open = true; // user expands it
+      const slotsBefore = host.querySelector('.vm-slots'); // lives in the exec pane
+      const stateTab = [...host.querySelectorAll('.vm-tab')].find((t) => t.textContent === 'State') as HTMLButtonElement;
+      stateTab.click();
 
-      bump(h); // a frame ticks by
-
-      // Same element, still open — not a fresh node that snapped shut.
-      expect(h.host.querySelector('details')).toBe(details);
-      expect(details.open).toBe(true);
+      // State pane shows, exec hides — same nodes, just toggled (not rebuilt).
+      expect(host.querySelector('#vm-pane-state')!.hasAttribute('hidden')).toBe(false);
+      expect(host.querySelector('#vm-pane-exec')!.hasAttribute('hidden')).toBe(true);
+      expect(stateTab.getAttribute('aria-selected')).toBe('true');
+      expect(host.querySelector('.vm-slots')).toBe(slotsBefore);
     });
   });
 
-  it('hides the <details> when no actor is animating', () => {
+  it('keeps the halt + idle alerts out of the tabs (always visible)', () => {
     createRoot(() => {
-      const vm = fakeVm({ actors: { all: () => [fakeActor()], capacity: 13, get: () => null } });
-      const { host } = mount(vm);
-      expect((host.querySelector('details') as HTMLDetailsElement).style.display).toBe('none');
+      const { host } = mount(fakeVm());
+      const alerts = host.querySelector('.vm-alerts')!;
+      expect(alerts.querySelector('.vm-halt')).not.toBeNull();
+      expect(alerts.querySelector('.vm-idle-banner')).not.toBeNull();
+      // Not buried inside a tab pane.
+      expect(host.querySelector('.vm-tabpane .vm-halt')).toBeNull();
+      expect(host.querySelector('.vm-tabpane .vm-idle-banner')).toBeNull();
+    });
+  });
+
+  it('freezes a hidden pane and repaints it fresh on reveal', () => {
+    createRoot(() => {
+      const vm = fakeVm();
+      const h = mount(vm, 'exec'); // State pane starts hidden → gated off
+      const cell5 = (): string =>
+        h.host.querySelectorAll('.vm-var-grid .var-cell')[5]!.querySelector('.var-val')!.textContent!;
+      expect(cell5()).toBe('0');
+
+      vm.vars.globals[5] = 42;
+      bump(h);
+      expect(cell5()).toBe('0'); // hidden pane did NOT repaint
+
+      showTab(h, 'State'); // reveal → catches up to the live VM in one repaint
+      expect(cell5()).toBe('42');
     });
   });
 });
@@ -142,7 +143,7 @@ describe('globals grid', () => {
   it('reuses cells and updates values in place rather than rebuilding', () => {
     createRoot(() => {
       const vm = fakeVm();
-      const h = mount(vm);
+      const h = mount(vm, 'state'); // State pane visible so its live updates aren't gated off
       const grid = h.host.querySelector('.vm-var-grid')!;
       expect(grid.querySelectorAll('.var-cell').length).toBe(64);
 

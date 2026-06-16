@@ -6,7 +6,7 @@
  * on discrete actions (so the slot-name input keeps focus).
  */
 
-import { effect, el, clear, type Signal } from '../../reactive';
+import { effect, el, clear, signal, bindClass, bindAttr, type Signal } from '../../reactive';
 import type { ActiveSoundInfo } from '../../../engine/sound/backend';
 import { type SaveState } from '../../../engine/vm/savestate';
 import type { Actor } from '../../../engine/actor/actor';
@@ -46,23 +46,127 @@ const hex2 = (n: number): string => n.toString(16).padStart(2, '0');
 const hex4 = (n: number): string => n.toString(16).padStart(4, '0');
 
 /**
- * Build the live-state subtree once. Returns the persistent `vm-live`
- * container; the panels inside update themselves through effects.
+ * The two conditional alerts (halt + idle), kept OUT of the tabbed panels so a
+ * HALTED VM or an auto-pause is always visible — never hidden behind an
+ * inactive tab. Built once; each toggles its own display through an effect.
  */
-export function livePanels(d: LiveDeps): HTMLElement {
-  return el(
-    'div',
-    { class: 'vm-live' },
-    haltPanel(d),
-    idleBanner(d),
-    inputPanel(d),
-    actorPanel(d),
-    soundPanel(d),
-    slotPanel(d),
-    tracePanel(d),
-    varsPanel(d, globalsModel(d)),
-    varsPanel(d, bitsModel(d)),
-  );
+export function alertBanners(d: LiveDeps): HTMLElement {
+  return el('div', { class: 'vm-alerts' }, haltPanel(d), idleBanner(d));
+}
+
+/**
+ * One inspector tab: a stable id (its persisted key + DOM id), a label, and a
+ * builder that constructs the pane content given an `isActive` accessor. The
+ * builder gets `isActive` so it can freeze its live updates while hidden (see
+ * gateDeps); a tab that doesn't update live (Saves) just ignores it.
+ */
+export interface InspectorTab {
+  readonly id: string;
+  readonly label: string;
+  readonly build: (isActive: () => boolean) => HTMLElement;
+}
+
+/**
+ * A per-pane view of the deps whose `live` bump is FROZEN while the pane is
+ * hidden. The mirror signal only tracks the global bump when `isActive()` is
+ * true, so a hidden pane's effects don't re-run (the kernel dedupes equal
+ * sets — reactivity.ts). On reveal the mirror catches up to the current bump
+ * in one step, so the pane repaints once from the live VM and is never stale.
+ * Panel builders are unchanged — they still just read `d.live()`.
+ */
+function gateDeps(d: LiveDeps, isActive: () => boolean): LiveDeps {
+  const paneLive = signal(0);
+  effect(() => {
+    const bump = d.live();
+    if (isActive()) paneLive.set(bump);
+  });
+  return { ...d, live: paneLive };
+}
+
+/**
+ * The live panels grouped into tabs by what you read together: script flow
+ * (slots + trace), variable state (globals + bits), what's on stage (room +
+ * actors + sound), and input. Each pane's panels read a gated `live`, so only
+ * the visible pane repaints. The Saves panel is appended by the caller — it
+ * rebuilds on discrete actions, so the session owns it.
+ */
+export function livePanelTabs(d: LiveDeps): InspectorTab[] {
+  const group = (...kids: HTMLElement[]): HTMLElement => el('div', { class: 'vm-pane-group' }, ...kids);
+  return [
+    { id: 'exec', label: 'Execution', build: (a) => { const g = gateDeps(d, a); return group(slotPanel(g), tracePanel(g)); } },
+    { id: 'state', label: 'State', build: (a) => { const g = gateDeps(d, a); return group(varsPanel(g, globalsModel(g)), varsPanel(g, bitsModel(g))); } },
+    { id: 'stage', label: 'Stage', build: (a) => { const g = gateDeps(d, a); return group(roomPanel(g), actorPanel(g), soundPanel(g)); } },
+    { id: 'input', label: 'Input', build: (a) => inputPanel(gateDeps(d, a)) },
+  ];
+}
+
+export interface TabbedOptions {
+  /** Tab id shown first (falls back to the first tab if the id is unknown). */
+  readonly initialTab: string;
+  /** Called with the new tab id on every switch — for persistence. */
+  readonly onTabChange: (id: string) => void;
+}
+
+/**
+ * Lay panes out as tabs. Every pane is built ONCE and stays in the DOM
+ * (preserving the build-once contract — the anim <details> open state, reused
+ * var cells, the Saves input's focus); switching only toggles which pane is
+ * shown, so the live effects never rebuild and a freshly-shown tab is already
+ * current. Reuses the explorer's tab-strip look, but NOT its
+ * rebuild-on-switch pane.
+ */
+export function tabbedPanels(tabs: readonly InspectorTab[], opts: TabbedOptions): HTMLElement {
+  const startIdx = Math.max(0, tabs.findIndex((t) => t.id === opts.initialTab));
+  const active = signal(startIdx);
+  const buttons: HTMLElement[] = [];
+
+  const strip = el('div', { class: 'vm-tabs', role: 'tablist', 'aria-label': 'VM inspector panels' });
+  const panes = el('div', { class: 'vm-tabpanes' });
+
+  const select = (i: number): void => {
+    active.set(i);
+    opts.onTabChange(tabs[i]!.id);
+  };
+
+  tabs.forEach((t, i) => {
+    const btn = el('button', {
+      class: 'vm-tab',
+      type: 'button',
+      role: 'tab',
+      id: `vm-tab-${t.id}`,
+      'aria-controls': `vm-pane-${t.id}`,
+      text: t.label,
+    });
+    btn.addEventListener('click', () => select(i));
+    bindClass(btn, 'active', () => active() === i);
+    bindAttr(btn, 'aria-selected', () => (active() === i ? 'true' : 'false'));
+    bindAttr(btn, 'tabindex', () => (active() === i ? '0' : '-1'));
+    buttons.push(btn);
+    strip.append(btn);
+
+    const pane = el(
+      'div',
+      { class: 'vm-tabpane', role: 'tabpanel', id: `vm-pane-${t.id}`, 'aria-labelledby': `vm-tab-${t.id}` },
+      t.build(() => active() === i),
+    );
+    bindAttr(pane, 'hidden', () => (active() === i ? null : 'true'));
+    panes.append(pane);
+  });
+
+  // Roving-tabindex arrow / Home / End navigation across the strip.
+  strip.addEventListener('keydown', (e) => {
+    let next: number;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = (active() + 1) % tabs.length;
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = (active() - 1 + tabs.length) % tabs.length;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = tabs.length - 1;
+    else return;
+    e.preventDefault();
+    select(next);
+    buttons[next]!.focus();
+  });
+
+  return el('div', { class: 'vm-tabbed' }, strip, panes);
 }
 
 function modString(m: ClickEvent['modifiers']): string {
@@ -207,13 +311,28 @@ function inputPanel(d: LiveDeps): HTMLElement {
   return el('section', { class: 'vm-input-panel' }, el('h3', {}, 'Input'), liveRow, engineRow, sysRow, fxRow, varsRow, clicksHost);
 }
 
+// ── room (leads the Stage tab) ──
+
+/** Current room id + loaded-room dimensions — the Stage tab's header line. */
+function roomPanel(d: LiveDeps): HTMLElement {
+  const label = el('p', { class: 'vm-room-label' });
+  effect(() => {
+    d.live();
+    const v = d.vm();
+    label.textContent = v.loadedRoom
+      ? `Room ${v.currentRoom} · ${v.loadedRoom.width}×${v.loadedRoom.height}`
+      : `Room ${v.currentRoom} · none loaded`;
+  });
+  return el('div', { class: 'vm-room' }, el('h3', {}, 'Room'), label);
+}
+
 // ── actor table (+ persistent anim <details>) ──
 
 /**
  * Render every populated (touched-at-least-once) actor; dormant defaults are
- * hidden, and actors in the current room get a highlight. The anim <details>
- * is built once and only its body repopulates, so its open state survives a
- * repaint.
+ * hidden, and actors in the current room get a highlight. The anim column
+ * carries the live-useful summary (id, active limb count, inert); raw per-limb
+ * costume state belongs in static tooling, not a running session.
  */
 function actorPanel(d: LiveDeps): HTMLElement {
   const heading = el('h3');
@@ -229,10 +348,6 @@ function actorPanel(d: LiveDeps): HTMLElement {
   `;
   const tbody = table.querySelector('tbody')!;
 
-  const animSummary = el('summary');
-  const animList = el('div', { class: 'vm-actor-anim-list' });
-  const details = el('details', { style: { display: 'none' } }, animSummary, animList);
-
   effect(() => {
     d.live();
     const vm = d.vm();
@@ -247,18 +362,9 @@ function actorPanel(d: LiveDeps): HTMLElement {
     table.style.display = hasActors ? '' : 'none';
     clear(tbody);
     for (const a of populated) tbody.append(actorRow(a, vm));
-
-    // Only actors with an active limb, so the panel doesn't add noise.
-    const animating = populated.filter((a) => a.anim.limbs.some((l) => l.active));
-    details.style.display = animating.length > 0 ? '' : 'none';
-    clear(animList);
-    if (animating.length > 0) {
-      animSummary.textContent = `Anim state (${animating.length} actor${animating.length === 1 ? '' : 's'} animating)`;
-      for (const a of animating) animList.append(animBlock(a));
-    }
   });
 
-  return el('div', { class: 'vm-actors' }, heading, empty, table, details);
+  return el('div', { class: 'vm-actors' }, heading, empty, table);
 }
 
 function actorRow(a: Actor, vm: Vm): HTMLElement {
@@ -283,32 +389,6 @@ function actorRow(a: Actor, vm: Vm): HTMLElement {
     tr.append(el('td', {}, c));
   }
   return tr;
-}
-
-function animBlock(a: Actor): HTMLElement {
-  const limbTable = el('table', { class: 'vm-actor-anim-limbs' });
-  limbTable.innerHTML = `
-    <thead><tr><th>limb</th><th>start</th><th>cursor</th><th>length</th><th>noLoop</th><th>state</th></tr></thead>
-    <tbody></tbody>
-  `;
-  const body = limbTable.querySelector('tbody')!;
-  for (let i = 0; i < a.anim.limbs.length; i++) {
-    const limb = a.anim.limbs[i]!;
-    if (!limb.active) continue;
-    const tr = el('tr');
-    if (limb.finished) tr.classList.add('limb-finished');
-    const state = limb.finished ? 'finished' : limb.length <= 1 ? 'static' : 'playing';
-    for (const c of [String(i), `0x${limb.start.toString(16)}`, String(limb.cursor), String(limb.length), limb.noLoop ? 'yes' : 'no', state]) {
-      tr.append(el('td', {}, c));
-    }
-    body.append(tr);
-  }
-  return el(
-    'div',
-    { class: 'vm-actor-anim-block' },
-    el('div', { class: 'vm-actor-anim-head' }, `actor ${a.id} · anim ${a.anim.animId} · costume ${a.costume}`),
-    limbTable,
-  );
 }
 
 // ── sound ──
