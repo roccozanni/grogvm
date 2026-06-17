@@ -1603,7 +1603,12 @@ defineOp({
       // hidden actors keep their exact coords (matches SCUMM's guards).
       const room = vm.loadedRoom;
       if (room && actor.room === vm.currentRoom && actor.visible && !actor.ignoreBoxes) {
-        const p = clampPointToBoxes(room.walkBoxes, x, y);
+        // Snap against the boxes LIVE for the current navigation mode, not the
+        // raw set: the overhead map locks the land boxes in boat mode and the
+        // water boxes on foot (room 2/5/6 ENCDs, matrixOp setBoxFlags by
+        // costume), so the clamp must never strand the boat on a land box (or
+        // the walker on water). adjustXYToBeInBox uses the live flags.
+        const p = clampPointToBoxes(effectiveBoxes(vm, room.walkBoxes), x, y);
         x = p.x;
         y = p.y;
       }

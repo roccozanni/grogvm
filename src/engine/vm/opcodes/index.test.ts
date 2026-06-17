@@ -1037,6 +1037,25 @@ describe('seed opcodes — putActor box clamp (adjustActorPos)', () => {
     expect(a.x).toBe(50);
     expect(a.y).toBe(80);
   });
+
+  it('snaps against LIVE box flags — a runtime-locked box is skipped (boat/walker map mode)', () => {
+    // Near box (id 0, y100-120) and a farther box (id 1, y140-160). The drop at
+    // (50,80) would snap to box 0 — but the overhead map locks the boxes for the
+    // wrong navigation mode (matrixOp setBoxFlags 0x80), and the snap must honour
+    // that, else the boat strands on a locked land box.
+    const nearBox = { ...box };
+    const farBox = { id: 1, ulx: 0, uly: 140, urx: 100, ury: 140, lrx: 100, lry: 160, llx: 0, lly: 160, mask: 0, flags: 0, scale: 255 };
+    const vm = makeVm();
+    vm.currentRoom = 1;
+    vm.loadedRoom = { ...fakeRoom(1), walkBoxes: [nearBox, farBox] };
+    vm.setBoxFlags(0, 0x80); // lock the near box at runtime
+    const a = vm.actors.get(5);
+    a.room = 1;
+    run(vm, putAt5);
+    // Box 0 is locked → snap to the far box (id 1) instead of the near one.
+    expect(a.y).toBe(140);
+    expect(a.walkBox).toBe(1);
+  });
 });
 
 describe('room-entry opcodes', () => {
