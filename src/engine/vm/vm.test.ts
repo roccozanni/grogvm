@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { parseCharHeader, type LoadedCharset } from '../graphics/charset';
 import type { LoadedObject } from '../object/loader';
 import type { LoadedRoom } from '../room/loader';
 import {
@@ -78,6 +79,42 @@ function objWithVerbs(
     name: `obj${objId}`,
     verbs,
   };
+}
+
+/** A LoadedObject occupying a given room-space bounding box (the rest stubbed). */
+function objAt(
+  objId: number,
+  box: { x: number; y: number; width: number; height: number },
+): LoadedObject {
+  const o = objWithVerbs(objId, new Map());
+  return { ...o, imhd: { ...o.imhd, ...box } };
+}
+
+/** A 1-bpp charset whose every listed glyph is a fully-inked `width × 8` block,
+ *  so a string's measured width is just `width × glyphCount`. */
+function inkCharset(width: number, chars: string): LoadedCharset {
+  const numChars = 128;
+  const fontHeight = 8;
+  const bitmapBytes = Math.ceil((width * fontHeight) / 8);
+  const u32 = (n: number) => [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff];
+  const u16 = (n: number) => [n & 0xff, (n >>> 8) & 0xff];
+  const colorMap = [0, 0xf, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; // 15 bytes
+  const head = [...u32(0), ...u16(0x0363), ...colorMap, 1, fontHeight, ...u16(numChars)];
+  let cursor = 25 + numChars * 4;
+  for (let i = 0; i < numChars; i++) {
+    if (chars.includes(String.fromCharCode(i))) {
+      head.push(...u32(cursor - 21));
+      cursor += 4 + bitmapBytes;
+    } else head.push(...u32(0));
+  }
+  const out = [...head];
+  for (let i = 0; i < numChars; i++) {
+    if (!chars.includes(String.fromCharCode(i))) continue;
+    out.push(width, fontHeight, 0, 0);
+    for (let b = 0; b < bitmapBytes; b++) out.push(0xff);
+  }
+  const payload = new Uint8Array(out);
+  return { header: parseCharHeader(payload), payload };
 }
 
 describe('Vm — setBoxFlags (matrixOp box locking)', () => {
@@ -199,21 +236,82 @@ describe('Vm — talk timer + dialog clearing', () => {
     expect(vm.systemText).not.toBeNull(); // keepText — never auto-cleared
   });
 
-  it('keeps a=254 blast text past the talk timer; clears it on endCutscene', () => {
+  it('keeps a=254 blast text past the talk timer AND past endCutscene (room-36 disclaimer)', () => {
     const vm = makeVm();
     vm.systemText = dialog(254, false); // blast channel, no keepText
     vm.beginTalk('hi');
     for (let i = 0; i < 200; i++) vm.beginTick();
-    // The timer only governs VAR_HAVE_MSG here — the a=254 channel outlives
-    // the talk lifecycle (the room-63 dance steps print then wait for a
-    // CLICK, so the text must survive the drain)...
+    // The timer only governs VAR_HAVE_MSG — the a=254 channel outlives the talk
+    // lifecycle (the room-63 dance steps print then wait for a CLICK).
     expect(vm.vars.readGlobal(Vm.VAR_HAVE_MSG)).toBe(0);
     expect(vm.systemText).not.toBeNull();
-    // ...until a restoreCharsetBg approximation (endCutScene) clears it.
-    // Narrator a=255 text instead erases AT the drain, like actor speech —
-    // pinned in talk.test.ts (the close-up conversation replies).
+    // endCutScene does NOT redraw the background, so blast text survives it:
+    // room-36's disclaimer prints then endCutScenes the same frame and must
+    // stay up until the click that hides its box repaints the region. (Narrator
+    // a=255 text instead erases at the drain, like actor speech — talk.test.ts.)
     vm.endCutscene();
+    expect(vm.systemText).not.toBeNull();
+  });
+
+  it('clears transient blast text on a camera scroll (full-screen redraw)', () => {
+    const vm = makeVm();
+    vm.loadedRoom = { ...roomWithObjects(1, []), width: 600 }; // scrollable
+    vm.camera.x = 160;
+    vm.addSystemText({ ...dialog(254), text: 'X', x: 10, y: 10 });
+    vm.moveCameraTo(200);
     expect(vm.systemText).toBeNull();
+  });
+
+  it('clears blast text whose region a redrawn object repaints, sparing the rest (restoreCharsetBg)', () => {
+    // Room-36 shape: the disclaimer (a=254) is blasted over the white box (obj
+    // 468); the click hides the box → setState repaints its region → the text
+    // it covered clears. A far-off object redraw leaves the text standing.
+    const vm = new Vm({
+      numVariables: 32,
+      numBitVariables: 64,
+      handlers: new Map(),
+      resolveCharset: (id) => (id === 1 ? inkCharset(36, 'X') : null),
+    });
+    vm.camera.x = 160; // 320-wide room centred → screen coords == room coords
+    vm.loadedRoom = roomWithObjects(36, [
+      objAt(468, { x: 140, y: 10, width: 60, height: 80 }), // box behind the text
+      objAt(99, { x: 0, y: 180, width: 10, height: 10 }), // unrelated, far away
+    ]);
+    // One glyph, width 36 → screen rect [154,190) × [14,22).
+    vm.addSystemText({ ...dialog(254), text: 'X', x: 154, y: 14 });
+    // A far object redraw doesn't touch the text's region:
+    vm.restoreCharsetBgForObject(99);
+    expect(vm.systemText).not.toBeNull();
+    // Hiding the box behind it repaints the overlapping region → text clears:
+    vm.restoreCharsetBgForObject(468);
+    expect(vm.systemText).toBeNull();
+  });
+
+  it('a redrawn object with no paintable rect (no imhd / zero size) never clears blast text', () => {
+    // index.test.ts stubs objects without imhd; objectScreenRect must not throw
+    // (a thrown error in setState left the slot runnable → 100% CPU spin).
+    const vm = makeVm();
+    vm.loadedRoom = roomWithObjects(36, [
+      objWithVerbs(42, new Map()), // imhd width/height = 0 → no region
+    ]);
+    vm.addSystemText({ ...dialog(254), text: 'X', x: 10, y: 10 });
+    expect(vm.objectScreenRect(42)).toBeNull();
+    vm.restoreCharsetBgForObject(42); // no-op, no throw
+    expect(vm.systemText).not.toBeNull();
+  });
+
+  it('a redrawn object spares a keepText sign over it', () => {
+    const vm = new Vm({
+      numVariables: 32,
+      numBitVariables: 64,
+      handlers: new Map(),
+      resolveCharset: (id) => (id === 1 ? inkCharset(36, 'X') : null),
+    });
+    vm.camera.x = 160;
+    vm.loadedRoom = roomWithObjects(36, [objAt(468, { x: 140, y: 10, width: 60, height: 80 })]);
+    vm.addSystemText({ ...dialog(254, true), text: 'X', x: 154, y: 14 }); // keepText
+    vm.restoreCharsetBgForObject(468);
+    expect(vm.systemText).not.toBeNull(); // keepText survives even a direct redraw
   });
 
   it('actor speech and a keepText sign coexist; draining speech leaves the sign', () => {

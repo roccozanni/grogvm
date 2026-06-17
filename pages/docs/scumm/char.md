@@ -287,6 +287,14 @@ Newlines reset the cursor to column 0 and advance Y by the declared
 Word wrap, alignment (centered / right-justified), and dialog text-
 box geometry are downstream concerns.
 
+**`SO_CLIPPED` sets the wrap right-edge.** A system `print` may carry
+`SO_CLIPPED` (subop 0x02, `right`) — an *absolute screen-x* boundary the text
+wraps against, so a left-anchored line breaks at `right − x` pixels, not at the
+default talk margin. MI1's narrator interlude cards set it: `#108`
+(`right=310 at x=10` → 300px), `#120`/`#122` (`right=300 at x=20` → 280px). A
+renderer that always wraps at a fixed margin breaks those lines a word early or
+late versus the original.
+
 **Charset is captured per print, not read live.** The charset in force is part
 of a printed string's saved state — as a verb caption keeps its own charset — so
 consecutive messages can each render in a different font, and a script routinely
@@ -315,12 +323,25 @@ on screen:
   last reply lingers over the dialog choices.
 - **Blast text (id 254: signs, part-titles, the dance steps)** — SCUMM
   *blasts* it onto the charset region outside the talk lifetime. Its
-  lifetime is **`restoreCharsetBg`**: a *transient* (non-keepText) print
-  draws over a region that is restored (erased) exactly **once per display
-  cycle**, lazily, just before the first transient draw of that cycle. So
-  transient prints **within one frame accumulate**, but the first transient
-  print of a *new* frame erases the previous frame's transient text first.
-  A print at an already-occupied anchor replaces it.
+  lifetime is **`restoreCharsetBg`**: the background under a blasted line is
+  redrawn, and that redraw erases it. Two faces of the same rule:
+  - **Per display cycle**, the charset region is restored (erased) exactly
+    once, lazily, just before the first transient draw of that cycle. So
+    transient prints **within one frame accumulate**, but the first transient
+    print of a *new* frame erases the previous frame's transient text first.
+    A print at an already-occupied anchor replaces it.
+  - **On a background repaint**, a line is erased when the redraw touches its
+    screen rect — an object redrawn over it (`setState` / `drawObject` /
+    `pickupObject`), a camera scroll (the whole background), or a room change
+    (all of it). This is *region-aware*: an object repainted elsewhere on
+    screen leaves the line standing. Crucially, **`endCutScene` is NOT a
+    trigger** — it doesn't redraw the background. Room-36's "no animals harmed"
+    disclaimer is the witness: local #201 blasts the 8 lines then `endCutScene`s
+    in the *same frame*, so they must survive it and clear only when the click
+    routes to #203's `setState` that hides the white box behind them. (We do
+    not save a literal background buffer — the compositor redraws every frame —
+    so the model is "drop the line from the active set when its region is
+    repainted," measuring the line's rect from its charset on demand.)
 - **id 253 is a developer/debug channel** — in MI1's Italian build every
   `print a=253` is a leftover English dev string (mostly gated behind
   `bit#482`), so it is suppressed rather than drawn. Routing 253 to the
@@ -359,8 +380,10 @@ frame and consumed by that frame's first transient print, which drops the
 prior frame's transient lines (keepText lines survive). The flag is
 transient — not part of save state; it re-arms every frame. System text is
 **not** auto-cleared by the talk timer at all (only actor speech is); it is
-erased by the next transient print's restore, a **room change**, a
-**cutscene end**, an empty print, or reset (see the timer section below).
+erased by the next transient print's restore, an **object redraw over its
+region** (`setState` / `drawObject`), a **camera scroll**, a **room change**,
+an empty print, or reset (see the timer section below) — but NOT by a cutscene
+end.
 
 ### What's not in the renderer (deliberately)
 
@@ -403,26 +426,28 @@ narrator a=255 lines without keepText — is removed. A long message split with
 `\xff\x03` is presented one sentence page at a time; each page runs its own
 timer, and `VAR_HAVE_MSG` stays set until the last page is dismissed.
 **Blast text (a=254) is not removed by the timer** — its on-screen lifetime
-is SCUMM's `restoreCharsetBg` (a screen redraw), which we approximate with
-three triggers: the next transient print's per-cycle restore, a **room
-change** (`enterRoom`), and a **cutscene end** (`endCutscene`). An explicit
-empty/space `print` and reset also clear it.
+is SCUMM's `restoreCharsetBg`, fired by any background redraw that touches the
+line's region: the next transient print's per-cycle restore, an **object
+redraw** over it (`setState` / `drawObject` / `pickupObject`, region-aware), a
+**camera scroll**, and a **room change** (`enterRoom`). An explicit empty/space
+`print` and reset also clear it. A **cutscene end is NOT a trigger** — it
+redraws nothing (room-36's disclaimer survives its same-frame `endCutScene`).
 
 Two scenes pin the channel split — both are non-keepText system lines, and
 the **actor id** is what tells their lifetimes apart:
 
 - The room-28 **cook's** `print a=255 "Non puoi venire di qui!"` runs
-  `print → wait forMessage → endCutScene`. The line erases at the drain —
-  the same instant the wait releases, one opcode before the cutscene end, so
-  the two triggers are visually indistinguishable here. The case that
-  *requires* the drain erase is the close-up conversations (`#93`…): the
-  reply's `wait forMessage` releases straight into the choice menu with no
-  cutscene end or room change in sight.
+  `print → wait forMessage → endCutScene`. As a=255 narrator text it erases at
+  the **drain** (the `endCutScene` one opcode later does nothing to it). The
+  case that *requires* the drain erase is the close-up conversations (`#93`…):
+  the reply's `wait forMessage` releases straight into the choice menu with no
+  room change in sight.
 - The **treasure-map close-up** (`global #123` → room 63) prints its
   dance-step lines as **a=254** blast text, then sits in a wait-for-**click**
-  loop (no `wait forMessage`). The lines must persist until the click ends
-  the cutscene — which they do, because 254 lives outside the talk lifetime
-  entirely.
+  loop (no `wait forMessage`). The lines persist through the whole hold (the
+  room only fades its palette — `roomIntensity` is not a background redraw) and
+  clear on the **room change** when the click exits the close-up — 254 lives
+  outside the talk lifetime entirely.
 
 **keepText** (`\xff\x02`) is a stronger persistence: it survives even the
 per-cycle restore, clearing only on an explicit empty/space `print` at the same

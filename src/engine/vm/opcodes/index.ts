@@ -920,7 +920,13 @@ defineOp({
   decode: (r, op) => ({ obj: r.p16(op, 1), state: r.p8(op, 2) }),
   exec(vm, slot, d) {
     vm.objectStates.set(d.obj.value, d.state.value);
-    if (vm.loadedRoom?.objects.has(d.obj.value)) vm.objectDrawQueue.add(d.obj.value);
+    if (vm.loadedRoom?.objects.has(d.obj.value)) {
+      vm.objectDrawQueue.add(d.obj.value);
+      // Repainting the object's region restores any blast text over it
+      // (SCUMM restoreCharsetBg) — e.g. hiding room-36's box clears the
+      // disclaimer printed on top of it.
+      vm.restoreCharsetBgForObject(d.obj.value);
+    }
     vm.annotate(`setState obj=${d.obj.value} state=${d.state.value}`);
   },
   format: (d) => `setState obj=${d.obj} state=${d.state}`,
@@ -1106,6 +1112,8 @@ defineOp({
     // Re-insert at the end so the freshest frame draws last (on top).
     vm.objectDrawQueue.delete(obj);
     vm.objectDrawQueue.add(obj);
+    // Drawing the object repaints its region → restoreCharsetBg over it.
+    vm.restoreCharsetBgForObject(obj);
     vm.annotate(`drawObject obj=${obj} [${ops.join(',')}]`);
   },
   format: (d) => {
@@ -1134,6 +1142,8 @@ defineOp({
     vm.objectStates.set(obj, 1);
     vm.objectClasses.set(obj, ((vm.objectClasses.get(obj) ?? 0) | (1 << 31)) >>> 0);
     vm.objectDrawQueue.add(obj);
+    // The state-1 eraser patch repaints the object's region → restoreCharsetBg.
+    vm.restoreCharsetBgForObject(obj);
     vm.runInventoryScript(1);
     vm.annotate(`pickupObject obj=${obj} room=${d.room.value} → owner ${ego}`);
   },

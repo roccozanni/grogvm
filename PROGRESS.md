@@ -119,9 +119,6 @@ Priority H/M/L = likelihood of biting current/near play × severity.
   dominates legs it spends more time on. Affects every walk's rest facing;
   validate against the original on several walks before changing — the
   current lookahead rule was itself tuned against observed walks.
-- [ ] **L/M — `print` `clipped` line-wrap bound not modelled** (`vm.ts:~114`,
-  the stored SO_CLIPPED bound).
-  Long lines may overflow / mis-wrap vs the original's clip-X wrapping.
 - [ ] **L — head-talk (room 86) dialog-option text renders the wrong colour**
   (reported in-browser 2026-06-14, visual only — mechanics fine). The navigator-head
   conversation close-up now renders its options (the 200-tall close-up verb-paint fix,
@@ -136,37 +133,16 @@ Priority H/M/L = likelihood of biting current/near play × severity.
   close-up's bottom lines (left at x=160, w=218/190) clamp to x=102/130 and their tails
   vanish on the parchment's dark edge. Observe the original's layout for these exact
   lines (room 84) before changing anything.
-- [ ] **M — blast-text (a=254) lifetime: `restoreCharsetBg` approximated by
-  cutscene-end / room-change / overwrite / camera scroll, not real screen
-  redraws** (`vm.ts eraseTransientSystemText` triggers). Only about a=254:
-  the narrator channel (a=255) drains faithfully with the talk timer since
-  2026-06-10 — see [CHAR §"The message channels"](pages/docs/scumm/char.md).
-  Faithful for the known cases (treasure-map close-up room 63 prints the
-  dance steps then waits for a *click* → text must persist; room 64's
-  "Passano ore" clears when the dig cutscene pans the camera back). SCUMM's
-  real eraser is `restoreCharsetBg` (the background under the blasted text is
-  redrawn) — we approximate it with those triggers. **CONCRETE FAILING CASE
-  (deferred, user-reported in-browser): room 36's "no animals harmed"
-  disclaimer renders WRONG.** Three coupled problems, all diagnosed:
-  • **Text never shows.** Room-36 local #201 prints the 8 disclaimer lines
-    (`print a=254`, charset 1, colours 2/8/3, offsets 227–434) then hits
-    `endCutScene` (528) on the very next opcode with no delay; our `endCutscene`
-    → `eraseTransientSystemText()` wipes them the same tick, before a frame draws
-    → the white box (object #468, drawn at 219) shows empty.
-  • **Lifecycle is click-dismiss.** `move g32=203` (g32 = VAR_VERB_SCRIPT) routes
-    the next click to room-36 #203, which does `setState 468 0` (hide the box) +
-    restore g32. In SCUMM hiding the box redraws that region → `restoreCharsetBg`
-    erases the text. We DON'T model object-`setState` redraws as a clear trigger,
-    so naively dropping the `endCutscene` erase makes the text stick forever
-    (verified — lingers over the scene after the box is gone). A vm.test.ts case
-    pins the current endCutscene-clear for a=254, so the faithful fix (clear on
-    real redraws incl. object setState) must re-verify the room-63/64 banners
-    in-browser.
-  • **Render off:** colours (EN "IMPORTANT NOTICE" green vs our magenta) and font
-    weight differ — a charset/CLUT-mapping issue on the `charsetSet=1` + colour
-    2/3/8 path. NOT audio (no sound op gates the disclaimer span; confirmed).
-  Fixing this is the deferred `restoreCharsetBg` refactor + a charset/colour pass;
-  needs in-browser pixel iteration.
+- [ ] **L — room-36 disclaimer renders the wrong colours / font weight**
+  (visual only; the *lifetime* is FIXED — see below). The "no animals harmed"
+  disclaimer now shows then dismisses on the click (in-browser confirmed
+  2026-06-17). What's still off is the paint: EN "IMPORTANT NOTICE" is green
+  vs our magenta, and the font weight differs — a charset/CLUT-mapping issue on
+  the `charsetSet=1` + colour 2/3/8 path. NOT audio (no sound op gates the
+  disclaimer span). Same family as the head-talk (room 86) colour gap above;
+  needs a charset/CLUT pass + in-browser pixel iteration. The text *size/wrap*
+  also looks slightly off in-browser — likely the deferred string-escape /
+  charset path, fold into this pass.
 - [ ] **L — flashlight gfx not modelled** (`opcodes/index.ts:~589`, dark-room
   strip extent). Cosmetic; only the flashlight rooms.
 - [ ] **L — global arithmetic doesn't wrap at int16** (`Variables` is

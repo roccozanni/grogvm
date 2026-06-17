@@ -286,8 +286,15 @@ function paintDialogText(
   // positions are already room-space.
   const VIEWPORT_HALF = VIEWPORT_W / 2;
   const { cameraLeft, roomHeight } = input;
-  // SCUMM v5 word-wraps talk text at spaces against the screen margin.
-  const text = wrapText(charset.payload, charset.header, d.text, TALK_MAX_WIDTH);
+  // SCUMM v5 word-wraps talk text at spaces. An explicit SO_CLIPPED bound
+  // (`right`, an absolute screen-x edge) wraps at `right − x`; the MI1
+  // narrator chapter cards (#108/#120/#122) set it (right=300/310 at x=10/20).
+  // Without it, fall back to the screen-margin default.
+  const wrapWidth =
+    d.clipped !== null && d.x !== null && d.clipped - d.x > 0
+      ? d.clipped - d.x
+      : TALK_MAX_WIDTH;
+  const text = wrapText(charset.payload, charset.header, d.text, wrapWidth);
   const fontH = charset.header.fontHeight;
   const blockH = text.split('\n').length * fontH;
   let dx: number;

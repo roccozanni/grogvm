@@ -10,6 +10,7 @@ import { buildBoxMatrix } from '../pathfinding/boxgraph';
 import type { BoxMatrix } from '../pathfinding/boxes';
 import { stepAnim } from '../graphics/costume-anim';
 import { prepareActorDraw } from '../graphics/composite';
+import { measureText } from '../graphics/text';
 import { findVerbScript } from '../object/verbs';
 import type { LoadedCostume } from '../graphics/costume-loader';
 import type { LoadedCharset } from '../graphics/charset';
@@ -272,6 +273,19 @@ export interface VmInit {
   readonly random?: () => number;
 }
 
+/** A half-open screen-space rectangle (`right`/`bottom` exclusive). */
+interface ScreenRect {
+  readonly left: number;
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+}
+
+/** True when two half-open rects share any area. */
+function rectsIntersect(a: ScreenRect, b: ScreenRect): boolean {
+  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+}
+
 export class Vm {
   readonly vars: Variables;
   readonly slots: ReadonlyArray<ScriptSlot>;
@@ -470,13 +484,68 @@ export class Vm {
   }
 
   /**
-   * SCUMM's `restoreCharsetBg` partial erase: a screen redraw (cutscene end,
-   * camera scroll) wipes *transient* blasted text but leaves keepText lines.
+   * SCUMM's `restoreCharsetBg`: redrawing the background under blasted text
+   * erases the transient (`a=254`, non-keepText) lines the redraw touches.
+   * `region` omitted = a full-screen redraw (camera scroll, the per-cycle
+   * restore) → every transient line clears; a `region` (a repainted object's
+   * rect) clears only the lines it overlaps. keepText lines always survive
+   * (cleared only by an explicit empty print / overwrite / room change).
+   * See pages/docs/scumm/char.md.
    */
-  eraseTransientSystemText(): void {
-    if (this.systemTexts.some((s) => !s.keepText)) {
-      this.systemTexts = this.systemTexts.filter((s) => s.keepText);
+  restoreCharsetBg(region?: ScreenRect): void {
+    if (!this.systemTexts.some((s) => !s.keepText)) return;
+    this.systemTexts = this.systemTexts.filter((s) => {
+      if (s.keepText) return true;
+      if (!region) return false; // full-screen redraw drops every transient line
+      const r = this.blastLineRect(s);
+      // Unmeasurable (no anchor / charset) → clear conservatively rather than
+      // risk a line lingering after its background was repainted.
+      return r ? !rectsIntersect(r, region) : false;
+    });
+  }
+
+  /** Screen-space rect a blasted line occupies, or null if it can't be measured. */
+  private blastLineRect(d: ActiveDialog): ScreenRect | null {
+    if (d.x === null || d.y === null) return null;
+    const charset = this.getCharset(d.charset);
+    if (!charset) return null;
+    let w: number;
+    let h: number;
+    try {
+      ({ width: w, height: h } = measureText(charset.payload, charset.header, d.text));
+    } catch {
+      return null;
     }
+    // a=254 `at` coords are SCREEN space; a centred line spreads around `x`.
+    const left = d.center ? d.x - Math.floor(w / 2) : d.x;
+    return { left, top: d.y, right: left + w, bottom: d.y + h };
+  }
+
+  /**
+   * Screen-space rect an object occupies when (re)drawn — its `imhd` bounds at
+   * its draw position (a `drawObject` x,y override, else the `imhd` anchor),
+   * shifted into screen space by the camera. Null when there is no paintable
+   * region: object absent, no `imhd`, or zero-size (it redraws no background,
+   * so it must not erase blast text). Feeds {@link restoreCharsetBgForObject}.
+   */
+  objectScreenRect(objId: number): ScreenRect | null {
+    const imhd = this.loadedRoom?.objects.get(objId)?.imhd;
+    if (!imhd || imhd.width <= 0 || imhd.height <= 0) return null;
+    const pos = this.objectDrawPositions.get(objId);
+    const roomLeft = pos?.x ?? imhd.x;
+    const roomTop = pos?.y ?? imhd.y;
+    const left = roomLeft - (this.camera.x - 160);
+    return { left, top: roomTop, right: left + imhd.width, bottom: roomTop + imhd.height };
+  }
+
+  /**
+   * A script redrew object `objId`: repainting its region erases blast text
+   * over it (SCUMM `restoreCharsetBg`). No-op when the object has no paintable
+   * rect — it redraws no background, so any blast text persists.
+   */
+  restoreCharsetBgForObject(objId: number): void {
+    const region = this.objectScreenRect(objId);
+    if (region) this.restoreCharsetBg(region);
   }
   /**
    * Remaining sentence pages of the current message (text after each
@@ -1144,9 +1213,10 @@ export class Vm {
   endCutscene(): void {
     const frame = this.cutsceneStack.pop();
     this.vars.writeGlobal(Vm.VAR_OVERRIDE, 0);
-    // Ending a cutscene restores the screen — transient prints erase now;
-    // keepText survives.
-    this.eraseTransientSystemText();
+    // Ending a cutscene does NOT itself redraw the background, so blasted text
+    // survives it — room-36's disclaimer prints then `endCutScene`s in the same
+    // frame, and must stay up until the click that hides its box redraws the
+    // region (restoreCharsetBg). See pages/docs/scumm/char.md.
     const endScript = this.vars.readGlobal(Vm.VAR_CUTSCENE_END_SCRIPT);
     if (endScript > 0) {
       try {
@@ -1573,7 +1643,8 @@ export class Vm {
     // Scripts poll VAR_CAMERA_POS_X (escape-watchers, walk-past-camera gates),
     // so it must track every camera move.
     this.vars.writeGlobal(VARS.VAR_CAMERA_POS_X, x);
-    this.eraseTransientSystemText();
+    // A scroll redraws the whole background → full-screen restoreCharsetBg.
+    this.restoreCharsetBg();
   }
 
   /** Advance an in-progress `panCameraTo` by one frame; clears {@link cameraDest} on arrival. */

@@ -528,4 +528,29 @@ describe('composeScreen dialog', () => {
     expect(px(input, 10, 30)).toBe(6);
     expect(px(input, 10, 60)).toBe(INK);
   });
+
+  it('wraps a system print at its SO_CLIPPED right-edge bound (right − x)', () => {
+    // The narrator chapter cards (#108/#120/#122) set `right` to wrap at an
+    // absolute screen-x edge; the wrap width is `right − x`, not the default
+    // screen margin. Two 4-glyph words (16px each + a 4px space = 36px) fit on
+    // one line unbounded, but a clip bound admitting only ~20px breaks them.
+    const cs = makeCharset(4, 'A ');
+    const unbounded = makeInput({
+      getCharset: (id) => (id === 1 ? cs : null),
+      systemTexts: [makeDialog({ text: 'AAAA AAAA', x: 10, y: 20, color: INK })],
+    });
+    composeScreen(unbounded);
+    expect(px(unbounded, 10, 20)).toBe(INK); // line 1
+    expect(px(unbounded, 10, 28)).toBe(ROOM_PIXEL); // no wrap → row 2 empty
+
+    const clipped = makeInput({
+      getCharset: (id) => (id === 1 ? cs : null),
+      systemTexts: [
+        makeDialog({ text: 'AAAA AAAA', x: 10, y: 20, color: INK, clipped: 30 }),
+      ],
+    });
+    composeScreen(clipped);
+    expect(px(clipped, 10, 20)).toBe(INK); // line 1
+    expect(px(clipped, 10, 28)).toBe(INK); // second word wrapped to row 2
+  });
 });
