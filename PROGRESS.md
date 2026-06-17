@@ -41,11 +41,38 @@ integration playthrough that drives MI1 start-to-credits. What's left is polish
 boat), not a node hub: edge connectors cross screens (global #34); locations are entered by walking
 onto their marker.
 
-> **Cannibal-village bug, still open (reported in-browser 2026-06-13).** The 3 cannibals sometimes
-> all render as "Lemonhead" (one mask) instead of three distinct masks — intermittent, a
-> costume-decode/limb issue on actors 3/4/5 (costume 9) in room 25. Not yet investigated; a
-> real-pixel (in-browser) issue, so the headless net (which renders nothing) doesn't catch it.
-> (The room-25 walk-speed crawl reported the same day is FIXED — commit `0bd87c9`.)
+### Open in-browser visual glitches (reported, not yet investigated)
+
+In-browser visual glitches: real-pixel issues, so the headless net (which draws
+nothing) doesn't catch them; none block play, none yet investigated (hypotheses
+below are tentative). Reported 2026-06-17 except where noted.
+
+- **Part I, governor's mansion: ego floats above the stairs.** At the end of
+  the first long thievery-quest cutscene, ego lands on top of the stairs but
+  isn't standing flush on them; he hovers a few pixels above the step. Likely
+  an actor elevation / walk-box Y-baseline (or scale-baseline) mismatch at the
+  cutscene's final `putActor`/walk destination.
+- **Part I, overhead map: pirates spawn off-map.** During the pirate-duel grind
+  (ego roaming the map hunting pirates), pirates are sometimes spawned outside
+  the map bounds. Intermittent; an actor-placement issue on the walkable
+  overhead map (rooms 2–6). Possibly related to the Part III off-map issue
+  below.
+- **Part I, Meathook's house: the small sliding door is invisible when
+  closed.** After ego opens the big door covering the parrot, the small door he
+  must open himself doesn't render in its *closed* state: it should cover the
+  parrot, but instead the parrot shows through where the closed door belongs.
+  The hit area works and the game isn't stuck. The door renders correctly in its
+  open state. So the open-state object image draws but the closed-state image
+  doesn't: an OBIM/object-state image-render gap on that object's closed
+  state.
+- **Part III, Monkey Island multi-room map: ego positioned off-map.** While
+  navigating the big multi-room island map, ego is sometimes positioned off the
+  map and then takes a while to walk back on-screen. Same family as the Part I
+  off-map pirate-spawn above: actor placement on a multi-room / overhead map.
+- **Part III, cannibal village (room 25): the three cannibals all render as
+  Lemonhead** (reported 2026-06-13). The 3 cannibals sometimes all render as
+  "Lemonhead" (one mask) instead of three distinct masks: intermittent, a
+  costume-decode/limb issue on actors 3/4/5 (costume 9).
 
 ### Open bug-report saves (reported, not yet fixed)
 
