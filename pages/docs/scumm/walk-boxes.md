@@ -196,7 +196,11 @@ script handed it. This is why a script can drop an actor a little short of a thi
 perspective box and still have it stand flush: the Governor's-mansion gauntlet
 (room 53) ends by `putActor`-ing ego about 30px above the top-of-stairs landing
 line, and the engine drops him onto it — without the clamp he hovers in mid-air
-over the steps. The same exemptions as box scaling apply — an `ignoreBoxes`
+over the steps. The Mêlée-map pirate spawner (room 85) leans on the same snap
+the other way: it `putActor`s each roaming pirate at a *raw random* point spread
+across the whole screen and trusts the clamp to drop it onto the map's narrow
+path boxes — without it the pirates spawn stranded off the paths. The same
+exemptions as box scaling apply — an `ignoreBoxes`
 actor, an actor placed into a room that isn't current, or a hidden actor keeps
 the exact coordinates it was given (cinematic motion and off-screen staging
 depend on the raw position surviving).

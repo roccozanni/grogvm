@@ -59,11 +59,16 @@ below are tentative). Reported 2026-06-17 except where noted.
   [walk-boxes §Placement clamps the position](pages/docs/scumm/walk-boxes.md).
   (NB this is a *general* placement change — may also touch the off-map
   placement items below; re-check them with this in.)
-- **Part I, overhead map: pirates spawn off-map.** During the pirate-duel grind
-  (ego roaming the map hunting pirates), pirates are sometimes spawned outside
-  the map bounds. Intermittent; an actor-placement issue on the walkable
-  overhead map (rooms 2–6). Possibly related to the Part III off-map issue
-  below.
+- **FIXED 2026-06-17 (same commit as the stair float) — Part I, Mêlée map:
+  pirates spawn off-map.** Same root cause: the Mêlée-map pirate spawner (room
+  85 local #202) `putActor`s each roaming pirate at a *raw random* point
+  (x 0–64, y 0–200) and relies on SCUMM's `adjustActorPos` snap to land it on
+  the map's narrow path boxes. We weren't snapping, so the random point stranded
+  the pirate off the paths (verified: fresh entry spawned the three at e.g.
+  (64,193)/(12,185)/(2,31), all far below the y≤152 boxes; with the clamp they
+  land on the paths). The `putActor` clamp fix covers it — no extra code. (NB the
+  bullet's old "rooms 2–6" was a mislabel; that's the Part III Monkey-Island map,
+  still open below. The Part I grind roams room 85, the node-travel map.)
 - **Part I, Meathook's house: the small sliding door is invisible when
   closed.** After ego opens the big door covering the parrot, the small door he
   must open himself doesn't render in its *closed* state: it should cover the
