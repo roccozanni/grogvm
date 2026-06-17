@@ -713,23 +713,18 @@ export class Vm {
     // being left in g101, which entry scripts branch on (Hook Isle's sides).
     if (prev) this.runHookScript(VARS.VAR_EXIT_SCRIPT);
     if (prev?.exitScript && prev.exitScript.length > 0) {
-      try {
-        const excd = this.startScript({
-          scriptId: 0,
-          bytecode: prev.exitScript,
-          room: prev.id,
-          label: `EXCD-${prev.id}`,
-        });
-        // Nested per SCUMM's runExitScript: EXCD must finish before the
-        // loadRoom opcode returns, or it clobbers the caller's next writes.
-        // See pages/docs/engine/room-transitions.md.
-        this.runScriptNested(excd);
-      } catch (e) {
-        // Only startScript's slot exhaustion reaches here — re-thrown as a
-        // loud halt. A runtime error in the nested EXCD run does NOT: the
-        // nested dispatch records it via _haltInfo (halts) instead of throwing.
-        if (e instanceof ScriptSlotsExhaustedError) throw e;
-      }
+      const excd = this.startScript({
+        scriptId: 0,
+        bytecode: prev.exitScript,
+        room: prev.id,
+        label: `EXCD-${prev.id}`,
+      });
+      // Nested per SCUMM's runExitScript: EXCD must finish before the loadRoom
+      // opcode returns, or it clobbers the caller's next writes. No catch: the
+      // only throw startScript can raise is slot exhaustion, which must reach
+      // the dispatch loud-halt; a nested-run error halts via _haltInfo (it
+      // never throws). See pages/docs/engine/room-transitions.md.
+      this.runScriptNested(excd);
     }
     if (prev) this.runHookScript(VARS.VAR_EXIT_SCRIPT2);
 
@@ -772,21 +767,15 @@ export class Vm {
     const next = this.loadedRoom;
     if (next) this.runHookScript(VARS.VAR_ENTRY_SCRIPT);
     if (next?.entryScript && next.entryScript.length > 0) {
-      try {
-        const encd = this.startScript({
-          scriptId: 0,
-          bytecode: next.entryScript,
-          room: next.id,
-          label: `ENCD-${next.id}`,
-        });
-        // Nested, same as the EXCD above — runs to its first yield before
-        // the loadRoom opcode returns.
-        this.runScriptNested(encd);
-      } catch (e) {
-        // As EXCD above: only slot exhaustion reaches here (re-thrown loud).
-        // A nested-run error halts via _haltInfo, never as a throw.
-        if (e instanceof ScriptSlotsExhaustedError) throw e;
-      }
+      const encd = this.startScript({
+        scriptId: 0,
+        bytecode: next.entryScript,
+        room: next.id,
+        label: `ENCD-${next.id}`,
+      });
+      // Nested, same as the EXCD above — runs to its first yield before the
+      // loadRoom opcode returns. No catch, for the same reason.
+      this.runScriptNested(encd);
     }
     if (next) this.runHookScript(VARS.VAR_ENTRY_SCRIPT2);
   }
