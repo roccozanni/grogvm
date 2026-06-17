@@ -1591,7 +1591,23 @@ defineOp({
   exec(vm, slot, d) {
     const actor = actorOrNull(vm, d.a.value);
     if (actor) {
-      actorPut(actor, d.x.value, d.y.value, actor.room);
+      let { value: x } = d.x;
+      let { value: y } = d.y;
+      // SCUMM's o5_putActor → adjustActorPos: a visible, box-following actor in
+      // the current room snaps to the nearest walkbox (adjustXYToBeInBox).
+      // Raw-coordinate placement that lands just shy of a thin perspective box
+      // therefore stands flush, not floating — room 53's gauntlet #214
+      // putActors ego at (540,28), ~30px above box 14's landing line, and the
+      // original drops him onto it. Object-based placement already clamps
+      // (objectWalkPoint); raw coords were the gap. ignoreBoxes / off-room /
+      // hidden actors keep their exact coords (matches SCUMM's guards).
+      const room = vm.loadedRoom;
+      if (room && actor.room === vm.currentRoom && actor.visible && !actor.ignoreBoxes) {
+        const p = clampPointToBoxes(room.walkBoxes, x, y);
+        x = p.x;
+        y = p.y;
+      }
+      actorPut(actor, x, y, actor.room);
       // Rescale now so a just-placed idle actor renders at floor scale.
       rescaleActorForPosition(vm, actor);
     }

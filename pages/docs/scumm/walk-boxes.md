@@ -186,6 +186,21 @@ When a script issues `walkActorTo(id, x, y)`:
    position is not prepended — and the walker advances toward the active
    waypoint each tick, bumping the index on arrival.
 
+### Placement clamps the position into a box
+
+A discrete placement of a box-following actor snaps the actor's *position* onto
+the nearest walkbox (SCUMM's `adjustXYToBeInBox`), not just its scale.
+Object-anchored placement (`loadRoomWithEgo`, `putActorAtObject`) clamps the
+object's walk-to point; raw-coordinate `putActor` clamps the coordinates the
+script handed it. This is why a script can drop an actor a little short of a thin
+perspective box and still have it stand flush: the Governor's-mansion gauntlet
+(room 53) ends by `putActor`-ing ego about 30px above the top-of-stairs landing
+line, and the engine drops him onto it — without the clamp he hovers in mid-air
+over the steps. The same exemptions as box scaling apply — an `ignoreBoxes`
+actor, an actor placed into a room that isn't current, or a hidden actor keeps
+the exact coordinates it was given (cinematic motion and off-screen staging
+depend on the raw position surviving).
+
 ### Perspective-scale recompute timing
 
 An actor's scale is resolved from the scale field of the box it stands in —

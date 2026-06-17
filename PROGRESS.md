@@ -47,11 +47,18 @@ In-browser visual glitches: real-pixel issues, so the headless net (which draws
 nothing) doesn't catch them; none block play, none yet investigated (hypotheses
 below are tentative). Reported 2026-06-17 except where noted.
 
-- **Part I, governor's mansion: ego floats above the stairs.** At the end of
-  the first long thievery-quest cutscene, ego lands on top of the stairs but
-  isn't standing flush on them; he hovers a few pixels above the step. Likely
-  an actor elevation / walk-box Y-baseline (or scale-baseline) mismatch at the
-  cutscene's final `putActor`/walk destination.
+- **FIXED 2026-06-17 — Part I, governor's mansion: ego floats above the stairs.**
+  Root cause: raw-coordinate `putActor` didn't clamp the actor's position onto
+  the nearest walkbox the way object-anchored placement already did. The gauntlet
+  cutscene (room 53 local #214) ends with `putActor ego 540,28` — ~30px above the
+  top-of-stairs landing line (box 14, y≈58); SCUMM's `adjustActorPos` drops him
+  onto it, we didn't, so he hovered. `putActor` now snaps a visible, box-following
+  actor in the current room to the nearest box (`clampPointToBoxes`), guarded by
+  the same ignoreBoxes/off-room/hidden exemptions SCUMM uses. Guard:
+  `opcodes/index.test.ts` "putActor box clamp"; doc:
+  [walk-boxes §Placement clamps the position](pages/docs/scumm/walk-boxes.md).
+  (NB this is a *general* placement change — may also touch the off-map
+  placement items below; re-check them with this in.)
 - **Part I, overhead map: pirates spawn off-map.** During the pirate-duel grind
   (ego roaming the map hunting pirates), pirates are sometimes spawned outside
   the map bounds. Intermittent; an actor-placement issue on the walkable

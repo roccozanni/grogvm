@@ -991,6 +991,54 @@ describe('seed opcodes — verbOps state wiring', () => {
   });
 });
 
+describe('seed opcodes — putActor box clamp (adjustActorPos)', () => {
+  // One rectangular walkbox spanning x[0..100], y[100..120]; the actor is
+  // dropped 20px above it.
+  const box = {
+    id: 0, ulx: 0, uly: 100, urx: 100, ury: 100, lrx: 100, lry: 120, llx: 0, lly: 120,
+    mask: 0, flags: 0, scale: 255,
+  };
+  // putActor a=5 at (50,80) — opcode 0x01, all literal: a:u8, x:u16le, y:u16le.
+  const putAt5 = bytes(0x01, 0x05, 50, 0, 80, 0);
+  const withRoom = (vm: Vm) => {
+    vm.currentRoom = 1;
+    vm.loadedRoom = { ...fakeRoom(1), walkBoxes: [box] };
+  };
+
+  it('snaps a visible, box-following actor onto the nearest box (room 53 stair float)', () => {
+    const vm = makeVm();
+    withRoom(vm);
+    const a = vm.actors.get(5);
+    a.room = 1;
+    run(vm, putAt5);
+    // Was floating at y=80; SCUMM's adjustActorPos drops it onto the box top.
+    expect(a.x).toBe(50);
+    expect(a.y).toBe(100);
+    expect(a.walkBox).toBe(0);
+  });
+
+  it('leaves an ignoreBoxes actor at its exact coords', () => {
+    const vm = makeVm();
+    withRoom(vm);
+    const a = vm.actors.get(5);
+    a.room = 1;
+    a.ignoreBoxes = true;
+    run(vm, putAt5);
+    expect(a.x).toBe(50);
+    expect(a.y).toBe(80);
+  });
+
+  it('leaves an actor not in the current room at its exact coords', () => {
+    const vm = makeVm();
+    withRoom(vm);
+    const a = vm.actors.get(5);
+    a.room = 2; // elsewhere — this room's boxes don't apply
+    run(vm, putAt5);
+    expect(a.x).toBe(50);
+    expect(a.y).toBe(80);
+  });
+});
+
 describe('room-entry opcodes', () => {
   it('actorSetClass sets, clears, and resets object class bits', () => {
     const vm = makeVm();
