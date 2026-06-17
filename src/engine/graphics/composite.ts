@@ -126,6 +126,13 @@ export function prepareActorDraw(actor: Actor, costume: LoadedCostume): ActorDra
   const facing = actor.facing;
   const mirror = facing === 'W' && !costume.header.mirrorFlag;
 
+  // SCUMM raises a sprite by its elevation (drawn at `y − elevation`, the feet
+  // anchor lifted). MUST match the `actorY` composeFrame passes compositeActor,
+  // or the hit-box and the pixels drift. Meathook's small inner door (room 37
+  // actor 5, y=0 elevation=−100) draws 100px down over the cage — without this
+  // it drew off the top of the room. See pages/docs/scumm/costume-anim.md.
+  const drawY = actor.y - actor.elevation;
+
   // When an anim has activated any limb, only the active limbs draw; with no
   // anim yet we fall back to frame 0 of every limb (the base sprite).
   let anyActive = false;
@@ -180,7 +187,7 @@ export function prepareActorDraw(actor: Actor, costume: LoadedCostume): ActorDra
         paletteSize: costume.header.paletteSize,
       });
       limbs.push({ limbIdx, frame, accX, accY });
-      const place = actorFramePlacement(frame, actor.x, actor.y, mirror, actor.scale, accX, accY);
+      const place = actorFramePlacement(frame, actor.x, drawY, mirror, actor.scale, accX, accY);
       if (place.left < bLeft) bLeft = place.left;
       if (place.top < bTop) bTop = place.top;
       if (place.left + place.width > bRight) bRight = place.left + place.width;

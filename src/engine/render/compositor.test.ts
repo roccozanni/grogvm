@@ -236,6 +236,29 @@ describe('composeFrame — actor compositing', () => {
     expect(actor.drawBounds).toEqual({ left: 3, top: 1, right: 5, bottom: 3 });
   });
 
+  it('lifts the actor by its elevation (drawY = y − elevation)', () => {
+    // SCUMM raises a sprite by its elevation. Meathook's small inner door
+    // (room 37 actor 5) rests at y=0 elevation=−100 and must draw 100px DOWN
+    // over the parrot cage; elevation was parsed but never applied to the draw,
+    // so the door drew off the top of the room and the parrot showed through.
+    const room = makeRoom(8, 8, 0x10);
+    const cost = makeOneFrameCostume({ frameW: 2, frameH: 2, pixelIdx: 1, clutIdx: 0x99 });
+    // +2 lifts the sprite UP two rows: top = y − elevation = 5 − 2 = 3.
+    const up = makeActorAt(1, 3, 5, 1, 1);
+    up.elevation = 2;
+    const fb = new Uint8Array(8 * 8);
+    composeFrame({ room, framebuffer: fb, actors: [up], getCostume: () => cost });
+    expect(up.drawBounds).toEqual({ left: 3, top: 3, right: 5, bottom: 5 });
+    expect(fb[3 * 8 + 3]).toBe(0x99);
+    // A NEGATIVE elevation pushes the sprite DOWN — the Meathook-door case:
+    // top = y − elevation = 1 − (−2) = 3.
+    const down = makeActorAt(2, 3, 1, 1, 1);
+    down.elevation = -2;
+    const fb2 = new Uint8Array(8 * 8);
+    composeFrame({ room, framebuffer: fb2, actors: [down], getCostume: () => cost });
+    expect(down.drawBounds).toEqual({ left: 3, top: 3, right: 5, bottom: 5 });
+  });
+
   it('offsets drawn bounds by the frame redir + clears them when the actor is skipped', () => {
     const room = makeRoom(16, 16, 0x10);
     const fb = new Uint8Array(16 * 16);

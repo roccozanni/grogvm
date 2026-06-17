@@ -253,7 +253,7 @@ export function composeFrame(input: ComposeFrameInput): ComposeFrameResult {
           frame,
           costPalette: costume.header.palette,
           actorX: actor.x,
-          actorY: actor.y,
+          actorY: actor.y - actor.elevation,
           mirror: prep.mirror,
           clipPlane,
           zPlanes: actorZPlanes,

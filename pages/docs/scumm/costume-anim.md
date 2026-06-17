@@ -240,3 +240,17 @@ faces it East — a side with full art — and it must render native (un-flipped
 it aims at the student, while its West *entry* pose (pushed in from offscreen)
 also stays native. Reflecting East here (the `facing-is-West XOR mirrorFlag`
 reading this doc carried before) mirrored the whole contraption.
+
+## The draw anchor and `elevation`
+
+A composited frame is placed at the actor's position `(x, y)` — the **feet
+anchor** — offset by the frame's `redirX`/`redirY` (the limb's own origin). The
+actor's **`elevation`** (`actorOps` subop `0x09`) then lifts the whole sprite:
+it draws at **`y − elevation`**, so a positive elevation raises it and a
+negative one pushes it down. Elevation is a *draw* offset only — it does NOT
+change the actor's depth for the back-to-front sort (that stays the raw feet
+`y`), and the blit and the `actorFromPos` hit-box must apply it identically or a
+lifted actor becomes unclickable where it's drawn. MI1's Meathook house
+(room 37) leans on this: the small inner cage door is a sliding costume actor
+that rests *closed* at `y=0 elevation=−100` (drawn 100px down over the parrot);
+ignore the elevation and it draws off the top of the room and vanishes.
