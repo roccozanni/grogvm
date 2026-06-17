@@ -1725,7 +1725,23 @@ defineOp({
   exec(vm, slot, d) {
     const actor = actorOrNull(vm, d.a.value);
     const ops: string[] = [];
-    for (const s of d.subs) actorOpsApply(vm, slot, actor, s, ops);
+    let costumeSet = false;
+    for (const s of d.subs) {
+      actorOpsApply(vm, slot, actor, s, ops);
+      if (s.action === 0x01) costumeSet = true;
+    }
+    // SCUMM starts the init chore (the actor's default idle anim) on costume
+    // set. We start it only AFTER the whole actorOps has applied, so it reads
+    // the actor's FINAL initFrame: scripts set costume BEFORE the per-actor
+    // initFrame subop (room-25 cannibals cost9, room-51 Fettucini cost27, the
+    // Mêlée townsperson spawner global #46 cost18), and each variant's distinct
+    // look IS a different init chore. Starting it at the costume subop read the
+    // stale default initFrame=1, collapsing every variant onto the same chore-1
+    // mask (the "lemonhead" bug). Some inits are multi-frame loops (the
+    // SCUMM-Bar pirates, cost24, keep their default initFrame=1 drink loop), so
+    // this must still fire. startActorChore no-ops when costume<=0, so a
+    // costume=0 clear (or a bare `init` with no costume subop) starts nothing.
+    if (actor && costumeSet) startActorChore(vm, actor, actor.initFrame);
     vm.annotate(`actorOps actor=${d.a.value} [${ops.join(',')}]`);
   },
   format: (d) => {
@@ -1776,13 +1792,9 @@ function actorOpsApply(
     }
     case 0x01: {
       const c = s.args[0]!.value;
-      if (actor) {
-        actorSetCostume(actor, c);
-        // SCUMM starts the init chore on costume set — the default idle
-        // until a script plays another chore; some inits are multi-frame
-        // loops (SCUMM-Bar pirates), so skipping this freezes them.
-        if (c > 0) startActorChore(vm, actor, actor.initFrame);
-      }
+      // Set the costume only; the init chore is started once the whole
+      // actorOps has applied (see exec) so it reads the FINAL initFrame.
+      if (actor) actorSetCostume(actor, c);
       ops.push(`setCostume(${c})`);
       break;
     }

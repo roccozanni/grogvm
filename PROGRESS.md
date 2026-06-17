@@ -41,11 +41,14 @@ integration playthrough that drives MI1 start-to-credits. What's left is polish
 boat), not a node hub: edge connectors cross screens (global #34); locations are entered by walking
 onto their marker.
 
-### Open in-browser visual glitches (reported, not yet investigated)
+### Open in-browser visual glitches
 
 In-browser visual glitches: real-pixel issues, so the headless net (which draws
-nothing) doesn't catch them; none block play, none yet investigated (hypotheses
-below are tentative). Reported 2026-06-17 except where noted.
+nothing) doesn't catch them; none block play. Reported 2026-06-17 except where
+noted. Status: the stair-float, pirate-spawn, and cannibal lemonhead are FIXED;
+the Meathook door is ROOT-CAUSED with its fix direction proven (awaiting an
+implementation-approach decision; it lands in a regression-prone shared path, so
+flagged plan-first); the Part III off-map ego is still open pending a repro.
 
 - **FIXED 2026-06-17 — Part I, governor's mansion: ego floats above the stairs.**
   Root cause: raw-coordinate `putActor` didn't clamp the actor's position onto
@@ -69,14 +72,42 @@ below are tentative). Reported 2026-06-17 except where noted.
   land on the paths). The `putActor` clamp fix covers it — no extra code. (NB the
   bullet's old "rooms 2–6" was a mislabel; that's the Part III Monkey-Island map,
   still open below. The Part I grind roams room 85, the node-travel map.)
-- **Part I, Meathook's house: the small sliding door is invisible when
-  closed.** After ego opens the big door covering the parrot, the small door he
-  must open himself doesn't render in its *closed* state: it should cover the
-  parrot, but instead the parrot shows through where the closed door belongs.
-  The hit area works and the game isn't stuck. The door renders correctly in its
-  open state. So the open-state object image draws but the closed-state image
-  doesn't: an OBIM/object-state image-render gap on that object's closed
-  state.
+- **ROOT-CAUSED 2026-06-17 (fix direction proven; awaiting approach) Part I,
+  Meathook's house (room 37): the closed wooden door doesn't render post-tour.**
+  Symptom: after Meathook's dare tour, before ego opens the little door, the
+  closed X-braced wooden panel should cover the cage; ours shows the cage
+  interior (the parrot) instead. Confirmed against the original (user screenshot
+  2026-06-17): the panel IS visible there.
+  Scene cast (room 37): #479 "big wooden door" (96x104 @328,16) is the X-braced
+  panel, i.e. the visible closed door; #473 (104x88 @320,32) is the cave alcove
+  with the crate+parrot baked into its image; #478/#482 (16x24 @368,72) are two
+  near-identical parrot frames (1px apart, both opaque), animated by the slide
+  loop L202, which runs only AFTER opening (started by global #49@304
+  `startScript(freezeResist) 202`). NB #478 is named "door" / "murderous winged
+  devil" but its image is the parrot (the beast); the real door is #479.
+  Root cause: #479 is shown at room-init (room-37 L200@0 `setState 479 1`, so
+  baked in), then the dare tour hides it (L201@511 and tour-end L204@52
+  `setState 479 0`) and never re-shows it (verified: those are the only
+  `setState 479` sites, and object #479 has no verb scripts). Per the bytecode
+  #479 is hidden post-tour, and our retained-queue compositor skips state<=0
+  (`render/compositor.ts:180`), so the alcove #473 (with the parrot) behind it
+  shows through. SCUMM keeps the baked door visible: this is a draw-MODEL
+  divergence (room-init-baked pixels surviving `setState 0`), not a script-state
+  bug.
+  Proven: forcing #479 to state 1 AND composited last reproduces the original
+  exactly. Two coupled facts: (1) #479 is fully opaque at the cage region
+  (384/384), so it does cover the parrot; (2) draw ORDER matters, because #479
+  sits at queue position 2, before #473 (position 8), so #473 paints over it.
+  Our compositor iterates `objectDrawQueue` in INSERTION order, but objects.md
+  §7 claims "id order" (a real discrepancy worth resolving alongside).
+  The blocker (faithful-fix decision): how to persist a room-init-baked object
+  through `setState 0` WITHOUT breaking the documented "state 0 = hidden" rule
+  that room-58 reveals, the room-31 rat-hole loop, and close-up ENCDs all depend
+  on (objects.md §7). Significant and regression-prone; needs a model decision.
+  Repro (English): restore beat 055, `pickDialogAnswer` kidnapped(120) then
+  crewIdea(122), `driveUntil` scriptId 201 running, `driveUntil` cutsceneStack
+  empty and `((objectClasses[478] >>> 31) & 1) == 0`; then #479 reads state 0,
+  #473 state 1, and the cage shows the parrot.
 - **Part III, Monkey Island multi-room map: ego positioned off-map.** While
   navigating the big multi-room island map, ego is sometimes positioned off the
   map and then takes a while to walk back on-screen. Same family as the Part I
@@ -92,10 +123,32 @@ below are tentative). Reported 2026-06-17 except where noted.
   path, where even the clamped nearest box sits away from the camera. Next:
   capture an in-browser save mid-symptom, or sweep crossing entry-y values to
   find an off-box landing.
-- **Part III, cannibal village (room 25): the three cannibals all render as
-  Lemonhead** (reported 2026-06-13). The 3 cannibals sometimes all render as
-  "Lemonhead" (one mask) instead of three distinct masks: intermittent, a
-  costume-decode/limb issue on actors 3/4/5 (costume 9).
+- **FIXED 2026-06-17 — Part III, cannibal village (room 25): the three cannibals
+  (actors 3/4/5, costume 9) all rendered as one yellow mask** (first reported
+  2026-06-13). Root cause: `setActorCostume` started the init chore using the
+  `initFrame` *live at the `costume` subop* — but room-25 L200 sets `costume=9`
+  BEFORE the per-actor `initFrame` (a5 `{init; costume=9; …; initFrame=11}`), so
+  every cannibal started chore 1 (the `initActor` default) instead of its own
+  init chore (1/6/11), collapsing onto actor 3's mask. The cannibals are a
+  multi-variant costume — each variant's whole look IS its init chore (a3
+  init1/stand3, a4 init6/stand8, a5 init11/stand13) — and the idle-village path
+  (L202/L217) only `animateActor` set-/turn-direction *re-points the running
+  chore*, so the wrong running chore is never corrected. Fix: start the init
+  chore once the whole `actorOps` has applied, so it reads the FINAL `initFrame`
+  (`opcodes/index.ts` actorOps `exec`). Now the three run chores 1/6/11 → distinct
+  red/grey/yellow masks (verified in-browser via the beat-099 → confront render).
+  General, not cannibal-specific: the same costume-then-initFrame pattern hits
+  the Mêlée townsperson spawner (global #46, cost18, random initFrame 1–5) and
+  the Fettucini Brothers (room 51, cost27) — all now use their intended init
+  chore. The SCUMM-Bar pirates keep their default initFrame=1 drink loop, so the
+  deferral is a no-op for them (verified: loop still cycles). Guards:
+  `opcodes/index.test.ts` "actorOps starts the init chore from the FINAL
+  initFrame" + "…still starts the default init chore when no initFrame is set";
+  doc: [costume-anim §Setting a costume starts the init chore](pages/docs/scumm/costume-anim.md).
+  Refuted leads (kept for the record): the shared `EMPTY_ANIM_STATE` singleton
+  theory (anim objects are independent); and `actorOps` palette subop `0x0b`
+  being a no-op (`opcodes/index.ts` setPalette — a real gap, but NOT the
+  lemonhead cause: the masks are per-chore art, not a palette remap).
 
 ### Open bug-report saves (reported, not yet fixed)
 

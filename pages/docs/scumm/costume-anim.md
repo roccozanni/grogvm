@@ -149,6 +149,36 @@ cost107's stub S-records (only the cart/wheel limb) — the contraption collapse
 to its wheel. The give-away that this is faithful: the pre-init set-direction is
 meaningless unless init preserves facing.
 
+### Setting a costume starts the init chore — from the *final* `initFrame`
+
+`setActorCostume` makes the **init chore** (chore `_initFrame`) the actor's
+default idle animation, so an actor that is placed but never told to walk/talk
+still draws *something* and any looping idle (the SCUMM-Bar pirates' drink loop,
+cost24) animates. Most costumes have a single-frame init, so this is a no-op
+visual; only multi-frame inits begin cycling.
+
+The subtlety is **which `_initFrame`**. A script configures a costume and its
+per-actor frames in one `o5_actorOps`, and it sets `costume` *before* the
+`initFrame` subop:
+
+```
+actorOps 5 { init; costume=9; …; standFrame=13; initFrame=11 }   (room 25)
+```
+
+The init chore must be started from the `_initFrame` the actorOps leaves behind
+(here chore 11), **not** the value live at the `costume` subop (still the
+`initActor` default 1). This matters for **multi-variant costumes**, where each
+variant is a contiguous block of chores and the variant's whole look *is* its
+init chore: cost9 packs three cannibals (init 1 / 6 / 11), cost18 packs five
+Mêlée townsfolk (the spawner global #46 rolls a random `initFrame` 1–5), cost27
+the Fettucini Brothers. Reading `_initFrame` at the `costume` subop starts chore
+1 for *every* variant, collapsing them onto one mask (the cannibals all render
+as the same yellow head — the "lemonhead" bug). Engine-side this is one rule:
+start the init chore once the whole `actorOps` has applied. A variant that then
+walks reaches its **stand** chore via the normal walk→stop `applyStandPose`; an
+idle variant holds its init chore, which the `animateActor` set-/turn-direction
+pseudo-anims (rooms 25 L202/L217) re-point in place.
+
 ## Limb composition and facing at rest
 
 For a typical player/NPC costume the limbs divide labour like this:

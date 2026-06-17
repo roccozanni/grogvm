@@ -1868,6 +1868,47 @@ describe('actor placement + room-transition opcodes (boot→lookout fixes)', () 
     vm.step();
     expect(a.anim.animId).toBe(18);
   });
+
+  // The "lemonhead" bug: scripts configure a multi-variant NPC in one actorOps
+  // with `costume=` BEFORE the per-actor `initFrame=` (room-25 cannibals,
+  // room-51 Fettucini, the Mêlée townsperson spawner global #46). The init
+  // chore (the costume variant's distinct look) must be started from the FINAL
+  // initFrame, not the value at the costume subop — else every variant
+  // collapses onto the same chore-1 mask.
+  const animStub = {
+    header: {
+      numAnim: 64, format: 0x58, paletteSize: 16, palette: new Uint8Array(16),
+      animCmdOffset: 0, limbOffsets: new Array(16).fill(0), animOffsets: new Array(64).fill(0),
+      mirrorFlag: false,
+    },
+    payload: new Uint8Array(0),
+  };
+
+  it('actorOps starts the init chore from the FINAL initFrame set later in the op', () => {
+    const vm = makeVm();
+    vm.getCostume = (() => animStub) as unknown as typeof vm.getCostume;
+    const a = vm.actors.get(3); // default facing S → dir 2
+    // actorOps a=3 {init; costume=1; standFrame=13; initFrame=11}, then stop.
+    // The cannibal pattern: initFrame is set AFTER costume. The init chore must
+    // be chore 11 (record 11*4 + 2 = 46), NOT the stale default chore 1 (=6).
+    vm.startScript({
+      scriptId: 1,
+      bytecode: bytes(0x13, 0x03, 0x08, 0x01, 0x01, 0x06, 0x0d, 0x0e, 0x0b, 0xff, 0xa0),
+    });
+    vm.step();
+    expect(a.anim.animId).toBe(46);
+  });
+
+  it('actorOps still starts the default init chore when no initFrame is set (pirate loop)', () => {
+    const vm = makeVm();
+    vm.getCostume = (() => animStub) as unknown as typeof vm.getCostume;
+    const a = vm.actors.get(3); // default facing S → dir 2
+    // actorOps a=3 {init; costume=1}, then stop. cost24's drink loop keeps the
+    // default initFrame=1 → chore 1 (record 4 + 2 = 6) must still fire.
+    vm.startScript({ scriptId: 1, bytecode: bytes(0x13, 0x03, 0x08, 0x01, 0x01, 0xff, 0xa0) });
+    vm.step();
+    expect(a.anim.animId).toBe(6);
+  });
 });
 
 describe('intro-cutscene opcodes', () => {
