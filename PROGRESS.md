@@ -81,6 +81,17 @@ below are tentative). Reported 2026-06-17 except where noted.
   navigating the big multi-room island map, ego is sometimes positioned off the
   map and then takes a while to walk back on-screen. Same family as the Part I
   off-map pirate-spawn above: actor placement on a multi-room / overhead map.
+  *Investigated 2026-06-17:* the screen-to-screen crossing is global #34, which
+  `putActor`s ego at a RELATIVE offset (currentX+dx, currentY+dy) into the next
+  screen — so an edge hit at an awkward y can land off-box. The `putActor` clamp
+  (the stair/pirate fix) now snaps that landing onto the nearest box, so it
+  should at least be on-map. But the specific intermittent "off-screen, walks
+  back" case did NOT reproduce on the seeded walkthrough path (every crossing
+  there already landed on-box; the clamp was a no-op). LEFT OPEN pending a repro
+  trigger — likely a crossing where ego hits the edge far from the dest screen's
+  path, where even the clamped nearest box sits away from the camera. Next:
+  capture an in-browser save mid-symptom, or sweep crossing entry-y values to
+  find an off-box landing.
 - **Part III, cannibal village (room 25): the three cannibals all render as
   Lemonhead** (reported 2026-06-13). The 3 cannibals sometimes all render as
   "Lemonhead" (one mask) instead of three distinct masks: intermittent, a
