@@ -49,6 +49,21 @@ export class UnknownOpcodeError extends Error {
   }
 }
 
+/**
+ * Thrown by {@link Vm.startScript} when all {@link NUM_SLOTS} script slots are
+ * live. SCUMM's `getScriptSlot` has no free slot here; whether the original
+ * then aborts ("too many scripts running") or recycles the lowest-priority
+ * slot is engine-internal and NOT observable from MI1, which never exhausts
+ * slots. So we surface it as a loud halt rather than silently dropping the
+ * script — recover the real policy from the first consumer that trips this.
+ */
+export class ScriptSlotsExhaustedError extends Error {
+  constructor(label?: string) {
+    super(`all ${NUM_SLOTS} script slots in use${label ? ` (starting ${label})` : ''}`);
+    this.name = 'ScriptSlotsExhaustedError';
+  }
+}
+
 /** One dispatched opcode in the trace ring. */
 export interface TraceEntry {
   readonly slotIndex: number;
@@ -709,8 +724,11 @@ export class Vm {
         // loadRoom opcode returns, or it clobbers the caller's next writes.
         // See pages/docs/engine/room-transitions.md.
         this.runScriptNested(excd);
-      } catch {
-        // No free slot — silently skip. EXCD running is best-effort.
+      } catch (e) {
+        // Only startScript's slot exhaustion reaches here — re-thrown as a
+        // loud halt. A runtime error in the nested EXCD run does NOT: the
+        // nested dispatch records it via _haltInfo (halts) instead of throwing.
+        if (e instanceof ScriptSlotsExhaustedError) throw e;
       }
     }
     if (prev) this.runHookScript(VARS.VAR_EXIT_SCRIPT2);
@@ -764,8 +782,10 @@ export class Vm {
         // Nested, same as the EXCD above — runs to its first yield before
         // the loadRoom opcode returns.
         this.runScriptNested(encd);
-      } catch {
-        // No free slot — silently skip.
+      } catch (e) {
+        // As EXCD above: only slot exhaustion reaches here (re-thrown loud).
+        // A nested-run error halts via _haltInfo, never as a throw.
+        if (e instanceof ScriptSlotsExhaustedError) throw e;
       }
     }
     if (next) this.runHookScript(VARS.VAR_ENTRY_SCRIPT2);
@@ -779,8 +799,11 @@ export class Vm {
     try {
       const s = this.startScriptById(id);
       if (s) this.runScriptNested(s);
-    } catch {
-      // Resolver/slot trouble — the hook is best-effort, like EXCD/ENCD.
+    } catch (e) {
+      // Slot exhaustion re-throws (loud halt); an unresolvable hook id is
+      // swallowed (an absent hook is a normal no-op). A nested-run error
+      // can't reach here — it halts via _haltInfo.
+      if (e instanceof ScriptSlotsExhaustedError) throw e;
     }
   }
 
@@ -951,7 +974,7 @@ export class Vm {
   }): ScriptSlot {
     const slot = this.slots.find((s) => s.status === 'dead');
     if (!slot) {
-      throw new Error('no free script slot available');
+      throw new ScriptSlotsExhaustedError(opts.label);
     }
     slot.start(opts);
     return slot;
@@ -1711,7 +1734,10 @@ export class Vm {
   /**
    * Run the inventory script (`VAR_INVENTORY_SCRIPT`) with `arg` as
    * `local0`, killing any existing instance first (the original's
-   * non-recursive `runScript`). Never throws. See pages/docs/scumm/input.md.
+   * non-recursive `runScript`). Throws only {@link ScriptSlotsExhaustedError}
+   * (a loud halt); an unresolved id is swallowed. Both callers run inside an
+   * opcode handler, so the throw reaches the dispatch loud-halt path.
+   * See pages/docs/scumm/input.md.
    */
   runInventoryScript(arg: number): void {
     const scriptId = this.vars.readGlobal(Vm.VAR_INVENTORY_SCRIPT);
@@ -1721,9 +1747,11 @@ export class Vm {
     }
     try {
       this.startScriptById(scriptId, { args: [arg], label: 'INVENTORY' });
-    } catch {
-      // No free slot / unresolved script — leave the inventory stale
-      // rather than halt.
+    } catch (e) {
+      // Slot exhaustion halts loudly (see ScriptSlotsExhaustedError); an
+      // unresolved inventory-script id leaves the inventory stale rather
+      // than halt (the global should always resolve — defensible leniency).
+      if (e instanceof ScriptSlotsExhaustedError) throw e;
     }
   }
 

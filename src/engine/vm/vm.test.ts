@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { LoadedObject } from '../object/loader';
 import type { LoadedRoom } from '../room/loader';
-import { NUM_SLOTS, UnknownOpcodeError, Vm, type HangInfo, type OpcodeHandler } from './vm';
+import {
+  NUM_SLOTS,
+  ScriptSlotsExhaustedError,
+  UnknownOpcodeError,
+  Vm,
+  type HangInfo,
+  type OpcodeHandler,
+} from './vm';
 
 function makeVm(handlers: Record<number, OpcodeHandler> = {}): Vm {
   return new Vm({
@@ -511,6 +518,31 @@ describe('Vm — runInventoryScript', () => {
     expect(live.length).toBe(1); // exactly one instance, not stacked
     expect(live[0]!.locals[0]).toBe(2);
   });
+
+  it('re-throws slot exhaustion as a loud halt (not a silent skip)', () => {
+    const vm = vmWithResolver();
+    // Fill every slot with ids that DON'T match the inventory script, so the
+    // kill-previous pass frees nothing and the start has no slot.
+    for (let i = 0; i < NUM_SLOTS; i++) {
+      vm.startScript({ scriptId: 100 + i, bytecode: invCode });
+    }
+    vm.vars.writeGlobal(Vm.VAR_INVENTORY_SCRIPT, 9);
+    expect(() => vm.runInventoryScript(1)).toThrow(ScriptSlotsExhaustedError);
+  });
+
+  it('swallows an unresolved inventory-script id (stale, not a halt)', () => {
+    const vm = new Vm({
+      numVariables: 800,
+      numBitVariables: 64,
+      handlers: new Map(),
+      resolveGlobalScript: () => {
+        throw new Error('no such script');
+      },
+    });
+    vm.vars.writeGlobal(Vm.VAR_INVENTORY_SCRIPT, 9);
+    expect(() => vm.runInventoryScript(1)).not.toThrow();
+    expect(vm.slots.every((s) => s.status === 'dead')).toBe(true);
+  });
 });
 
 describe('Vm — objectName + captureInventoryName', () => {
@@ -604,14 +636,14 @@ describe('Vm — slot allocation', () => {
     expect(b.slotIndex).toBe(1);
   });
 
-  it('throws when every slot is in use', () => {
+  it('throws ScriptSlotsExhaustedError when every slot is in use', () => {
     const vm = makeVm();
     for (let i = 0; i < NUM_SLOTS; i++) {
       vm.startScript({ scriptId: i + 1, bytecode: new Uint8Array([0]) });
     }
     expect(() =>
-      vm.startScript({ scriptId: 99, bytecode: new Uint8Array([0]) }),
-    ).toThrow();
+      vm.startScript({ scriptId: 99, bytecode: new Uint8Array([0]), label: 'OVERFLOW' }),
+    ).toThrow(ScriptSlotsExhaustedError);
   });
 });
 
@@ -965,6 +997,23 @@ describe('Vm — enterRoom + ENCD/EXCD', () => {
     });
     vm.enterRoom(11);
     expect(vm.vars.readGlobal(5)).toBe(99); // ran synchronously, no tick needed
+  });
+
+  it('a runtime error in the nested ENCD halts loudly (not swallowed)', () => {
+    // ENCD = [0xab] (unknown opcode). The nested dispatch routes errors
+    // through haltFromOpcode (sets _haltInfo) rather than throwing, so the
+    // EXCD/ENCD slot-exhaustion catch never sees it — enterRoom returns with
+    // the VM halted, NOT silently continuing. Guards the comment in changeRoom.
+    const room = fakeRoom(11, [0xab]);
+    const vm = new Vm({
+      numVariables: 32,
+      numBitVariables: 64,
+      handlers: new Map(),
+      resolveRoom: () => room,
+    });
+    expect(() => vm.enterRoom(11)).not.toThrow();
+    expect(vm.isHalted).toBe(true);
+    expect(vm.haltInfo!.opcode).toBe(0xab);
   });
 
   it('runs EXCD NESTED before the new room loads', () => {

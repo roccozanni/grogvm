@@ -1679,7 +1679,12 @@ const ACTOR_OPS_SHAPES: Record<number, 'none' | 'p8' | 'p8p8' | 'p8p8p8' | 'p16'
   0x0c: 'p8', // talkColor
   0x0d: 'str', // name
   0x0e: 'p8', // initFrame
-  0x0f: 'none',
+  // 0x0f deliberately UNREGISTERED → decode's `default` named-throws. It
+  // appears in NO MI1 script (0/2114 corpus + the full start-to-credits
+  // playthrough never executes it), so neither its operand shape nor its
+  // semantic is verifiable here — registering a guessed 'none' would let an
+  // MI2 path with operands misalign silently. Recover both from real bytecode
+  // on the first halt (the getActorScale/getAnimCounter convention).
   0x10: 'p8', // width
   0x11: 'p8p8', // scale
   0x12: 'none', // neverZclip
@@ -1762,7 +1767,6 @@ defineOp({
         case 0x0c: return `talkColor=${s.args[0]}`;
         case 0x0d: return `name="${renderBytes(s.str!)}"`;
         case 0x0e: return `initFrame=${s.args[0]}`;
-        case 0x0f: return 'subop0F';
         case 0x10: return `width=${s.args[0]}`;
         case 0x11: return `scale ${s.args[0]},${s.args[1]}`;
         case 0x12: return 'neverZclip';
@@ -1912,10 +1916,6 @@ function actorOpsApply(
       ops.push(`setInitFrame(${f})`);
       break;
     }
-    case 0x0f:
-      // No-arg no-op subop, seen in MI1 boot after setCostume.
-      ops.push('subop0F');
-      break;
     case 0x10: {
       const w = s.args[0]!.value;
       if (actor) actor.width = w;

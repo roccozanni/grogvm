@@ -173,13 +173,6 @@ Priority H/M/L = likelihood of biting current/near play × severity.
   `Int32Array`, `value|0`). SCUMM globals are int16, so arithmetic past ±32767
   wraps in the original; ours saturates to 32-bit. Rare in MI1, and int16-clamping
   risks engine counters/timers — audit before touching.
-- [ ] **? — `actorOps` subop `0x0f` treated as no-arg no-op "for now"**
-  (`opcodes/index.ts:~1845`; seen in MI1 boot after setCostume, not in the
-  wiki). Assess whether it affects behaviour or is genuinely inert.
-- [ ] **L — slot exhaustion silently skips EXCD / ENCD / the inventory script**
-  (`vm.ts:682/711/1613`): with all 25 script slots busy, a room's exit/entry
-  script or the inventory refresh just doesn't run — the same silent shape as
-  the EXCD ordering bug. MI1 play stays far below 25 live slots.
 - [ ] **L — restored music slot is a heuristic** (`sound/backend.ts:153`): on
   save restore, the looping active sound is assumed to be the music slot.
   (The related output gap — a restored save stayed inaudible until the game
