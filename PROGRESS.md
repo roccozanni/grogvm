@@ -125,24 +125,36 @@ Priority H/M/L = likelihood of biting current/near play × severity.
   this session: `paintVerbBand` draws verbs over a full-height room). But the option
   lines paint dark red/magenta instead of a readable colour — the hovered/armed line
   correctly highlights yellow (hicolor 14), so the base colour (verbOps `color=2`) is
-  mis-mapped through room 86's CLUT. Same family as the room-36 disclaimer colour gap;
-  needs a charset/CLUT-colour pass + in-browser pixel iteration. Does NOT block the beg
-  (the conversation is fully drivable).
+  mis-mapped through room 86's CLUT. **Same root as the room-36 disclaimer below**
+  (`colour 2 → themed magenta idx 2`, should be a readable colour) — see that entry
+  for the 2026-06-19 investigation. Caveat that may make THIS one easier: room 86 is a
+  full-height close-up with **no inventory arrow / verb panel sprites**, so unlike
+  room 36 nothing here needs idx 2 = magenta — un-theming idx 2 in room 86 might be
+  safe (untested; no handy room-86 save, the conversation is transient). Does NOT
+  block the beg (the conversation is fully drivable).
 - [ ] **L — right-margin clamp for positioned left prints is a guess**
   (`screen.ts` `paintDialogText`, the non-center clamp citing room 51): the recipe
   close-up's bottom lines (left at x=160, w=218/190) clamp to x=102/130 and their tails
   vanish on the parchment's dark edge. Observe the original's layout for these exact
   lines (room 84) before changing anything.
-- [ ] **L — room-36 disclaimer renders the wrong colours / font weight**
-  (visual only; the *lifetime* is FIXED — see below). The "no animals harmed"
-  disclaimer now shows then dismisses on the click (in-browser confirmed
-  2026-06-17). What's still off is the paint: EN "IMPORTANT NOTICE" is green
-  vs our magenta, and the font weight differs — a charset/CLUT-mapping issue on
-  the `charsetSet=1` + colour 2/3/8 path. NOT audio (no sound op gates the
-  disclaimer span). Same family as the head-talk (room 86) colour gap above;
-  needs a charset/CLUT pass + in-browser pixel iteration. The text *size/wrap*
-  also looks slightly off in-browser — likely the deferred string-escape /
-  charset path, fold into this pass.
+- [ ] **L — room-36 disclaimer: "IMPORTANT NOTICE" (colour 2) renders magenta,
+  should be green.** Visual only; lifetime is FIXED. *Investigated 2026-06-19 —
+  pinned but BLOCKED; an attempted fix was reverted, do NOT re-try it.* Findings:
+  the disclaimer prints `color=2/8/3` for NOTICE/body/SLEEPING (verified from raw
+  bytes). `color 8 → idx 8` (grey ✓) and `color 3 → idx 3` (themed magenta ✓) map
+  **directly** to the live CLUT and are correct. But NOTICE must be **idx 10**
+  `(87,255,87)` — the only un-themed green in the palette — i.e. `color 2 → idx 10`,
+  a printed-text remap we don't do (we map `color 2 → CLUT 2` = themed magenta).
+  The remap is NOT the charset colorMap (`charset1.colorMap[2]=3`), NOT a uniform
+  offset, NOT a palette toggle. **idx 2 must STAY magenta:** the verb bar is always
+  magenta (user-confirmed) incl. the scroll-arrow sprite (room-99 obj 1028 = idx
+  1/6/**2**/0 magenta) and the verb 2-bpp shadow (`charsetColorMap[2]`=idx 2) — so
+  the boot UI-palette override (idx 1/2/3/6 → magenta) is CORRECT for the UI. The
+  reverted attempt (force idx 2 = EGA green + verb shadow → black/idx-1) fixed
+  NOTICE but turned the arrow green and flattened the verb shadow. **Next:** read
+  the original's rendered NOTICE pixel in a DOSBox debugger to confirm idx 10, then
+  find MI1's printed-text colour→CLUT map (likely an EGA→VGA text table). Was: also
+  "font weight / size-wrap slightly off" — unverified, fold in.
 - [ ] **L — flashlight gfx not modelled** (`opcodes/index.ts:~589`, dark-room
   strip extent). Cosmetic; only the flashlight rooms.
 - [ ] **L — global arithmetic doesn't wrap at int16** (`Variables` is
